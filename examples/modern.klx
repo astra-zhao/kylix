@@ -1,0 +1,54 @@
+program ModernFeatures;
+
+// Lambda expressions (modern feature)
+var square := (x: Integer) -> x * x;
+var add := (a: Integer; b: Integer) -> a + b;
+
+// Higher-order functions
+function Apply(fn: function(Integer): Integer; value: Integer): Integer;
+begin
+  result := fn(value);
+end;
+
+// Async function (modern feature)
+async function FetchData(url: String): String;
+begin
+  // Simulated async operation
+  result := 'Data from ' + url;
+end;
+
+// Pattern matching (modern feature)
+function Describe(value: Integer): String;
+begin
+  match value {
+    0 => 'zero',
+    1 => 'one',
+    2, 3 => 'small prime or two',
+    when value < 0 => 'negative',
+    when value > 100 => 'large',
+    _ => 'other'
+  };
+end;
+
+// ForEach with collections
+var numbers := [1, 2, 3, 4, 5];
+for num in numbers do
+begin
+  WriteLn('Number: ', num);
+end;
+
+// String interpolation (modern feature)
+var name := 'World';
+var greeting := 'Hello, ${name}!';
+
+begin
+  WriteLn('Square of 5: ', square(5));
+  WriteLn('3 + 4 = ', add(3, 4));
+  WriteLn('Applied: ', Apply(square, 7));
+
+  var data := await FetchData('http://example.com');
+  WriteLn(data);
+
+  WriteLn('Describe 5: ', Describe(5));
+  WriteLn(greeting);
+end.

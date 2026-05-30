@@ -1,0 +1,51 @@
+program Functions;
+
+// Function with return value
+function Add(a: Integer; b: Integer): Integer;
+begin
+  result := a + b;
+end;
+
+// Procedure (no return value)
+procedure Greet(name: String);
+begin
+  WriteLn('Hello, ', name, '!');
+end;
+
+// Recursive function
+function Factorial(n: Integer): Integer;
+begin
+  if n <= 1 then
+  begin
+    result := 1;
+  end
+  else
+  begin
+    result := n * Factorial(n - 1);
+  end;
+end;
+
+// Function with multiple return values (modern feature)
+function Divide(a: Real; b: Real): (Real, Boolean);
+begin
+  if b = 0 then
+  begin
+    result := (0, false);
+  end
+  else
+  begin
+    result := (a / b, true);
+  end;
+end;
+
+begin
+  WriteLn('5 + 3 = ', Add(5, 3));
+  Greet('Kylix');
+  WriteLn('5! = ', Factorial(5));
+
+  var (quotient, ok) := Divide(10, 3);
+  if ok then
+  begin
+    WriteLn('10 / 3 = ', quotient);
+  end;
+end.

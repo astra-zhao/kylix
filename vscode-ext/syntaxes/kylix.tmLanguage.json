@@ -1,0 +1,115 @@
+{
+  "scopeName": "source.kylix",
+  "name": "Kylix",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#functions" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.kylix",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.kylix",
+          "begin": "\\{",
+          "end": "\\}"
+        },
+        {
+          "name": "comment.block.paren-star.kylix",
+          "begin": "\\(\\*",
+          "end": "\\*\\)"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.kylix",
+          "begin": "'",
+          "end": "'"
+        },
+        {
+          "name": "string.quoted.double.kylix",
+          "begin": "\"",
+          "end": "\""
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.kylix",
+          "match": "\\b\\d+\\.\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.kylix",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.kylix",
+          "match": "\\b(program|unit|uses|begin|end|if|then|else|while|do|for|to|downto|repeat|until|case|of|with|try|except|finally|raise|break|continue|exit|return)\\b"
+        },
+        {
+          "name": "keyword.declaration.kylix",
+          "match": "\\b(var|const|type|function|procedure|class|interface|record|property)\\b"
+        },
+        {
+          "name": "keyword.modifier.kylix",
+          "match": "\\b(public|private|protected|published|virtual|override|abstract|static|dynamic|external|forward|inline|async|await)\\b"
+        },
+        {
+          "name": "keyword.operator.kylix",
+          "match": "\\b(and|or|not|xor|div|mod|in|is|as|new)\\b"
+        },
+        {
+          "name": "constant.language.kylix",
+          "match": "\\b(true|false|nil)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.kylix",
+          "match": "\\b(Integer|Real|Boolean|String|Char|Byte|Word|Cardinal|LongInt|Double|Extended)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.kylix",
+          "match": "\\b(WriteLn|Write|ReadLn|Read|Length|Copy|Concat|Pos|Delete|Insert|UpperCase|LowerCase|Trim|IntToStr|StrToInt|Ord|Chr|Sqr|Sqrt|Abs|Sin|Cos|Tan|Ln|Exp|Round|Trunc|Frac|Random|Randomize|Halt|Succ|Pred|Inc|Dec)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.kylix",
+          "match": ":="
+        },
+        {
+          "name": "keyword.operator.comparison.kylix",
+          "match": "(==|!=|<>|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.kylix",
+          "match": "(\\+|-|\\*|/)"
+        }
+      ]
+    }
+  }
+}

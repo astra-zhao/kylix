@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build *)",
+      "Bash(awk '{print $2, $3, $4}')",
+      "Bash(./kylix examples/simple.klx)",
+      "Bash(./kylix examples/hello.klx)",
+      "Bash(go run *)",
+      "Bash(chmod +x Makefile)",
+      "Bash(./Makefile)",
+      "Bash(./kylix *)",
+      "Read(//private/tmp/myapp/**)",
+      "Bash(/Users/astra/Documents/ai/learn/kylix/kylix run *)",
+      "Bash(/Users/astra/Documents/ai/learn/kylix/kylix fmt *)",
+      "Bash(chmod +x *、)",
+      "Bash(./demo-phase2.sh)"
+    ]
+  }
+}

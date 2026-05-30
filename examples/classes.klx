@@ -1,0 +1,82 @@
+program Classes;
+
+// Base class
+class Animal
+private
+  var Name: String;
+  var Age: Integer;
+
+public
+  constructor Create(name: String; age: Integer);
+  begin
+    Name := name;
+    Age := age;
+  end;
+
+  procedure Speak; virtual;
+  begin
+    WriteLn(Name, ' makes a sound');
+  end;
+
+  property GetName: String read Name;
+  property GetAge: Integer read Age;
+end;
+
+// Derived class
+class Dog inherits Animal
+private
+  var Breed: String;
+
+public
+  constructor Create(name: String; age: Integer; breed: String);
+  begin
+    inherited Create(name, age);
+    Breed := breed;
+  end;
+
+  procedure Speak; override;
+  begin
+    WriteLn(Name, ' barks!');
+  end;
+
+  procedure Fetch(item: String);
+  begin
+    WriteLn(Name, ' fetches the ', item);
+  end;
+end;
+
+// Interface
+interface IMovable
+  procedure Move(distance: Real);
+end;
+
+// Class implementing interface
+class Vehicle implements IMovable
+private
+  var Speed: Real;
+  var Position: Real;
+
+public
+  constructor Create(speed: Real);
+  begin
+    Speed := speed;
+    Position := 0;
+  end;
+
+  procedure Move(distance: Real);
+  begin
+    Position := Position + distance;
+    WriteLn('Vehicle moved to position: ', Position);
+  end;
+
+  property GetSpeed: Real read Speed;
+end;
+
+begin
+  var dog := Dog.Create('Rex', 3, 'German Shepherd');
+  dog.Speak();
+  dog.Fetch('ball');
+
+  var car := Vehicle.Create(60.0);
+  car.Move(100);
+end.

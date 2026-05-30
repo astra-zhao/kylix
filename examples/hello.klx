@@ -1,0 +1,7 @@
+program Hello;
+
+// Simple Hello World in Kylix
+begin
+  WriteLn('Hello, Kylix World!');
+  WriteLn('Welcome to modern Pascal programming!');
+end.

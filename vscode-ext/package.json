@@ -1,0 +1,48 @@
+{
+  "name": "kylix-vscode",
+  "displayName": "Kylix Language Support",
+  "description": "Language support for Kylix (Modern Pascal)",
+  "version": "0.2.0",
+  "publisher": "kylix",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Linters",
+    "Formatters"
+  ],
+  "activationEvents": [
+    "onLanguage:kylix"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [{
+      "id": "kylix",
+      "aliases": ["Kylix", "kylix", "klx"],
+      "extensions": [".klx"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "kylix",
+      "scopeName": "source.kylix",
+      "path": "./syntaxes/kylix.tmLanguage.json"
+    }],
+    "configuration": {
+      "title": "Kylix",
+      "properties": {
+        "kylix.compiler.path": {
+          "type": "string",
+          "default": "kylix",
+          "description": "Path to the Kylix compiler executable"
+        },
+        "kylix.lsp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Language Server Protocol support"
+        }
+      }
+    }
+  }
+}

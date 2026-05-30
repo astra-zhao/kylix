@@ -1,0 +1,54 @@
+program ControlFlow;
+
+var
+  i: Integer;
+  sum: Integer;
+
+begin
+  // If statement
+  var x := 10;
+  if x > 5 then
+  begin
+    WriteLn('x is greater than 5');
+  end
+  else
+  begin
+    WriteLn('x is 5 or less');
+  end;
+
+  // While loop
+  i := 1;
+  sum := 0;
+  while i <= 10 do
+  begin
+    sum := sum + i;
+    i := i + 1;
+  end;
+  WriteLn('Sum 1-10: ', sum);
+
+  // For loop
+  sum := 0;
+  for i := 1 to 10 do
+  begin
+    sum := sum + i;
+  end;
+  WriteLn('Sum 1-10 (for): ', sum);
+
+  // For loop with downto
+  for i := 10 downto 1 do
+  begin
+    WriteLn(i, '...');
+  end;
+  WriteLn('Liftoff!');
+
+  // Case statement
+  var day := 3;
+  case day of
+    1: WriteLn('Monday');
+    2: WriteLn('Tuesday');
+    3: WriteLn('Wednesday');
+    4: WriteLn('Thursday');
+    5: WriteLn('Friday');
+    6, 7: WriteLn('Weekend');
+  end;
+end.

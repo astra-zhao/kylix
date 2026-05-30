@@ -1,0 +1,36 @@
+# 编译输出
+*.go
+!cmd/kylix/main.go
+kylix
+build/
+.vscode/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.log
+*.tmp
+kylix_repl.go
+
+# 测试输出
+test-*.go
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go
+vendor/
+go.sum
+
+# Node (VS Code extension)
+vscode-ext/node_modules/
+vscode-ext/*.vsix

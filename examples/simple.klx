@@ -1,0 +1,7 @@
+program Simple;
+
+var x: Integer;
+
+begin
+  x := 5;
+end.

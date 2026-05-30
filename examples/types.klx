@@ -1,0 +1,26 @@
+program TypeDemo;
+
+var
+  age: Integer = 25;
+  name: String = 'Alice';
+  pi: Real = 3.14159;
+  isActive: Boolean = true;
+
+// Type inference (modern feature)
+var count := 42;
+var message := 'Inferred type';
+var ratio := 2.5;
+
+const
+  MAX_SIZE = 100;
+  APP_NAME = 'Kylix Demo';
+
+begin
+  WriteLn('Name: ', name);
+  WriteLn('Age: ', age);
+  WriteLn('Pi: ', pi);
+  WriteLn('Active: ', isActive);
+  WriteLn('Count: ', count);
+  WriteLn('Message: ', message);
+  WriteLn('Max Size: ', MAX_SIZE);
+end.

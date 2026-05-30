@@ -1,0 +1,44 @@
+program Exceptions;
+
+// Exception handling
+function SafeDivide(a: Real; b: Real): Real;
+begin
+  if b = 0 then
+  begin
+    raise Exception.Create('Division by zero');
+  end;
+  result := a / b;
+end;
+
+begin
+  // Try-except-finally
+  try
+  begin
+    var result := SafeDivide(10, 0);
+    WriteLn('Result: ', result);
+  end
+  except
+  begin
+    WriteLn('An error occurred during division');
+  end
+  finally
+  begin
+    WriteLn('Cleanup code executes here');
+  end
+  end;
+
+  // Multiple exception types
+  try
+  begin
+    var arr: array[0..2] of Integer;
+    arr[5] := 10;  // Index out of bounds
+  end
+  except
+    on E: EIndexOutOfRange do
+      WriteLn('Array index error: ', E.Message);
+    on E: Exception do
+      WriteLn('General error: ', E.Message);
+  end;
+
+  WriteLn('Program continues...');
+end.
