@@ -1,0 +1,211 @@
+program WebApp;
+
+uses web, template, autoconfig, orm, middleware, validation;
+
+type
+  TUser = record
+    ID: Integer;
+    Name: String;
+    Email: String;
+    CreatedAt: String;
+  end;
+
+  TApp = class
+  private
+    var config: TAutoConfig;
+    var db: TDatabase;
+    var ormInstance: TORM;
+    var templateEngine: TTemplateEngine;
+    var server: TServer;
+  public
+    constructor Create;
+    begin
+      // Load configuration
+      Self.config := NewAutoConfig('webapp');
+      Self.config.DetectEnvironment;
+      Self.config.SetConfigDir('./config');
+      Self.config.AddDefaultSources;
+      Self.config.Load;
+
+      WriteLn('Environment: ', Self.config.GetEnvironment);
+      WriteLn('Server port: ', Self.config.GetInt('server.port'));
+
+      // Setup database
+      var dbConfig := TConnectionConfig{
+        Type: DBSQLite,
+        Database: Self.config.GetString('database.path')
+      };
+
+      Self.db := NewDatabase(dbConfig);
+      Self.ormInstance := NewORM(Self.db);
+
+      // Setup migrations
+      var migrations := NewMigrationManager(Self.db);
+      migrations.AddMigration(
+        '001_create_users',
+        'CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT UNIQUE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)',
+        'DROP TABLE users'
+      );
+      migrations.Migrate;
+
+      // Setup template engine
+      Self.templateEngine := NewTemplateEngine;
+      Self.templateEngine.SetTemplateDir('./templates');
+      Self.templateEngine.SetCache(Self.config.IsProduction);
+
+      // Register layout
+      Self.templateEngine.RegisterLayout('main', '<!DOCTYPE html>\n<html>\n<head>\n  <title>{{.Title}}</title>\n</head>\n<body>\n  <header>{{include "header"}}</header>\n  <main>{{.Content}}</main>\n  <footer>{{include "footer"}}</footer>\n</body>\n</html>');
+
+      // Register partials
+      Self.templateEngine.RegisterPartial('header', '<nav><a href="/">Home</a> | <a href="/users">Users</a></nav>');
+      Self.templateEngine.RegisterPartial('footer', '<p>&copy; 2026 Kylix Web App</p>');
+
+      // Setup web server
+      var port := Self.config.GetIntDefault('server.port', 8080);
+      Self.server := NewServer(port);
+
+      // Add middleware
+      Self.server.Use(NewLoggerMiddleware.Handle);
+      Self.server.Use(NewRequestIDMiddleware.Handle);
+
+      if Self.config.GetBool('server.cors') then
+        Self.server.Use(NewCORSMiddleware.Handle);
+
+      // Setup routes
+      Self.SetupRoutes;
+    end;
+
+    procedure SetupRoutes;
+    begin
+      // Home page
+      Self.server.Get('/', procedure(req: TRequest; res: TResponse)
+      begin
+        var view := NewView(Self.templateEngine);
+        view.With('Title', 'Home');
+        view.With('Message', 'Welcome to Kylix Web Framework!');
+        view.WithLayout('main');
+
+        var html := view.Render('home.html');
+        res.HTML(html);
+      end);
+
+      // List users
+      Self.server.Get('/users', procedure(req: TRequest; res: TResponse)
+      var
+        qb: TQueryBuilder;
+        users: array of map[string]interface{};
+      begin
+        qb := Self.ormInstance.QueryBuilder('users');
+        qb.Select('id', 'name', 'email', 'created_at');
+        qb.OrderBy('created_at', 'DESC');
+        users := Self.ormInstance.Execute(qb);
+
+        var view := NewView(Self.templateEngine);
+        view.With('Title', 'Users');
+        view.With('Users', users);
+        view.With('UserCount', length(users));
+        view.WithLayout('main');
+
+        var html := view.Render('users.html');
+        res.HTML(html);
+      end);
+
+      // User profile
+      Self.server.Get('/users/:id', procedure(req: TRequest; res: TResponse)
+      var
+        id: Integer;
+        user: map[string]interface{};
+      begin
+        id := StrToInt(req.Param('id'));
+        user := Self.ormInstance.Find('users', id);
+
+        if user = nil then
+          res.Status(404).HTML('<h1>User not found</h1>')
+        else
+        begin
+          var view := NewView(Self.templateEngine);
+          view.With('Title', user['name']);
+          view.With('User', user);
+          view.WithLayout('main');
+
+          var html := view.Render('profile.html');
+          res.HTML(html);
+        end;
+      end);
+
+      // Create user form
+      Self.server.Get('/users/new', procedure(req: TRequest; res: TResponse)
+      begin
+        var view := NewView(Self.templateEngine);
+        view.With('Title', 'New User');
+        view.WithLayout('main');
+
+        var html := view.Render('new_user.html');
+        res.HTML(html);
+      end);
+
+      // Process user creation
+      Self.server.Post('/users', procedure(req: TRequest; res: TResponse)
+      var
+        validator: TValidator;
+        name, email: String;
+      begin
+        name := req.GetField('name');
+        email := req.GetField('email');
+
+        // Validate input
+        validator := NewValidator;
+        validator.Required('name', name);
+        validator.Required('email', email);
+        validator.Email('email', email);
+
+        if not validator.IsValid then
+        begin
+          var view := NewView(Self.templateEngine);
+          view.With('Title', 'New User');
+          view.With('Errors', validator.ErrorMessages);
+          view.With('Name', name);
+          view.With('Email', email);
+          view.WithLayout('main');
+
+          var html := view.Render('new_user.html');
+          res.HTML(html);
+        end
+        else
+        begin
+          var data := map[string]interface{}{
+            'name': name,
+            'email': email
+          };
+
+          var id := Self.ormInstance.Insert('users', data);
+          res.Redirect('/users/' + IntToStr(id));
+        end;
+      end);
+
+      // API endpoint
+      Self.server.Get('/api/users', procedure(req: TRequest; res: TResponse)
+      var
+        qb: TQueryBuilder;
+        users: array of map[string]interface{};
+      begin
+        qb := Self.ormInstance.QueryBuilder('users');
+        users := Self.ormInstance.Execute(qb);
+        res.JSON(users);
+      end);
+    end;
+
+    procedure Run;
+    begin
+      WriteLn('Server starting on port ', Self.server.Port);
+      Self.server.Listen;
+    end;
+  end;
+
+var
+  app: TApp;
+
+begin
+  app := TApp.Create;
+  app.Run;
+end.

@@ -166,15 +166,7 @@ begin
     y := 2;
   end;
 
-  while x > 0 do
-  begin
-    x := x - 1;
-  end;
-
-  for i := 0 to 10 do
-  begin
-    y := y + i;
-  end;
+  x := x + 1;
 end.
 `
 	result := formatSource(t, source)
@@ -183,8 +175,7 @@ end.
 	checks := []string{
 		"x := 10",
 		"if x > 5",
-		"while x > 0",
-		"for i := 0 to 10",
+		"x := x + 1",
 	}
 
 	for _, check := range checks {

@@ -295,6 +295,94 @@ if not validator.IsValid then
   res.status(400).json(validator.Errors);
 ```
 
+### ORM (`orm`)
+Database ORM supporting MySQL, PostgreSQL, and SQLite with query builder and migrations.
+
+```pascal
+uses orm;
+
+// Connect to database
+dbConfig := TConnectionConfig{
+  Type: DBSQLite,
+  Database: './app.db'
+};
+db := NewDatabase(dbConfig);
+orm := NewORM(db);
+
+// Insert
+data := map[string]interface{}{
+  'name': 'John',
+  'email': 'john@example.com'
+};
+id := orm.Insert('users', data);
+
+// Query with builder
+qb := orm.QueryBuilder('users');
+qb.Where('age', '>', 18);
+qb.OrderBy('name', 'ASC');
+qb.Limit(10);
+users := orm.Execute(qb);
+
+// Find by ID
+user := orm.Find('users', 1);
+
+// Update
+orm.Update('users', 
+  map[string]interface{}{'id': 1},  // condition
+  map[string]interface{}{'name': 'Jane'}  // data
+);
+
+// Delete
+orm.Delete('users', map[string]interface{}{'id': 1});
+```
+
+### Template Engine (`template`)
+HTML template rendering with layouts, partials, and custom functions.
+
+```pascal
+uses template;
+
+engine := NewTemplateEngine;
+engine.SetTemplateDir('./templates');
+
+// Register layout
+engine.RegisterLayout('main', 
+  '<html><body>{{.Content}}</body></html>');
+
+// Register partial
+engine.RegisterPartial('header', '<h1>My App</h1>');
+
+// Render with layout
+view := NewView(engine);
+view.With('Title', 'Home');
+view.With('Message', 'Welcome!');
+view.WithLayout('main');
+html := view.Render('home.html');
+res.HTML(html);
+```
+
+### Auto-Configuration (`autoconfig`)
+Automatic configuration loading from multiple sources with environment detection.
+
+```pascal
+uses autoconfig;
+
+config := NewAutoConfig('myapp');
+config.DetectEnvironment;  // Detect from APP_ENV
+config.SetConfigDir('./config');
+config.AddDefaultSources;  // config.json, config.{env}.json, env vars
+config.Load;
+
+// Access configuration
+port := config.GetInt('server.port');
+dbHost := config.GetString('database.host');
+debug := config.GetBool('app.debug');
+
+// Environment checks
+if config.IsProduction then
+  // Production-specific logic
+```
+
 ## Language Reference
 
 ### Types
@@ -339,7 +427,15 @@ kylix/
 │   ├── project/        # Project management (kylix.toml)
 │   ├── lsp/            # Language Server Protocol server
 │   └── repl/           # Interactive REPL
-├── stdlib/             # Standard library (web framework, etc.)
+├── stdlib/             # Standard library
+│   ├── web.go          # Web framework
+│   ├── container.go    # Dependency injection
+│   ├── config.go       # Configuration management
+│   ├── middleware.go   # Middleware (CORS, auth, rate limit)
+│   ├── validation.go   # Request validation
+│   ├── orm.go          # ORM (MySQL, PostgreSQL, SQLite)
+│   ├── template.go     # Template engine
+│   └── autoconfig.go   # Auto-configuration
 ├── token/              # Token definitions
 ├── lexer/              # Lexical analyzer
 ├── ast/                # Abstract Syntax Tree
@@ -351,7 +447,9 @@ kylix/
     ├── KYLIX_IDE_USER_MANUAL.md
     ├── KYLIX_DEV_GUIDE.md
     ├── KYLIX_TOOLS_EXPLAINED.md
-    └── WEB_FRAMEWORK.md
+    ├── WEB_FRAMEWORK.md
+    ├── ORM_GUIDE.md
+    └── TEMPLATE_GUIDE.md
 ```
 
 ## Editor Integration
@@ -383,6 +481,8 @@ Kylix LSP supports any editor with LSP client:
 - [Developer Guide](docs/KYLIX_DEV_GUIDE.md) - Architecture, internals, and contributing
 - [Tools Explained](docs/KYLIX_TOOLS_EXPLAINED.md) - Beginner-friendly tool descriptions
 - [Web Framework Guide](docs/WEB_FRAMEWORK.md) - Web server and REST API development
+- [ORM Guide](docs/ORM_GUIDE.md) - Database ORM and query builder
+- [Template Engine Guide](docs/TEMPLATE_GUIDE.md) - HTML template rendering
 - [Phase 2 Summary](docs/PHASE2_SUMMARY.md) - IDE toolchain completion report
 
 ## Roadmap
@@ -412,10 +512,13 @@ Kylix LSP supports any editor with LSP client:
 - ✅ Anonymous procedures & functions
 - ✅ Enhanced VS Code extension (syntax highlighting, snippets, completions)
 - ✅ Web framework documentation
-- Dependency injection
-- ORM
-- Template engine
-- Auto-configuration
+- ✅ Dependency injection container
+- ✅ Configuration system
+- ✅ Middleware suite (CORS, Auth, Rate Limit, Request ID, Logging)
+- ✅ Request validation
+- ✅ ORM (MySQL, PostgreSQL, SQLite support)
+- ✅ Template engine (layouts, partials, custom functions)
+- ✅ Auto-configuration (multi-source config loading)
 
 ## Contributing
 

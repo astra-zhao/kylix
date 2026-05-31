@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -331,8 +330,6 @@ func (m *LoggingMiddleware) SetFormat(format string) *LoggingMiddleware {
 
 // Handle processes the logging middleware
 func (m *LoggingMiddleware) Handle(req *TRequest, res *TResponse) bool {
-	start := time.Now()
-
 	// Get request ID if available
 	requestID := req.Params["__request_id"]
 	if requestID == "" {

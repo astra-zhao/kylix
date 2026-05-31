@@ -397,6 +397,12 @@ func (g *Generator) scanImports(program *ast.Program) {
 			g.imports["kylix/stdlib"] = true
 		case "validation":
 			g.imports["kylix/stdlib"] = true
+		case "orm":
+			g.imports["kylix/stdlib"] = true
+		case "template":
+			g.imports["kylix/stdlib"] = true
+		case "autoconfig":
+			g.imports["kylix/stdlib"] = true
 		}
 	}
 

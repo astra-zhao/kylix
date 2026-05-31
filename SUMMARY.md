@@ -247,14 +247,19 @@ kylix/
 │   ├── exceptions.klx
 │   ├── simple.klx
 │   ├── web_demo.klx        # Web 框架基础示例
-│   └── web_advanced.klx    # Web 框架高级示例（DI、配置、中间件、验证）
+│   ├── web_advanced.klx    # Web 框架高级示例（DI、配置、中间件、验证）
+│   ├── web_fullstack.klx   # 全栈 Web 示例（模板、ORM、自动配置）
+│   └── orm_example.klx     # ORM 示例（数据库 CRUD、查询构建器、迁移）
 │
 ├── stdlib/                 # 标准库
 │   ├── web.go              # Web 框架实现
 │   ├── container.go        # 依赖注入容器
 │   ├── config.go           # 配置管理
 │   ├── middleware.go       # 中间件（CORS、认证、限流、日志）
-│   └── validation.go       # 请求验证
+│   ├── validation.go       # 请求验证
+│   ├── orm.go              # ORM（支持 MySQL、PostgreSQL、SQLite）
+│   ├── template.go         # 模板引擎（布局、片段、自定义函数）
+│   └── autoconfig.go       # 自动配置（多源加载、环境检测）
 │
 ├── vscode-ext/             # VS Code 扩展
 │   ├── extension.js        # LSP 客户端
@@ -273,7 +278,9 @@ kylix/
 │   ├── KYLIX_DEV_GUIDE.md          # 开发指南
 │   ├── KYLIX_TOOLS_EXPLAINED.md    # 工具解释
 │   ├── PHASE2_SUMMARY.md           # 第二阶段总结
-│   └── WEB_FRAMEWORK.md            # Web 框架指南
+│   ├── WEB_FRAMEWORK.md            # Web 框架指南
+│   ├── ORM_GUIDE.md                # ORM 指南
+│   └── TEMPLATE_GUIDE.md           # 模板引擎指南
 │
 ├── go.mod                  # Go 模块定义
 ├── README.md               # 英文项目文档
@@ -453,10 +460,13 @@ require('lspconfig').kylix.setup{}
 - ✅ 匿名过程/函数支持
 - ✅ VS Code 扩展增强（语法高亮、代码片段、智能补全）
 - ✅ Web 框架文档
-- [ ] 依赖注入容器
-- [ ] ORM
-- [ ] 模板引擎
-- [ ] 自动配置
+- ✅ 依赖注入容器
+- ✅ 配置系统
+- ✅ 中间件套件（CORS、认证、限流、请求ID、日志）
+- ✅ 请求验证
+- ✅ ORM（支持 MySQL、PostgreSQL、SQLite）
+- ✅ 模板引擎（支持布局、片段、自定义函数）
+- ✅ 自动配置（多源加载、环境检测）
 
 ### 第四阶段：语言增强（计划中）
 - [ ] 泛型完善

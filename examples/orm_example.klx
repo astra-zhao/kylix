@@ -1,0 +1,347 @@
+program ORMExample;
+
+uses web, orm, config;
+
+type
+  TUser = record
+    ID: Integer;
+    Name: String;
+    Email: String;
+    Age: Integer;
+    CreatedAt: String;
+    UpdatedAt: String;
+  end;
+
+  TUserRepository = class
+  private
+    var ormInstance: TORM;
+    var tableName: String;
+  public
+    constructor Create(orm: TORM);
+    begin
+      ormInstance := orm;
+      tableName := 'users';
+    end;
+
+    function FindAll: array of TUser;
+    var
+      result: array of TUser;
+      rows: array of map[string]interface{};
+      i: Integer;
+      user: TUser;
+    begin
+      rows := ormInstance.FindAll(tableName);
+      for i := 0 to Length(rows) - 1 do
+      begin
+        user.ID := rows[i]['id'];
+        user.Name := rows[i]['name'];
+        user.Email := rows[i]['email'];
+        user.Age := rows[i]['age'];
+        result := result + [user];
+      end;
+      result := result;
+    end;
+
+    function FindByID(id: Integer): TUser;
+    var
+      row: map[string]interface{};
+      user: TUser;
+    begin
+      row := ormInstance.Find(tableName, id);
+      if row = nil then
+      begin
+        user.ID := 0;
+        result := user;
+      end
+      else
+      begin
+        user.ID := row['id'];
+        user.Name := row['name'];
+        user.Email := row['email'];
+        user.Age := row['age'];
+        result := user;
+      end;
+    end;
+
+    function Create(user: TUser): Integer;
+    var
+      data: map[string]interface{};
+      id: Integer;
+    begin
+      data := map[string]interface{}{
+        'name': user.Name,
+        'email': user.Email,
+        'age': user.Age
+      };
+      id := ormInstance.Insert(tableName, data);
+      result := id;
+    end;
+
+    function Update(user: TUser): Boolean;
+    var
+      condition: map[string]interface{};
+      data: map[string]interface{};
+      affected: Integer;
+    begin
+      condition := map[string]interface{}{
+        'id': user.ID
+      };
+      data := map[string]interface{}{
+        'name': user.Name,
+        'email': user.Email,
+        'age': user.Age
+      };
+      affected := ormInstance.Update(tableName, condition, data);
+      result := affected > 0;
+    end;
+
+    function Delete(id: Integer): Boolean;
+    var
+      condition: map[string]interface{};
+      affected: Integer;
+    begin
+      condition := map[string]interface{}{
+        'id': id
+      };
+      affected := ormInstance.Delete(tableName, condition);
+      result := affected > 0;
+    end;
+
+    function FindByEmail(email: String): TUser;
+    var
+      qb: TQueryBuilder;
+      rows: array of map[string]interface{};
+      user: TUser;
+    begin
+      qb := ormInstance.QueryBuilder(tableName);
+      qb.Where('email', '=', email);
+      rows := ormInstance.Execute(qb);
+      if Length(rows) = 0 then
+      begin
+        user.ID := 0;
+        result := user;
+      end
+      else
+      begin
+        user.ID := rows[0]['id'];
+        user.Name := rows[0]['name'];
+        user.Email := rows[0]['email'];
+        user.Age := rows[0]['age'];
+        result := user;
+      end;
+    end;
+
+    function Count: Integer;
+    var
+      qb: TQueryBuilder;
+      count: Integer;
+    begin
+      qb := ormInstance.QueryBuilder(tableName);
+      count := ormInstance.Count(qb);
+      result := count;
+    end;
+
+    function FindPaginated(page: Integer; pageSize: Integer): array of TUser;
+    var
+      qb: TQueryBuilder;
+      rows: array of map[string]interface{};
+      result: array of TUser;
+      i: Integer;
+      user: TUser;
+    begin
+      qb := ormInstance.QueryBuilder(tableName);
+      qb.Page(page, pageSize);
+      qb.OrderBy('id', 'ASC');
+      rows := ormInstance.Execute(qb);
+      for i := 0 to Length(rows) - 1 do
+      begin
+        user.ID := rows[i]['id'];
+        user.Name := rows[i]['name'];
+        user.Email := rows[i]['email'];
+        user.Age := rows[i]['age'];
+        result := result + [user];
+      end;
+      result := result;
+    end;
+  end;
+
+var
+  app: TServer;
+  cfg: TConfig;
+  dbConfig: TConnectionConfig;
+  db: TDatabase;
+  ormInstance: TORM;
+  repo: TUserRepository;
+  port: Integer;
+
+begin
+  // Load configuration
+  cfg := NewConfig;
+  cfg.SetPrefix('APP');
+  cfg.LoadFromEnv;
+
+  port := cfg.GetIntDefault('PORT', 8080);
+
+  // Database configuration
+  dbConfig := TConnectionConfig{
+    Type: DBSQLite,
+    Database: './test.db'
+  };
+
+  // Connect to database
+  db := NewDatabase(dbConfig);
+  if db = nil then
+  begin
+    WriteLn('Failed to connect to database');
+    exit;
+  end;
+
+  // Create ORM instance
+  ormInstance := NewORM(db);
+
+  // Create repository
+  repo := TUserRepository.Create(ormInstance);
+
+  // Setup migrations
+  var migrations: TMigrationManager;
+  migrations := NewMigrationManager(db);
+  migrations.AddMigration('20240101001', 'Create users table',
+    'CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, age INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)',
+    'DROP TABLE IF EXISTS users'
+  );
+  migrations.Migrate;
+
+  // Create web server
+  app := NewServer(port);
+
+  // GET /api/users - List all users
+  app.Get('/api/users', procedure(req: TRequest; res: TResponse)
+  var
+    users: array of TUser;
+  begin
+    users := repo.FindAll;
+    res.JSON(users);
+  end);
+
+  // GET /api/users/:id - Get user by ID
+  app.Get('/api/users/:id', procedure(req: TRequest; res: TResponse)
+  var
+    user: TUser;
+    id: Integer;
+  begin
+    id := StrToInt(req.Param('id'));
+    user := repo.FindByID(id);
+    if user.ID = 0 then
+      res.Status(404).JSON(map[string]interface{}{
+        'error': 'User not found'
+      })
+    else
+      res.JSON(user);
+  end);
+
+  // POST /api/users - Create user
+  app.Post('/api/users', procedure(req: TRequest; res: TResponse)
+  var
+    user: TUser;
+    id: Integer;
+  begin
+    user.Name := req.GetField('name');
+    user.Email := req.GetField('email');
+    user.Age := StrToInt(req.GetField('age'));
+
+    id := repo.Create(user);
+    user.ID := id;
+    res.Status(201).JSON(user);
+  end);
+
+  // PUT /api/users/:id - Update user
+  app.Put('/api/users/:id', procedure(req: TRequest; res: TResponse)
+  var
+    user: TUser;
+    id: Integer;
+    success: Boolean;
+  begin
+    id := StrToInt(req.Param('id'));
+    user.ID := id;
+    user.Name := req.GetField('name');
+    user.Email := req.GetField('email');
+    user.Age := StrToInt(req.GetField('age'));
+
+    success := repo.Update(user);
+    if success then
+      res.JSON(user)
+    else
+      res.Status(404).JSON(map[string]interface{}{
+        'error': 'User not found'
+      });
+  end);
+
+  // DELETE /api/users/:id - Delete user
+  app.Delete('/api/users/:id', procedure(req: TRequest; res: TResponse)
+  var
+    id: Integer;
+    success: Boolean;
+  begin
+    id := StrToInt(req.Param('id'));
+    success := repo.Delete(id);
+    if success then
+      res.Status(204).Send
+    else
+      res.Status(404).JSON(map[string]interface{}{
+        'error': 'User not found'
+      });
+  end);
+
+  // GET /api/users/search/email - Find user by email
+  app.Get('/api/users/search/email', procedure(req: TRequest; res: TResponse)
+  var
+    user: TUser;
+    email: String;
+  begin
+    email := req.Query('email');
+    user := repo.FindByEmail(email);
+    if user.ID = 0 then
+      res.Status(404).JSON(map[string]interface{}{
+        'error': 'User not found'
+      })
+    else
+      res.JSON(user);
+  end);
+
+  // GET /api/users/count - Count users
+  app.Get('/api/users/count', procedure(req: TRequest; res: TResponse)
+  var
+    count: Integer;
+  begin
+    count := repo.Count;
+    res.JSON(map[string]interface{}{
+      'count': count
+    });
+  end);
+
+  // GET /api/users/page/:page - Paginated users
+  app.Get('/api/users/page/:page', procedure(req: TRequest; res: TResponse)
+  var
+    users: array of TUser;
+    page: Integer;
+    pageSize: Integer;
+  begin
+    page := StrToInt(req.Param('page'));
+    pageSize := 10;
+    users := repo.FindPaginated(page, pageSize);
+    res.JSON(users);
+  end);
+
+  // Start server
+  WriteLn('ORM Example Server starting on port ', port);
+  WriteLn('Endpoints:');
+  WriteLn('  GET    /api/users');
+  WriteLn('  GET    /api/users/:id');
+  WriteLn('  POST   /api/users');
+  WriteLn('  PUT    /api/users/:id');
+  WriteLn('  DELETE /api/users/:id');
+  WriteLn('  GET    /api/users/search/email?email=...');
+  WriteLn('  GET    /api/users/count');
+  WriteLn('  GET    /api/users/page/:page');
+  app.Listen;
+end.

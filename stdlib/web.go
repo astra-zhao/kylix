@@ -170,6 +170,15 @@ func (r *TRequest) JSON(v interface{}) error {
 	return json.NewDecoder(r.Request.Body).Decode(v)
 }
 
+func (r *TRequest) GetField(name string) string {
+	// Try query parameters first
+	if val := r.Query(name); val != "" {
+		return val
+	}
+	// Try form values (for POST/PUT requests)
+	return r.Request.FormValue(name)
+}
+
 // Response methods
 func (r *TResponse) Status(code int) *TResponse {
 	r.StatusCode = code
