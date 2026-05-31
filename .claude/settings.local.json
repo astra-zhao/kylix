@@ -13,7 +13,20 @@
       "Bash(/Users/astra/Documents/ai/learn/kylix/kylix run *)",
       "Bash(/Users/astra/Documents/ai/learn/kylix/kylix fmt *)",
       "Bash(chmod +x *、)",
-      "Bash(./demo-phase2.sh)"
+      "Bash(./demo-phase2.sh)",
+      "Bash(../kylix run *)",
+      "Bash(go test *)",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(chmod +x test_lsp.sh)",
+      "Bash(./test_lsp.sh)",
+      "Bash(chmod +x test_lsp_simple.sh)",
+      "Bash(./test_lsp_simple.sh)",
+      "Bash(go clean *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'Complete LSP server implementation with full IDE features *)",
+      "Bash(kill -9 75254)"
     ]
   }
 }

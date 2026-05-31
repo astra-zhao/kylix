@@ -1186,17 +1186,20 @@ func (p *Parser) parseGroupedExpression() ast.Expression {
 func (p *Parser) parseArrayLiteral() ast.Expression {
 	array := &ast.ArrayLiteral{Token: p.curToken}
 
-	p.nextToken()
+	p.nextToken() // Move past [
 	for !p.curTokenIs(token.RBRACKET) && !p.curTokenIs(token.EOF) {
 		elem := p.parseExpression(LOWEST)
-		array.Elements = append(array.Elements, elem)
-		if p.curTokenIs(token.COMMA) {
-			p.nextToken()
+		if elem != nil {
+			array.Elements = append(array.Elements, elem)
 		}
-	}
 
-	if !p.expectPeek(token.RBRACKET) {
-		return nil
+		// After parseExpression, curToken is at the last token of the expression
+		// We need to move past it to see what comes next
+		p.nextToken()
+
+		if p.curTokenIs(token.COMMA) {
+			p.nextToken() // Move past comma to next element
+		}
 	}
 
 	return array

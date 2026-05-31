@@ -1,0 +1,298 @@
+// Kylix 语法高亮测试文件
+// 用于验证 VS Code 扩展的语法高亮功能
+
+program SyntaxTest;
+
+uses
+  sysutils, web;
+
+// 常量声明
+const
+  MAX_SIZE = 100;
+  PI = 3.14159;
+  APP_NAME = 'Kylix Test';
+
+// 类型声明
+type
+  TPerson = class
+  private
+    FName: string;
+    FAge: integer;
+  public
+    constructor Create(AName: string; AAge: integer);
+    procedure SayHello;
+    function GetInfo: string;
+    property Name: string read FName write FName;
+    property Age: integer read FAge write FAge;
+  end;
+
+  TPoint = record
+    X, Y: integer;
+  end;
+
+  TDirection = (North, South, East, West);
+
+// 变量声明
+var
+  counter: integer;
+  message: string;
+  numbers: array of integer;
+  point: TPoint;
+  direction: TDirection;
+
+// 构造函数
+constructor TPerson.Create(AName: string; AAge: integer);
+begin
+  FName := AName;
+  FAge := AAge;
+end;
+
+// 过程
+procedure TPerson.SayHello;
+begin
+  writeln('Hello, my name is ' + FName);
+end;
+
+// 函数
+function TPerson.GetInfo: string;
+begin
+  result := format('%s is %d years old', [FName, FAge]);
+end;
+
+// 匿名过程测试
+procedure TestAnonymousProcedures;
+var
+  greet: procedure;
+  add: function(a, b: integer): integer;
+  sum: integer;
+begin
+  // 匿名过程
+  greet := procedure()
+  begin
+    writeln('Hello from anonymous procedure!');
+  end;
+
+  greet();
+
+  // 匿名函数
+  add := function(a, b: integer): integer
+  begin
+    result := a + b;
+  end;
+
+  sum := add(10, 20);
+  writeln('10 + 20 = ', sum);
+end;
+
+// 控制结构测试
+procedure TestControlStructures;
+var
+  i: integer;
+  value: integer;
+begin
+  // if-then-else
+  if counter > 0 then
+  begin
+    writeln('Counter is positive');
+  end
+  else
+  begin
+    writeln('Counter is not positive');
+  end;
+
+  // for 循环
+  for i := 1 to 10 do
+  begin
+    writeln('i = ', i);
+  end;
+
+  // while 循环
+  while counter < 10 do
+  begin
+    inc(counter);
+  end;
+
+  // repeat-until 循环
+  repeat
+    dec(counter);
+  until counter = 0;
+
+  // case 语句
+  value := 5;
+  case value of
+    1: writeln('One');
+    2: writeln('Two');
+    3..5: writeln('Three to Five');
+  else
+    writeln('Other');
+  end;
+end;
+
+// 异常处理测试
+procedure TestExceptionHandling;
+begin
+  try
+    // 可能抛出异常的代码
+    if counter = 0 then
+      raise Exception.Create('Counter is zero');
+  except
+    on E: Exception do
+    begin
+      writeln('Exception: ', E.Message);
+    end;
+  end;
+
+  try
+    // 需要清理的代码
+    writeln('Trying...');
+  finally
+    writeln('Cleanup code');
+  end;
+end;
+
+// 字符串操作测试
+procedure TestStringOperations;
+var
+  str: string;
+  substr: string;
+  len: integer;
+begin
+  str := 'Hello, Kylix!';
+
+  // 长度
+  len := length(str);
+  writeln('Length: ', len);
+
+  // 复制
+  substr := copy(str, 1, 5);
+  writeln('Substring: ', substr);
+
+  // 查找
+  len := pos('Kylix', str);
+  writeln('Position: ', len);
+
+  // 转换
+  writeln('Uppercase: ', uppercase(str));
+  writeln('Lowercase: ', lowercase(str));
+
+  // 字符串插值（如果支持）
+  message := "Hello, ${APP_NAME}!";
+  writeln(message);
+end;
+
+// 数组操作测试
+procedure TestArrayOperations;
+var
+  i: integer;
+begin
+  // 初始化数组
+  setlength(numbers, 5);
+  for i := 0 to high(numbers) do
+  begin
+    numbers[i] := i * 2;
+  end;
+
+  // 遍历数组
+  for i := low(numbers) to high(numbers) do
+  begin
+    writeln('numbers[', i, '] = ', numbers[i]);
+  end;
+end;
+
+// 数学运算测试
+procedure TestMathOperations;
+var
+  x, y: real;
+begin
+  x := 16.0;
+  y := sqrt(x);
+  writeln('sqrt(', x, ') = ', y);
+
+  y := abs(-5.5);
+  writeln('abs(-5.5) = ', y);
+
+  y := round(3.7);
+  writeln('round(3.7) = ', y);
+
+  y := trunc(3.7);
+  writeln('trunc(3.7) = ', y);
+
+  randomize;
+  y := random(100);
+  writeln('random(100) = ', y);
+end;
+
+// Web 服务器测试
+procedure TestWebServer;
+var
+  app: TWebServer;
+begin
+  app := TWebServer.Create(8080);
+
+  // GET 路由
+  app.get('/', procedure()
+  begin
+    res.send('<h1>Welcome to Kylix Web!</h1>');
+  end);
+
+  // 带参数的路由
+  app.get('/user/:id', procedure()
+  var
+    userId: string;
+  begin
+    userId := req.param('id');
+    res.json({
+      id: userId,
+      name: 'User ' + userId
+    });
+  end);
+
+  // POST 路由
+  app.post('/data', procedure()
+  var
+    body: TJSONObject;
+  begin
+    body := req.json();
+    res.json(body);
+  end);
+
+  writeln('Web server listening on port 8080');
+  app.listen();
+end;
+
+// 主程序
+begin
+  writeln('=== Kylix Syntax Test ===');
+  writeln();
+
+  // 初始化
+  counter := 0;
+  message := 'Hello, World!';
+
+  // 测试各个功能
+  writeln('--- Testing Anonymous Procedures ---');
+  TestAnonymousProcedures;
+  writeln();
+
+  writeln('--- Testing Control Structures ---');
+  TestControlStructures;
+  writeln();
+
+  writeln('--- Testing Exception Handling ---');
+  TestExceptionHandling;
+  writeln();
+
+  writeln('--- Testing String Operations ---');
+  TestStringOperations;
+  writeln();
+
+  writeln('--- Testing Array Operations ---');
+  TestArrayOperations;
+  writeln();
+
+  writeln('--- Testing Math Operations ---');
+  TestMathOperations;
+  writeln();
+
+  writeln('=== Test Complete ===');
+end.

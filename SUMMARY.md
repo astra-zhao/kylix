@@ -245,19 +245,30 @@ kylix/
 │   ├── modern.klx
 │   ├── classes.klx
 │   ├── exceptions.klx
-│   └── simple.klx
+│   ├── simple.klx
+│   └── web_demo.klx        # Web 框架示例
+│
+├── stdlib/                 # 标准库
+│   └── web.go              # Web 框架实现
 │
 ├── vscode-ext/             # VS Code 扩展
 │   ├── extension.js        # LSP 客户端
 │   ├── package.json        # 扩展配置
 │   ├── language-configuration.json
-│   └── syntaxes/
-│       └── kylix.tmLanguage.json
+│   ├── syntaxes/
+│   │   └── kylix.tmLanguage.json
+│   ├── snippets/           # 代码片段
+│   ├── README.md           # 扩展说明
+│   ├── INSTALL.md          # 安装指南
+│   ├── USAGE_GUIDE.md      # 使用指南
+│   └── CHANGELOG.md        # 更新日志
 │
 ├── docs/                   # 文档
 │   ├── KYLIX_IDE_USER_MANUAL.md    # IDE 用户手册
 │   ├── KYLIX_DEV_GUIDE.md          # 开发指南
-│   └── KYLIX_TOOLS_EXPLAINED.md    # 工具解释
+│   ├── KYLIX_TOOLS_EXPLAINED.md    # 工具解释
+│   ├── PHASE2_SUMMARY.md           # 第二阶段总结
+│   └── WEB_FRAMEWORK.md            # Web 框架指南
 │
 ├── go.mod                  # Go 模块定义
 ├── README.md               # 英文项目文档
@@ -358,6 +369,22 @@ require('lspconfig').kylix.setup{}
 
 **适合**：初学者、想理解工具作用的用户
 
+### 🌐 Web 框架指南
+**文件**：`docs/WEB_FRAMEWORK.md`
+
+**内容**：
+- Web 服务器快速入门
+- REST API 开发完整示例
+- 路由系统详解（GET、POST、PUT、DELETE）
+- 路径参数和查询参数
+- JSON 请求/响应处理
+- 中间件开发
+- 静态文件服务
+- 最佳实践
+- API 参考手册
+
+**适合**：需要开发 Web 应用和 REST API 的开发者
+
 ---
 
 ## 技术亮点
@@ -412,10 +439,16 @@ require('lspconfig').kylix.setup{}
 - ✅ 完整文档
 
 ### 第三阶段：Web 框架（进行中）
+- ✅ HTTP 服务器（基于 Go net/http）
+- ✅ 路由系统（GET、POST、PUT、DELETE）
+- ✅ 路径参数（`/users/:id` 语法）
+- ✅ 中间件支持（日志中间件）
+- ✅ JSON 请求/响应处理
+- ✅ 静态文件服务
+- ✅ 匿名过程/函数支持
+- ✅ VS Code 扩展增强（语法高亮、代码片段、智能补全）
+- ✅ Web 框架文档
 - [ ] 依赖注入容器
-- [ ] HTTP 服务器
-- [ ] 路由系统
-- [ ] 中间件支持
 - [ ] ORM
 - [ ] 模板引擎
 - [ ] 自动配置
@@ -461,15 +494,17 @@ require('lspconfig').kylix.setup{}
 
 ## 总结
 
-Kylix 编译器第一阶段和第二阶段已成功完成！
+Kylix 编译器第一阶段、第二阶段和第三阶段（部分）已成功完成！
 
 **第一阶段**实现了一个功能完整的 Pascal-to-Go 转译器，支持传统 Pascal 特性和现代语言特性。所有示例程序都能成功编译和运行。
 
 **第二阶段**构建了完整的 IDE 工具链，包括 CLI 工具、项目管理、LSP 服务器、VS Code 扩展和详尽的文档。
 
-**当前状态**：Phase 1 和 Phase 2 完成度约 80%，核心功能已可用，主要是高级特性和完善程度还有提升空间。
+**第三阶段（进行中）**已实现 Web 框架基础：HTTP 服务器、路由系统（GET/POST/PUT/DELETE）、路径参数、中间件、JSON 处理、静态文件服务、匿名过程/函数支持，以及完整的 VS Code 扩展增强。
 
-**下一步**：进入第三阶段，开发类似 Spring Boot 的 Web 框架。
+**当前状态**：Phase 1 和 Phase 2 完成度约 80%，Phase 3 Web 框架基础已可用，REST API 开发成为可能。
+
+**下一步**：继续完善 Web 框架（依赖注入、ORM、模板引擎、自动配置）。
 
 ---
 

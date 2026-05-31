@@ -1,0 +1,74 @@
+program WebDemo;
+
+// Web 服务器示例
+// 展示如何使用 Kylix Web 框架
+
+uses web;
+
+var
+  app: TServer;
+begin
+  // 创建服务器，监听 8080 端口
+  app := web.createServer(8080);
+
+  // 添加日志中间件
+  app.use(web.loggerMiddleware());
+
+  // GET 路由 - 返回纯文本
+  app.get('/', procedure(req: TRequest; res: TResponse)
+  begin
+    res.send('Hello, Kylix Web!');
+  end);
+
+  // GET 路由 - 返回 JSON
+  app.get('/api/users', procedure(req: TRequest; res: TResponse)
+  var
+    users: array of string;
+  begin
+    users := ['Alice', 'Bob', 'Charlie'];
+    res.json(users);
+  end);
+
+  // GET 路由 - 带路径参数
+  app.get('/api/users/:id', procedure(req: TRequest; res: TResponse)
+  var
+    userId: string;
+    userData: record
+      id: string;
+      name: string;
+    end;
+  begin
+    userId := req.param('id');
+    userData.id := userId;
+    userData.name := 'User ' + userId;
+    res.json(userData);
+  end);
+
+  // POST 路由 - 接收 JSON 数据
+  app.post('/api/users', procedure(req: TRequest; res: TResponse)
+  var
+    newUser: record
+      name: string;
+      email: string;
+    end;
+    response: record
+      success: boolean;
+      user: record
+        name: string;
+        email: string;
+      end;
+    end;
+  begin
+    req.json(newUser);
+    response.success := true;
+    response.user := newUser;
+    res.status(201).json(response);
+  end);
+
+  // 静态文件服务
+  app.static('/public', './static');
+
+  // 启动服务器
+  WriteLn('Starting Kylix Web Server...');
+  app.listen();
+end.

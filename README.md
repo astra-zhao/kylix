@@ -162,6 +162,66 @@ end
 end;
 ```
 
+### Anonymous Procedures & Functions
+```pascal
+// Anonymous procedure
+var greet := procedure()
+begin
+  WriteLn('Hello!');
+end;
+greet();
+
+// Anonymous function with parameters
+var add := function(a: Integer; b: Integer): Integer
+begin
+  result := a + b;
+end;
+WriteLn(add(10, 20));  // 30
+```
+
+### Web Server
+```pascal
+program WebApp;
+uses web;
+var
+  app: TServer;
+begin
+  app := web.createServer(8080);
+
+  // Simple GET route
+  app.get('/', procedure(req: TRequest; res: TResponse)
+  begin
+    res.send('Hello, Kylix Web!');
+  end);
+
+  // JSON API with path parameters
+  app.get('/api/users/:id', procedure(req: TRequest; res: TResponse)
+  var
+    userId: String;
+  begin
+    userId := req.param('id');
+    res.json(record id := userId; name := 'User ' + userId; end);
+  end);
+
+  // POST route with JSON body
+  app.post('/api/users', procedure(req: TRequest; res: TResponse)
+  var
+    body: record name: String; email: String; end;
+  begin
+    req.json(body);
+    res.status(201).json(body);
+  end);
+
+  // Middleware
+  app.use(web.loggerMiddleware());
+
+  // Static files
+  app.static('/public', './static');
+
+  app.listen();
+end.
+```
+
 ## Language Reference
 
 ### Types
@@ -206,6 +266,7 @@ kylix/
 │   ├── project/        # Project management (kylix.toml)
 │   ├── lsp/            # Language Server Protocol server
 │   └── repl/           # Interactive REPL
+├── stdlib/             # Standard library (web framework, etc.)
 ├── token/              # Token definitions
 ├── lexer/              # Lexical analyzer
 ├── ast/                # Abstract Syntax Tree
@@ -216,7 +277,8 @@ kylix/
 └── docs/               # Documentation
     ├── KYLIX_IDE_USER_MANUAL.md
     ├── KYLIX_DEV_GUIDE.md
-    └── KYLIX_TOOLS_EXPLAINED.md
+    ├── KYLIX_TOOLS_EXPLAINED.md
+    └── WEB_FRAMEWORK.md
 ```
 
 ## Editor Integration
@@ -247,6 +309,8 @@ Kylix LSP supports any editor with LSP client:
 - [IDE User Manual](docs/KYLIX_IDE_USER_MANUAL.md) - Complete CLI and editor guide
 - [Developer Guide](docs/KYLIX_DEV_GUIDE.md) - Architecture, internals, and contributing
 - [Tools Explained](docs/KYLIX_TOOLS_EXPLAINED.md) - Beginner-friendly tool descriptions
+- [Web Framework Guide](docs/WEB_FRAMEWORK.md) - Web server and REST API development
+- [Phase 2 Summary](docs/PHASE2_SUMMARY.md) - IDE toolchain completion report
 
 ## Roadmap
 
@@ -266,10 +330,18 @@ Kylix LSP supports any editor with LSP client:
 - ✅ Comprehensive documentation
 
 ### Phase 3: Framework (In Progress)
-- Spring Boot-like framework
+- ✅ Web server (based on Go net/http)
+- ✅ Routing system (GET, POST, PUT, DELETE)
+- ✅ Path parameters (`/users/:id` syntax)
+- ✅ Middleware support (logger middleware)
+- ✅ JSON request/response handling
+- ✅ Static file serving
+- ✅ Anonymous procedures & functions
+- ✅ Enhanced VS Code extension (syntax highlighting, snippets, completions)
+- ✅ Web framework documentation
 - Dependency injection
-- Web server
 - ORM
+- Template engine
 - Auto-configuration
 
 ## Contributing

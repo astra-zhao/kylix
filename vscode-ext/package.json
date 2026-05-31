@@ -4,6 +4,10 @@
   "description": "Language support for Kylix (Modern Pascal)",
   "version": "0.2.0",
   "publisher": "kylix",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/astra-zhao/kylix"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },
