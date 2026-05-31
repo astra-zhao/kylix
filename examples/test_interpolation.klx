@@ -1,0 +1,10 @@
+program test_interpolation;
+
+var
+  name: string;
+  age: integer;
+begin
+  name := 'Alice';
+  age := 30;
+  writeln($"Hello, {name}! You are {age} years old.");
+end.
