@@ -222,6 +222,79 @@ begin
 end.
 ```
 
+## Standard Library
+
+### Web Framework (`web`)
+HTTP server with routing, middleware, and request/response handling.
+
+```pascal
+uses web;
+
+app := web.createServer(8080);
+app.get('/api/users', procedure(req: TRequest; res: TResponse)
+begin
+  res.json(users);
+end);
+app.listen();
+```
+
+### Dependency Injection (`container`)
+IoC container for managing dependencies with singleton, transient, and scoped lifetimes.
+
+```pascal
+uses container;
+
+di := NewContainer;
+di.RegisterSingleton('UserService', function: TUserService
+begin
+  result := TUserService.Create;
+end);
+
+service := di.Resolve('UserService').(TUserService);
+```
+
+### Configuration (`config`)
+Load configuration from environment variables with type-safe accessors.
+
+```pascal
+uses config;
+
+cfg := NewConfig;
+cfg.SetPrefix('APP');
+cfg.LoadFromEnv;
+
+port := cfg.GetIntDefault('PORT', 8080);
+debug := cfg.GetBoolDefault('DEBUG', false);
+```
+
+### Middleware (`middleware`)
+Pre-built middleware for common web application needs.
+
+```pascal
+uses middleware;
+
+app.use(NewRequestIDMiddleware.Handle);
+app.use(NewLoggingMiddleware.Handle);
+app.use(NewCORSMiddleware.Handle);
+app.use(NewAuthMiddleware(ValidateToken).Handle);
+app.use(NewRateLimitMiddleware(100, 60).Handle);
+```
+
+### Validation (`validation`)
+Request validation with fluent API and common validators.
+
+```pascal
+uses validation;
+
+validator := NewRequestValidator(req);
+validator.Required(['name', 'email']);
+validator.Email('email');
+validator.MinLength('password', 8);
+
+if not validator.IsValid then
+  res.status(400).json(validator.Errors);
+```
+
 ## Language Reference
 
 ### Types

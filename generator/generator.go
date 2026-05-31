@@ -384,6 +384,22 @@ func (g *Generator) mapBuiltinFunction(name string) string {
 }
 
 func (g *Generator) scanImports(program *ast.Program) {
+	// Map uses clause stdlib modules to Go imports
+	for _, module := range program.Uses {
+		switch module {
+		case "web":
+			g.imports["kylix/stdlib"] = true
+		case "container":
+			g.imports["kylix/stdlib"] = true
+		case "config":
+			g.imports["kylix/stdlib"] = true
+		case "middleware":
+			g.imports["kylix/stdlib"] = true
+		case "validation":
+			g.imports["kylix/stdlib"] = true
+		}
+	}
+
 	// Scan all statements for builtin function calls
 	for _, stmt := range program.Statements {
 		g.scanStatementForImports(stmt)

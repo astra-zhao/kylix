@@ -1,0 +1,253 @@
+program WebAdvanced;
+
+uses web, container, config, middleware, validation;
+
+type
+  TUser = record
+    ID: Integer;
+    Name: String;
+    Email: String;
+    Age: Integer;
+  end;
+
+  TUserService = class
+  private
+    var users: array of TUser;
+    var nextID: Integer;
+  public
+    constructor Create;
+    begin
+      users := [];
+      nextID := 1;
+    end;
+
+    function GetAll: array of TUser;
+    begin
+      result := users;
+    end;
+
+    function GetByID(id: Integer): TUser;
+    var
+      i: Integer;
+    begin
+      for i := 0 to Length(users) - 1 do
+      begin
+        if users[i].ID = id then
+          result := users[i];
+      end;
+    end;
+
+    function Create(name, email: String; age: Integer): TUser;
+    var
+      user: TUser;
+    begin
+      user.ID := nextID;
+      user.Name := name;
+      user.Email := email;
+      user.Age := age;
+      users := users + [user];
+      nextID := nextID + 1;
+      result := user;
+    end;
+
+    function Update(id: Integer; name, email: String; age: Integer): TUser;
+    var
+      i: Integer;
+    begin
+      for i := 0 to Length(users) - 1 do
+      begin
+        if users[i].ID = id then
+        begin
+          users[i].Name := name;
+          users[i].Email := email;
+          users[i].Age := age;
+          result := users[i];
+        end;
+      end;
+    end;
+
+    function Delete(id: Integer): Boolean;
+    var
+      i: Integer;
+      newUsers: array of TUser;
+    begin
+      result := false;
+      newUsers := [];
+      for i := 0 to Length(users) - 1 do
+      begin
+        if users[i].ID = id then
+          result := true
+        else
+          newUsers := newUsers + [users[i]];
+      end;
+      users := newUsers;
+    end;
+  end;
+
+var
+  app: TServer;
+  cfg: TConfig;
+  di: TContainer;
+  userService: TUserService;
+  port: Integer;
+
+begin
+  // Load configuration from environment variables
+  cfg := NewConfig;
+  cfg.SetPrefix('APP');
+  cfg.LoadFromEnv;
+
+  port := cfg.GetIntDefault('PORT', 8080);
+
+  // Setup dependency injection container
+  di := NewContainer;
+  di.RegisterSingleton('UserService', function: TUserService
+  begin
+    result := TUserService.Create;
+  end);
+
+  // Create web server
+  app := NewServer(port);
+
+  // Add middleware
+  app.Use(NewRequestIDMiddleware.Handle);
+  app.Use(NewLoggingMiddleware.Handle);
+  app.Use(NewCORSMiddleware.SetAllowedOrigins(['http://localhost:3000']).Handle);
+
+  // Health check endpoint
+  app.Get('/health', procedure(req: TRequest; res: TResponse)
+  begin
+    res.JSON(map[string]interface{}{
+      'status': 'ok',
+      'timestamp': Now
+    });
+  end);
+
+  // Get all users
+  app.Get('/api/users', procedure(req: TRequest; res: TResponse)
+  var
+    service: TUserService;
+    users: array of TUser;
+  begin
+    service := di.Resolve('UserService').(TUserService);
+    users := service.GetAll;
+    res.JSON(users);
+  end);
+
+  // Get user by ID
+  app.Get('/api/users/:id', procedure(req: TRequest; res: TResponse)
+  var
+    service: TUserService;
+    user: TUser;
+    id: Integer;
+  begin
+    service := di.Resolve('UserService').(TUserService);
+    id := StrToInt(req.Param('id'));
+    user := service.GetByID(id);
+    if user.ID = 0 then
+    begin
+      res.Status(404).JSON(map[string]interface{}{
+        'error': 'User not found'
+      });
+    end
+    else
+      res.JSON(user);
+  end);
+
+  // Create user with validation
+  app.Post('/api/users', procedure(req: TRequest; res: TResponse)
+  var
+    service: TUserService;
+    validator: TRequestValidator;
+    user: TUser;
+    name, email: String;
+    age: Integer;
+  begin
+    service := di.Resolve('UserService').(TUserService);
+
+    // Validate request
+    validator := NewRequestValidator(req);
+    validator.Required(['name', 'email', 'age']);
+    validator.Email('email');
+    validator.MinLength('name', 2);
+    validator.MaxLength('name', 100);
+
+    if not validator.IsValid then
+    begin
+      res.Status(400).JSON(validator.Errors);
+      exit;
+    end;
+
+    name := req.GetField('name');
+    email := req.GetField('email');
+    age := StrToInt(req.GetField('age'));
+
+    user := service.Create(name, email, age);
+    res.Status(201).JSON(user);
+  end);
+
+  // Update user
+  app.Put('/api/users/:id', procedure(req: TRequest; res: TResponse)
+  var
+    service: TUserService;
+    validator: TRequestValidator;
+    user: TUser;
+    id: Integer;
+    name, email: String;
+    age: Integer;
+  begin
+    service := di.Resolve('UserService').(TUserService);
+    id := StrToInt(req.Param('id'));
+
+    // Validate request
+    validator := NewRequestValidator(req);
+    validator.Required(['name', 'email', 'age']);
+    validator.Email('email');
+    validator.MinLength('name', 2);
+    validator.MaxLength('name', 100);
+
+    if not validator.IsValid then
+    begin
+      res.Status(400).JSON(validator.Errors);
+      exit;
+    end;
+
+    name := req.GetField('name');
+    email := req.GetField('email');
+    age := StrToInt(req.GetField('age'));
+
+    user := service.Update(id, name, email, age);
+    if user.ID = 0 then
+    begin
+      res.Status(404).JSON(map[string]interface{}{
+        'error': 'User not found'
+      });
+    end
+    else
+      res.JSON(user);
+  end);
+
+  // Delete user
+  app.Delete('/api/users/:id', procedure(req: TRequest; res: TResponse)
+  var
+    service: TUserService;
+    id: Integer;
+    deleted: Boolean;
+  begin
+    service := di.Resolve('UserService').(TUserService);
+    id := StrToInt(req.Param('id'));
+    deleted := service.Delete(id);
+
+    if deleted then
+      res.Status(204).Send
+    else
+      res.Status(404).JSON(map[string]interface{}{
+        'error': 'User not found'
+      });
+  end);
+
+  // Start server
+  WriteLn('Advanced Web Server starting on port ', port);
+  WriteLn('Features: DI Container, Config, Middleware, Validation');
+  app.Listen;
+end.

@@ -26,7 +26,8 @@
       "Bash(go clean *)",
       "Bash(git add *)",
       "Bash(git commit -m 'Complete LSP server implementation with full IDE features *)",
-      "Bash(kill -9 75254)"
+      "Bash(kill -9 75254)",
+      "Bash(git push *)"
     ]
   }
 }

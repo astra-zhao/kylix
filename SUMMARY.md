@@ -246,10 +246,15 @@ kylix/
 │   ├── classes.klx
 │   ├── exceptions.klx
 │   ├── simple.klx
-│   └── web_demo.klx        # Web 框架示例
+│   ├── web_demo.klx        # Web 框架基础示例
+│   └── web_advanced.klx    # Web 框架高级示例（DI、配置、中间件、验证）
 │
 ├── stdlib/                 # 标准库
-│   └── web.go              # Web 框架实现
+│   ├── web.go              # Web 框架实现
+│   ├── container.go        # 依赖注入容器
+│   ├── config.go           # 配置管理
+│   ├── middleware.go       # 中间件（CORS、认证、限流、日志）
+│   └── validation.go       # 请求验证
 │
 ├── vscode-ext/             # VS Code 扩展
 │   ├── extension.js        # LSP 客户端

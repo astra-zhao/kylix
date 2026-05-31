@@ -6,6 +6,38 @@ import (
 	"strings"
 )
 
+// Operator precedence levels (higher = binds tighter)
+const (
+	precLowest  = 0
+	precOr      = 1 // or, xor
+	precAnd     = 2 // and
+	precEquals  = 3 // =, <>
+	precCompare = 4 // <, >, <=, >=
+	precAdd     = 5 // +, -
+	precMul     = 6 // *, /, div, mod
+	precPrefix  = 7 // not, unary -
+)
+
+// operatorPrecedence returns the precedence of a binary operator
+func operatorPrecedence(op string) int {
+	switch op {
+	case "or", "xor":
+		return precOr
+	case "and":
+		return precAnd
+	case "=", "<>":
+		return precEquals
+	case "<", ">", "<=", ">=":
+		return precCompare
+	case "+", "-":
+		return precAdd
+	case "*", "/", "div", "mod":
+		return precMul
+	default:
+		return precLowest
+	}
+}
+
 // Formatter formats Kylix source code
 type Formatter struct {
 	indent    int
@@ -45,13 +77,8 @@ func (f *Formatter) Format(program *ast.Program) string {
 		f.writeLine("")
 	}
 
-	// Declarations
-	for i, decl := range program.Declarations {
-		f.formatDeclaration(decl)
-		if i < len(program.Declarations)-1 {
-			f.writeLine("")
-		}
-	}
+	// Declarations - group by type and add section keywords
+	f.formatDeclarations(program.Declarations)
 
 	if len(program.Declarations) > 0 && len(program.Statements) > 0 {
 		f.writeLine("")
@@ -69,6 +96,84 @@ func (f *Formatter) Format(program *ast.Program) string {
 	}
 
 	return f.output.String()
+}
+
+// formatDeclarations groups declarations by type and adds section keywords
+func (f *Formatter) formatDeclarations(decls []ast.Node) {
+	if len(decls) == 0 {
+		return
+	}
+
+	// Track the current section type
+	type declSection int
+	const (
+		sectionNone declSection = iota
+		sectionTypeGroup
+		sectionConst
+		sectionVar
+		sectionFunc
+		sectionClass
+		sectionInterface
+		sectionProperty
+	)
+
+	currentSection := sectionNone
+
+	for i, decl := range decls {
+		var newSection declSection
+		switch decl.(type) {
+		case *ast.TypeDecl:
+			newSection = sectionTypeGroup
+		case *ast.ConstDecl:
+			newSection = sectionConst
+		case *ast.VarDecl:
+			newSection = sectionVar
+		case *ast.FunctionDecl:
+			newSection = sectionFunc
+		case *ast.ClassDecl:
+			newSection = sectionClass
+		case *ast.InterfaceDecl:
+			newSection = sectionInterface
+		case *ast.PropertyDecl:
+			newSection = sectionProperty
+		default:
+			newSection = sectionNone
+		}
+
+		// Add section keyword if section changed
+		if newSection != currentSection {
+			if currentSection != sectionNone {
+				f.writeLine("")
+			}
+			switch newSection {
+			case sectionTypeGroup:
+				f.writeLine("type")
+				f.indent++
+			case sectionConst:
+				f.writeLine("const")
+				f.indent++
+			case sectionVar:
+				f.writeLine("var")
+				f.indent++
+			}
+			currentSection = newSection
+		}
+
+		// Format the declaration
+		f.formatDeclaration(decl)
+
+		// Add blank line after functions/classes/interfaces
+		if newSection == sectionFunc || newSection == sectionClass || newSection == sectionInterface {
+			if i < len(decls)-1 {
+				f.writeLine("")
+			}
+		}
+	}
+
+	// Reset indent if we were in a section
+	if currentSection == sectionTypeGroup || currentSection == sectionConst || currentSection == sectionVar {
+		f.indent--
+	}
 }
 
 func (f *Formatter) write(s string) {
@@ -290,6 +395,18 @@ func (f *Formatter) formatStatement(stmt interface{}) {
 	switch s := stmt.(type) {
 	case *ast.VarDecl:
 		f.formatVarDecl(s)
+	case *ast.TypeDecl:
+		f.formatTypeDecl(s)
+	case *ast.ConstDecl:
+		f.formatConstDecl(s)
+	case *ast.FunctionDecl:
+		f.formatFunctionDecl(s)
+	case *ast.ClassDecl:
+		f.formatClassDecl(s)
+	case *ast.InterfaceDecl:
+		f.formatInterfaceDecl(s)
+	case *ast.PropertyDecl:
+		f.formatPropertyDecl(s)
 	case *ast.AssignmentStatement:
 		f.formatAssignment(s)
 	case *ast.IfStatement:
@@ -528,8 +645,11 @@ func (f *Formatter) formatReturnStatement(stmt *ast.ReturnStatement) {
 
 func (f *Formatter) formatRaiseStatement(stmt *ast.RaiseStatement) {
 	f.writeIndent()
-	f.write("raise ")
-	f.formatExpression(stmt.Exception)
+	f.write("raise")
+	if stmt.Exception != nil {
+		f.write(" ")
+		f.formatExpression(stmt.Exception)
+	}
 	f.write(";\n")
 }
 
@@ -568,6 +688,10 @@ func (f *Formatter) formatType(typ interface{}) {
 }
 
 func (f *Formatter) formatExpression(expr interface{}) {
+	f.formatExpressionPrec(expr, precLowest)
+}
+
+func (f *Formatter) formatExpressionPrec(expr interface{}, parentPrec int) {
 	switch e := expr.(type) {
 	case *ast.Identifier:
 		f.write(e.Value)
@@ -607,15 +731,29 @@ func (f *Formatter) formatExpression(expr interface{}) {
 		}
 		f.write("]")
 	case *ast.PrefixExpression:
-		f.write("(" + e.Operator + " ")
-		f.formatExpression(e.Right)
-		f.write(")")
+		// "not" and unary "-" only need parens if parent binds tighter
+		needParens := parentPrec > precPrefix
+		if needParens {
+			f.write("(")
+		}
+		f.write(e.Operator + " ")
+		f.formatExpressionPrec(e.Right, precPrefix)
+		if needParens {
+			f.write(")")
+		}
 	case *ast.InfixExpression:
-		f.write("(")
-		f.formatExpression(e.Left)
+		prec := operatorPrecedence(e.Operator)
+		needParens := parentPrec > prec
+		if needParens {
+			f.write("(")
+		}
+		f.formatExpressionPrec(e.Left, prec)
 		f.write(" " + e.Operator + " ")
-		f.formatExpression(e.Right)
-		f.write(")")
+		// Right operand: use prec+1 for left-associative operators
+		f.formatExpressionPrec(e.Right, prec+1)
+		if needParens {
+			f.write(")")
+		}
 	case *ast.CallExpression:
 		f.formatExpression(e.Function)
 		f.write("(")

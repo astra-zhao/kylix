@@ -1,0 +1,45 @@
+program FormatterTest;
+
+type
+  TPoint = record
+    x: Integer;
+    y: Integer;
+  end;
+
+const
+  MAX_VALUE = 100;
+
+function Add(a: Integer; b: Integer): Integer;
+begin
+  result := a + b;
+end;
+
+var
+  x: Integer;
+  y: Integer;
+  sum: Integer;
+begin
+  x := 10;
+  y := 20;
+  sum := Add(x, y);
+
+  if sum > MAX_VALUE then
+  begin
+    WriteLn('Too large');
+  end
+  else
+  begin
+    WriteLn('OK');
+  end;
+
+  try
+  begin
+    if x = 0 then
+      raise Error;
+  end
+  except
+  begin
+    raise;
+  end
+  end;
+end.
