@@ -206,7 +206,7 @@ func (s *Server) handleInitialize(msg *Message) *Message {
 			},
 			"serverInfo": map[string]interface{}{
 				"name":    "kylix-lsp",
-				"version": "0.3.0",
+				"version": "1.0.0",
 			},
 		},
 	}

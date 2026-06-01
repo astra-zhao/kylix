@@ -1,6 +1,8 @@
 # Kylix - Modern Pascal Language
 
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
 
@@ -698,6 +700,22 @@ Kylix LSP supports any editor with LSP client:
 - ✅ REPL improvements — readline with history (↑/↓), lexer-based detection, stderr separation
 - ✅ Formatter fixes — class visibility modifiers, properties, const type annotations
 - ✅ Generator stdlib wiring — sysutil, jsonutil, datetime, regex modules
+
+## Changelog
+
+### v1.0.0 (2026-06-01)
+
+**🎉 First stable release — all 5 phases complete!**
+
+- **Standard Library**: Added `sysutil` (File I/O), `jsonutil` (JSON), `datetime` (DateTime), `regex` (Regular Expressions)
+- **REPL**: Readline support with persistent history, lexer-based multiline detection, stderr separation
+- **Formatter**: Class visibility modifiers, properties output, const type annotations
+- **Generics**: Type parameter declarations for classes and functions (`TList<T>`, `function Foo<T>`)
+- **Exception Handling**: ON clause support (`on E: ExceptionType do`)
+- **Web Framework**: DI container, config system, middleware suite, validation, ORM, template engine, auto-config
+- **IDE Tools**: LSP server, VS Code extension, project management, code formatting
+
+See [CHANGELOG.md](CHANGELOG.md) for full release history.
 
 ## Contributing
 

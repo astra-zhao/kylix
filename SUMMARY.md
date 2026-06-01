@@ -1,10 +1,14 @@
 # Kylix 编译器项目总结
 
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
+[![版本](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
+[![许可证](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ## 项目概述
 
 Kylix 是一个现代化的 Pascal 语言重新实现，编译为 Go 代码。它结合了 Pascal 的清晰性和简洁性，同时添加了现代语言特性，并配备了完整的 IDE 工具链和编辑器集成。
+
+**当前版本**：v1.0.0（2026-06-01 发布，全部 5 个阶段已完成）
 
 **项目地址**：https://github.com/astra-zhao/kylix
 
@@ -527,7 +531,19 @@ Kylix 编译器第一阶段至第五阶段已全部成功完成！
 
 **第五阶段**扩展了标准库和工具：文件 I/O（sysutil）、JSON 处理（jsonutil）、日期时间（datetime）、正则表达式（regex），同时改进了 REPL（readline 历史、词法分析检测、stderr 分离）和格式化器（类可见性、属性、常量类型）。
 
-**当前状态**：Phase 1-5 已完成。
+**当前状态**：Phase 1-5 已完成，v1.0.0 正式发布！🎉
+
+### 版本号升级记录
+
+| 组件 | 旧版本 | 新版本 |
+|------|--------|--------|
+| 编译器 (`cmd/kylix/main.go`) | 0.2.0 | **1.0.0** |
+| REPL (`pkg/repl/repl.go`) | 0.3.0 | **1.0.0** |
+| LSP 服务器 (`pkg/lsp/server.go`) | 0.3.0 | **1.0.0** |
+| 项目配置 (`pkg/project/project.go`) | 0.1.0 | **1.0.0** |
+| VS Code 扩展 (`vscode-ext/package.json`) | 0.2.0 | **1.0.0** |
+
+详细更新日志见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
