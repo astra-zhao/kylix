@@ -1,7 +1,6 @@
 package repl
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"kylix/generator"
@@ -12,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/peterh/liner"
 )
 
 const (
@@ -31,61 +32,95 @@ const (
 	colorCyan   = "\033[36m"
 )
 
+// historyFile is the path to the persistent history file
+var historyFile = filepath.Join(os.TempDir(), ".kylix_repl_history")
+
 // REPL state
 type REPL struct {
-	history     []string
+	line         *liner.State
+	history      []string
 	declarations []string
-	in          io.Reader
-	out         io.Writer
+	out          io.Writer
+	errOut       io.Writer
 }
 
 // Start launches the interactive REPL
 func Start(in io.Reader, out io.Writer) error {
+	line := liner.NewLiner()
+	defer line.Close()
+
+	line.SetCtrlCAborts(true)
+
+	// Load persistent history
+	if f, err := os.Open(historyFile); err == nil {
+		line.ReadHistory(f)
+		f.Close()
+	}
+
 	repl := &REPL{
-		history:     []string{},
+		line:         line,
+		history:      []string{},
 		declarations: []string{},
-		in:          in,
-		out:         out,
+		out:          out,
+		errOut:       os.Stderr,
 	}
 
 	fmt.Fprintln(out, colorCyan+"Kylix REPL v"+version+colorReset)
 	fmt.Fprintln(out, "Type "+colorYellow+":help"+colorReset+" for help, "+colorYellow+":quit"+colorReset+" to exit")
+	fmt.Fprintln(out, "Use "+colorYellow+"↑/↓ arrows"+colorReset+" for history navigation")
 	fmt.Fprintln(out)
 
-	scanner := bufio.NewScanner(in)
 	var buffer strings.Builder
 	multiline := false
 
 	for {
+		var p string
 		if multiline {
-			fmt.Fprint(out, colorYellow+continuePrompt+colorReset)
+			p = colorYellow + continuePrompt + colorReset
 		} else {
-			fmt.Fprint(out, colorGreen+prompt+colorReset)
+			p = colorGreen + prompt + colorReset
 		}
 
-		if !scanner.Scan() {
+		input, err := line.Prompt(p)
+		if err != nil {
+			if err == liner.ErrPromptAborted {
+				// Ctrl-C: cancel current multiline input
+				if multiline {
+					multiline = false
+					buffer.Reset()
+					fmt.Fprintln(out, colorYellow+"Multiline input cancelled"+colorReset)
+					continue
+				}
+				// Ctrl-C on empty prompt: exit
+				fmt.Fprintln(out, colorCyan+"Goodbye!"+colorReset)
+				break
+			}
+			if err == io.EOF {
+				fmt.Fprintln(out, colorCyan+"Goodbye!"+colorReset)
+				break
+			}
 			break
 		}
 
-		line := scanner.Text()
+		line.AppendHistory(input)
 
 		// Handle meta-commands (only when not in multiline mode)
-		if !multiline && strings.HasPrefix(line, ":") {
-			if repl.handleMetaCommand(line) {
-				return nil // :quit command
+		if !multiline && strings.HasPrefix(strings.TrimSpace(input), ":") {
+			if repl.handleMetaCommand(strings.TrimSpace(input)) {
+				break
 			}
 			continue
 		}
 
 		// Empty line in multiline mode - check if complete
-		if multiline && line == "" {
+		if multiline && input == "" {
 			code := buffer.String()
 			depth := repl.countBlockDepth(code)
 			if depth == 0 {
 				buffer.Reset()
 				multiline = false
 				repl.addToHistory(code)
-				repl.execute(code, false)
+				repl.execute(code)
 				fmt.Fprintln(out)
 			} else {
 				buffer.WriteString("\n")
@@ -94,9 +129,9 @@ func Start(in io.Reader, out io.Writer) error {
 		}
 
 		// Single-line quick execute
-		if !multiline && repl.isCompleteStatement(line) {
-			repl.addToHistory(line)
-			repl.execute(line, false)
+		if !multiline && repl.isCompleteStatement(input) {
+			repl.addToHistory(input)
+			repl.execute(input)
 			fmt.Fprintln(out)
 			continue
 		}
@@ -105,7 +140,7 @@ func Start(in io.Reader, out io.Writer) error {
 		if !multiline {
 			multiline = true
 		}
-		buffer.WriteString(line)
+		buffer.WriteString(input)
 		buffer.WriteString("\n")
 
 		// Auto-execute if block depth is balanced
@@ -115,13 +150,18 @@ func Start(in io.Reader, out io.Writer) error {
 			buffer.Reset()
 			multiline = false
 			repl.addToHistory(code)
-			repl.execute(code, false)
+			repl.execute(code)
 			fmt.Fprintln(out)
 		}
 	}
 
-	fmt.Fprintln(out)
-	return scanner.Err()
+	// Save history
+	if f, err := os.Create(historyFile); err == nil {
+		line.WriteHistory(f)
+		f.Close()
+	}
+
+	return nil
 }
 
 func (r *REPL) addToHistory(code string) {
@@ -131,6 +171,7 @@ func (r *REPL) addToHistory(code string) {
 	}
 }
 
+// isCompleteStatement uses lexer-based analysis to determine if input is complete
 func (r *REPL) isCompleteStatement(line string) bool {
 	line = strings.TrimSpace(line)
 
@@ -144,33 +185,83 @@ func (r *REPL) isCompleteStatement(line string) bool {
 		return false
 	}
 
-	// Try to parse as a complete program to check completeness
+	// Lexer-based analysis: check if the line forms a complete statement
+	l := lexer.New(line)
+	tokens := []token.Token{}
+	for {
+		tok := l.NextToken()
+		tokens = append(tokens, tok)
+		if tok.Type == token.EOF {
+			break
+		}
+	}
+
+	// Check for begin/end blocks
+	depth := 0
+	for _, tok := range tokens {
+		if tok.Type == token.BEGIN {
+			depth++
+		} else if tok.Type == token.END {
+			depth--
+		}
+	}
+	// If has begin/end and balanced, it's complete
+	if depth == 0 && len(tokens) > 2 {
+		hasBegin := false
+		for _, tok := range tokens {
+			if tok.Type == token.BEGIN {
+				hasBegin = true
+				break
+			}
+		}
+		if hasBegin {
+			return true
+		}
+	}
+
+	// Try to parse as a complete program
 	testCode := "program test;\nbegin\n" + line + "\nend."
-	l := lexer.New(testCode)
-	p := parser.New(l)
+	pl := lexer.New(testCode)
+	p := parser.New(pl)
 	program := p.ParseProgram()
 
-	// If no errors, it's likely complete
 	if len(p.Errors()) == 0 && len(program.Statements) > 0 {
 		return true
 	}
 
-	// Check for common complete patterns
-	lower := strings.ToLower(line)
+	// Lexer-based keyword detection for single-line statements
+	if len(tokens) >= 2 {
+		lastNonEOF := tokens[len(tokens)-1]
+		if lastNonEOF.Type == token.EOF && len(tokens) >= 3 {
+			lastNonEOF = tokens[len(tokens)-2]
+		}
 
-	// Single-line statements that are complete
-	if strings.HasSuffix(lower, ";") {
-		keywords := []string{"writeln", "write", "var ", "const ", "type ", "break", "continue", "return"}
-		for _, kw := range keywords {
-			if strings.HasPrefix(lower, kw) {
+		first := tokens[0]
+
+		// Statement ends with semicolon and starts with a known keyword
+		if lastNonEOF.Type == token.SEMICOLON {
+			switch first.Type {
+			case token.VAR, token.CONST, token.TYPE,
+				token.BREAK, token.CONTINUE, token.RETURN,
+				token.IDENT:
+				return true
+			}
+			// Also complete if starts with a known function call pattern
+			if first.Type == token.IDENT && len(tokens) >= 4 {
 				return true
 			}
 		}
-	}
 
-	// Complete if it ends with end.
-	if strings.HasSuffix(lower, "end.") {
-		return true
+		// Ends with "end."
+		if lastNonEOF.Type == token.DOT && len(tokens) >= 3 {
+			prev := tokens[len(tokens)-2]
+			if prev.Type == token.EOF {
+				prev = tokens[len(tokens)-3]
+			}
+			if prev.Type == token.END {
+				return true
+			}
+		}
 	}
 
 	return false
@@ -197,7 +288,6 @@ func (r *REPL) countBlockDepth(code string) int {
 }
 
 func (r *REPL) handleMetaCommand(cmd string) bool {
-	cmd = strings.TrimSpace(cmd)
 	parts := strings.Fields(cmd)
 
 	switch parts[0] {
@@ -239,7 +329,7 @@ func (r *REPL) handleMetaCommand(cmd string) bool {
 		return false
 
 	default:
-		fmt.Fprintf(r.out, colorRed+"Unknown command: %s"+colorReset+"\n", parts[0])
+		fmt.Fprintf(r.errOut, colorRed+"Unknown command: %s"+colorReset+"\n", parts[0])
 		fmt.Fprintln(r.out, "Type "+colorYellow+":help"+colorReset+" for available commands")
 		return false
 	}
@@ -259,7 +349,9 @@ func (r *REPL) printHelp() {
 	fmt.Fprintln(r.out)
 	fmt.Fprintln(r.out, colorCyan+"Usage:"+colorReset)
 	fmt.Fprintln(r.out, "  • Type Kylix code directly")
+	fmt.Fprintln(r.out, "  • Use "+colorYellow+"↑/↓ arrows"+colorReset+" to navigate history")
 	fmt.Fprintln(r.out, "  • Press Enter twice to execute multiline code")
+	fmt.Fprintln(r.out, "  • Press "+colorYellow+"Ctrl-C"+colorReset+" to cancel multiline input")
 	fmt.Fprintln(r.out, "  • Declarations (var, function, type) accumulate across sessions")
 	fmt.Fprintln(r.out, "  • Use "+colorYellow+":decls"+colorReset+" to see what's been declared")
 	fmt.Fprintln(r.out)
@@ -295,9 +387,10 @@ func (r *REPL) printDeclarations() {
 func (r *REPL) saveSession(filename string) {
 	var content strings.Builder
 
-	// Write declarations
+	// Write as a proper Kylix program
+	content.WriteString("program SavedSession;\n\n")
+
 	if len(r.declarations) > 0 {
-		content.WriteString("// Declarations\n")
 		for _, decl := range r.declarations {
 			content.WriteString(decl)
 			content.WriteString("\n\n")
@@ -306,7 +399,7 @@ func (r *REPL) saveSession(filename string) {
 
 	// Write history as comments
 	if len(r.history) > 0 {
-		content.WriteString("\n// Command History\n")
+		content.WriteString("// Command History\n")
 		for i, cmd := range r.history {
 			content.WriteString(fmt.Sprintf("// %d: %s\n", i+1, strings.ReplaceAll(cmd, "\n", "\\n")))
 		}
@@ -314,13 +407,13 @@ func (r *REPL) saveSession(filename string) {
 
 	err := os.WriteFile(filename, []byte(content.String()), 0644)
 	if err != nil {
-		fmt.Fprintf(r.out, colorRed+"Error saving session: %v"+colorReset+"\n", err)
+		fmt.Fprintf(r.errOut, colorRed+"Error saving session: %v"+colorReset+"\n", err)
 	} else {
 		fmt.Fprintf(r.out, colorGreen+"✓ Session saved to %s"+colorReset+"\n", filename)
 	}
 }
 
-func (r *REPL) execute(code string, isDecl bool) {
+func (r *REPL) execute(code string) {
 	// Build complete program with accumulated declarations
 	var fullCode strings.Builder
 
@@ -363,9 +456,9 @@ func (r *REPL) execute(code string, isDecl bool) {
 	program := p.ParseProgram()
 
 	if len(p.Errors()) > 0 {
-		fmt.Fprintln(r.out, colorRed+"Errors:"+colorReset)
+		fmt.Fprintln(r.errOut, colorRed+"Errors:"+colorReset)
 		for _, err := range p.Errors() {
-			fmt.Fprintf(r.out, "  "+colorRed+"✗ %s"+colorReset+"\n", err)
+			fmt.Fprintf(r.errOut, "  "+colorRed+"✗ %s"+colorReset+"\n", err)
 		}
 		return
 	}
@@ -378,16 +471,16 @@ func (r *REPL) execute(code string, isDecl bool) {
 	tmpDir := os.TempDir()
 	tmpFile := filepath.Join(tmpDir, "kylix_repl.go")
 	if err := os.WriteFile(tmpFile, []byte(goCode), 0644); err != nil {
-		fmt.Fprintf(r.out, colorRed+"Error writing temp file: %v"+colorReset+"\n", err)
+		fmt.Fprintf(r.errOut, colorRed+"Error writing temp file: %v"+colorReset+"\n", err)
 		return
 	}
 	defer os.Remove(tmpFile)
 
-	// Run with go run
+	// Run with go run — stdout goes to r.out, stderr goes to r.errOut
 	cmd := exec.Command("go", "run", tmpFile)
 	cmd.Stdout = r.out
-	cmd.Stderr = r.out
+	cmd.Stderr = r.errOut
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(r.out, colorRed+"Runtime error: %v"+colorReset+"\n", err)
+		fmt.Fprintf(r.errOut, colorRed+"Runtime error: %v"+colorReset+"\n", err)
 	}
 }

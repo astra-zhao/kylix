@@ -531,6 +531,14 @@ func (g *Generator) scanImports(program *ast.Program) {
 			g.imports["kylix/stdlib"] = true
 		case "autoconfig":
 			g.imports["kylix/stdlib"] = true
+		case "sysutil":
+			g.imports["kylix/stdlib"] = true
+		case "jsonutil":
+			g.imports["kylix/stdlib"] = true
+		case "datetime":
+			g.imports["kylix/stdlib"] = true
+		case "regex":
+			g.imports["kylix/stdlib"] = true
 		}
 	}
 

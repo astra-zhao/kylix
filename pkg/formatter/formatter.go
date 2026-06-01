@@ -3,6 +3,7 @@ package formatter
 import (
 	"fmt"
 	"kylix/ast"
+	"kylix/token"
 	"strings"
 )
 
@@ -247,7 +248,12 @@ func (f *Formatter) formatVarDecl(decl *ast.VarDecl) {
 
 func (f *Formatter) formatConstDecl(decl *ast.ConstDecl) {
 	f.writeIndent()
-	f.write(decl.Name + " = ")
+	f.write(decl.Name)
+	if decl.Type != nil {
+		f.write(": ")
+		f.formatType(decl.Type)
+	}
+	f.write(" = ")
 	f.formatExpression(decl.Value)
 	f.write(";\n")
 }
@@ -344,6 +350,12 @@ func (f *Formatter) formatClassDecl(decl *ast.ClassDecl) {
 
 	f.indent++
 
+	// Visibility modifier (if not default public)
+	if decl.Visibility != token.PUBLIC && decl.Visibility != "" {
+		f.writeIndent()
+		f.write(string(decl.Visibility) + "\n")
+	}
+
 	// Fields
 	if len(decl.Fields) > 0 {
 		f.writeIndent()
@@ -354,6 +366,11 @@ func (f *Formatter) formatClassDecl(decl *ast.ClassDecl) {
 		}
 		f.indent--
 		f.writeLine("")
+	}
+
+	// Properties
+	for _, prop := range decl.Properties {
+		f.formatPropertyDecl(prop)
 	}
 
 	// Methods

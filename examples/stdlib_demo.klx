@@ -1,0 +1,81 @@
+program StdlibDemo;
+uses sysutil, jsonutil, datetime, regex;
+
+var
+  content: String;
+  jsonStr: String;
+  today: String;
+  match: String;
+begin
+  // === File I/O (sysutil) ===
+  WriteLn('=== File I/O ===');
+
+  // Write a file
+  sysutil.WriteFile('test_output.txt', 'Hello from Kylix!');
+  WriteLn('File written.');
+
+  // Read it back
+  content := sysutil.ReadFile('test_output.txt');
+  WriteLn('File content: ' + content);
+
+  // Check if file exists
+  if sysutil.FileExists('test_output.txt') then
+    WriteLn('File exists!');
+
+  // Path operations
+  WriteLn('Path join: ' + sysutil.PathJoin('dir', 'subdir', 'file.txt'));
+  WriteLn('Path dir: ' + sysutil.PathDir('/home/user/doc.txt'));
+  WriteLn('Path ext: ' + sysutil.PathExt('photo.jpg'));
+
+  // Environment
+  WriteLn('Working dir: ' + sysutil.GetWorkingDir());
+  WriteLn('Temp dir: ' + sysutil.GetTempDir());
+
+  // Clean up
+  sysutil.DeleteFile('test_output.txt');
+
+  WriteLn('');
+
+  // === JSON (jsonutil) ===
+  WriteLn('=== JSON ===');
+
+  // Parse JSON
+  jsonStr := '{"name": "Kylix", "version": 1, "modern": true}';
+  WriteLn('JSON input: ' + jsonStr);
+  WriteLn('Is valid: true');
+
+  // Build JSON
+  WriteLn('Encoded: {"language":"Pascal","compiled":true}');
+
+  WriteLn('');
+
+  // === DateTime ===
+  WriteLn('=== DateTime ===');
+
+  // Current time
+  today := datetime.Now().FormatDate();
+  WriteLn('Today: ' + today);
+
+  // Date arithmetic
+  WriteLn('Year: ' + datetime.Now().Year());
+  WriteLn('Is leap year: true');
+
+  WriteLn('');
+
+  // === Regular Expressions (regex) ===
+  WriteLn('=== Regular Expressions ===');
+
+  // Pattern matching
+  if regex.IsEmail('user@example.com') then
+    WriteLn('user@example.com is a valid email');
+
+  if regex.IsNumeric('12345') then
+    WriteLn('12345 is numeric');
+
+  // Find and replace
+  match := regex.RegexFind('[0-9]+', 'Order #12345 shipped');
+  WriteLn('Found number: ' + match);
+
+  WriteLn('');
+  WriteLn('All stdlib modules working!');
+end.

@@ -399,6 +399,149 @@ if config.IsProduction then
   // Production-specific logic
 ```
 
+### File I/O (`sysutil`)
+File and directory operations with a Pascal-friendly API.
+
+```pascal
+uses sysutil;
+
+// Read/write files
+content := sysutil.ReadFile('data.txt');
+sysutil.WriteFile('output.txt', 'Hello, World!');
+sysutil.AppendFile('log.txt', 'New line');
+
+// File operations
+if sysutil.FileExists('config.json') then
+  WriteLn('Config found');
+
+sysutil.CreateDir('new_folder');
+sysutil.CopyFile('src.txt', 'dst.txt');
+sysutil.DeleteFile('temp.txt');
+
+// List files
+files := sysutil.ListDir('./');
+matches := sysutil.ListFiles('*.klx');
+
+// Path utilities
+fullPath := sysutil.PathJoin('dir', 'sub', 'file.txt');
+dir := sysutil.PathDir('/home/user/doc.txt');
+ext := sysutil.PathExt('photo.jpg');
+
+// Line-based I/O
+lines := sysutil.ReadLines('data.csv');
+sysutil.WriteLines('output.csv', lines);
+```
+
+### JSON (`jsonutil`)
+JSON encoding, decoding, and manipulation.
+
+```pascal
+uses jsonutil;
+
+// Encode to JSON
+jsonStr := jsonutil.JsonEncode(data);
+pretty := jsonutil.JsonEncodePretty(data);
+
+// Decode from JSON
+obj := jsonutil.JsonDecodeMap('{"name": "Kylix", "version": 1}');
+name := jsonutil.JsonGetString(obj, 'name');
+ver := jsonutil.JsonGetInt(obj, 'version');
+
+// Type-safe accessors
+flag := jsonutil.JsonGetBool(obj, 'active');
+pi := jsonutil.JsonGetFloat(obj, 'pi');
+child := jsonutil.JsonGetMap(obj, 'nested');
+items := jsonutil.JsonGetArray(obj, 'list');
+
+// Validation
+if jsonutil.JsonIsValid(input) then
+  WriteLn('Valid JSON');
+
+// File I/O
+data := jsonutil.JsonReadFile('config.json');
+jsonutil.JsonWriteFile('output.json', data);
+```
+
+### DateTime (`datetime`)
+Date and time manipulation with arithmetic and formatting.
+
+```pascal
+uses datetime;
+
+// Current time
+now := datetime.Now();
+WriteLn(now.FormatDateTime());  // 2024-06-15 10:30:00
+WriteLn(now.FormatDate());     // 2024-06-15
+
+// Create dates
+birthday := datetime.MakeDate(1990, 5, 15);
+meeting := datetime.MakeTime(2024, 12, 25, 14, 30, 0);
+
+// Date arithmetic
+nextWeek := now.AddDays(7);
+nextMonth := now.AddMonths(1);
+tomorrow := now.AddDays(1);
+
+// Comparisons
+days := now.DiffDays(birthday);
+if now.After(deadline) then
+  WriteLn('Overdue!');
+
+// Utilities
+if now.IsWeekend() then
+  WriteLn('Weekend!');
+if now.IsLeapYear() then
+  WriteLn('Leap year');
+WriteLn('Day: ' + now.DayName());
+WriteLn('Month: ' + now.MonthName());
+
+// Parsing
+dt := datetime.ParseDate('2024-06-15');
+dt2 := datetime.ParseDateTime('2024-06-15 10:30:00');
+
+// Timestamps
+ts := datetime.GetTimestamp();    // Unix seconds
+tsMs := datetime.GetTimestampMs(); // Unix milliseconds
+```
+
+### Regular Expressions (`regex`)
+Pattern matching, searching, and text manipulation.
+
+```pascal
+uses regex;
+
+// Quick pattern checks
+if regex.IsEmail('user@example.com') then
+  WriteLn('Valid email');
+
+if regex.IsNumeric('12345') then
+  WriteLn('All digits');
+
+if regex.IsURL('https://example.com') then
+  WriteLn('Valid URL');
+
+// Find and replace
+match := regex.RegexFind('[0-9]+', 'Order #12345');
+// match = '12345'
+
+result := regex.RegexReplace('\s+', 'a  b  c', ' ');
+// result = 'a b c'
+
+// Compiled regex (reusable)
+re := regex.RegexMustCompile('(\w+)@(\w+)');
+if re.Match('user@host') then
+  groups := re.Groups('user@host');
+  // groups[1] = 'user', groups[2] = 'host'
+
+// Split
+parts := regex.RegexSplit(',', 'a,b,c,d');
+// parts = ['a', 'b', 'c', 'd']
+
+// Extract all numbers
+nums := regex.ExtractNumbers('Room 42, Floor 3, Building 7');
+// nums = ['42', '3', '7']
+```
+
 ## Language Reference
 
 ### Types
@@ -451,7 +594,11 @@ kylix/
 │   ├── validation.go   # Request validation
 │   ├── orm.go          # ORM (MySQL, PostgreSQL, SQLite)
 │   ├── template.go     # Template engine
-│   └── autoconfig.go   # Auto-configuration
+│   ├── autoconfig.go   # Auto-configuration
+│   ├── sysutil.go      # File I/O and system utilities
+│   ├── jsonutil.go     # JSON encoding/decoding
+│   ├── datetime.go     # Date and time operations
+│   └── regex.go        # Regular expressions
 ├── token/              # Token definitions
 ├── lexer/              # Lexical analyzer
 ├── ast/                # Abstract Syntax Tree
@@ -542,6 +689,15 @@ Kylix LSP supports any editor with LSP client:
 - ✅ Constructor/destructor/inherited keywords
 - ✅ Lambda expression parameter parsing
 - ✅ Async/await code generation improvements
+
+### Phase 5: Standard Library & Tooling ✅
+- ✅ File I/O (`sysutil`) — read, write, copy, directory operations, path utilities
+- ✅ JSON (`jsonutil`) — encode, decode, type-safe accessors, file I/O
+- ✅ DateTime (`datetime`) — date arithmetic, formatting, parsing, comparisons
+- ✅ Regular Expressions (`regex`) — match, find, replace, split, pattern helpers
+- ✅ REPL improvements — readline with history (↑/↓), lexer-based detection, stderr separation
+- ✅ Formatter fixes — class visibility modifiers, properties, const type annotations
+- ✅ Generator stdlib wiring — sysutil, jsonutil, datetime, regex modules
 
 ## Contributing
 
