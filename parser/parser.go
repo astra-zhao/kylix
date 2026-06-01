@@ -84,6 +84,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(token.LPAREN, p.parseGroupedExpression)
 	p.registerPrefix(token.LBRACKET, p.parseArrayLiteral)
 	p.registerPrefix(token.AWAIT, p.parseAwaitExpression)
+	p.registerPrefix(token.SELF, p.parseSelfExpression)
 
 	p.infixParseFns = make(map[token.TokenType]infixParseFn)
 	p.registerInfix(token.PLUS, p.parseInfixExpression)
@@ -255,7 +256,7 @@ func (p *Parser) ParseProgram() *ast.Program {
 					p.nextToken()
 				}
 			}
-		} else if p.curTokenIs(token.FUNCTION) || p.curTokenIs(token.PROCEDURE) {
+		} else if p.curTokenIs(token.FUNCTION) || p.curTokenIs(token.PROCEDURE) || p.curTokenIs(token.ASYNC) {
 			decl := p.parseFunctionDecl()
 			if decl != nil {
 				program.Declarations = append(program.Declarations, decl)
@@ -329,6 +330,8 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseTryStatement()
 	case token.RAISE:
 		return p.parseRaiseStatement()
+	case token.INHERITED:
+		return p.parseInheritedStatement()
 	case token.BREAK:
 		tok := p.curToken
 		p.nextToken()
@@ -428,6 +431,7 @@ func (p *Parser) parseSingleConstDecl() *ast.ConstDecl {
 // Examples:
 //   TPoint = record ... end;
 //   TIntList = array of Integer;
+//   TList<T> = class ... end;
 func (p *Parser) parseSingleTypeDecl() *ast.TypeDecl {
 	decl := &ast.TypeDecl{}
 
@@ -437,9 +441,29 @@ func (p *Parser) parseSingleTypeDecl() *ast.TypeDecl {
 		p.nextToken()
 	}
 
+	// Parse optional generic type parameters: TList<T> or TMap<K, V>
+	var typeParams []*ast.TypeParameter
+	if p.curTokenIs(token.LT) {
+		typeParams = p.parseTypeParameterList()
+	}
+
 	if p.curTokenIs(token.ASSIGN) {
 		p.nextToken()
-		decl.Type = p.parseTypeExpression()
+
+		// Handle class, interface, and record declarations
+		if p.curTokenIs(token.CLASS) {
+			classDecl := p.parseClassDecl()
+			// Name is already set on the type declaration
+			classDecl.Name = decl.Name
+			classDecl.TypeParams = typeParams
+			decl.Type = classDecl
+		} else if p.curTokenIs(token.INTERFACE) {
+			iface := p.parseInterfaceDecl()
+			iface.Name = decl.Name
+			decl.Type = iface
+		} else {
+			decl.Type = p.parseTypeExpression()
+		}
 	}
 
 	return decl
@@ -456,11 +480,19 @@ func (p *Parser) parseFunctionDecl() *ast.FunctionDecl {
 
 	decl.Token = p.curToken // Store 'function' or 'procedure' keyword position
 	isProcedure := p.curTokenIs(token.PROCEDURE)
-	p.nextToken() // skip function/procedure
+	isConstructor := p.curTokenIs(token.CONSTRUCTOR)
+	isDestructor := p.curTokenIs(token.DESTRUCTOR)
+	hasFuncKeyword := !isConstructor && !isDestructor
+	p.nextToken() // skip function/procedure/constructor/destructor
 
 	if p.curTokenIs(token.IDENT) {
 		decl.Name = p.curToken.Literal
 		p.nextToken()
+	}
+
+	// Parse optional generic type parameters: Foo<T> or Swap<T, U>
+	if p.curTokenIs(token.LT) {
+		decl.TypeParams = p.parseTypeParameterList()
 	}
 
 	// Parse parameters
@@ -468,14 +500,24 @@ func (p *Parser) parseFunctionDecl() *ast.FunctionDecl {
 		decl.Parameters = p.parseParameterList()
 	}
 
-	// Parse return type (for functions)
-	if !isProcedure && p.curTokenIs(token.COLON) {
+	// Parse return type (for functions only, not procedures/constructors/destructors)
+	if !isProcedure && hasFuncKeyword && p.curTokenIs(token.COLON) {
 		p.nextToken()
 		decl.ReturnType = p.parseTypeExpression()
 	}
 
 	if p.curTokenIs(token.SEMICOLON) {
 		p.nextToken()
+	}
+
+	// Parse virtual/override/abstract modifiers
+	if p.curTokenIs(token.VIRTUAL) || p.curTokenIs(token.OVERRIDE) ||
+		p.curTokenIs(token.ABSTRACT) || p.curTokenIs(token.STATIC) ||
+		p.curTokenIs(token.DYNAMIC) {
+		p.nextToken()
+		if p.curTokenIs(token.SEMICOLON) {
+			p.nextToken()
+		}
 	}
 
 	// Parse body
@@ -528,6 +570,40 @@ func (p *Parser) parseParameterList() []*ast.Parameter {
 	}
 
 	p.nextToken() // skip ')'
+	return params
+}
+
+// parseTypeParameterList parses <T, U: SomeConstraint, V>
+// Called after LT has been consumed; advances to token after GT
+func (p *Parser) parseTypeParameterList() []*ast.TypeParameter {
+	params := []*ast.TypeParameter{}
+	p.nextToken() // skip '<'
+
+	for !p.curTokenIs(token.GT) && !p.curTokenIs(token.EOF) {
+		tp := &ast.TypeParameter{}
+		if p.curTokenIs(token.IDENT) {
+			tp.Token = p.curToken
+			tp.Name = p.curToken.Literal
+			p.nextToken()
+		}
+
+		// Optional constraint: T: SomeType
+		if p.curTokenIs(token.COLON) {
+			p.nextToken()
+			tp.Constraint = p.parseTypeExpression()
+		}
+
+		params = append(params, tp)
+
+		if p.curTokenIs(token.COMMA) {
+			p.nextToken()
+		}
+	}
+
+	if p.curTokenIs(token.GT) {
+		p.nextToken()
+	}
+
 	return params
 }
 
@@ -815,12 +891,66 @@ func (p *Parser) parseTryStatement() *ast.TryStatement {
 
 	if p.curTokenIs(token.BEGIN) {
 		stmt.Body = p.parseBlockStatement()
+	} else {
+		// Try body without begin...end — parse statements until except/finally/end
+		stmt.Body = &ast.BlockStatement{}
+		for !p.curTokenIs(token.EXCEPT) && !p.curTokenIs(token.FINALLY) &&
+			!p.curTokenIs(token.END) && !p.curTokenIs(token.EOF) {
+			s := p.parseStatement()
+			if s != nil {
+				stmt.Body.Statements = append(stmt.Body.Statements, s)
+			} else if !p.curTokenIs(token.SEMICOLON) {
+				p.nextToken()
+			}
+			for p.curTokenIs(token.SEMICOLON) {
+				p.nextToken()
+			}
+		}
 	}
 
 	if p.curTokenIs(token.EXCEPT) {
 		p.nextToken()
-		if p.curTokenIs(token.BEGIN) {
-			stmt.ExceptBlock = p.parseBlockStatement()
+		// Parse ON clauses and optional else block
+		for !p.curTokenIs(token.END) && !p.curTokenIs(token.FINALLY) && !p.curTokenIs(token.EOF) {
+			if p.curTokenIs(token.ON) {
+				onClause := p.parseOnClause()
+				if onClause != nil {
+					stmt.OnClauses = append(stmt.OnClauses, onClause)
+				}
+			} else if p.curTokenIs(token.ELSE) {
+				// 'else' clause in except block
+				p.nextToken() // skip 'else'
+				if stmt.ExceptBlock == nil {
+					stmt.ExceptBlock = &ast.BlockStatement{}
+				}
+				for !p.curTokenIs(token.END) && !p.curTokenIs(token.FINALLY) &&
+					!p.curTokenIs(token.EOF) {
+					s := p.parseStatement()
+					if s != nil {
+						stmt.ExceptBlock.Statements = append(stmt.ExceptBlock.Statements, s)
+					} else if !p.curTokenIs(token.SEMICOLON) {
+						p.nextToken()
+					}
+					for p.curTokenIs(token.SEMICOLON) {
+						p.nextToken()
+					}
+				}
+			} else {
+				// Regular statements = else part of except block
+				if stmt.ExceptBlock == nil {
+					stmt.ExceptBlock = &ast.BlockStatement{}
+				}
+				s := p.parseStatement()
+				if s != nil {
+					stmt.ExceptBlock.Statements = append(stmt.ExceptBlock.Statements, s)
+				} else if !p.curTokenIs(token.SEMICOLON) {
+					// Skip unknown token to avoid infinite loop
+					p.nextToken()
+				}
+			}
+			for p.curTokenIs(token.SEMICOLON) {
+				p.nextToken()
+			}
 		}
 	}
 
@@ -838,12 +968,48 @@ func (p *Parser) parseTryStatement() *ast.TryStatement {
 	return stmt
 }
 
+func (p *Parser) parseOnClause() *ast.OnClause {
+	clause := &ast.OnClause{Token: p.curToken}
+	p.nextToken() // skip 'on'
+
+	// Parse variable name (e.g., "E" in "on E: ExceptionType do")
+	if p.curTokenIs(token.IDENT) {
+		clause.Variable = p.curToken.Literal
+		p.nextToken()
+	}
+
+	// Parse : Type
+	if p.curTokenIs(token.COLON) {
+		p.nextToken()
+		clause.Type = p.parseTypeExpression()
+	}
+
+	// Parse 'do'
+	if p.curTokenIs(token.DO) {
+		p.nextToken()
+	}
+
+	// Parse body (single statement or block)
+	if p.curTokenIs(token.BEGIN) {
+		clause.Body = p.parseBlockStatement()
+	} else {
+		s := p.parseStatement()
+		if s != nil {
+			clause.Body = &ast.BlockStatement{Statements: []ast.Statement{s}}
+		}
+	}
+
+	return clause
+}
+
 func (p *Parser) parseRaiseStatement() *ast.RaiseStatement {
 	stmt := &ast.RaiseStatement{Token: p.curToken}
 	p.nextToken() // skip 'raise'
 
 	if !p.curTokenIs(token.SEMICOLON) {
 		stmt.Exception = p.parseExpression(LOWEST)
+		// Advance past the expression's last token so ; is at curToken
+		p.nextToken()
 	}
 
 	return stmt
@@ -860,6 +1026,24 @@ func (p *Parser) parseReturnStatement() *ast.ReturnStatement {
 	return stmt
 }
 
+// parseInheritedStatement handles: inherited; or inherited Create(args);
+func (p *Parser) parseInheritedStatement() *ast.InheritedStatement {
+	stmt := &ast.InheritedStatement{Token: p.curToken}
+	p.nextToken() // skip 'inherited'
+
+	// inherits keyword only appears in statement context in Pascal
+	if !p.curTokenIs(token.SEMICOLON) {
+		stmt.Expr = p.parseExpression(LOWEST)
+	}
+
+	// Advance to after the semicolon
+	for p.peekTokenIs(token.SEMICOLON) {
+		p.nextToken()
+	}
+
+	return stmt
+}
+
 func (p *Parser) parseClassDecl() *ast.ClassDecl {
 	decl := &ast.ClassDecl{Visibility: token.PUBLIC}
 	p.nextToken() // skip 'class'
@@ -867,6 +1051,11 @@ func (p *Parser) parseClassDecl() *ast.ClassDecl {
 	if p.curTokenIs(token.IDENT) {
 		decl.Name = p.curToken.Literal
 		p.nextToken()
+	}
+
+	// Parse optional generic type parameters: class TList<T>
+	if p.curTokenIs(token.LT) {
+		decl.TypeParams = p.parseTypeParameterList()
 	}
 
 	// Parse inheritance
@@ -920,9 +1109,13 @@ func (p *Parser) parseClassDecl() *ast.ClassDecl {
 					p.nextToken()
 				}
 			}
-		} else if p.curTokenIs(token.FUNCTION) || p.curTokenIs(token.PROCEDURE) {
+		} else if p.curTokenIs(token.FUNCTION) || p.curTokenIs(token.PROCEDURE) || p.curTokenIs(token.CONSTRUCTOR) || p.curTokenIs(token.DESTRUCTOR) {
 			method := p.parseFunctionDecl()
 			if method != nil {
+				// Mark constructor/destructor
+				if p.curTokenIs(token.CONSTRUCTOR) || p.curTokenIs(token.DESTRUCTOR) {
+					// Will handle semantic marking in a later pass
+				}
 				decl.Methods = append(decl.Methods, method)
 			}
 		} else if p.curTokenIs(token.PROPERTY) {
@@ -1134,6 +1327,10 @@ func (p *Parser) parseNilLiteral() ast.Expression {
 	return &ast.NilLiteral{Token: p.curToken}
 }
 
+func (p *Parser) parseSelfExpression() ast.Expression {
+	return &ast.Identifier{Token: p.curToken, Value: "self"}
+}
+
 func (p *Parser) parsePrefixExpression() ast.Expression {
 	expression := &ast.PrefixExpression{
 		Token:    p.curToken,
@@ -1162,7 +1359,7 @@ func (p *Parser) parseGroupedExpression() ast.Expression {
 	openParen := p.curToken
 	p.nextToken()
 
-	// Check for lambda: (params) -> body
+	// Check for lambda: () -> body (empty params)
 	if p.curTokenIs(token.RPAREN) && p.peekTokenIs(token.ARROW) {
 		p.nextToken() // skip )
 		p.nextToken() // skip ->
@@ -1174,6 +1371,14 @@ func (p *Parser) parseGroupedExpression() ast.Expression {
 		}
 	}
 
+	// Check for lambda with parameters: (x: Integer) -> expr
+	// Pascal has no syntax like (ident: type) in expression context,
+	// so (IDENT : ...) always means lambda parameters
+	if p.curTokenIs(token.IDENT) && p.peekTokenIs(token.COLON) {
+		return p.tryParseLambdaParams(openParen)
+	}
+
+	// Not a lambda — parse as parenthesized expression
 	exp := p.parseExpression(LOWEST)
 
 	if !p.expectPeek(token.RPAREN) {
@@ -1181,6 +1386,69 @@ func (p *Parser) parseGroupedExpression() ast.Expression {
 	}
 
 	return exp
+}
+
+// tryParseLambdaParams attempts to parse a lambda expression with parameters
+func (p *Parser) tryParseLambdaParams(openParen token.Token) ast.Expression {
+	// Save position for potential rollback
+	params := make([]*ast.Parameter, 0)
+
+	// Parse first parameter
+	for !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
+		param := &ast.Parameter{}
+
+		if p.curTokenIs(token.IDENT) {
+			param.Token = p.curToken
+			param.Name = p.curToken.Literal
+			p.nextToken()
+
+			if p.curTokenIs(token.COLON) {
+				p.nextToken()
+				param.Type = p.parseTypeExpression()
+			}
+
+			params = append(params, param)
+
+			// Handle semicolon-separated parameter groups
+			if p.curTokenIs(token.SEMICOLON) {
+				p.nextToken()
+				continue
+			}
+
+			if p.curTokenIs(token.COMMA) {
+				p.nextToken()
+				continue
+			}
+		} else {
+			// Not a valid parameter, give up
+			return nil
+		}
+	}
+
+	// After parsing parameters, we must have RPAREN followed by ARROW
+	if !p.curTokenIs(token.RPAREN) {
+		return nil
+	}
+	p.nextToken() // skip ')'
+
+	if !p.curTokenIs(token.ARROW) {
+		return nil
+	}
+	p.nextToken() // skip ->
+
+	// Parse lambda body (expression or block)
+	var body ast.Node
+	if p.curTokenIs(token.BEGIN) {
+		body = p.parseBlockStatement()
+	} else {
+		body = p.parseExpression(LOWEST)
+	}
+
+	return &ast.LambdaExpression{
+		Token:      openParen,
+		Parameters: params,
+		Body:       body,
+	}
 }
 
 func (p *Parser) parseArrayLiteral() ast.Expression {

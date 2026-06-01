@@ -16,14 +16,15 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 ### Modern Additions
 - **Type Inference**: `var x := 42;`
 - **Lambda Expressions**: `var square = (x: Integer) -> x * x;`
-- **Generics**: `TList<T>`
+- **Generics**: Declare type parameters: `TList<T>`, `function Foo<T>(x: T): T`
+- **Generic Type References**: `TList<Integer>`, `TPair<String, Integer>`
 - **Async/Await**: `async function FetchData(): String;`
 - **Pattern Matching**: `match value { 0 => 'zero', _ => 'other' }`
 - **Classes & Interfaces**: Object-oriented programming support
 - **Properties**: With getters and setters
 - **ForEach Loops**: `for item in collection do`
 - **String Interpolation**: `'Hello, ${name}!'`
-- **Modern Exception Handling**: try/except/finally
+- **Modern Exception Handling**: try/except/finally, `on E: Type do` clauses
 
 ## Installation
 
@@ -145,21 +146,36 @@ end;
 var data := await FetchData('http://example.com');
 ```
 
-### Exception Handling
+### Exception Handling with ON Clause
 ```pascal
 try
-begin
-  var result := Divide(10, 0);
-end
+  raise Exception.Create('test');
 except
-begin
-  WriteLn('An error occurred');
-end
-finally
-begin
-  WriteLn('Cleanup code');
-end
+  on E: Exception do
+    WriteLn('Caught: ' + E.Message);
+  else
+    WriteLn('Unknown exception');
 end;
+```
+
+### Generic Classes and Functions
+```pascal
+type
+  TPair<T1, T2> = class
+    First: T1;
+    Second: T2;
+  end;
+
+function CreatePair<T>(x: T; y: T): TPair<T, T>;
+begin
+  Result := TPair<T, T>.Create;
+end;
+
+var
+  pair: TPair<Integer, String>;
+begin
+  pair := CreatePair<Integer>(42, 'hello');
+end.
 ```
 
 ### Anonymous Procedures & Functions
@@ -502,7 +518,7 @@ Kylix LSP supports any editor with LSP client:
 - ✅ Interactive REPL
 - ✅ Comprehensive documentation
 
-### Phase 3: Framework (In Progress)
+### Phase 3: Framework ✅
 - ✅ Web server (based on Go net/http)
 - ✅ Routing system (GET, POST, PUT, DELETE)
 - ✅ Path parameters (`/users/:id` syntax)
@@ -519,6 +535,13 @@ Kylix LSP supports any editor with LSP client:
 - ✅ ORM (MySQL, PostgreSQL, SQLite support)
 - ✅ Template engine (layouts, partials, custom functions)
 - ✅ Auto-configuration (multi-source config loading)
+
+### Phase 4: Language Enhancements ✅
+- ✅ Generic type parameter declarations (classes and functions)
+- ✅ Exception handling with ON clause (`on E: ExceptionType do`)
+- ✅ Constructor/destructor/inherited keywords
+- ✅ Lambda expression parameter parsing
+- ✅ Async/await code generation improvements
 
 ## Contributing
 

@@ -67,6 +67,7 @@ func (t *TypeDecl) TokenLiteral() string { return t.Token.Literal }
 type FunctionDecl struct {
 	Token      token.Token // NEW: the 'function' or 'procedure' keyword
 	Name       string
+	TypeParams []*TypeParameter // generic type parameters (Go 1.18+)
 	Parameters []*Parameter
 	ReturnType Expression
 	Body       *BlockStatement
@@ -76,6 +77,13 @@ type FunctionDecl struct {
 
 func (f *FunctionDecl) statementNode()       {}
 func (f *FunctionDecl) TokenLiteral() string { return f.Token.Literal }
+
+// TypeParameter represents a generic type parameter
+type TypeParameter struct {
+	Token      token.Token // the identifier token
+	Name       string
+	Constraint Expression // optional constraint (e.g. "constraint" or type name)
+}
 
 type Parameter struct {
 	Token token.Token // NEW: the parameter name token
@@ -207,10 +215,22 @@ type MatchBranch struct {
 	Body    *BlockStatement
 }
 
+// On Clause (exception filter: on E: ExceptionType do)
+type OnClause struct {
+	Token    token.Token // the 'on' keyword
+	Variable string      // E
+	Type     Expression  // ExceptionType
+	Body     *BlockStatement
+}
+
+func (o *OnClause) statementNode()       {}
+func (o *OnClause) TokenLiteral() string { return o.Token.Literal }
+
 // Try Statement
 type TryStatement struct {
 	Token        token.Token // NEW: the 'try' keyword
 	Body         *BlockStatement
+	OnClauses    []*OnClause  // on E: Type do clauses (Modern Pascal)
 	ExceptBlock  *BlockStatement
 	FinallyBlock *BlockStatement
 }
@@ -243,10 +263,20 @@ type ContinueStatement struct {
 func (c *ContinueStatement) statementNode()       {}
 func (c *ContinueStatement) TokenLiteral() string { return c.Token.Literal }
 
+// Inherited Statement
+type InheritedStatement struct {
+	Token token.Token // the 'inherited' keyword
+	Expr  Expression  // Optional: inherited MethodName(args)
+}
+
+func (is *InheritedStatement) statementNode()       {}
+func (is *InheritedStatement) TokenLiteral() string { return is.Token.Literal }
+
 // Class Declaration
 type ClassDecl struct {
 	Token      token.Token // NEW: the 'class' keyword
 	Name       string
+	TypeParams []*TypeParameter // generic type parameters
 	Parent     string
 	Interfaces []string
 	Fields     []*VarDecl
@@ -256,6 +286,7 @@ type ClassDecl struct {
 }
 
 func (c *ClassDecl) statementNode()       {}
+func (c *ClassDecl) expressionNode()      {}
 func (c *ClassDecl) TokenLiteral() string { return c.Token.Literal }
 
 // Interface Declaration
@@ -267,6 +298,7 @@ type InterfaceDecl struct {
 }
 
 func (i *InterfaceDecl) statementNode()       {}
+func (i *InterfaceDecl) expressionNode()      {}
 func (i *InterfaceDecl) TokenLiteral() string { return i.Token.Literal }
 
 // Property Declaration

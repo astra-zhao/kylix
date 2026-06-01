@@ -131,8 +131,12 @@ const (
 	EXIT      = "exit"
 	ASYNC     = "async"
 	AWAIT     = "await"
+	CONSTRUCTOR = "constructor"
+	DESTRUCTOR  = "destructor"
+	INHERITED   = "inherited"
 	MATCH     = "match"
 	WHEN      = "when"
+	ON        = "on"
 	IMPORT    = "import"
 	EXPORT    = "export"
 	MODULE    = "module"
@@ -220,8 +224,12 @@ var keywords = map[string]TokenType{
 	"exit":       EXIT,
 	"async":      ASYNC,
 	"await":      AWAIT,
+	"constructor": CONSTRUCTOR,
+	"destructor":  DESTRUCTOR,
+	"inherited":   INHERITED,
 	"match":      MATCH,
 	"when":       WHEN,
+		"on":         ON,
 	"import":     IMPORT,
 	"export":     EXPORT,
 	"module":     MODULE,

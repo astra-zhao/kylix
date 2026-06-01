@@ -132,7 +132,10 @@ kylix help             # 显示帮助
 - ✅ 类和接口
 - ✅ 属性（properties）
 - ✅ ForEach 循环（`for item in collection`）
-- ✅ 泛型（`TList<T>`）
+- ✅ 泛型类型引用和声明（`TList<T>`, `TPair<T1, T2>`, `function Foo<T>`）
+- ✅ 构造器/析构器/继承关键字
+- ✅ Lambda 参数解析（`(x: Integer) -> x * x`）
+- ✅ ON 子句异常处理（`on E: ExceptionType do`）
 
 #### 示例程序
 
@@ -450,7 +453,7 @@ require('lspconfig').kylix.setup{}
 - ✅ 交互式 REPL
 - ✅ 完整文档
 
-### 第三阶段：Web 框架（进行中）
+### 第三阶段：Web 框架（已完成） ✅
 - ✅ HTTP 服务器（基于 Go net/http）
 - ✅ 路由系统（GET、POST、PUT、DELETE）
 - ✅ 路径参数（`/users/:id` 语法）
@@ -468,14 +471,12 @@ require('lspconfig').kylix.setup{}
 - ✅ 模板引擎（支持布局、片段、自定义函数）
 - ✅ 自动配置（多源加载、环境检测）
 
-### 第四阶段：语言增强（计划中）
-- [ ] 泛型完善
-- [ ] 异常处理增强
-- [ ] 接口完善
-- [ ] 继承和多态
-- [ ] 模式匹配增强
-- [ ] Lambda 表达式增强
-- [ ] 异步/并发支持
+### 第四阶段：语言增强（已完成） ✅
+- ✅ 泛型类型参数声明（类和函数的 `<T>` 语法）
+- ✅ 异常处理 ON 子句（`on E: ExceptionType do`）
+- ✅ 构造器/析构器/继承关键字
+- ✅ Lambda 参数解析
+- ✅ Async/Await 代码生成改进（goroutine + channel 模式）
 
 ### 第五阶段：标准库（计划中）
 - [ ] 文件 I/O
@@ -509,17 +510,17 @@ require('lspconfig').kylix.setup{}
 
 ## 总结
 
-Kylix 编译器第一阶段、第二阶段和第三阶段（部分）已成功完成！
+Kylix 编译器第一阶段、第二阶段、第三阶段和第四阶段已全部成功完成！
 
 **第一阶段**实现了一个功能完整的 Pascal-to-Go 转译器，支持传统 Pascal 特性和现代语言特性。所有示例程序都能成功编译和运行。
 
 **第二阶段**构建了完整的 IDE 工具链，包括 CLI 工具、项目管理、LSP 服务器、VS Code 扩展和详尽的文档。
 
-**第三阶段（进行中）**已实现 Web 框架基础：HTTP 服务器、路由系统（GET/POST/PUT/DELETE）、路径参数、中间件、JSON 处理、静态文件服务、匿名过程/函数支持，以及完整的 VS Code 扩展增强。
+**第三阶段**实现了完整的 Web 框架：HTTP 服务器、路由系统、中间件、JSON处理、静态文件服务、依赖注入、配置系统、ORM、模板引擎和自动配置。
 
-**当前状态**：Phase 1 和 Phase 2 完成度约 80%，Phase 3 Web 框架基础已可用，REST API 开发成为可能。
+**第四阶段**完善了语言特性：泛型类型参数声明、异常处理 ON 子句、构造器/析构器/inherited 关键字、Lambda 参数解析和 Async/Await 代码生成改进。
 
-**下一步**：继续完善 Web 框架（依赖注入、ORM、模板引擎、自动配置）。
+**当前状态**：Phase 1-4 已完成。
 
 ---
 

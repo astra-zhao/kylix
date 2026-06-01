@@ -267,6 +267,22 @@ func (f *Formatter) formatFunctionDecl(decl *ast.FunctionDecl) {
 
 	f.write(decl.Name)
 
+	// Generic type parameters
+	if len(decl.TypeParams) > 0 {
+		f.write("<")
+		for i, tp := range decl.TypeParams {
+			if i > 0 {
+				f.write(", ")
+			}
+			f.write(tp.Name)
+			if tp.Constraint != nil {
+				f.write(": ")
+				f.formatType(tp.Constraint)
+			}
+		}
+		f.write(">")
+	}
+
 	// Parameters
 	if len(decl.Parameters) > 0 {
 		f.write("(")
@@ -299,6 +315,22 @@ func (f *Formatter) formatFunctionDecl(decl *ast.FunctionDecl) {
 func (f *Formatter) formatClassDecl(decl *ast.ClassDecl) {
 	f.writeIndent()
 	f.write("class " + decl.Name)
+
+	// Generic type parameters
+	if len(decl.TypeParams) > 0 {
+		f.write("<")
+		for i, tp := range decl.TypeParams {
+			if i > 0 {
+				f.write(", ")
+			}
+			f.write(tp.Name)
+			if tp.Constraint != nil {
+				f.write(": ")
+				f.formatType(tp.Constraint)
+			}
+		}
+		f.write(">")
+	}
 
 	if decl.Parent != "" {
 		f.write(" inherits " + decl.Parent)
@@ -433,6 +465,8 @@ func (f *Formatter) formatStatement(stmt interface{}) {
 		f.writeLine("break;")
 	case *ast.ContinueStatement:
 		f.writeLine("continue;")
+	case *ast.InheritedStatement:
+		f.formatInheritedStatement(s)
 	case *ast.ExpressionStatement:
 		f.writeIndent()
 		f.formatExpression(s.Expression)
@@ -611,7 +645,35 @@ func (f *Formatter) formatTryStatement(stmt *ast.TryStatement) {
 	f.write(";\n")
 	f.indent--
 
-	if stmt.ExceptBlock != nil {
+	if len(stmt.OnClauses) > 0 {
+		f.writeIndent()
+		f.write("except\n")
+		f.indent++
+		for _, on := range stmt.OnClauses {
+			f.writeIndent()
+			f.write("on " + on.Variable)
+			if on.Type != nil {
+				f.write(": ")
+				f.formatType(on.Type)
+			}
+			f.write(" do\n")
+			f.indent++
+			if on.Body != nil {
+				f.formatBlock(on.Body)
+			}
+			f.write(";\n")
+			f.indent--
+		}
+		if stmt.ExceptBlock != nil {
+			f.writeIndent()
+			f.write("else\n")
+			f.indent++
+			f.formatBlock(stmt.ExceptBlock)
+			f.write(";\n")
+			f.indent--
+		}
+		f.indent--
+	} else if stmt.ExceptBlock != nil {
 		f.writeIndent()
 		f.write("except\n")
 		f.indent++
@@ -649,6 +711,16 @@ func (f *Formatter) formatRaiseStatement(stmt *ast.RaiseStatement) {
 	if stmt.Exception != nil {
 		f.write(" ")
 		f.formatExpression(stmt.Exception)
+	}
+	f.write(";\n")
+}
+
+func (f *Formatter) formatInheritedStatement(stmt *ast.InheritedStatement) {
+	f.writeIndent()
+	f.write("inherited")
+	if stmt.Expr != nil {
+		f.write(" ")
+		f.formatExpression(stmt.Expr)
 	}
 	f.write(";\n")
 }

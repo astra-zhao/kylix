@@ -7,17 +7,21 @@ import (
 )
 
 type Generator struct {
-	output     strings.Builder
-	indent     int
-	program    *ast.Program
-	variables  map[string]string // track variable types
-	inFunction bool
-	imports    map[string]bool   // track which imports are needed
+	output          strings.Builder
+	indent          int
+	program         *ast.Program
+	variables       map[string]string // track variable types
+	inFunction      bool
+	inExceptHandler bool   // tracks if we're inside recover() for bare raise
+	reRaiseVar      string // variable name holding the recovered value for re-raise
+	nameMap         map[string]string // temporary name substitutions (e.g., E→e in on clause)
+	imports         map[string]bool // track which imports are needed
 }
 
 func New() *Generator {
 	return &Generator{
 		variables: make(map[string]string),
+		nameMap:   make(map[string]string),
 		imports:   make(map[string]bool),
 	}
 }
@@ -90,6 +94,12 @@ func (g *Generator) write(s string) {
 	g.output.WriteString(s)
 }
 
+func (g *Generator) writeIndent() {
+	for i := 0; i < g.indent; i++ {
+		g.output.WriteString("\t")
+	}
+}
+
 func (g *Generator) writeLine(s string) {
 	for i := 0; i < g.indent; i++ {
 		g.output.WriteString("\t")
@@ -99,6 +109,18 @@ func (g *Generator) writeLine(s string) {
 }
 
 func (g *Generator) generateTypeDecl(decl *ast.TypeDecl) {
+	// Handle class/interface declarations that are wrapped in TypeDecl
+	if classDecl, ok := decl.Type.(*ast.ClassDecl); ok {
+		classDecl.Name = decl.Name
+		g.generateClassDecl(classDecl)
+		return
+	}
+	if ifaceDecl, ok := decl.Type.(*ast.InterfaceDecl); ok {
+		ifaceDecl.Name = decl.Name
+		g.generateInterfaceDecl(ifaceDecl)
+		return
+	}
+
 	g.write(fmt.Sprintf("type %s ", decl.Name))
 	g.generateTypeExpression(decl.Type)
 	g.write("\n\n")
@@ -106,7 +128,10 @@ func (g *Generator) generateTypeDecl(decl *ast.TypeDecl) {
 
 func (g *Generator) generateClassDecl(decl *ast.ClassDecl) {
 	// Generate struct
-	g.writeLine(fmt.Sprintf("type %s struct {", decl.Name))
+	g.write("type ")
+	g.write(decl.Name)
+	g.generateTypeParams(decl.TypeParams)
+	g.writeLine(" struct {")
 	g.indent++
 
 	// Add parent embedding
@@ -133,7 +158,9 @@ func (g *Generator) generateClassDecl(decl *ast.ClassDecl) {
 
 	// Generate methods
 	for _, method := range decl.Methods {
-		g.write(fmt.Sprintf("func (self *%s) %s", decl.Name, method.Name))
+		g.write(fmt.Sprintf("func (self *%s", decl.Name))
+		g.generateTypeParams(decl.TypeParams)
+		g.write(fmt.Sprintf(") %s", method.Name))
 		g.generateFunctionSignature(method)
 		g.writeLine(" {")
 		g.indent++
@@ -207,16 +234,67 @@ func (g *Generator) generateConstDecl(decl *ast.ConstDecl) {
 }
 
 func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
+	hasReturnType := decl.ReturnType != nil
+
 	if decl.IsAsync {
-		g.write("async ")
+		// Async function: generate func(...) <-chan ReturnType { ... }
+		g.write(fmt.Sprintf("func %s", decl.Name))
+		g.generateTypeParams(decl.TypeParams)
+		g.generateAsyncSignature(decl)
+		g.writeLine(" {")
+		g.indent++
+
+		// Create channel
+		if hasReturnType {
+			g.write("ch := make(chan ")
+			g.generateTypeExpression(decl.ReturnType)
+			g.writeLine(", 1)")
+		} else {
+			g.writeLine("ch := make(chan bool, 1)")
+		}
+
+		// Launch goroutine
+		g.writeLine("go func() {")
+		g.indent++
+
+		if hasReturnType {
+			g.write("var result ")
+			g.generateTypeExpression(decl.ReturnType)
+			g.write("\n")
+		}
+
+		if decl.Body != nil {
+			g.inFunction = true
+			for _, stmt := range decl.Body.Statements {
+				g.generateStatement(stmt)
+			}
+			g.inFunction = false
+		}
+
+		// Send result to channel
+		if hasReturnType {
+			g.writeLine("ch <- result")
+		} else {
+			g.writeLine("ch <- true")
+		}
+
+		g.indent--
+		g.writeLine("}()")
+
+		g.writeLine("return ch")
+		g.indent--
+		g.writeLine("}")
+		g.writeLine("")
+		return
 	}
+
+	// Regular (non-async) function
 	g.write(fmt.Sprintf("func %s", decl.Name))
+	g.generateTypeParams(decl.TypeParams)
 	g.generateFunctionSignature(decl)
 	g.writeLine(" {")
 	g.indent++
 
-	// If function has a return type, declare result variable
-	hasReturnType := decl.ReturnType != nil
 	if hasReturnType {
 		g.write("var result ")
 		g.generateTypeExpression(decl.ReturnType)
@@ -231,7 +309,6 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 		g.inFunction = false
 	}
 
-	// If function has a return type, return the result
 	if hasReturnType {
 		g.write("return result\n")
 	}
@@ -239,6 +316,47 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 	g.indent--
 	g.writeLine("}")
 	g.writeLine("")
+}
+
+func (g *Generator) generateAsyncSignature(decl *ast.FunctionDecl) {
+	g.write("(")
+	for i, param := range decl.Parameters {
+		if i > 0 {
+			g.write(", ")
+		}
+		g.write(param.Name)
+		if param.Type != nil {
+			g.write(" ")
+			g.generateTypeExpression(param.Type)
+		}
+	}
+	g.write(")")
+
+	// Async functions return <-chan type
+	if decl.ReturnType != nil {
+		g.write(" <-chan ")
+		g.generateTypeExpression(decl.ReturnType)
+	}
+}
+
+func (g *Generator) generateTypeParams(params []*ast.TypeParameter) {
+	if len(params) == 0 {
+		return
+	}
+	g.write("[")
+	for i, tp := range params {
+		if i > 0 {
+			g.write(", ")
+		}
+		g.write(tp.Name)
+		g.write(" ")
+		if tp.Constraint != nil {
+			g.generateTypeExpression(tp.Constraint)
+		} else {
+			g.write("interface{}")
+		}
+	}
+	g.write("]")
 }
 
 func (g *Generator) generateFunctionSignature(decl *ast.FunctionDecl) {
@@ -281,8 +399,18 @@ func (g *Generator) generateTypeExpression(expr ast.Expression) {
 			g.write("interface{}")
 		}
 	case *ast.GenericType:
-		// Go doesn't have generics in the same way, use interface{} or type parameters
+		// Go 1.18+ uses square brackets for generics: TPair[int64, string]
 		g.write(g.mapType(t.Base))
+		if len(t.TypeParams) > 0 {
+			g.write("[")
+			for i, param := range t.TypeParams {
+				if i > 0 {
+					g.write(", ")
+				}
+				g.generateTypeExpression(param)
+			}
+			g.write("]")
+		}
 	case *ast.RecordType:
 		g.write("struct {\n")
 		g.indent++
@@ -472,6 +600,29 @@ func (g *Generator) scanStatementForImports(stmt ast.Statement) {
 				g.scanStatementForImports(st)
 			}
 		}
+	case *ast.TryStatement:
+		if s.Body != nil {
+			for _, st := range s.Body.Statements {
+				g.scanStatementForImports(st)
+			}
+		}
+		for _, on := range s.OnClauses {
+			if on.Body != nil {
+				for _, st := range on.Body.Statements {
+					g.scanStatementForImports(st)
+				}
+			}
+		}
+		if s.ExceptBlock != nil {
+			for _, st := range s.ExceptBlock.Statements {
+				g.scanStatementForImports(st)
+			}
+		}
+		if s.FinallyBlock != nil {
+			for _, st := range s.FinallyBlock.Statements {
+				g.scanStatementForImports(st)
+			}
+		}
 	case *ast.BlockStatement:
 		for _, st := range s.Statements {
 			g.scanStatementForImports(st)
@@ -547,6 +698,8 @@ func (g *Generator) generateStatement(stmt ast.Statement) {
 		g.writeLine("break")
 	case *ast.ContinueStatement:
 		g.writeLine("continue")
+	case *ast.InheritedStatement:
+		g.generateInheritedStatement(s)
 	case *ast.BlockStatement:
 		for _, st := range s.Statements {
 			g.generateStatement(st)
@@ -743,16 +896,67 @@ func (g *Generator) generateMatchStatement(stmt *ast.MatchStatement) {
 
 func (g *Generator) generateTryStatement(stmt *ast.TryStatement) {
 	// Go doesn't have try/catch, use defer/recover pattern
+	hasOnClauses := len(stmt.OnClauses) > 0
+
 	g.writeLine("func() {")
 	g.indent++
 	g.writeLine("defer func() {")
 	g.indent++
 	g.writeLine("if r := recover(); r != nil {")
 	g.indent++
-	if stmt.ExceptBlock != nil {
+
+	if hasOnClauses {
+		// Generate type switch for ON clauses
+		g.writeLine("switch e := r.(type) {")
+		g.indent++
+		for _, on := range stmt.OnClauses {
+			g.writeIndent()
+			g.write("case ")
+			if on.Type != nil {
+				g.generateTypeExpression(on.Type)
+			} else {
+				g.write("interface{}")
+			}
+			g.writeLine(":")
+			g.indent++
+			g.inExceptHandler = true
+			g.reRaiseVar = "e"
+			// Map Pascal ON clause variable to Go type switch variable
+			if on.Variable != "" {
+				g.nameMap[on.Variable] = "e"
+			}
+			if on.Body != nil {
+				for _, s := range on.Body.Statements {
+					g.generateStatement(s)
+				}
+			}
+			// Clear name mapping
+			if on.Variable != "" {
+				delete(g.nameMap, on.Variable)
+			}
+			g.inExceptHandler = false
+			g.reRaiseVar = ""
+			g.indent--
+		}
+		// Default: re-panic unhandled exceptions
+		g.writeLine("default:")
+		g.indent++
+		g.writeLine("panic(r)")
+		g.indent--
+		g.indent--
+		g.writeLine("}")
+	} else if stmt.ExceptBlock != nil {
+		// Plain except block (no ON clauses) — handle all exceptions
+		g.inExceptHandler = true
+		g.reRaiseVar = "r"
 		for _, s := range stmt.ExceptBlock.Statements {
 			g.generateStatement(s)
 		}
+		g.inExceptHandler = false
+		g.reRaiseVar = ""
+	} else {
+		// No except handler — just re-panic
+		g.writeLine("panic(r)")
 	}
 	g.indent--
 	g.writeLine("}")
@@ -769,7 +973,8 @@ func (g *Generator) generateTryStatement(stmt *ast.TryStatement) {
 	g.writeLine("}()")
 
 	if stmt.FinallyBlock != nil {
-		g.writeLine("// finally")
+		// Finally block is tricky: wrap remaining code in a defer
+		g.writeLine("// finally block")
 		for _, s := range stmt.FinallyBlock.Statements {
 			g.generateStatement(s)
 		}
@@ -777,13 +982,17 @@ func (g *Generator) generateTryStatement(stmt *ast.TryStatement) {
 }
 
 func (g *Generator) generateRaiseStatement(stmt *ast.RaiseStatement) {
-	g.write("panic(")
 	if stmt.Exception != nil {
+		g.write("panic(")
 		g.generateExpression(stmt.Exception)
+		g.write(")\n")
+	} else if g.inExceptHandler && g.reRaiseVar != "" {
+		// bare raise inside except handler -> re-panic
+		g.write(fmt.Sprintf("panic(%s)\n", g.reRaiseVar))
 	} else {
-		g.write(`errors.New("exception")`)
+		g.write(`panic(errors.New("exception"))` + "\n")
+		g.imports["errors"] = true
 	}
-	g.write(")\n")
 }
 
 func (g *Generator) generateReturnStatement(stmt *ast.ReturnStatement) {
@@ -795,10 +1004,27 @@ func (g *Generator) generateReturnStatement(stmt *ast.ReturnStatement) {
 	g.write("\n")
 }
 
+func (g *Generator) generateInheritedStatement(stmt *ast.InheritedStatement) {
+	if stmt.Expr != nil {
+		// inherited MethodName(args) -> call on self (Go embedding handles dispatch)
+		g.write("self.")
+		g.generateExpression(stmt.Expr)
+		g.write("\n")
+	} else {
+		// bare inherited; -> no-op in Go, rely on embedding
+		g.writeLine("// inherited")
+	}
+}
+
 func (g *Generator) generateExpression(expr ast.Expression) {
 	switch e := expr.(type) {
 	case *ast.Identifier:
-		g.write(g.mapBuiltinFunction(e.Value))
+		// Check name substitution map (for ON clause variables, etc.)
+		if mapped, ok := g.nameMap[e.Value]; ok {
+			g.write(mapped)
+		} else {
+			g.write(g.mapBuiltinFunction(e.Value))
+		}
 	case *ast.IntegerLiteral:
 		g.write(fmt.Sprintf("%d", e.Value))
 	case *ast.FloatLiteral:
