@@ -635,6 +635,18 @@ func (g *Generator) scanStatementForImports(stmt ast.Statement) {
 		for _, st := range s.Statements {
 			g.scanStatementForImports(st)
 		}
+	case *ast.MatchStatement:
+		for _, branch := range s.Branches {
+			if branch.Body != nil {
+				for _, st := range branch.Body.Statements {
+					g.scanStatementForImports(st)
+				}
+			}
+			g.scanExpressionForImports(branch.Pattern)
+			if branch.When != nil {
+				g.scanExpressionForImports(branch.When)
+			}
+		}
 	}
 }
 
@@ -880,16 +892,26 @@ func (g *Generator) generateMatchStatement(stmt *ast.MatchStatement) {
 	// Convert match to switch with guards
 	g.write("switch _v := ")
 	g.generateExpression(stmt.Expression)
-	g.writeLine("; {")
+	g.writeLine(" {")
 	g.indent++
 	for _, branch := range stmt.Branches {
-		g.write("case _v == ")
-		g.generateExpression(branch.Pattern)
-		if branch.When != nil {
-			g.write(" && ")
-			g.generateExpression(branch.When)
+		// Check if this is a wildcard branch (underscore = catch-all)
+		wildcard := false
+		if ident, ok := branch.Pattern.(*ast.Identifier); ok && ident.Value == "_" {
+			wildcard = true
 		}
-		g.writeLine(":")
+
+		if wildcard {
+			g.writeLine("default:")
+		} else {
+			g.write("case _v == ")
+			g.generateExpression(branch.Pattern)
+			if branch.When != nil {
+				g.write(" && ")
+				g.generateExpression(branch.When)
+			}
+			g.writeLine(":")
+		}
 		g.indent++
 		if branch.Body != nil {
 			for _, s := range branch.Body.Statements {
@@ -1091,6 +1113,25 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 		g.generateExpression(e.Right)
 		g.write(")")
 	case *ast.CallExpression:
+		// Handle constructor pattern: ClassName.Create(args) → &ClassName{...}
+		if member, ok := e.Function.(*ast.MemberExpression); ok && member.Member == "Create" {
+			if ident, ok := member.Object.(*ast.Identifier); ok {
+				// Constructor call: generate as &TypeName{field: arg}
+				g.write("&")
+				g.write(ident.Value)
+				g.write("{")
+				// For constructors with positional args, we can't know field names
+				// Use a placeholder approach with positional initialization
+				for i, arg := range e.Arguments {
+					if i > 0 {
+						g.write(", ")
+					}
+					g.generateExpression(arg)
+				}
+				g.write("}")
+				break
+			}
+		}
 		g.generateExpression(e.Function)
 		g.write("(")
 		for i, arg := range e.Arguments {

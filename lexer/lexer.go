@@ -187,15 +187,6 @@ func (l *Lexer) skipComments() {
 			l.readChar()
 		}
 	}
-	// Handle { block comments }
-	if l.ch == '{' {
-		for l.ch != '}' && l.ch != 0 {
-			l.readChar()
-		}
-		if l.ch == '}' {
-			l.readChar()
-		}
-	}
 	// Handle (* block comments *)
 	if l.ch == '(' && l.peekChar() == '*' {
 		l.readChar()

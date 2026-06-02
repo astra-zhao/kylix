@@ -85,6 +85,8 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(token.LBRACKET, p.parseArrayLiteral)
 	p.registerPrefix(token.AWAIT, p.parseAwaitExpression)
 	p.registerPrefix(token.SELF, p.parseSelfExpression)
+	p.registerPrefix(token.PROCEDURE, p.parseAnonymousFunction)
+	p.registerPrefix(token.FUNCTION, p.parseAnonymousFunction)
 
 	p.infixParseFns = make(map[token.TokenType]infixParseFn)
 	p.registerInfix(token.PLUS, p.parseInfixExpression)
@@ -840,6 +842,7 @@ func (p *Parser) parseMatchStatement() *ast.MatchStatement {
 	p.nextToken() // skip 'match'
 
 	stmt.Expression = p.parseExpression(LOWEST)
+	p.nextToken() // advance past the match expression
 
 	// Expect { or begin
 	if p.curTokenIs(token.LBRACE) || p.curTokenIs(token.BEGIN) {
@@ -854,11 +857,13 @@ func (p *Parser) parseMatchStatement() *ast.MatchStatement {
 		for !p.curTokenIs(endToken) && !p.curTokenIs(token.EOF) {
 			branch := &ast.MatchBranch{}
 			branch.Pattern = p.parseExpression(LOWEST)
+			p.nextToken() // advance past the pattern
 
 			// Optional when guard
 			if p.curTokenIs(token.WHEN) {
 				p.nextToken()
 				branch.When = p.parseExpression(LOWEST)
+				p.nextToken() // advance past the guard
 			}
 
 			if p.curTokenIs(token.FAT_ARROW) || p.curTokenIs(token.COLON) {
@@ -869,7 +874,9 @@ func (p *Parser) parseMatchStatement() *ast.MatchStatement {
 				branch.Body = p.parseBlockStatement()
 			} else {
 				s := p.parseStatement()
-				branch.Body = &ast.BlockStatement{Statements: []ast.Statement{s}}
+				if s != nil {
+					branch.Body = &ast.BlockStatement{Statements: []ast.Statement{s}}
+				}
 			}
 
 			stmt.Branches = append(stmt.Branches, branch)
@@ -1066,6 +1073,12 @@ func (p *Parser) parseClassDecl() *ast.ClassDecl {
 			p.nextToken()
 		}
 		if p.curTokenIs(token.RPAREN) {
+			p.nextToken()
+		}
+	} else if p.curTokenIs(token.INHERITS) {
+		p.nextToken() // skip 'inherits'
+		if p.curTokenIs(token.IDENT) {
+			decl.Parent = p.curToken.Literal
 			p.nextToken()
 		}
 	}
@@ -1446,6 +1459,76 @@ func (p *Parser) tryParseLambdaParams(openParen token.Token) ast.Expression {
 
 	return &ast.LambdaExpression{
 		Token:      openParen,
+		Parameters: params,
+		Body:       body,
+	}
+}
+
+// parseAnonymousFunction parses an anonymous procedure or function expression.
+// Syntax: procedure(params); begin ... end
+//         function(params): RetType; begin ... end
+func (p *Parser) parseAnonymousFunction() ast.Expression {
+	kind := p.curToken // 'procedure' or 'function' token
+	p.nextToken()      // skip 'procedure'/'function'
+
+	// Parse optional parameter list
+	var params []*ast.Parameter
+	if p.curTokenIs(token.LPAREN) {
+		p.nextToken() // skip '('
+		params = make([]*ast.Parameter, 0)
+		for !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
+			param := &ast.Parameter{}
+
+			if p.curTokenIs(token.IDENT) {
+				param.Token = p.curToken
+				param.Name = p.curToken.Literal
+				p.nextToken()
+
+				if p.curTokenIs(token.COLON) {
+					p.nextToken()
+					param.Type = p.parseTypeExpression()
+				}
+
+				params = append(params, param)
+
+				if p.curTokenIs(token.SEMICOLON) {
+					p.nextToken()
+					continue
+				}
+
+				if p.curTokenIs(token.COMMA) {
+					p.nextToken()
+					continue
+				}
+			} else {
+				p.nextToken()
+			}
+		}
+
+		if p.curTokenIs(token.RPAREN) {
+			p.nextToken() // skip ')'
+		}
+	}
+
+	// Parse optional return type (for functions only)
+	if kind.Type == token.FUNCTION && p.curTokenIs(token.COLON) {
+		p.nextToken() // skip ':'
+		p.parseTypeExpression()
+	}
+
+	// Skip optional semicolon (forward declarations)
+	if p.curTokenIs(token.SEMICOLON) {
+		p.nextToken()
+	}
+
+	// Parse optional body (begin...end block)
+	var body ast.Node
+	if p.curTokenIs(token.BEGIN) {
+		body = p.parseBlockStatement()
+	}
+
+	return &ast.LambdaExpression{
+		Token:      kind,
 		Parameters: params,
 		Body:       body,
 	}
