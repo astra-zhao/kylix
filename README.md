@@ -1,7 +1,7 @@
 # Kylix - Modern Pascal Language
 
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
@@ -702,6 +702,19 @@ Kylix LSP supports any editor with LSP client:
 - ✅ Generator stdlib wiring — sysutil, jsonutil, datetime, regex modules
 
 ## Changelog
+
+### v1.0.1 (2026-06-02)
+
+**Bug fix release — 4 critical fixes + 2 high-priority fixes**
+
+- **P0**: `inherits` keyword now works correctly (was silently ignored)
+- **P0**: Anonymous `procedure()` and `function()` now parseable as expressions
+- **P0**: Match wildcard `_` now generates correct Go `default:` branch
+- **P0**: Removed `{}` comment syntax (conflicted with match block braces)
+- **P1**: Constructor calls `Dog.Create(args)` now generate `&Dog{args}`
+- **P1**: Match branches now properly trigger Go import generation
+
+See [CHANGELOG.md](CHANGELOG.md) for full release history and known issues.
 
 ### v1.0.0 (2026-06-01)
 

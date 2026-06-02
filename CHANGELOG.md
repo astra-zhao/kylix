@@ -2,6 +2,55 @@
 
 All notable changes to the Kylix compiler are documented in this file.
 
+## v1.0.1 (2026-06-02)
+
+### Bug Fixes
+
+**P0 - Critical:**
+- **`inherits` keyword silently ignored**: `class Dog inherits Animal` now correctly sets the parent class and generates Go struct embedding
+- **Anonymous procedure/function parsing**: `procedure()` and `function()` are now parsed as expressions, enabling anonymous callbacks. All web framework examples can now be parsed
+- **Match wildcard `_` generates invalid Go**: `_ => body` now correctly generates `default: body` instead of `case _v == _:`
+- **`{ }` block comment conflict**: Removed `{...}` as Pascal comment syntax (conflicted with match block braces). Only `//` and `(* *)` are recognized as comments
+
+**P1 - High Priority:**
+- **Constructor code generation**: `Dog.Create(args)` now generates `&Dog{args}` (Go struct literal) instead of invalid `Dog.Create(args)`
+- **Match statement import scanning**: `WriteLn` and other built-ins inside match branches now correctly trigger Go import generation
+
+### Version Bumps
+
+| Component | Old | New |
+|-----------|-----|-----|
+| Compiler (`cmd/kylix/main.go`) | 1.0.0 | **1.0.1** |
+| REPL (`pkg/repl/repl.go`) | 1.0.0 | **1.0.1** |
+| LSP Server (`pkg/lsp/server.go`) | 1.0.0 | **1.0.1** |
+| Project Config (`pkg/project/project.go`) | 1.0.0 | **1.0.1** |
+| VS Code Extension (`vscode-ext/package.json`) | 1.0.0 | **1.0.1** |
+
+### Files Changed
+
+- `lexer/lexer.go` — Removed `{ }` block comment syntax
+- `parser/parser.go` — inherits parsing, anonymous function/procedure prefix parsers, match statement fixes
+- `generator/generator.go` — Match wildcard detection, match import scanning, constructor generation
+
+### Known Issues (to be fixed in v1.0.2)
+
+| Priority | Issue | Impact |
+|----------|-------|--------|
+| P1 | String interpolation broken at 3 levels | `$"Hello ${name}"` treated as plain text |
+| P1 | Exception types undefined in Go | `on E: Exception do` generates invalid types |
+| P2 | Multi-value return not supported | `function Div(): (Real, Boolean)` fails |
+| P2 | Properties silently dropped | `property Name: String` generates no Go code |
+| P2 | No multi-file compilation | `uses` clause only imports stdlib, not user files |
+| P2 | Map type not supported | Symbol tables need `map[string]T` |
+| P2 | No lexer/parser/generator unit tests | Core modules untested |
+| P2 | Parser error recovery is weak | Single syntax error causes cascading failures |
+| P3 | 18 tokens defined but unhandled | `with`, `set`, `new`, `exit`, `forward` etc. |
+| P3 | LSP code actions are hardcoded stubs | No real import organization or formatting |
+| P3 | REPL no `uses`/`class` detection | REPL can't use modules or define classes |
+| P3 | Match multi-pattern not supported | `1, 2, 3 =>` syntax not yet implemented |
+
+---
+
 ## v1.0.0 (2026-06-01)
 
 **🎉 First stable release**
