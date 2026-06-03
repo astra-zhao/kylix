@@ -210,9 +210,10 @@ func (m *MatchStatement) statementNode()       {}
 func (m *MatchStatement) TokenLiteral() string { return m.Token.Literal }
 
 type MatchBranch struct {
-	Pattern Expression
-	When    Expression // optional guard
-	Body    *BlockStatement
+	Pattern            Expression
+	AdditionalPatterns []Expression // for multi-pattern: 2, 3 =>
+	When               Expression   // optional guard
+	Body               *BlockStatement
 }
 
 // On Clause (exception filter: on E: ExceptionType do)

@@ -87,6 +87,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(token.SELF, p.parseSelfExpression)
 	p.registerPrefix(token.PROCEDURE, p.parseAnonymousFunction)
 	p.registerPrefix(token.FUNCTION, p.parseAnonymousFunction)
+	p.registerPrefix(token.MATCH, p.parseIdentifier) // 'match' can be used as identifier
 
 	p.infixParseFns = make(map[token.TokenType]infixParseFn)
 	p.registerInfix(token.PLUS, p.parseInfixExpression)
@@ -225,7 +226,7 @@ func (p *Parser) ParseProgram() *ast.Program {
 			// var section: consume 'var' then parse all declarations in this section
 			varToken := p.curToken // Capture 'var' token
 			p.nextToken()
-			for p.curTokenIs(token.IDENT) {
+			for p.isIdentOrSoftKeyword() {
 				decl := p.parseSingleVarDecl(varToken)
 				if decl != nil {
 					program.Declarations = append(program.Declarations, decl)
@@ -327,6 +328,11 @@ func (p *Parser) parseStatement() ast.Statement {
 	case token.CASE:
 		return p.parseCaseStatement()
 	case token.MATCH:
+		// 'match' can be used as a variable name: match := value; or match: Type;
+		// Only treat as match statement if followed by an expression and { or begin
+		if p.peekTokenIs(token.ASSIGN_OP) || p.peekTokenIs(token.COLON) {
+			return p.parseExpressionOrAssignment()
+		}
 		return p.parseMatchStatement()
 	case token.TRY:
 		return p.parseTryStatement()
@@ -354,13 +360,62 @@ func (p *Parser) parseStatement() ast.Statement {
 //   age: Integer = 25;
 //   count := 42;
 //   a, b: String;
+// isSoftKeyword returns true if the current token is a keyword that can also be used as an identifier
+// in certain contexts (variable names, field names, etc.)
+func (p *Parser) isSoftKeyword() bool {
+	switch p.curToken.Type {
+	case token.MATCH, token.RESULT:
+		return true
+	}
+	return false
+}
+
+// isIdentOrSoftKeyword returns true if the current token is an identifier or a soft keyword
+func (p *Parser) isIdentOrSoftKeyword() bool {
+	return p.curTokenIs(token.IDENT) || p.isSoftKeyword()
+}
+
+// skipNestedDeclaration skips a nested function/procedure declaration
+// Used in anonymous functions to skip local function declarations
+func (p *Parser) skipNestedDeclaration() {
+	p.nextToken() // skip 'function' or 'procedure'
+	// Skip name and parameters
+	if p.curTokenIs(token.IDENT) {
+		p.nextToken()
+	}
+	if p.curTokenIs(token.LPAREN) {
+		depth := 1
+		p.nextToken()
+		for depth > 0 && !p.curTokenIs(token.EOF) {
+			if p.curTokenIs(token.LPAREN) {
+				depth++
+			} else if p.curTokenIs(token.RPAREN) {
+				depth--
+			}
+			if depth > 0 {
+				p.nextToken()
+			}
+		}
+		if p.curTokenIs(token.RPAREN) {
+			p.nextToken()
+		}
+	}
+	// Skip return type, semicolons
+	for !p.curTokenIs(token.BEGIN) && !p.curTokenIs(token.EOF) {
+		p.nextToken()
+	}
+	if p.curTokenIs(token.BEGIN) {
+		_ = p.parseBlockStatement()
+	}
+}
+
 func (p *Parser) parseSingleVarDecl(varToken token.Token) *ast.VarDecl {
 	decl := &ast.VarDecl{
 		Token: varToken, // Store the 'var' keyword position
 	}
 
 	// Parse variable names (comma-separated)
-	for p.curTokenIs(token.IDENT) {
+	for p.isIdentOrSoftKeyword() {
 		decl.Names = append(decl.Names, p.curToken.Literal)
 		p.nextToken()
 		if p.curTokenIs(token.COMMA) {
@@ -538,7 +593,14 @@ func (p *Parser) parseParameterList() []*ast.Parameter {
 	params := []*ast.Parameter{}
 	p.nextToken() // skip '('
 
+	iterations := 0
 	for !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
+		iterations++
+		if iterations > 1000 {
+			p.errors = append(p.errors, "parameter parsing exceeded maximum iterations")
+			break
+		}
+
 		param := &ast.Parameter{}
 
 		// Check for var/out parameter
@@ -567,6 +629,9 @@ func (p *Parser) parseParameterList() []*ast.Parameter {
 
 		// Handle semicolon-separated parameter groups
 		if p.curTokenIs(token.SEMICOLON) {
+			p.nextToken()
+		} else if !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
+			// Safety: if we're not at a known delimiter or end, advance to avoid infinite loop
 			p.nextToken()
 		}
 	}
@@ -686,6 +751,7 @@ func (p *Parser) parseWhileStatement() *ast.WhileStatement {
 	p.nextToken() // skip 'while'
 
 	stmt.Condition = p.parseExpression(LOWEST)
+	p.nextToken() // advance past condition expression
 
 	if p.curTokenIs(token.DO) {
 		p.nextToken()
@@ -715,6 +781,7 @@ func (p *Parser) parseForStatement() ast.Statement {
 	if p.curTokenIs(token.IN) {
 		p.nextToken()
 		iterable := p.parseExpression(LOWEST)
+		p.nextToken() // advance past iterable expression
 		if p.curTokenIs(token.DO) {
 			p.nextToken()
 		}
@@ -743,6 +810,7 @@ func (p *Parser) parseForStatement() ast.Statement {
 	}
 
 	stmt.From = p.parseExpression(LOWEST)
+	p.nextToken() // advance past From expression
 
 	if p.curTokenIs(token.TO) {
 		p.nextToken()
@@ -753,6 +821,7 @@ func (p *Parser) parseForStatement() ast.Statement {
 	}
 
 	stmt.To = p.parseExpression(LOWEST)
+	p.nextToken() // advance past To expression
 
 	if p.curTokenIs(token.DO) {
 		p.nextToken()
@@ -796,18 +865,31 @@ func (p *Parser) parseCaseStatement() *ast.CaseStatement {
 	p.nextToken() // skip 'case'
 
 	stmt.Expression = p.parseExpression(LOWEST)
+	p.nextToken() // advance past expression
 
 	if p.curTokenIs(token.OF) {
 		p.nextToken()
 	}
 
+	iterations := 0
 	for !p.curTokenIs(token.END) && !p.curTokenIs(token.EOF) {
+		iterations++
+		if iterations > 10000 {
+			p.errors = append(p.errors, "case statement parsing exceeded maximum iterations")
+			break
+		}
+
 		branch := &ast.CaseBranch{}
 
 		// Parse case values
 		for {
 			val := p.parseExpression(LOWEST)
+			if val == nil {
+				p.nextToken() // skip problematic token to avoid infinite loop
+				break
+			}
 			branch.Values = append(branch.Values, val)
+			p.nextToken() // advance past the value
 			if p.curTokenIs(token.COMMA) {
 				p.nextToken()
 			} else {
@@ -823,7 +905,11 @@ func (p *Parser) parseCaseStatement() *ast.CaseStatement {
 			branch.Body = p.parseBlockStatement()
 		} else {
 			s := p.parseStatement()
-			branch.Body = &ast.BlockStatement{Statements: []ast.Statement{s}}
+			if s != nil {
+				branch.Body = &ast.BlockStatement{Statements: []ast.Statement{s}}
+			} else {
+				p.nextToken() // advance to avoid infinite loop
+			}
 		}
 
 		stmt.Branches = append(stmt.Branches, branch)
@@ -833,7 +919,9 @@ func (p *Parser) parseCaseStatement() *ast.CaseStatement {
 		}
 	}
 
-	p.nextToken() // skip 'end'
+	if p.curTokenIs(token.END) {
+		p.nextToken() // skip 'end'
+	}
 	return stmt
 }
 
@@ -856,14 +944,31 @@ func (p *Parser) parseMatchStatement() *ast.MatchStatement {
 
 		for !p.curTokenIs(endToken) && !p.curTokenIs(token.EOF) {
 			branch := &ast.MatchBranch{}
-			branch.Pattern = p.parseExpression(LOWEST)
-			p.nextToken() // advance past the pattern
 
-			// Optional when guard
+			// Check if this is a guard-only branch: when condition =>
 			if p.curTokenIs(token.WHEN) {
-				p.nextToken()
+				p.nextToken() // skip 'when'
 				branch.When = p.parseExpression(LOWEST)
 				p.nextToken() // advance past the guard
+			} else {
+				// Parse first pattern
+				branch.Pattern = p.parseExpression(LOWEST)
+				p.nextToken() // advance past the pattern
+
+				// Parse additional patterns: 2, 3 =>
+				for p.curTokenIs(token.COMMA) && !p.peekTokenIs(token.FAT_ARROW) {
+					p.nextToken() // skip comma
+					additionalPattern := p.parseExpression(LOWEST)
+					branch.AdditionalPatterns = append(branch.AdditionalPatterns, additionalPattern)
+					p.nextToken() // advance past the pattern
+				}
+
+				// Optional when guard
+				if p.curTokenIs(token.WHEN) {
+					p.nextToken()
+					branch.When = p.parseExpression(LOWEST)
+					p.nextToken() // advance past the guard
+				}
 			}
 
 			if p.curTokenIs(token.FAT_ARROW) || p.curTokenIs(token.COLON) {
@@ -917,46 +1022,52 @@ func (p *Parser) parseTryStatement() *ast.TryStatement {
 
 	if p.curTokenIs(token.EXCEPT) {
 		p.nextToken()
-		// Parse ON clauses and optional else block
-		for !p.curTokenIs(token.END) && !p.curTokenIs(token.FINALLY) && !p.curTokenIs(token.EOF) {
-			if p.curTokenIs(token.ON) {
-				onClause := p.parseOnClause()
-				if onClause != nil {
-					stmt.OnClauses = append(stmt.OnClauses, onClause)
-				}
-			} else if p.curTokenIs(token.ELSE) {
-				// 'else' clause in except block
-				p.nextToken() // skip 'else'
-				if stmt.ExceptBlock == nil {
-					stmt.ExceptBlock = &ast.BlockStatement{}
-				}
-				for !p.curTokenIs(token.END) && !p.curTokenIs(token.FINALLY) &&
-					!p.curTokenIs(token.EOF) {
+
+		// Check for begin...end block in except
+		if p.curTokenIs(token.BEGIN) {
+			stmt.ExceptBlock = p.parseBlockStatement()
+		} else {
+			// Parse ON clauses and optional else block
+			for !p.curTokenIs(token.END) && !p.curTokenIs(token.FINALLY) && !p.curTokenIs(token.EOF) {
+				if p.curTokenIs(token.ON) {
+					onClause := p.parseOnClause()
+					if onClause != nil {
+						stmt.OnClauses = append(stmt.OnClauses, onClause)
+					}
+				} else if p.curTokenIs(token.ELSE) {
+					// 'else' clause in except block
+					p.nextToken() // skip 'else'
+					if stmt.ExceptBlock == nil {
+						stmt.ExceptBlock = &ast.BlockStatement{}
+					}
+					for !p.curTokenIs(token.END) && !p.curTokenIs(token.FINALLY) &&
+						!p.curTokenIs(token.EOF) {
+						s := p.parseStatement()
+						if s != nil {
+							stmt.ExceptBlock.Statements = append(stmt.ExceptBlock.Statements, s)
+						} else if !p.curTokenIs(token.SEMICOLON) {
+							p.nextToken()
+						}
+						for p.curTokenIs(token.SEMICOLON) {
+							p.nextToken()
+						}
+					}
+				} else {
+					// Regular statements = else part of except block
+					if stmt.ExceptBlock == nil {
+						stmt.ExceptBlock = &ast.BlockStatement{}
+					}
 					s := p.parseStatement()
 					if s != nil {
 						stmt.ExceptBlock.Statements = append(stmt.ExceptBlock.Statements, s)
 					} else if !p.curTokenIs(token.SEMICOLON) {
-						p.nextToken()
-					}
-					for p.curTokenIs(token.SEMICOLON) {
+						// Skip unknown token to avoid infinite loop
 						p.nextToken()
 					}
 				}
-			} else {
-				// Regular statements = else part of except block
-				if stmt.ExceptBlock == nil {
-					stmt.ExceptBlock = &ast.BlockStatement{}
-				}
-				s := p.parseStatement()
-				if s != nil {
-					stmt.ExceptBlock.Statements = append(stmt.ExceptBlock.Statements, s)
-				} else if !p.curTokenIs(token.SEMICOLON) {
-					// Skip unknown token to avoid infinite loop
+				for p.curTokenIs(token.SEMICOLON) {
 					p.nextToken()
 				}
-			}
-			for p.curTokenIs(token.SEMICOLON) {
-				p.nextToken()
 			}
 		}
 	}
@@ -965,6 +1076,20 @@ func (p *Parser) parseTryStatement() *ast.TryStatement {
 		p.nextToken()
 		if p.curTokenIs(token.BEGIN) {
 			stmt.FinallyBlock = p.parseBlockStatement()
+		} else {
+			// Finally without begin...end — parse statements until end
+			stmt.FinallyBlock = &ast.BlockStatement{}
+			for !p.curTokenIs(token.END) && !p.curTokenIs(token.EOF) {
+				s := p.parseStatement()
+				if s != nil {
+					stmt.FinallyBlock.Statements = append(stmt.FinallyBlock.Statements, s)
+				} else if !p.curTokenIs(token.SEMICOLON) {
+					p.nextToken()
+				}
+				for p.curTokenIs(token.SEMICOLON) {
+					p.nextToken()
+				}
+			}
 		}
 	}
 
@@ -1113,7 +1238,7 @@ func (p *Parser) parseClassDecl() *ast.ClassDecl {
 		if p.curTokenIs(token.VAR) {
 			varToken := p.curToken
 			p.nextToken() // skip 'var'
-			for p.curTokenIs(token.IDENT) {
+			for p.isIdentOrSoftKeyword() {
 				field := p.parseSingleVarDecl(varToken)
 				if field != nil {
 					decl.Fields = append(decl.Fields, field)
@@ -1521,10 +1646,72 @@ func (p *Parser) parseAnonymousFunction() ast.Expression {
 		p.nextToken()
 	}
 
+	// Parse local declarations (var, const, type) before begin block
+	// Example: procedure() var x: Integer; begin x := 1; end
+	for {
+		if p.curTokenIs(token.VAR) {
+			varToken := p.curToken
+			p.nextToken()
+			for p.isIdentOrSoftKeyword() {
+				p.parseSingleVarDecl(varToken)
+				for p.curTokenIs(token.SEMICOLON) {
+					p.nextToken()
+				}
+			}
+		} else if p.curTokenIs(token.CONST) {
+			p.nextToken()
+			for p.isIdentOrSoftKeyword() {
+				p.parseSingleConstDecl()
+				for p.curTokenIs(token.SEMICOLON) {
+					p.nextToken()
+				}
+			}
+		} else if p.curTokenIs(token.TYPE) {
+			p.nextToken()
+			for p.isIdentOrSoftKeyword() {
+				p.parseSingleTypeDecl()
+				for p.curTokenIs(token.SEMICOLON) {
+					p.nextToken()
+				}
+			}
+		} else if p.curTokenIs(token.FUNCTION) || p.curTokenIs(token.PROCEDURE) {
+			// Nested function/procedure - skip for now
+			p.skipNestedDeclaration()
+		} else {
+			break
+		}
+	}
+
 	// Parse optional body (begin...end block)
 	var body ast.Node
 	if p.curTokenIs(token.BEGIN) {
-		body = p.parseBlockStatement()
+		// Don't use parseBlockStatement directly — it consumes 'end' token,
+		// which when the anon function is a call argument, eats the outer ')'
+		p.nextToken() // skip 'begin'
+		block := &ast.BlockStatement{Token: token.Token{Type: token.BEGIN, Literal: "begin"}}
+		iter := 0
+		for !p.curTokenIs(token.END) && !p.curTokenIs(token.EOF) {
+			iter++
+			if iter > 1000 {
+				p.errors = append(p.errors, "anon function body exceeded max iterations")
+				break
+			}
+			s := p.parseStatement()
+			if s != nil {
+				block.Statements = append(block.Statements, s)
+			} else if !p.curTokenIs(token.SEMICOLON) {
+				p.nextToken()
+			}
+			for p.curTokenIs(token.SEMICOLON) {
+				p.nextToken()
+			}
+		}
+		if p.curTokenIs(token.END) {
+			// Don't skip 'end' — leave it for parseExpressionList's expectPeek
+			// When the anon function is a function call argument, the caller
+			// needs to see end -> ')' in the standard flow
+		}
+		body = block
 	}
 
 	return &ast.LambdaExpression{
@@ -1660,10 +1847,12 @@ func (p *Parser) parseTypeExpression() ast.Expression {
 		if p.curTokenIs(token.LBRACKET) {
 			p.nextToken()
 			arrayType.Size = p.parseExpression(LOWEST)
+			p.nextToken() // advance past the size expression
 			arrayType.Dynamic = false
 			if p.curTokenIs(token.DOTDOT) {
 				p.nextToken()
-				p.parseExpression(LOWEST) // skip upper bound for now
+				p.parseExpression(LOWEST) // parse upper bound
+				p.nextToken()             // advance past upper bound
 			}
 			if p.curTokenIs(token.RBRACKET) {
 				p.nextToken()
@@ -1702,6 +1891,41 @@ func (p *Parser) parseTypeExpression() ast.Expression {
 			p.nextToken()
 		}
 		return record
+	}
+
+	// Handle function/procedure types: function(ParamTypes): ReturnType
+	if p.curTokenIs(token.FUNCTION) || p.curTokenIs(token.PROCEDURE) {
+		funcToken := p.curToken
+		p.nextToken() // skip 'function'/'procedure'
+
+		funcType := &ast.Identifier{Token: funcToken, Value: funcToken.Literal}
+
+		// Parse optional parameter types
+		if p.curTokenIs(token.LPAREN) {
+			p.nextToken() // skip '('
+			depth := 1
+			for depth > 0 && !p.curTokenIs(token.EOF) {
+				if p.curTokenIs(token.LPAREN) {
+					depth++
+				} else if p.curTokenIs(token.RPAREN) {
+					depth--
+				}
+				if depth > 0 {
+					p.nextToken()
+				}
+			}
+			if p.curTokenIs(token.RPAREN) {
+				p.nextToken() // skip ')'
+			}
+		}
+
+		// Parse optional return type
+		if p.curTokenIs(token.COLON) {
+			p.nextToken() // skip ':'
+			p.parseTypeExpression() // consume return type
+		}
+
+		return funcType
 	}
 
 	return &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}

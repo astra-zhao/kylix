@@ -46,8 +46,15 @@ func (l *Lexer) peekChar() byte {
 func (l *Lexer) NextToken() token.Token {
 	var tok token.Token
 
-	l.skipWhitespace()
-	l.skipComments()
+	// Loop to handle consecutive comments and whitespace
+	for {
+		l.skipWhitespace()
+		before := l.ch
+		l.skipComments()
+		if l.ch == before {
+			break // No comment was skipped, we're done
+		}
+	}
 	l.skipWhitespace()
 
 	tok.Line = l.line

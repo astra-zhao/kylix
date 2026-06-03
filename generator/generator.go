@@ -903,9 +903,27 @@ func (g *Generator) generateMatchStatement(stmt *ast.MatchStatement) {
 
 		if wildcard {
 			g.writeLine("default:")
+		} else if branch.Pattern == nil && branch.When != nil {
+			// Guard-only branch: when condition =>
+			g.write("case ")
+			g.generateExpression(branch.When)
+			g.writeLine(":")
 		} else {
-			g.write("case _v == ")
-			g.generateExpression(branch.Pattern)
+			g.write("case ")
+			// Generate pattern comparisons
+			if len(branch.AdditionalPatterns) > 0 {
+				// Multi-pattern: _v == p1 || _v == p2 || ...
+				for i, p := range append([]ast.Expression{branch.Pattern}, branch.AdditionalPatterns...) {
+					if i > 0 {
+						g.write(" || ")
+					}
+					g.write("_v == ")
+					g.generateExpression(p)
+				}
+			} else {
+				g.write("_v == ")
+				g.generateExpression(branch.Pattern)
+			}
 			if branch.When != nil {
 				g.write(" && ")
 				g.generateExpression(branch.When)

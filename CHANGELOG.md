@@ -2,52 +2,66 @@
 
 All notable changes to the Kylix compiler are documented in this file.
 
-## v1.0.1 (2026-06-02)
+## v1.0.1 (2026-06-03)
 
 ### Bug Fixes
 
-**P0 - Critical:**
+**P0 - Critical (Infinite Loops & Crashes):**
 - **`inherits` keyword silently ignored**: `class Dog inherits Animal` now correctly sets the parent class and generates Go struct embedding
-- **Anonymous procedure/function parsing**: `procedure()` and `function()` are now parsed as expressions, enabling anonymous callbacks. All web framework examples can now be parsed
-- **Match wildcard `_` generates invalid Go**: `_ => body` now correctly generates `default: body` instead of `case _v == _:`
-- **`{ }` block comment conflict**: Removed `{...}` as Pascal comment syntax (conflicted with match block braces). Only `//` and `(* *)` are recognized as comments
+- **Anonymous procedure/function parsing**: `procedure()` and `function()` are now parsed as expressions. Support for local declarations (var, const, type) in anonymous functions
+- **Match wildcard `_` generates invalid Go**: `_ => body` now correctly generates `default:`
+- **Match multi-pattern and `when` guard**: `2, 3 =>` and `when condition =>` now correctly parsed
+- **`{ }` block comment conflict**: Removed `{...}` as Pascal comment syntax (conflicted with match block braces). Only `//` and `(* *)` are recognized
+- **Case statement infinite loop**: Fixed missing `nextToken()` after `parseExpression` in case values
+- **While/for loop parsing**: Fixed missing `nextToken()` after condition and From/To expressions
+- **Function type as parameter**: `function Apply(fn: function(Integer): Integer)` no longer infinite loops
+- **Array range syntax**: `array[0..2] of Integer` now correctly parses
+- **Consecutive `//` comments**: Multiple line comments no longer cause parse errors
+- **Parameter parsing**: Added iteration guard to prevent infinite loop
 
 **P1 - High Priority:**
-- **Constructor code generation**: `Dog.Create(args)` now generates `&Dog{args}` (Go struct literal) instead of invalid `Dog.Create(args)`
-- **Match statement import scanning**: `WriteLn` and other built-ins inside match branches now correctly trigger Go import generation
+- **Constructor code generation**: `Dog.Create(args)` now generates `&Dog{args}`
+- **Match statement import scanning**: Built-ins inside match branches now trigger Go imports
+- **`match` keyword as identifier**: `match` can now be used as variable/field name
+- **`result` keyword as identifier**: `result` can now be used as variable/field name
+- **`try/except` with `begin...end` blocks**: `except begin...end` now correctly parsed
+- **`finally` without `begin`**: Bare statements in finally block now supported
+
+### Files Changed
+
+- `lexer/lexer.go` — Removed `{}` comment syntax, fixed consecutive comment lines
+- `parser/parser.go` — 12 parser fixes across match, case, while, for, try, array, function type parsing
+- `generator/generator.go` — Match multi-pattern, wildcard, constructor generation
+- `ast/ast.go` — Added `AdditionalPatterns` to MatchBranch
+
+### Example File Status (14 files)
+
+| ✅ Passing (11) | ❌ Failing (3) |
+|---|---|
+| hello, simple, types, control, classes | functions (multi-return — feature gap) |
+| modern, exceptions, stdlib_demo | web_demo (3 errors — anon proc edge cases) |
+| test_formatter, web_advanced, orm_example | web_fullstack (12 errors — Go syntax in examples) |
 
 ### Version Bumps
 
 | Component | Old | New |
 |-----------|-----|-----|
-| Compiler (`cmd/kylix/main.go`) | 1.0.0 | **1.0.1** |
-| REPL (`pkg/repl/repl.go`) | 1.0.0 | **1.0.1** |
-| LSP Server (`pkg/lsp/server.go`) | 1.0.0 | **1.0.1** |
-| Project Config (`pkg/project/project.go`) | 1.0.0 | **1.0.1** |
-| VS Code Extension (`vscode-ext/package.json`) | 1.0.0 | **1.0.1** |
+| Compiler, REPL, LSP, Project, VSCode | 1.0.0 | **1.0.1** |
 
-### Files Changed
+### Known Issues (v1.0.2+)
 
-- `lexer/lexer.go` — Removed `{ }` block comment syntax
-- `parser/parser.go` — inherits parsing, anonymous function/procedure prefix parsers, match statement fixes
-- `generator/generator.go` — Match wildcard detection, match import scanning, constructor generation
-
-### Known Issues (to be fixed in v1.0.2)
-
-| Priority | Issue | Impact |
-|----------|-------|--------|
-| P1 | String interpolation broken at 3 levels | `$"Hello ${name}"` treated as plain text |
-| P1 | Exception types undefined in Go | `on E: Exception do` generates invalid types |
-| P2 | Multi-value return not supported | `function Div(): (Real, Boolean)` fails |
-| P2 | Properties silently dropped | `property Name: String` generates no Go code |
-| P2 | No multi-file compilation | `uses` clause only imports stdlib, not user files |
-| P2 | Map type not supported | Symbol tables need `map[string]T` |
-| P2 | No lexer/parser/generator unit tests | Core modules untested |
-| P2 | Parser error recovery is weak | Single syntax error causes cascading failures |
-| P3 | 18 tokens defined but unhandled | `with`, `set`, `new`, `exit`, `forward` etc. |
-| P3 | LSP code actions are hardcoded stubs | No real import organization or formatting |
-| P3 | REPL no `uses`/`class` detection | REPL can't use modules or define classes |
-| P3 | Match multi-pattern not supported | `1, 2, 3 =>` syntax not yet implemented |
+| Priority | Issue |
+|----------|-------|
+| P1 | String interpolation broken (lexer→parser→generator) |
+| P1 | Exception types not defined in Go runtime |
+| P2 | Multi-value return `(Real, Boolean)` not supported |
+| P2 | Properties silently dropped in code generation |
+| P2 | No multi-file compilation |
+| P2 | Map/dictionary type not supported |
+| P2 | No lexer/parser/generator unit tests |
+| P3 | 18 tokens defined but unhandled |
+| P3 | LSP code actions are stubs |
+| P3 | REPL no uses/class declaration detection |
 
 ---
 

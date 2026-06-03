@@ -8,7 +8,7 @@
 
 Kylix 是一个现代化的 Pascal 语言重新实现，编译为 Go 代码。它结合了 Pascal 的清晰性和简洁性，同时添加了现代语言特性，并配备了完整的 IDE 工具链和编辑器集成。
 
-**当前版本**：v1.0.1（2026-06-02 发布，BUG 修复版本）
+**当前版本**：v1.0.1（2026-06-03 发布，15+ Bug 修复版本）
 
 **项目地址**：https://github.com/astra-zhao/kylix
 
@@ -533,16 +533,32 @@ Kylix 编译器第一阶段至第五阶段已全部成功完成！
 
 **当前状态**：Phase 1-5 已完成，v1.0.1 已发布！🎉
 
-### v1.0.1 BUG 修复 (2026-06-02)
+### v1.0.1 BUG 修复 (2026-06-03) — 15+ 个修复
 
 | 优先级 | 问题 | 修复 |
 |--------|------|------|
-| **P0** | `inherits` 关键字静默忽略 | 添加 `INHERITS` 解析分支，正确设置父类 |
-| **P0** | 匿名 `procedure()`/`function()` 不解析 | 注册为表达式 context 的 prefix 解析函数 |
-| **P0** | Match 通配符 `_` 生成无效 Go | 检测 `_` 模式生成 `default:` 分支 |
-| **P0** | `{ }` 注释与 match 块冲突 | 移除 `{}` 注释语法，仅保留 `//` 和 `(* *)` |
-| **P1** | 构造函数 `Dog.Create(args)` 无效 Go | 检测 `.Create` 模式生成 `&Dog{args}` |
-| **P1** | Match 分支不触发 import 扫描 | 添加 `MatchStatement` 到 import 扫描 |
+| **P0** | `inherits` 关键字静默忽略 | 添加 `INHERITS` 解析分支 |
+| **P0** | 匿名 `procedure()`/`function()` 不解析 | 注册为 prefix 解析函数，支持局部声明 |
+| **P0** | Match 通配符 `_` 生成无效 Go | 检测 `_` 模式生成 `default:` |
+| **P0** | Match 多模式 `2, 3 =>` 和 `when` 守卫 | 扩展 match 解析和生成 |
+| **P0** | `{ }` 注释与 match 块冲突 | 移除 `{}` 注释语法 |
+| **P0** | Case 语句无限循环 | 添加 `nextToken()` 调用 |
+| **P0** | While/for 循环解析失败 | 条件/起始值后推进 token |
+| **P0** | `function(Type)` 参数类型无限循环 | `parseTypeExpression` 支持 function 类型 |
+| **P0** | 连续 `//` 注释不跳过 | 循环调用直到无注释 |
+| **P1** | 构造函数无效 Go代码 | `Dog.Create(args)` → `&Dog{args}` |
+| **P1** | `match`/`result` 作为变量名冲突 | 软关键字机制 |
+| **P1** | `try/except` 中 `begin...end` 不解析 | 添加 block 解析分支 |
+| **P1** | 静态数组 `array[0..2]` 不解析 | `DOTDOT` 后推进 token |
+| **P1** | 参数解析无防护 | 添加迭代计数器 |
+
+### 示例文件状态 (14个)
+
+| ✅ 通过 (11) | ❌ 失败 (3, 功能缺口) |
+|---|---|
+| hello, simple, types, control, classes | functions (多返回值) |
+| modern, exceptions, stdlib_demo | web_demo (匿名过程边缘情况) |
+| test_formatter, web_advanced, orm_example | web_fullstack (Go 语法) |
 
 ### 版本号升级记录 (v1.0.0 → v1.0.1)
 
