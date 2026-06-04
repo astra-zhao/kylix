@@ -31,16 +31,16 @@ type
       WriteLn('Server port: ', Self.config.GetInt('server.port'));
 
       // Setup database
-      var dbConfig := TConnectionConfig{
-        Type: DBSQLite,
-        Database: Self.config.GetString('database.path')
-      };
+      var dbConfig: TConnectionConfig;
+      dbConfig.Type := DBSQLite;
+      dbConfig.Database := Self.config.GetString('database.path');
 
       Self.db := NewDatabase(dbConfig);
       Self.ormInstance := NewORM(Self.db);
 
       // Setup migrations
-      var migrations := NewMigrationManager(Self.db);
+      var migrations: TMigrationManager;
+      migrations := NewMigrationManager(Self.db);
       migrations.AddMigration(
         '001_create_users',
         'CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT UNIQUE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)',
@@ -61,7 +61,8 @@ type
       Self.templateEngine.RegisterPartial('footer', '<p>&copy; 2026 Kylix Web App</p>');
 
       // Setup web server
-      var port := Self.config.GetIntDefault('server.port', 8080);
+      var port: Integer;
+      port := Self.config.GetIntDefault('server.port', 8080);
       Self.server := NewServer(port);
 
       // Add middleware
@@ -80,12 +81,14 @@ type
       // Home page
       Self.server.Get('/', procedure(req: TRequest; res: TResponse)
       begin
-        var view := NewView(Self.templateEngine);
+        var view: TView;
+        view := NewView(Self.templateEngine);
         view.With('Title', 'Home');
         view.With('Message', 'Welcome to Kylix Web Framework!');
         view.WithLayout('main');
 
-        var html := view.Render('home.html');
+        var html: String;
+        html := view.Render('home.html');
         res.HTML(html);
       end);
 
@@ -93,20 +96,22 @@ type
       Self.server.Get('/users', procedure(req: TRequest; res: TResponse)
       var
         qb: TQueryBuilder;
-        users: array of map[string]interface{};
+        users: array of TUser;
       begin
         qb := Self.ormInstance.QueryBuilder('users');
         qb.Select('id', 'name', 'email', 'created_at');
         qb.OrderBy('created_at', 'DESC');
         users := Self.ormInstance.Execute(qb);
 
-        var view := NewView(Self.templateEngine);
+        var view: TView;
+        view := NewView(Self.templateEngine);
         view.With('Title', 'Users');
         view.With('Users', users);
         view.With('UserCount', length(users));
         view.WithLayout('main');
 
-        var html := view.Render('users.html');
+        var html: String;
+        html := view.Render('users.html');
         res.HTML(html);
       end);
 
@@ -114,21 +119,23 @@ type
       Self.server.Get('/users/:id', procedure(req: TRequest; res: TResponse)
       var
         id: Integer;
-        user: map[string]interface{};
+        user: TUser;
       begin
         id := StrToInt(req.Param('id'));
         user := Self.ormInstance.Find('users', id);
 
-        if user = nil then
+        if user.ID = 0 then
           res.Status(404).HTML('<h1>User not found</h1>')
         else
         begin
-          var view := NewView(Self.templateEngine);
-          view.With('Title', user['name']);
+          var view: TView;
+          view := NewView(Self.templateEngine);
+          view.With('Title', user.Name);
           view.With('User', user);
           view.WithLayout('main');
 
-          var html := view.Render('profile.html');
+          var html: String;
+          html := view.Render('profile.html');
           res.HTML(html);
         end;
       end);
@@ -136,11 +143,13 @@ type
       // Create user form
       Self.server.Get('/users/new', procedure(req: TRequest; res: TResponse)
       begin
-        var view := NewView(Self.templateEngine);
+        var view: TView;
+        view := NewView(Self.templateEngine);
         view.With('Title', 'New User');
         view.WithLayout('main');
 
-        var html := view.Render('new_user.html');
+        var html: String;
+        html := view.Render('new_user.html');
         res.HTML(html);
       end);
 
@@ -149,6 +158,7 @@ type
       var
         validator: TValidator;
         name, email: String;
+        data: map[String]String;
       begin
         name := req.GetField('name');
         email := req.GetField('email');
@@ -161,24 +171,25 @@ type
 
         if not validator.IsValid then
         begin
-          var view := NewView(Self.templateEngine);
+          var view: TView;
+          view := NewView(Self.templateEngine);
           view.With('Title', 'New User');
           view.With('Errors', validator.ErrorMessages);
           view.With('Name', name);
           view.With('Email', email);
           view.WithLayout('main');
 
-          var html := view.Render('new_user.html');
+          var html: String;
+          html := view.Render('new_user.html');
           res.HTML(html);
         end
         else
         begin
-          var data := map[string]interface{}{
-            'name': name,
-            'email': email
-          };
+          data['name'] := name;
+          data['email'] := email;
 
-          var id := Self.ormInstance.Insert('users', data);
+          var id: Integer;
+          id := Self.ormInstance.Insert('users', data);
           res.Redirect('/users/' + IntToStr(id));
         end;
       end);
@@ -187,7 +198,7 @@ type
       Self.server.Get('/api/users', procedure(req: TRequest; res: TResponse)
       var
         qb: TQueryBuilder;
-        users: array of map[string]interface{};
+        users: array of TUser;
       begin
         qb := Self.ormInstance.QueryBuilder('users');
         users := Self.ormInstance.Execute(qb);

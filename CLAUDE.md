@@ -2,11 +2,11 @@
 
 Kylix is a modern Pascal-to-Go transpiler. The compiler is written in Go and targets Go output.
 
-## Current State: v1.0.2 (2026-06-04)
+## Current State: v1.0.3 (2026-06-05)
 
-- Phase 6 complete: string interpolation, exception types, multi-return, properties, nested record fix
-- 13/14 example files pass (93%)
-- 1 failing: web_fullstack.klx (uses Go struct literal `{...}` syntax — not valid Kylix)
+- Phase 6 & 7 complete: bug fixes + language capabilities (map, variant, dynamic arrays)
+- 15/15 example files pass (100%)
+- All Go tests pass
 
 ## Key Documents
 
@@ -25,20 +25,23 @@ Kylix is a modern Pascal-to-Go transpiler. The compiler is written in Go and tar
 - `pkg/compiler/` — Compilation API
 - `pkg/repl/` — Interactive REPL
 - `pkg/lsp/` — Language Server Protocol
-- `stdlib/` — Go standard library (web, orm, template, etc.)
+- `stdlib/` — Go standard library (web, orm, template, exceptions, etc.)
 
-## Phase 6 Completed → v1.0.2
+## Completed Phases
 
-- String interpolation: `$"${expr}"` → `fmt.Sprintf(...)`
-- Exception types: `raise/except/on` generate proper Go exception types
-- Multi-value return: `: (Type1, Type2)` + tuple literals + destructuring
-- Properties: `property Name: Type read Field;` → getter/setter methods
-- Nested record fix: depth tracking for `end` in nested record types
-- Array range fix: `[0..2]` now computes correct size `(2-0+1)`
+### Phase 6 → v1.0.2
+- String interpolation, exception types, multi-return, properties
+- Nested record fix, array range fix, memory leak fix
 
-## Next: Phase 7 → v1.1.0
+### Phase 7 → v1.0.3
+- Map type: `map[K]V` → Go `map[K]V`, auto-init
+- Variant type: `variant ... end` → Go interface + struct
+- Dynamic arrays: `append(arr, elem)`, `SetLength(arr, n)`
+- web_fullstack.klx rewritten in proper Kylix syntax
 
-Priority: Map type → Variant/Union types → Dynamic arrays → Enums → Multi-file modules
+## Next: Phase 8 → v2.0.0
+
+编写 compiler.klx — 用 Kylix 写 Kylix 编译器
 
 ## Key Constraints
 

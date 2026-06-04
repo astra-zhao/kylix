@@ -141,6 +141,8 @@ const (
 	EXPORT    = "export"
 	MODULE    = "module"
 	RETURN    = "return"
+	MAP       = "map"
+	VARIANT   = "variant"
 
 	// Types
 	INTEGER_TYPE  = "Integer"
@@ -234,6 +236,8 @@ var keywords = map[string]TokenType{
 	"export":     EXPORT,
 	"module":     MODULE,
 	"return":     RETURN,
+	"map":        MAP,
+	"variant":    VARIANT,
 	"mod":        MOD,
 	"div":        DIV,
 }

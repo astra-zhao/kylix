@@ -334,6 +334,32 @@ type ArrayType struct {
 func (a *ArrayType) expressionNode()       {}
 func (a *ArrayType) TokenLiteral() string { return "array" }
 
+// Map Type (modern feature) — e.g., map[String]Integer
+type MapType struct {
+	KeyType   Expression
+	ValueType Expression
+}
+
+func (m *MapType) expressionNode()       {}
+func (m *MapType) TokenLiteral() string { return "map" }
+
+// Variant Type (discriminated union) — e.g.,
+//   type TExpr = variant
+//     IntLiteral: Integer;
+//     StrLiteral: String;
+//   end;
+type VariantType struct {
+	Cases []*VariantCase
+}
+
+func (v *VariantType) expressionNode()       {}
+func (v *VariantType) TokenLiteral() string { return "variant" }
+
+type VariantCase struct {
+	Name string
+	Type Expression
+}
+
 // Generic Type (modern feature)
 type GenericType struct {
 	Base       string

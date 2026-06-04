@@ -2,6 +2,64 @@
 
 All notable changes to the Kylix compiler are documented in this file.
 
+## v1.0.3 (2026-06-05)
+
+### New Features — Phase 7: Language Capabilities
+
+**P0 - Map Type (map[K]V):**
+- Token: Added `MAP` token and `"map"` keyword
+- AST: Added `MapType` node with `KeyType` and `ValueType` fields
+- Parser: `parseMapType()` parses `map[K]V` syntax
+- Generator: `map[K]V` → Go `map[K]V`, with auto-initialization (`map[K]V{}`)
+- Example: `examples/test_map.klx` — Map operations demo
+
+**P0 - Variant / Discriminated Union:**
+- Token: Added `VARIANT` token and `"variant"` keyword
+- AST: Added `VariantType` and `VariantCase` nodes
+- Parser: Parses `variant CaseName: Type; ... end` syntax
+- Generator: Generates Go `interface` + concrete `struct` types with marker methods
+  - `type TExpr = variant IntLit: Integer; StrLit: String; end;` →
+    - `type TExpr interface { isTExpr() }`
+    - `type TExpr_IntLit struct { Value int64 }` + `func (*TExpr_IntLit) isTExpr() {}`
+    - `type TExpr_StrLit struct { Value string }` + `func (*TExpr_StrLit) isTExpr() {}`
+
+**P0 - Dynamic Arrays (append, SetLength):**
+- Builtin: `append` and `SetLength` registered in builtin map
+- `append(arr, elem)` → `arr = append(arr, elem)` (auto-assignment)
+- `SetLength(arr, n)` → `arr = arr[:n]` (slice truncation)
+- Works as expression statement, not requiring manual assignment
+
+### Bug Fix
+
+**web_fullstack.klx rewritten:**
+- Replaced Go struct literal `TConnectionConfig{...}` with proper Kylix field assignments
+- Replaced `map[string]interface{}` with `map[String]String` (valid Kylix syntax)
+- Replaced `user = nil` check with `user.ID = 0` (proper record check)
+
+### Example File Status (15 files)
+
+| ✅ Passing (15/15) | ❌ Failing (0) |
+|---|---|
+| hello, simple, types, control, classes | — |
+| modern, exceptions, stdlib_demo | |
+| test_formatter, test_map, orm_example | |
+| functions, web_demo, web_advanced | |
+| web_fullstack | |
+
+- **test_map.klx**: New example for Map type
+- **web_fullstack.klx**: Rewritten in proper Kylix syntax — now passes ✅
+
+### Files Changed
+
+- `token/token.go` — Added `MAP`, `VARIANT` tokens and keywords
+- `ast/ast.go` — Added `MapType`, `VariantType`, `VariantCase` nodes
+- `parser/parser.go` — `parseMapType()`, variant type parsing in `parseTypeExpression()`
+- `generator/generator.go` — `MapType`/`VariantType` generation, `append`/`SetLength` builtins, map auto-init
+- `examples/web_fullstack.klx` — Rewritten in proper Kylix syntax
+- `examples/test_map.klx` — New Map type example
+
+---
+
 ## v1.0.2 (2026-06-04)
 
 ### Bug Fixes

@@ -188,6 +188,10 @@ func (g *Generator) generateTypeDecl(decl *ast.TypeDecl) {
 		g.generateInterfaceDecl(ifaceDecl)
 		return
 	}
+	if variantDecl, ok := decl.Type.(*ast.VariantType); ok {
+		g.generateVariantType(decl.Name, variantDecl)
+		return
+	}
 
 	g.write(fmt.Sprintf("type %s ", decl.Name))
 	g.generateTypeExpression(decl.Type)
@@ -308,6 +312,32 @@ func (g *Generator) generateInterfaceDecl(decl *ast.InterfaceDecl) {
 	g.writeLine("")
 }
 
+// generateVariantType generates a discriminated union: an interface + concrete types
+func (g *Generator) generateVariantType(name string, variant *ast.VariantType) {
+	g.writeLine(fmt.Sprintf("type %s interface {", name))
+	g.indent++
+	g.writeLine(fmt.Sprintf("is%s()", name))
+	g.indent--
+	g.writeLine("}")
+	g.writeLine("")
+
+	for _, c := range variant.Cases {
+		structName := fmt.Sprintf("%s_%s", name, c.Name)
+		g.writeLine(fmt.Sprintf("type %s struct {", structName))
+		g.indent++
+		if c.Type != nil {
+			g.write("Value ")
+			g.generateTypeExpression(c.Type)
+			g.write("\n")
+		}
+		g.indent--
+		g.writeLine("}")
+		g.writeLine("")
+		g.writeLine(fmt.Sprintf("func (s *%s) is%s() {}", structName, name))
+		g.writeLine("")
+	}
+}
+
 func (g *Generator) generateGlobalVarDecl(decl *ast.VarDecl) {
 	g.write("var ")
 	for i, name := range decl.Names {
@@ -325,6 +355,10 @@ func (g *Generator) generateGlobalVarDecl(decl *ast.VarDecl) {
 	if decl.Value != nil {
 		g.write(" = ")
 		g.generateExpression(decl.Value)
+	} else if _, isMap := decl.Type.(*ast.MapType); isMap {
+		g.write(" = ")
+		g.generateTypeExpression(decl.Type)
+		g.write("{}")
 	}
 
 	g.write("\n")
@@ -542,6 +576,19 @@ func (g *Generator) generateTypeExpression(expr ast.Expression) {
 		} else {
 			g.write("interface{}")
 		}
+	case *ast.MapType:
+		g.write("map[")
+		if t.KeyType != nil {
+			g.generateTypeExpression(t.KeyType)
+		} else {
+			g.write("string")
+		}
+		g.write("]")
+		if t.ValueType != nil {
+			g.generateTypeExpression(t.ValueType)
+		} else {
+			g.write("interface{}")
+		}
 	case *ast.GenericType:
 		// Go 1.18+ uses square brackets for generics: TPair[int64, string]
 		g.write(g.mapType(t.Base))
@@ -633,6 +680,8 @@ func (g *Generator) mapBuiltinFunction(name string) string {
 		"Randomize": "rand.Seed",
 		"Halt":     "os.Exit",
 		"Exit":     "return",
+		"append":   "append",
+		"SetLength": "SetLength",
 	}
 
 	if goFunc, ok := builtinMap[name]; ok {
@@ -913,8 +962,38 @@ func (g *Generator) generateStatement(stmt ast.Statement) {
 	case *ast.AssignmentStatement:
 		g.generateAssignment(s)
 	case *ast.ExpressionStatement:
-		g.generateExpression(s.Expression)
-		g.write("\n")
+		// Handle special builtins: append(arr, elem) → arr = append(arr, elem)
+		if call, ok := s.Expression.(*ast.CallExpression); ok {
+			if ident, ok := call.Function.(*ast.Identifier); ok {
+				if ident.Value == "append" && len(call.Arguments) >= 1 {
+					g.generateExpression(call.Arguments[0])
+					g.write(" = append(")
+					for i, arg := range call.Arguments {
+						if i > 0 {
+							g.write(", ")
+						}
+						g.generateExpression(arg)
+					}
+					g.write(")\n")
+					break
+				}
+				if ident.Value == "SetLength" && len(call.Arguments) >= 2 {
+					g.generateExpression(call.Arguments[0])
+					g.write(" = ")
+					g.generateExpression(call.Arguments[0])
+					g.write("[:")
+					g.generateExpression(call.Arguments[1])
+					g.write("]")
+					g.write("\n")
+					break
+				}
+			}
+			g.generateExpression(s.Expression)
+			g.write("\n")
+		} else {
+			g.generateExpression(s.Expression)
+			g.write("\n")
+		}
 	case *ast.IfStatement:
 		g.generateIfStatement(s)
 	case *ast.WhileStatement:

@@ -1965,6 +1965,43 @@ func (p *Parser) parseTypeExpression() ast.Expression {
 		return &ast.Identifier{Token: p.curToken, Value: name}
 	}
 
+	if p.curTokenIs(token.MAP) {
+		p.nextToken()
+		mapType := &ast.MapType{}
+		if p.curTokenIs(token.LBRACKET) {
+			p.nextToken()
+			mapType.KeyType = p.parseTypeExpression()
+			if p.curTokenIs(token.RBRACKET) {
+				p.nextToken()
+			}
+		}
+		mapType.ValueType = p.parseTypeExpression()
+		return mapType
+	}
+
+	if p.curTokenIs(token.VARIANT) {
+		p.nextToken() // skip 'variant'
+		variant := &ast.VariantType{}
+		for p.isIdentOrSoftKeyword() {
+			caseNode := &ast.VariantCase{}
+			caseNode.Name = p.curToken.Literal
+			p.nextToken() // skip case name
+			if p.curTokenIs(token.COLON) {
+				p.nextToken() // skip ':'
+				caseNode.Type = p.parseTypeExpression()
+			}
+			variant.Cases = append(variant.Cases, caseNode)
+			// Skip semicolons
+			for p.curTokenIs(token.SEMICOLON) {
+				p.nextToken()
+			}
+		}
+		if p.curTokenIs(token.END) {
+			p.nextToken() // skip 'end'
+		}
+		return variant
+	}
+
 	if p.curTokenIs(token.ARRAY) {
 		p.nextToken()
 		arrayType := &ast.ArrayType{Dynamic: true}

@@ -1,7 +1,7 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-06-04
-> 当前版本: v1.0.2
+> 最后更新: 2026-06-05
+> 当前版本: v1.0.3
 > 目标: Kylix 语言自举（用 Kylix 写 Kylix 编译器）
 
 ---
@@ -13,16 +13,13 @@
 | 阶段 | 内容 | 状态 | 预计工期 |
 |------|------|------|----------|
 | Phase 6 | 修复关键 Bug | ✅ 完成 | ~2 周 |
-| Phase 7 | 补齐语言能力 | ⬜ 0% | ~3 周 |
+| Phase 7 | 补齐语言能力 | ✅ 完成 | ~3 周 |
 | Phase 8 | 编写 compiler.klx | ⬜ 0% | ~4 周 |
 | Phase 9 | 自举验证 | ⬜ 0% | ~1 周 |
 
-**当前进度：Phase 6 完成，示例通过率 13/14 (93%)**
-| Phase 7 | 补齐语言能力 | ⬜ 0% | ~3 周 |
-| Phase 8 | 编写 compiler.klx | ⬜ 0% | ~4 周 |
-| Phase 9 | 自举验证 | ⬜ 0% | ~1 周 |
+**当前进度：Phase 7 完成，示例通过率 15/15 (100%)**
 
-**总计剩余工期：约 9 周**
+**总计剩余工期：约 5 周**
 
 ---
 
@@ -44,10 +41,25 @@
 
 | 状态 | 数量 | 文件 |
 |------|------|------|
-| ✅ 通过 | 13/14 (93%) | hello, simple, types, control, classes, modern, exceptions, stdlib_demo, test_formatter, web_advanced, orm_example, functions, web_demo |
-| ❌ 失败 | 1/14 (7%) | web_fullstack.klx (Go struct 字面量 `TConnectionConfig{...}` 语法 — 非 Kylix 语法) |
+| ✅ 通过 | 15/15 (100%) | hello, simple, types, control, classes, modern, exceptions, stdlib_demo, test_formatter, web_advanced, orm_example, functions, web_demo, test_map, web_fullstack |
 
 ---
+
+## Phase 7: 补齐语言能力 → v1.0.3 ✅ 已完成
+
+### ✅ 已完成
+
+| 特性 | 严重性 | 描述 |
+|------|--------|------|
+| **Map 类型** | 🔴 P0 | `map[K]V` 语法，自动初始化，索引读写 |
+| **变体类型** | 🔴 P0 | `variant Case: Type; end` → Go interface + struct 模式 |
+| **动态数组** | 🔴 P0 | `append(arr, elem)` / `SetLength(arr, n)` 内置函数 |
+
+### 🟡 示例文件通过率
+
+| 状态 | 数量 | 文件 |
+|------|------|------|
+| ✅ 通过 | 15/15 (100%) | 全部 15 个示例通过 |
 
 ## Phase 7: 补齐语言能力
 

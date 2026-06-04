@@ -1,0 +1,9 @@
+program TestMap;
+var
+  scores: map[String]Integer;
+begin
+  // Map type declaration
+  scores['Alice'] := 95;
+  scores['Bob'] := 87;
+  WriteLn('Alice score: ', scores['Alice']);
+end.

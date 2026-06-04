@@ -1,8 +1,8 @@
 # Kylix 开发任务清单
 
-> 最后更新: 2026-06-04
+> 最后更新: 2026-06-05
 > 关联文档: [ROADMAP.md](ROADMAP.md)
-> 当前版本: v1.0.2
+> 当前版本: v1.0.3
 
 ---
 
@@ -46,42 +46,45 @@
 
 ---
 
-## Phase 7: 补齐语言能力 → v1.1.0
+## Phase 7: 补齐语言能力 → v1.0.3 ✅ 已完成
 
-### 7.1 Map 类型 (P0)
+### 7.1 Map 类型 (P0) ✅
 
-- [ ] Token 定义 — `MAP` token
-- [ ] Lexer — 识别 `map` 关键字
-- [ ] AST — `MapType` 节点
-- [ ] Parser — `map[K]V` 类型声明
-- [ ] Generator — Go `map[K]V` 生成
-- [ ] Map 字面量 `map[K]V{key: val, ...}`
+- [x] Token — `MAP` token + `"map"` 关键字
+- [x] AST — `MapType` 节点 (`KeyType`, `ValueType`)
+- [x] Parser — `parseTypeExpression()` 中 `map[K]V` 解析
+- [x] Generator — `map[K]V` → Go `map[K]V`，自动初始化 `{}`
+- [x] 索引读写（复用已有 `IndexExpression`）
+- [x] 示例: `examples/test_map.klx`
 
-### 7.2 变体类型 / Discriminated Union (P0)
+### 7.2 变体类型 / Discriminated Union (P0) ✅
 
-- [ ] Token — `VARIANT` token
-- [ ] AST — `VariantType` 节点
-- [ ] Parser — variant 类型声明
-- [ ] Generator — Go interface + 具体类型
+- [x] Token — `VARIANT` token + `"variant"` 关键字
+- [x] AST — `VariantType` + `VariantCase` 节点
+- [x] Parser — `variant CaseName: Type; ... end` 解析
+- [x] Generator — Go `interface` + 具体 `struct` + marker method
+- [x] 命名规则: `TExpr_IntLit`, `TExpr_StrLit` 等
 
-### 7.3 动态数组 (P0)
+### 7.3 动态数组 (P0) ✅
 
-- [ ] Builtin — `append`, `SetLength` 注册
-- [ ] Generator — `append(arr, elem)` / `SetLength(arr, n)`
+- [x] Builtin — `append`, `SetLength` 注册到 builtinMap
+- [x] Generator — `append(arr, elem)` → `arr = append(arr, elem)`
+- [x] Generator — `SetLength(arr, n)` → `arr = arr[:n]`
+- [x] 作为 ExpressionStatement 特殊处理，自动赋值
 
-### 7.4 枚举类型 (P1)
+### 7.4 枚举类型 (P1) — 延后
 
 - [ ] AST — `EnumType` 节点
 - [ ] Parser — `type T = (val1, val2);` 语法
 - [ ] Generator — Go `const` + `iota`
 
-### 7.5 多文件模块系统 (P1)
+### 7.5 多文件模块系统 (P1) — 延后
 
 - [ ] Compiler API — 多文件编译
 - [ ] 跨文件符号可见性
 - [ ] CLI — `kylix build` 项目编译
 
-### 7.6 接口实现验证 (P1)
+### 7.6 接口实现验证 (P1) — 延后
 
 - [ ] Parser — `implements` 子句
 - [ ] 编译时接口实现检查
@@ -115,5 +118,6 @@
 | 版本 | 内容 | 预计日期 |
 |------|------|----------|
 | v1.0.2 | ✅ Phase 6 完成 | 2026-06-04 |
-| v1.1.0 | Phase 7 完成 | ~3 周 |
-| v2.0.0 | Phase 8-9 完成 | ~8 周 |
+| v1.0.3 | ✅ Phase 7 P0 完成（Map、变体、动态数组） | 2026-06-05 |
+| v1.1.0 | Phase 7 P1（枚举、多文件模块、接口验证） | ~2 周 |
+| v2.0.0 | Phase 8-9 完成 | ~6 周 |
