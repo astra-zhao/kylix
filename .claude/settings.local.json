@@ -27,7 +27,28 @@
       "Bash(git add *)",
       "Bash(git commit -m 'Complete LSP server implementation with full IDE features *)",
       "Bash(kill -9 75254)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(go get *)",
+      "Bash(git commit *)",
+      "Bash(git check-ignore *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(echo \"EXIT_CODE=$?\")",
+      "Bash(/tmp/kylix_test check *)",
+      "Bash(git pull *)",
+      "Read(//private/tmp/inherit_test/**)",
+      "Bash(/tmp/testinherent build *)",
+      "Bash(python3 *)",
+      "Read(//private/tmp/anon_test/**)",
+      "Bash(/tmp/kylixnew check *)",
+      "Read(//private/tmp/_kylixtest/**)",
+      "Bash(cp /Users/astra/Documents/ai/learn/kylix/examples/control.klx main.klx)",
+      "Bash(/tmp/klx check *)",
+      "Bash(gtimeout 5 /tmp/klx check)",
+      "Bash(echo \"EXIT CODE: $?\")",
+      "Bash(git reset *)",
+      "Bash(awk '{print $2, $11, $12}')",
+      "Bash(./exceptions)"
     ]
   }
 }

@@ -2,6 +2,71 @@
 
 All notable changes to the Kylix compiler are documented in this file.
 
+## v1.0.2 (2026-06-04)
+
+### Bug Fixes
+
+**P1 - String Interpolation (fixed):**
+- **Lexer**: Already detected `$"..."` patterns correctly — no changes needed
+- **Parser**: `parseStringInterpolation()` now properly splits raw content by `${...}` patterns, creates sub-parsers for each expression segment, and returns `ast.StringInterpolation` with parsed expression parts
+- **Generator**: Added `*ast.StringInterpolation` case in `generateExpression()` → generates `fmt.Sprintf(format, args...)` with automatic `"fmt"` import
+- Added `scanExpressionForImports` support for `*ast.StringInterpolation`
+
+**P1 - Exception Types (fixed):**
+- Exception types (`Exception`, `EIndexOutOfRange`, etc.) now auto-generated inline in Go output when `try/raise/except` is used
+- `raise Exception.Create('msg')` generates `panic(&Exception{Message: "msg"})` using constructor pattern
+- `except on E: ExceptionType do` generates `case *ExceptionType:` (pointer type switch) for proper matching
+- Sub-types detected from `on` clauses are auto-generated as structs embedding `Exception`
+- Added `scanForException` pre-scan pass to detect exception usage before type generation
+- Plain `raise` without expression generates `panic(&Exception{Message: "exception"})`
+
+**P2 - Multi-Value Return (fixed):**
+- Parser: `parseFunctionDecl` now detects `: (Type1, Type2)` tuple return type syntax
+- Parser: `parseGroupedExpression` now detects `(expr1, expr2)` tuple literals via `peekToken` check
+- Parser: `parseSingleVarDecl` supports destructuring `var (a, b) := expr` with LPAREN detection
+- AST: Added `TupleLiteral` expression node and `ReturnTypes []Expression` to `FunctionDecl`
+- Generator: `generateFunctionSignature` outputs `(type1, type2)` for multi-return
+- Generator: `result := (a, b)` in multi-return functions generates `return a, b`
+- Generator: `var (quotient, ok) := Divide(10, 3)` generates `quotient, ok := Divide(10, 3)`
+- Generator: Added `writeInterpolation` and `generateMultiReturnType` helper methods
+
+**P2 - Properties Code Generation (fixed):**
+- Generator: `generateClassDecl` now iterates `class.Properties` and generates getter/setter methods
+- `property PropName: Type read FieldName;` → `func (self *ClassName) PropName() Type { return self.FieldName }`
+- `property PropName: Type write FieldName;` → `func (self *ClassName) SetPropName(v Type) { self.FieldName = v }`
+
+**P2 - Anonymous Procedure Edge Cases (fixed):**
+- Record type parser now tracks nesting depth for nested `record` types
+- `web_demo.klx`: Anonymous procedures with nested record types in `var` declarations now parse correctly
+- Fix: `parseTypeExpression` for `RECORD` uses depth counter to handle inner `end` tokens
+
+**P2 - Array Range Size Calculation (fixed):**
+- `array[0..2] of Integer` now correctly computes size as `((2 - 0) + 1)` instead of `[0]`
+- Fix: `parseArrayType` now computes `upperBound - lowerBound + 1` when `..` range syntax is used
+
+### Example File Status (14 files)
+
+| ✅ Passing (13) | ❌ Failing (1) |
+|---|---|
+| hello, simple, types, control, classes | web_fullstack (Go struct literal `{...}` syntax) |
+| modern, exceptions, stdlib_demo | |
+| test_formatter, web_advanced, orm_example | |
+| functions, web_demo | |
+
+- **functions.klx**: Now passes ✅ (was failing due to missing multi-return support)
+- **web_demo.klx**: Now passes ✅ (was failing due to nested record parsing bug)
+- **web_fullstack.klx**: Still fails (uses Go struct literal `{...}` syntax — not valid Kylix)
+
+### Files Changed
+
+- `lexer/lexer.go` — No changes (STRING_INTERPOLATION detection already worked)
+- `parser/parser.go` — String interpolation parsing, multi-return return type/tuple/destructuring parsing, record depth tracking, array size computation, LPAREN support in var sections
+- `generator/generator.go` — String interpolation generation, exception type auto-generation, multi-return function/assignment/var generation, property accessor generation
+- `ast/ast.go` — Added `TupleLiteral` expression node, `ReturnTypes []Expression` field on `FunctionDecl`
+- `stdlib/exceptions.go` — New file: Reference exception type definitions
+
+---
+
 ## v1.0.1 (2026-06-03)
 
 ### Bug Fixes

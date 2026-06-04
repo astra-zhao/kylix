@@ -6,6 +6,7 @@ import (
 	"kylix/lexer"
 	"kylix/token"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -226,7 +227,7 @@ func (p *Parser) ParseProgram() *ast.Program {
 			// var section: consume 'var' then parse all declarations in this section
 			varToken := p.curToken // Capture 'var' token
 			p.nextToken()
-			for p.isIdentOrSoftKeyword() {
+			for p.isIdentOrSoftKeyword() || p.curTokenIs(token.LPAREN) {
 				decl := p.parseSingleVarDecl(varToken)
 				if decl != nil {
 					program.Declarations = append(program.Declarations, decl)
@@ -414,6 +415,30 @@ func (p *Parser) parseSingleVarDecl(varToken token.Token) *ast.VarDecl {
 		Token: varToken, // Store the 'var' keyword position
 	}
 
+	// Handle destructuring: var (a, b) := expr
+	if p.curTokenIs(token.LPAREN) {
+		p.nextToken() // skip (
+		for p.isIdentOrSoftKeyword() {
+			decl.Names = append(decl.Names, p.curToken.Literal)
+			p.nextToken()
+			if p.curTokenIs(token.COMMA) {
+				p.nextToken()
+			} else {
+				break
+			}
+		}
+		if p.curTokenIs(token.RPAREN) {
+			p.nextToken() // skip )
+		}
+		if p.curTokenIs(token.ASSIGN_OP) {
+			decl.Inferred = true
+			p.nextToken()
+			decl.Value = p.parseExpression(LOWEST)
+			p.nextToken()
+		}
+		return decl
+	}
+
 	// Parse variable names (comma-separated)
 	for p.isIdentOrSoftKeyword() {
 		decl.Names = append(decl.Names, p.curToken.Literal)
@@ -560,7 +585,24 @@ func (p *Parser) parseFunctionDecl() *ast.FunctionDecl {
 	// Parse return type (for functions only, not procedures/constructors/destructors)
 	if !isProcedure && hasFuncKeyword && p.curTokenIs(token.COLON) {
 		p.nextToken()
-		decl.ReturnType = p.parseTypeExpression()
+		// Check for tuple return type: (Type1, Type2, ...)
+		if p.curTokenIs(token.LPAREN) {
+			p.nextToken()
+			var types []ast.Expression
+			if !p.curTokenIs(token.RPAREN) {
+				types = append(types, p.parseTypeExpression())
+				for p.curTokenIs(token.COMMA) {
+					p.nextToken()
+					types = append(types, p.parseTypeExpression())
+				}
+			}
+			if p.curTokenIs(token.RPAREN) {
+				p.nextToken()
+			}
+			decl.ReturnTypes = types
+		} else {
+			decl.ReturnType = p.parseTypeExpression()
+		}
 	}
 
 	if p.curTokenIs(token.SEMICOLON) {
@@ -1452,9 +1494,70 @@ func (p *Parser) parseStringLiteral() ast.Expression {
 }
 
 func (p *Parser) parseStringInterpolation() ast.Expression {
-	// For now, treat it as a regular string literal
-	// TODO: Parse the interpolation expressions inside {}
-	return &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
+	raw := p.curToken.Literal
+	parts := p.parseInterpolatedParts(raw)
+	return &ast.StringInterpolation{Parts: parts}
+}
+
+// parseInterpolatedParts splits a raw interpolated string like "Hello, ${name}!"
+// into alternating text and expression parts.
+func (p *Parser) parseInterpolatedParts(raw string) []ast.Expression {
+	var parts []ast.Expression
+	var currentText strings.Builder
+
+	i := 0
+	for i < len(raw) {
+		if raw[i] == '$' && i+1 < len(raw) && raw[i+1] == '{' {
+			// Flush accumulated text as a string literal
+			if currentText.Len() > 0 {
+				parts = append(parts, &ast.StringLiteral{Value: currentText.String()})
+				currentText.Reset()
+			}
+			// Find matching closing brace (handles nested braces)
+			depth := 1
+			j := i + 2
+			for j < len(raw) && depth > 0 {
+				if raw[j] == '{' {
+					depth++
+				} else if raw[j] == '}' {
+					depth--
+				}
+				j++
+			}
+			exprStr := raw[i+2 : j-1] // strip ${ and }
+			expr := p.parseExpressionString(strings.TrimSpace(exprStr))
+			if expr != nil {
+				parts = append(parts, expr)
+			}
+			i = j
+		} else {
+			currentText.WriteByte(raw[i])
+			i++
+		}
+	}
+
+	// Flush remaining text
+	if currentText.Len() > 0 {
+		parts = append(parts, &ast.StringLiteral{Value: currentText.String()})
+	}
+
+	return parts
+}
+
+// parseExpressionString parses a single expression from a string by creating
+// a temporary sub-lexer and sub-parser.
+func (p *Parser) parseExpressionString(input string) ast.Expression {
+	if input == "" {
+		return &ast.StringLiteral{Value: ""}
+	}
+	l := lexer.New(input)
+	sub := New(l)
+	expr := sub.parseExpression(LOWEST)
+	// Collect any errors from the sub-parser into the main parser
+	for _, err := range sub.Errors() {
+		p.errors = append(p.errors, "in interpolation '${"+input+"}': "+err)
+	}
+	return expr
 }
 
 func (p *Parser) parseBooleanLiteral() ast.Expression {
@@ -1516,8 +1619,31 @@ func (p *Parser) parseGroupedExpression() ast.Expression {
 		return p.tryParseLambdaParams(openParen)
 	}
 
-	// Not a lambda — parse as parenthesized expression
+	// Not a lambda — parse as parenthesized expression or tuple
 	exp := p.parseExpression(LOWEST)
+
+	// Check for tuple literal: (expr1, expr2, ...)
+	// After parseExpression, peekToken is the next token after the expression.
+	// If it's a comma, this is a tuple literal.
+	if p.peekTokenIs(token.COMMA) {
+		p.nextToken() // advance past last token of expression
+		tuple := &ast.TupleLiteral{Token: openParen}
+		tuple.Elements = append(tuple.Elements, exp)
+		for p.curTokenIs(token.COMMA) {
+			p.nextToken() // skip comma
+			tuple.Elements = append(tuple.Elements, p.parseExpression(LOWEST))
+			// After parseExpression, curToken is last token of expression
+			// Advance if more commas follow
+			if p.peekTokenIs(token.COMMA) {
+				p.nextToken()
+			}
+		}
+		// curToken should now be at RPAREN or we advance
+		if !p.expectPeek(token.RPAREN) {
+			return nil
+		}
+		return tuple
+	}
 
 	if !p.expectPeek(token.RPAREN) {
 		return nil
@@ -1846,13 +1972,21 @@ func (p *Parser) parseTypeExpression() ast.Expression {
 		// Parse size if present
 		if p.curTokenIs(token.LBRACKET) {
 			p.nextToken()
-			arrayType.Size = p.parseExpression(LOWEST)
-			p.nextToken() // advance past the size expression
+			lowerBound := p.parseExpression(LOWEST)
+			p.nextToken() // advance past the lower bound expression
 			arrayType.Dynamic = false
 			if p.curTokenIs(token.DOTDOT) {
 				p.nextToken()
-				p.parseExpression(LOWEST) // parse upper bound
-				p.nextToken()             // advance past upper bound
+				upperBound := p.parseExpression(LOWEST) // parse upper bound
+				p.nextToken()                            // advance past upper bound
+				// Size = upperBound - lowerBound + 1 (Pascal array range semantics)
+				arrayType.Size = &ast.InfixExpression{
+					Left:     &ast.InfixExpression{Left: upperBound, Operator: "-", Right: lowerBound},
+					Operator: "+",
+					Right:    &ast.IntegerLiteral{Value: 1},
+				}
+			} else {
+				arrayType.Size = lowerBound
 			}
 			if p.curTokenIs(token.RBRACKET) {
 				p.nextToken()
@@ -1870,25 +2004,34 @@ func (p *Parser) parseTypeExpression() ast.Expression {
 	if p.curTokenIs(token.RECORD) {
 		p.nextToken()
 		record := &ast.RecordType{}
-		for !p.curTokenIs(token.END) && !p.curTokenIs(token.EOF) {
-			if p.curTokenIs(token.VAR) {
-				varToken := p.curToken
-				p.nextToken() // skip 'var'
-				for p.curTokenIs(token.IDENT) {
-					field := p.parseSingleVarDecl(varToken)
-					if field != nil {
-						record.Fields = append(record.Fields, field)
-					}
-					for p.curTokenIs(token.SEMICOLON) {
-						p.nextToken()
-					}
+		depth := 1 // track nested record depth
+		for depth > 0 && !p.curTokenIs(token.EOF) {
+			if p.curTokenIs(token.RECORD) {
+				depth++
+			} else if p.curTokenIs(token.END) {
+				depth--
+				if depth == 0 {
+					p.nextToken() // skip the end that closes this record
+					continue
 				}
-			} else {
-				p.nextToken()
 			}
-		}
-		if p.curTokenIs(token.END) {
-			p.nextToken()
+			if depth > 0 {
+				if p.curTokenIs(token.VAR) {
+					varToken := p.curToken
+					p.nextToken() // skip 'var'
+					for p.curTokenIs(token.IDENT) {
+						field := p.parseSingleVarDecl(varToken)
+						if field != nil {
+							record.Fields = append(record.Fields, field)
+						}
+						for p.curTokenIs(token.SEMICOLON) {
+							p.nextToken()
+						}
+					}
+				} else {
+					p.nextToken()
+				}
+			}
 		}
 		return record
 	}

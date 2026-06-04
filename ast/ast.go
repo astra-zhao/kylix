@@ -65,14 +65,15 @@ func (t *TypeDecl) TokenLiteral() string { return t.Token.Literal }
 
 // Function/Procedure Declaration
 type FunctionDecl struct {
-	Token      token.Token // NEW: the 'function' or 'procedure' keyword
-	Name       string
-	TypeParams []*TypeParameter // generic type parameters (Go 1.18+)
-	Parameters []*Parameter
-	ReturnType Expression
-	Body       *BlockStatement
-	IsAsync    bool
-	IsExport   bool
+	Token       token.Token // NEW: the 'function' or 'procedure' keyword
+	Name        string
+	TypeParams  []*TypeParameter // generic type parameters (Go 1.18+)
+	Parameters  []*Parameter
+	ReturnType  Expression   // single return type (traditional)
+	ReturnTypes []Expression // multiple return types (modern: (Type1, Type2))
+	Body        *BlockStatement
+	IsAsync     bool
+	IsExport    bool
 }
 
 func (f *FunctionDecl) statementNode()       {}
@@ -413,6 +414,15 @@ type ArrayLiteral struct {
 
 func (a *ArrayLiteral) expressionNode()       {}
 func (a *ArrayLiteral) TokenLiteral() string { return a.Token.Literal }
+
+// Tuple Literal (modern feature) — e.g., (expr1, expr2)
+type TupleLiteral struct {
+	Token    token.Token
+	Elements []Expression
+}
+
+func (t *TupleLiteral) expressionNode()       {}
+func (t *TupleLiteral) TokenLiteral() string { return "tuple" }
 
 // Lambda Expression (modern feature)
 type LambdaExpression struct {

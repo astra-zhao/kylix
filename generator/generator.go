@@ -16,21 +16,27 @@ type Generator struct {
 	reRaiseVar      string // variable name holding the recovered value for re-raise
 	nameMap         map[string]string // temporary name substitutions (e.g., E→e in on clause)
 	imports         map[string]bool // track which imports are needed
+	needsException  bool   // whether Exception type needs to be generated
+	exceptionTypes  map[string]bool // exception type names referenced in on clauses
+	multiReturn     bool   // whether current function has multiple return values
+	multiReturnN    int    // number of return values in current function
 }
 
 func New() *Generator {
 	return &Generator{
-		variables: make(map[string]string),
-		nameMap:   make(map[string]string),
-		imports:   make(map[string]bool),
+		variables:      make(map[string]string),
+		nameMap:        make(map[string]string),
+		imports:        make(map[string]bool),
+		exceptionTypes: make(map[string]bool),
 	}
 }
 
 func (g *Generator) Generate(program *ast.Program) string {
 	g.program = program
 
-	// First pass: scan for needed imports
+	// First pass: scan for needed imports and exception usage
 	g.scanImports(program)
+	g.scanForException(program)
 
 	// Generate package and imports
 	g.writeLine("package main")
@@ -55,6 +61,32 @@ func (g *Generator) Generate(program *ast.Program) string {
 			g.generateClassDecl(d)
 		case *ast.InterfaceDecl:
 			g.generateInterfaceDecl(d)
+		}
+	}
+
+	// Generate runtime Exception type if needed
+	if g.needsException {
+		g.writeLine("// Kylix runtime: Exception type for try/except/raise")
+		g.writeLine("type Exception struct {")
+		g.indent++
+		g.writeLine("Message string")
+		g.indent--
+		g.writeLine("}")
+		g.writeLine("")
+		g.writeLine("func (e *Exception) Error() string { return e.Message }")
+		g.writeLine("")
+
+		// Generate sub-types for all exception types referenced in on clauses
+		for excType := range g.exceptionTypes {
+			if excType != "Exception" {
+				g.writeLine(fmt.Sprintf("// %s is a sub-type of Exception", excType))
+				g.writeLine(fmt.Sprintf("type %s struct {", excType))
+				g.indent++
+				g.writeLine("Exception")
+				g.indent--
+				g.writeLine("}")
+				g.writeLine("")
+			}
 		}
 	}
 
@@ -106,6 +138,42 @@ func (g *Generator) writeLine(s string) {
 	}
 	g.output.WriteString(s)
 	g.output.WriteString("\n")
+}
+
+// writeInterpolation generates a fmt.Sprintf call for string interpolation.
+// e.g., 'Hello, ${name}!' → fmt.Sprintf("Hello, %v!", name)
+func (g *Generator) writeInterpolation(interp *ast.StringInterpolation) {
+	var formatParts []string
+	var exprParts []string
+
+	for _, part := range interp.Parts {
+		switch p := part.(type) {
+		case *ast.StringLiteral:
+			formatParts = append(formatParts, p.Value)
+		default:
+			formatParts = append(formatParts, "%v")
+			// Capture the expression output into a buffer
+			oldOutput := g.output
+			g.output = strings.Builder{}
+			g.generateExpression(p)
+			exprParts = append(exprParts, g.output.String())
+			g.output = oldOutput
+		}
+	}
+
+	if len(exprParts) == 0 {
+		// No interpolation, just a plain string
+		g.write(fmt.Sprintf(`"%s"`, strings.Join(formatParts, "")))
+	} else {
+		g.imports["fmt"] = true
+		g.write("fmt.Sprintf(")
+		g.write(fmt.Sprintf(`"%s"`, strings.Join(formatParts, "")))
+		for _, arg := range exprParts {
+			g.write(", ")
+			g.write(arg)
+		}
+		g.write(")")
+	}
 }
 
 func (g *Generator) generateTypeDecl(decl *ast.TypeDecl) {
@@ -175,6 +243,48 @@ func (g *Generator) generateClassDecl(decl *ast.ClassDecl) {
 		g.writeLine("}")
 		g.writeLine("")
 	}
+
+	// Generate property accessor methods
+	for _, prop := range decl.Properties {
+		g.generatePropertyAccessors(decl.Name, prop)
+	}
+}
+
+// generatePropertyAccessors generates getter and setter methods for a property.
+// Pascal property: property GetName: String read Name;
+// Generates: func (self *ClassName) GetName() string { return self.Name }
+func (g *Generator) generatePropertyAccessors(className string, prop *ast.PropertyDecl) {
+	if prop.Getter != "" {
+		// Generate getter: func (self *ClassName) PropName() Type { return self.FieldName }
+		g.write(fmt.Sprintf("func (self *%s) %s() ", className, prop.Name))
+		if prop.Type != nil {
+			g.generateTypeExpression(prop.Type)
+		} else {
+			g.write("interface{}")
+		}
+		g.writeLine(" {")
+		g.indent++
+		g.write(fmt.Sprintf("return self.%s\n", prop.Getter))
+		g.indent--
+		g.writeLine("}")
+		g.writeLine("")
+	}
+
+	if prop.Setter != "" {
+		// Generate setter: func (self *ClassName) SetPropName(v Type) { self.FieldName = v }
+		g.write(fmt.Sprintf("func (self *%s) Set%s(v ", className, prop.Name))
+		if prop.Type != nil {
+			g.generateTypeExpression(prop.Type)
+		} else {
+			g.write("interface{}")
+		}
+		g.writeLine(") {")
+		g.indent++
+		g.write(fmt.Sprintf("self.%s = v\n", prop.Setter))
+		g.indent--
+		g.writeLine("}")
+		g.writeLine("")
+	}
 }
 
 func (g *Generator) generateInterfaceDecl(decl *ast.InterfaceDecl) {
@@ -234,7 +344,10 @@ func (g *Generator) generateConstDecl(decl *ast.ConstDecl) {
 }
 
 func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
-	hasReturnType := decl.ReturnType != nil
+	hasReturnType := decl.ReturnType != nil || len(decl.ReturnTypes) > 0
+	hasMultiReturn := len(decl.ReturnTypes) > 1
+	g.multiReturn = hasMultiReturn
+	g.multiReturnN = len(decl.ReturnTypes)
 
 	if decl.IsAsync {
 		// Async function: generate func(...) <-chan ReturnType { ... }
@@ -296,9 +409,19 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 	g.indent++
 
 	if hasReturnType {
-		g.write("var result ")
-		g.generateTypeExpression(decl.ReturnType)
-		g.write("\n")
+		if hasMultiReturn {
+			// Multi-return: no result variable, use direct returns
+			// result := (expr1, expr2) is handled as return in the body
+		} else if decl.ReturnType != nil {
+			g.write("var result ")
+			g.generateTypeExpression(decl.ReturnType)
+			g.write("\n")
+		} else {
+			// Single return from ReturnTypes list
+			g.write("var result ")
+			g.generateTypeExpression(decl.ReturnTypes[0])
+			g.write("\n")
+		}
 	}
 
 	if decl.Body != nil {
@@ -310,8 +433,15 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 	}
 
 	if hasReturnType {
-		g.write("return result\n")
+		if hasMultiReturn {
+			// Multi-return: each path has explicit result := (x, y) → return x, y
+			// No fallback return — Go compiler will catch uncovered paths
+		} else {
+			g.write("return result\n")
+		}
 	}
+	g.multiReturn = false
+	g.multiReturnN = 0
 
 	g.indent--
 	g.writeLine("}")
@@ -373,10 +503,24 @@ func (g *Generator) generateFunctionSignature(decl *ast.FunctionDecl) {
 	}
 	g.write(")")
 
-	if decl.ReturnType != nil {
+	if len(decl.ReturnTypes) > 1 {
+		g.write(" ")
+		g.generateMultiReturnType(decl.ReturnTypes)
+	} else if decl.ReturnType != nil {
 		g.write(" ")
 		g.generateTypeExpression(decl.ReturnType)
 	}
+}
+
+func (g *Generator) generateMultiReturnType(types []ast.Expression) {
+	g.write("(")
+	for i, t := range types {
+		if i > 0 {
+			g.write(", ")
+		}
+		g.generateTypeExpression(t)
+	}
+	g.write(")")
 }
 
 func (g *Generator) generateTypeExpression(expr ast.Expression) {
@@ -509,6 +653,79 @@ func (g *Generator) mapBuiltinFunction(name string) string {
 		return goFunc
 	}
 	return name
+}
+
+// scanForException pre-scans the program for exception-related constructs
+// to determine if the Exception type needs to be generated.
+func (g *Generator) scanForException(program *ast.Program) {
+	// Check all top-level statements for try/raise
+	for _, stmt := range program.Statements {
+		g.scanStatementForException(stmt)
+	}
+	// Check function bodies
+	for _, decl := range program.Declarations {
+		if fn, ok := decl.(*ast.FunctionDecl); ok && fn.Body != nil {
+			for _, stmt := range fn.Body.Statements {
+				g.scanStatementForException(stmt)
+			}
+		}
+		if class, ok := decl.(*ast.ClassDecl); ok {
+			for _, method := range class.Methods {
+				if method.Body != nil {
+					for _, stmt := range method.Body.Statements {
+						g.scanStatementForException(stmt)
+					}
+				}
+			}
+		}
+	}
+}
+
+func (g *Generator) scanStatementForException(stmt ast.Statement) {
+	if stmt == nil {
+		return
+	}
+	switch s := stmt.(type) {
+	case *ast.TryStatement:
+		g.needsException = true
+		// Collect exception type names from ON clauses
+		for _, on := range s.OnClauses {
+			if on.Type != nil {
+				if ident, ok := on.Type.(*ast.Identifier); ok {
+					g.exceptionTypes[ident.Value] = true
+				}
+			}
+		}
+	case *ast.RaiseStatement:
+		g.needsException = true
+	case *ast.IfStatement:
+		if s.Consequence != nil {
+			for _, st := range s.Consequence.Statements {
+				g.scanStatementForException(st)
+			}
+		}
+		if s.Alternative != nil {
+			for _, st := range s.Alternative.Statements {
+				g.scanStatementForException(st)
+			}
+		}
+	case *ast.WhileStatement:
+		if s.Body != nil {
+			for _, st := range s.Body.Statements {
+				g.scanStatementForException(st)
+			}
+		}
+	case *ast.ForStatement:
+		if s.Body != nil {
+			for _, st := range s.Body.Statements {
+				g.scanStatementForException(st)
+			}
+		}
+	case *ast.BlockStatement:
+		for _, st := range s.Statements {
+			g.scanStatementForException(st)
+		}
+	}
 }
 
 func (g *Generator) scanImports(program *ast.Program) {
@@ -682,6 +899,10 @@ func (g *Generator) scanExpressionForImports(expr ast.Expression) {
 		case ast.Expression:
 			g.scanExpressionForImports(body)
 		}
+	case *ast.StringInterpolation:
+		for _, part := range e.Parts {
+			g.scanExpressionForImports(part)
+		}
 	}
 }
 
@@ -728,6 +949,20 @@ func (g *Generator) generateStatement(stmt ast.Statement) {
 }
 
 func (g *Generator) generateVarDecl(decl *ast.VarDecl) {
+	// Handle destructuring: var (a, b) := expr → a, b := expr
+	if len(decl.Names) > 1 && decl.Inferred {
+		for i, name := range decl.Names {
+			if i > 0 {
+				g.write(", ")
+			}
+			g.write(name)
+		}
+		g.write(" := ")
+		g.generateExpression(decl.Value)
+		g.write("\n")
+		return
+	}
+
 	for _, name := range decl.Names {
 		if decl.Inferred {
 			g.write(fmt.Sprintf("%s := ", name))
@@ -748,6 +983,24 @@ func (g *Generator) generateVarDecl(decl *ast.VarDecl) {
 }
 
 func (g *Generator) generateAssignment(stmt *ast.AssignmentStatement) {
+	// Handle multi-return: result := (expr1, expr2) → return expr1, expr2
+	if g.multiReturn {
+		if ident, ok := stmt.Name.(*ast.Identifier); ok && ident.Value == "result" {
+			g.write("return ")
+			if tuple, ok := stmt.Value.(*ast.TupleLiteral); ok {
+				for i, elem := range tuple.Elements {
+					if i > 0 {
+						g.write(", ")
+					}
+					g.generateExpression(elem)
+				}
+			} else {
+				g.generateExpression(stmt.Value)
+			}
+			g.write("\n")
+			return
+		}
+	}
 	g.generateExpression(stmt.Name)
 	g.write(" = ")
 	g.generateExpression(stmt.Value)
@@ -954,6 +1207,7 @@ func (g *Generator) generateTryStatement(stmt *ast.TryStatement) {
 	g.indent++
 
 	if hasOnClauses {
+		g.needsException = true
 		// Generate type switch for ON clauses
 		g.writeLine("switch e := r.(type) {")
 		g.indent++
@@ -961,6 +1215,8 @@ func (g *Generator) generateTryStatement(stmt *ast.TryStatement) {
 			g.writeIndent()
 			g.write("case ")
 			if on.Type != nil {
+				// Exception types are panicked as pointers (&Exception{})
+				g.write("*")
 				g.generateTypeExpression(on.Type)
 			} else {
 				g.write("interface{}")
@@ -1030,6 +1286,7 @@ func (g *Generator) generateTryStatement(stmt *ast.TryStatement) {
 }
 
 func (g *Generator) generateRaiseStatement(stmt *ast.RaiseStatement) {
+	g.needsException = true
 	if stmt.Exception != nil {
 		g.write("panic(")
 		g.generateExpression(stmt.Exception)
@@ -1038,16 +1295,26 @@ func (g *Generator) generateRaiseStatement(stmt *ast.RaiseStatement) {
 		// bare raise inside except handler -> re-panic
 		g.write(fmt.Sprintf("panic(%s)\n", g.reRaiseVar))
 	} else {
-		g.write(`panic(errors.New("exception"))` + "\n")
-		g.imports["errors"] = true
+		g.write(`panic(&Exception{Message: "exception"})` + "\n")
 	}
 }
 
 func (g *Generator) generateReturnStatement(stmt *ast.ReturnStatement) {
 	g.write("return")
 	if stmt.Value != nil {
-		g.write(" ")
-		g.generateExpression(stmt.Value)
+		// Handle multi-return tuple: return (expr1, expr2)
+		if tuple, ok := stmt.Value.(*ast.TupleLiteral); ok {
+			g.write(" ")
+			for i, elem := range tuple.Elements {
+				if i > 0 {
+					g.write(", ")
+				}
+				g.generateExpression(elem)
+			}
+		} else {
+			g.write(" ")
+			g.generateExpression(stmt.Value)
+		}
 	}
 	g.write("\n")
 }
@@ -1079,6 +1346,8 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 		g.write(fmt.Sprintf("%f", e.Value))
 	case *ast.StringLiteral:
 		g.write(fmt.Sprintf(`"%s"`, e.Value))
+	case *ast.StringInterpolation:
+		g.writeInterpolation(e)
 	case *ast.BooleanLiteral:
 		if e.Value {
 			g.write("true")
@@ -1216,5 +1485,14 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 		g.write(".(")
 		g.generateTypeExpression(e.TargetType)
 		g.write(")")
+	case *ast.TupleLiteral:
+		// In expression context, a tuple literal doesn't make sense in Go
+		// but we need to handle it gracefully (shouldn't normally reach here)
+		for i, elem := range e.Elements {
+			if i > 0 {
+				g.write(", ")
+			}
+			g.generateExpression(elem)
+		}
 	}
 }
