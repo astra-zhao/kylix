@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- ============ SEO: Primary Meta ============ -->
+<title>Kylix - Modern Pascal Language | Compile to Go</title>
+<meta name="description" content="Kylix is a modern Pascal compiler that transpiles to Go. Type inference, generics, async/await, pattern matching, classes, web framework, ORM, and full IDE toolchain included. MIT licensed.">
+<meta name="keywords" content="Kylix, Pascal, Go, transpiler, compiler, programming language, modern Pascal, Pascal to Go, open source">
+<meta name="author" content="astra-zhao">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
+<link rel="canonical" href="https://kylix.top/">
+
+<!-- ============ SEO: Open Graph (Facebook, LinkedIn, etc.) ============ -->
+<meta property="og:type" content="website">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:site_name" content="Kylix">
+<meta property="og:title" content="Kylix - Modern Pascal Language | Compile to Go">
+<meta property="og:description" content="A modern Pascal compiler that transpiles to Go. Generics, async/await, pattern matching, classes, web framework, ORM — all compiled to clean, readable Go code.">
+<meta property="og:url" content="https://kylix.top/">
+<meta property="og:image" content="https://kylix.top/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Kylix - Modern Pascal, Compiled to Go">
+
+<!-- ============ SEO: Twitter Card ============ -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Kylix - Modern Pascal Language | Compile to Go">
+<meta name="twitter:description" content="A modern Pascal compiler that transpiles to Go. Generics, async/await, pattern matching, web framework, ORM included.">
+<meta name="twitter:image" content="https://kylix.top/og-image.png">
+<meta name="twitter:image:alt" content="Kylix - Modern Pascal, Compiled to Go">
+
+<!-- ============ SEO: Schema.org Structured Data ============ -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "name": "Kylix",
+  "description": "A modern Pascal compiler that transpiles to Go",
+  "version": "1.0.3",
+  "license": "https://opensource.org/licenses/MIT",
+  "url": "https://kylix.top",
+  "codeRepository": "https://github.com/astra-zhao/kylix",
+  "programmingLanguage": ["Go", "Pascal"],
+  "author": { "@type": "Person", "name": "astra-zhao", "url": "https://github.com/astra-zhao" },
+  "dateModified": "2026-06-05",
+  "applicationCategory": "Development",
+  "operatingSystem": "Linux, macOS, Windows"
+}
+</script>
+
+<!-- ============ SEO: Alternate languages ============ -->
+<link rel="alternate" hreflang="en" href="https://kylix.top/">
+<link rel="alternate" hreflang="zh" href="https://kylix.top/">
+<link rel="alternate" hreflang="x-default" href="https://kylix.top/">
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>⚡</text></svg>">
+
+<!-- ============ Prism.js: code highlighting ============ -->
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" id="prism-theme">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-pascal.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-go.min.js" defer></script>
+
+<style>
+/* =================================================================
+   CSS Custom Properties
+   ================================================================= */
+:root {
+  --c-primary: #4f6ef7;
+  --c-primary-dim: #3b5de7;
+  --c-primary-glow: rgba(79,110,247,.18);
+  --c-accent: #f0a030;
+  --c-accent-dim: #d89020;
+  --c-accent-glow: rgba(240,160,48,.15);
+  --c-green: #34d399;
+  --c-green-glow: rgba(52,211,153,.15);
+  --c-red: #f87171;
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --max-w: 1120px;
+}
+
+/* Dark theme (default) */
+[data-theme="dark"] {
+  --bg-body: #090d14;
+  --bg-card: #111827;
+  --bg-card-hover: #1a2332;
+  --bg-code: #0b1018;
+  --bg-glass: rgba(17,24,39,.7);
+  --border: #1e2d45;
+  --border-light: #263348;
+  --text-primary: #e8edf5;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow: 0 4px 16px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,.5);
+  --gradient-hero: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(79,110,247,.12) 0%, transparent 70%);
+  --gradient-card: linear-gradient(135deg, rgba(79,110,247,.04) 0%, transparent 60%);
+  --gradient-accent: linear-gradient(135deg, rgba(240,160,48,.06) 0%, transparent 60%);
+}
+/* Light theme */
+[data-theme="light"] {
+  --bg-body: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f1f5f9;
+  --bg-code: #f1f5f9;
+  --bg-glass: rgba(255,255,255,.8);
+  --border: #e2e8f0;
+  --border-light: #e8ecf1;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.04);
+  --shadow: 0 4px 12px rgba(0,0,0,.06);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.08);
+  --gradient-hero: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(79,110,247,.08) 0%, transparent 70%);
+  --gradient-card: linear-gradient(135deg, rgba(79,110,247,.02) 0%, transparent 60%);
+  --gradient-accent: linear-gradient(135deg, rgba(240,160,48,.04) 0%, transparent 60%);
+}
+
+/* =================================================================
+   Reset & Base
+   ================================================================= */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: var(--bg-body);
+  color: var(--text-primary);
+  line-height: 1.65;
+  transition: background .3s, color .3s;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: var(--c-primary); text-decoration: none; transition: color .2s; }
+a:hover { color: var(--c-primary-dim); }
+
+img { max-width: 100%; }
+
+/* Selection */
+::selection { background: var(--c-primary); color: #fff; }
+
+/* =================================================================
+   Navigation
+   ================================================================= */
+.nav {
+  position: sticky; top: 0; z-index: 100;
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  background: var(--bg-glass);
+  border-bottom: 1px solid var(--border);
+  transition: border-color .3s;
+}
+.nav-inner {
+  max-width: var(--max-w); margin: 0 auto; padding: 0 28px;
+  display: flex; align-items: center; justify-content: space-between; height: 60px;
+}
+.nav-logo {
+  font-size: 1.3rem; font-weight: 800; color: var(--text-primary);
+  display: flex; align-items: center; gap: 8px; letter-spacing: -.02em;
+}
+.nav-logo .logo-icon {
+  width: 34px; height: 34px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--c-primary), #7c5cf0);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; color: #fff; box-shadow: 0 2px 8px var(--c-primary-glow);
+}
+.nav-links { display: flex; gap: 8px; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); font-size: .88rem; font-weight: 500;
+  padding: 6px 14px; border-radius: var(--radius-sm); transition: all .2s;
+}
+.nav-links a:hover { color: var(--text-primary); background: var(--bg-card); text-decoration: none; }
+.nav-links a.nav-cta {
+  background: var(--c-primary); color: #fff; font-weight: 600;
+  padding: 7px 16px; border-radius: var(--radius-sm);
+}
+.nav-links a.nav-cta:hover { background: var(--c-primary-dim); }
+
+/* Theme toggle */
+.theme-btn {
+  width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-primary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 1rem;
+  transition: all .2s; margin-left: 4px;
+}
+.theme-btn:hover { background: var(--bg-card-hover); border-color: var(--border-light); }
+
+/* Mobile menu */
+@media (max-width: 768px) {
+  .nav-links a:not(.nav-cta) { display: none; }
+  .nav-links { gap: 4px; }
+}
+
+/* =================================================================
+   Shared section styles
+   ================================================================= */
+.section { padding: 88px 28px; position: relative; }
+.section-inner { max-width: var(--max-w); margin: 0 auto; position: relative; z-index: 1; }
+
+.section-label {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: .8rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .1em; color: var(--c-primary); margin-bottom: 12px;
+}
+.section-label::before {
+  content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--c-primary); box-shadow: 0 0 8px var(--c-primary-glow);
+}
+.section-title {
+  font-size: 2.2rem; font-weight: 800; margin-bottom: 16px; line-height: 1.2;
+  letter-spacing: -.03em;
+}
+.section-desc {
+  color: var(--text-secondary); font-size: 1.08rem; max-width: 600px; margin-bottom: 44px;
+  line-height: 1.7;
+}
+
+/* =================================================================
+   Buttons
+   ================================================================= */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 11px 22px; border-radius: var(--radius); font-size: .9rem; font-weight: 600;
+  cursor: pointer; transition: all .25s; border: 1px solid transparent;
+  letter-spacing: .01em;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--c-primary), #5b7af8);
+  color: #fff; box-shadow: 0 2px 12px var(--c-primary-glow);
+}
+.btn-primary:hover { background: linear-gradient(135deg, var(--c-primary-dim), #4a68e8); transform: translateY(-1px); box-shadow: 0 4px 18px var(--c-primary-glow); text-decoration: none; color: #fff; }
+.btn-outline {
+  border-color: var(--border); color: var(--text-primary); background: var(--bg-card);
+}
+.btn-outline:hover { background: var(--bg-card-hover); border-color: var(--border-light); transform: translateY(-1px); text-decoration: none; }
+.btn-accent {
+  background: linear-gradient(135deg, var(--c-accent), #f5b840);
+  color: #1a1a1a; box-shadow: 0 2px 12px var(--c-accent-glow);
+}
+.btn-accent:hover { background: linear-gradient(135deg, var(--c-accent-dim), #e8a830); transform: translateY(-1px); box-shadow: 0 4px 18px var(--c-accent-glow); text-decoration: none; }
+
+/* =================================================================
+   Hero
+   ================================================================= */
+.hero {
+  padding: 72px 28px 64px; text-align: center;
+  background: var(--gradient-hero);
+  position: relative; overflow: hidden;
+}
+.hero::before {
+  content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+  background: radial-gradient(circle at 30% 20%, rgba(79,110,247,.03) 0%, transparent 50%),
+              radial-gradient(circle at 70% 80%, rgba(240,160,48,.03) 0%, transparent 50%);
+  pointer-events: none;
+}
+.hero-inner { max-width: 820px; margin: 0 auto; position: relative; z-index: 1; }
+
+.badges { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 28px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 14px; border-radius: 20px;
+  font-size: .8rem; font-weight: 600; background: var(--bg-card); color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.badge-accent {
+  color: var(--c-accent); border-color: rgba(240,160,48,.3);
+  background: linear-gradient(135deg, rgba(240,160,48,.08), rgba(240,160,48,.02));
+}
+.badge-green {
+  color: var(--c-green); border-color: rgba(52,211,153,.3);
+  background: linear-gradient(135deg, rgba(52,211,153,.08), rgba(52,211,153,.02));
+}
+.badge-dot { width: 6px; height: 6px; border-radius: 50%; }
+.badge-dot.accent { background: var(--c-accent); }
+.badge-dot.green { background: var(--c-green); }
+
+.hero-title { font-size: 3.2rem; font-weight: 900; line-height: 1.12; margin-bottom: 20px; letter-spacing: -.04em; }
+.hero-title .gradient-text {
+  background: linear-gradient(135deg, var(--c-primary) 0%, #8b5cf6 50%, var(--c-accent) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero-subtitle { font-size: 1.18rem; color: var(--text-secondary); margin-bottom: 36px; line-height: 1.7; max-width: 580px; margin-left: auto; margin-right: auto; }
+.hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 48px; }
+
+.hero-code {
+  max-width: 640px; margin: 0 auto; text-align: left;
+  border-radius: var(--radius-lg); overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+}
+.hero-code-header {
+  background: var(--bg-card); padding: 10px 18px;
+  display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border);
+}
+.hero-code-dot { width: 11px; height: 11px; border-radius: 50%; }
+.hero-code-dot:nth-child(1) { background: #ff5f57; }
+.hero-code-dot:nth-child(2) { background: #febc2e; }
+.hero-code-dot:nth-child(3) { background: #28c840; }
+.hero-code-fname { margin-left: 10px; font-size: .78rem; color: var(--text-muted); font-family: "SF Mono", "Fira Code", monospace; }
+.hero-code pre { margin: 0 !important; border-radius: 0 !important; }
+
+/* =================================================================
+   Stats Bar
+   ================================================================= */
+.stats-bar {
+  display: flex; gap: 0; justify-content: center; flex-wrap: wrap;
+  max-width: 640px; margin: 0 auto;
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  overflow: hidden; background: var(--bg-card);
+}
+.stat-item {
+  flex: 1; min-width: 100px; padding: 18px 16px; text-align: center;
+  border-right: 1px solid var(--border);
+}
+.stat-item:last-child { border-right: none; }
+.stat-value {
+  font-size: 1.6rem; font-weight: 800; letter-spacing: -.02em;
+  background: linear-gradient(135deg, var(--c-primary), #8b5cf6);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.stat-label { font-size: .78rem; color: var(--text-muted); margin-top: 4px; font-weight: 500; }
+
+/* =================================================================
+   Feature Cards
+   ================================================================= */
+.features-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px;
+}
+.feature-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 28px 24px;
+  transition: all .3s; position: relative; overflow: hidden;
+}
+.feature-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--c-primary), transparent);
+  opacity: 0; transition: opacity .3s;
+}
+.feature-card:hover {
+  background: var(--bg-card-hover); transform: translateY(-3px);
+  box-shadow: var(--shadow); border-color: var(--border-light);
+}
+.feature-card:hover::before { opacity: 1; }
+.feature-icon {
+  width: 44px; height: 44px; border-radius: 10px; display: flex;
+  align-items: center; justify-content: center; font-size: 1.3rem;
+  margin-bottom: 16px; background: var(--gradient-card);
+  border: 1px solid var(--border);
+}
+.feature-card h3 { font-size: 1.08rem; font-weight: 700; margin-bottom: 8px; letter-spacing: -.01em; }
+.feature-card p { color: var(--text-secondary); font-size: .9rem; margin-bottom: 14px; line-height: 1.6; }
+.feature-card code {
+  display: inline-block; background: var(--bg-code); padding: 4px 12px; border-radius: 5px;
+  font-size: .82rem; border: 1px solid var(--border); font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  color: var(--c-accent);
+}
+
+/* =================================================================
+   Code Compare (side-by-side)
+   ================================================================= */
+.compare-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+}
+@media (max-width: 768px) { .compare-grid { grid-template-columns: 1fr; } }
+
+.compare-col {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  overflow: hidden; box-shadow: var(--shadow-sm);
+}
+.compare-col-header {
+  padding: 10px 18px; font-size: .8rem; font-weight: 600;
+  border-bottom: 1px solid var(--border); color: var(--text-secondary);
+  display: flex; align-items: center; gap: 8px;
+}
+.compare-col-header .dot { width: 8px; height: 8px; border-radius: 50%; }
+.compare-col-header .dot.pascal { background: var(--c-primary); }
+.compare-col-header .dot.go { background: var(--c-green); }
+.compare-col pre { margin: 0 !important; border-radius: 0 !important; }
+
+/* =================================================================
+   CLI Commands
+   ================================================================= */
+.cli-block {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  overflow: hidden; max-width: 720px; box-shadow: var(--shadow-sm);
+}
+.cli-block pre { margin: 0 !important; border-radius: 0 !important; }
+
+/* =================================================================
+   Quick Start Steps
+   ================================================================= */
+.steps-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;
+  margin-bottom: 36px;
+}
+.step-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 24px; position: relative;
+  transition: all .3s;
+}
+.step-card:hover { background: var(--bg-card-hover); box-shadow: var(--shadow); }
+.step-number {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--c-primary), #7c5cf0);
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  font-size: .85rem; font-weight: 800; margin-bottom: 14px;
+}
+.step-card h4 { font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
+.step-card p { color: var(--text-secondary); font-size: .88rem; line-height: 1.6; }
+
+/* =================================================================
+   Stdlib Grid
+   ================================================================= */
+.stdlib-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px;
+}
+.stdlib-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 22px 20px; transition: all .25s; position: relative; overflow: hidden;
+}
+.stdlib-card:hover {
+  background: var(--bg-card-hover); transform: translateY(-2px);
+  box-shadow: var(--shadow); border-color: var(--border-light);
+}
+.stdlib-card .stdlib-icon { font-size: 1.5rem; margin-bottom: 10px; }
+.stdlib-card h4 { font-size: .95rem; font-weight: 700; margin-bottom: 6px; }
+.stdlib-card p { font-size: .82rem; color: var(--text-muted); line-height: 1.5; }
+.stdlib-tag {
+  display: inline-block; margin-top: 10px; padding: 3px 10px;
+  font-size: .72rem; border-radius: 5px; font-family: "SF Mono", "Fira Code", monospace;
+  background: var(--bg-code); color: var(--c-accent); border: 1px solid var(--border);
+  font-weight: 500;
+}
+
+/* =================================================================
+   Docs Links
+   ================================================================= */
+.docs-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;
+}
+.doc-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 22px 20px; transition: all .25s; display: flex; gap: 14px; align-items: flex-start;
+}
+.doc-card:hover { background: var(--bg-card-hover); box-shadow: var(--shadow); border-color: var(--border-light); text-decoration: none; }
+.doc-card .doc-icon { font-size: 1.5rem; flex-shrink: 0; margin-top: 2px; }
+.doc-card h4 { color: var(--text-primary); font-size: .95rem; font-weight: 700; margin-bottom: 4px; }
+.doc-card p { color: var(--text-muted); font-size: .82rem; line-height: 1.5; }
+
+/* =================================================================
+   CTA Banner
+   ================================================================= */
+.cta-banner {
+  background: linear-gradient(135deg, rgba(79,110,247,.08), rgba(139,92,246,.06));
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 44px 32px; text-align: center; max-width: 720px; margin: 0 auto;
+}
+.cta-banner h3 { font-size: 1.4rem; font-weight: 800; margin-bottom: 10px; letter-spacing: -.02em; }
+.cta-banner p { color: var(--text-secondary); margin-bottom: 24px; font-size: .95rem; }
+.cta-banner .btn-group { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+/* =================================================================
+   Footer
+   ================================================================= */
+.footer {
+  border-top: 1px solid var(--border); padding: 36px 28px; text-align: center;
+  color: var(--text-muted); font-size: .85rem; background: var(--bg-card);
+}
+.footer-inner { max-width: var(--max-w); margin: 0 auto; }
+.footer a { color: var(--text-secondary); font-weight: 500; }
+.footer a:hover { color: var(--text-primary); }
+.footer-links { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; }
+.footer-copy { font-size: .8rem; }
+
+/* =================================================================
+   Scroll-to-top
+   ================================================================= */
+.scroll-top {
+  position: fixed; bottom: 28px; right: 28px; z-index: 99;
+  width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-primary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 1.2rem;
+  opacity: 0; transform: translateY(12px); transition: all .3s; pointer-events: none;
+  box-shadow: var(--shadow); backdrop-filter: blur(8px);
+}
+.scroll-top.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.scroll-top:hover { background: var(--bg-card-hover); border-color: var(--border-light); }
+
+/* =================================================================
+   Animations
+   ================================================================= */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-in {
+  animation: fadeInUp .5s ease both;
+}
+</style>
+</head>
+<body>
+
+<!-- ====================== NAV ====================== -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="#" class="nav-logo">
+      <span class="logo-icon">⚡</span>
+      Kylix
+    </a>
+    <div class="nav-links">
+      <a href="#features">特性</a>
+      <a href="#compare">转译对比</a>
+      <a href="#quickstart">快速开始</a>
+      <a href="#cli">CLI</a>
+      <a href="#stdlib">标准库</a>
+      <a href="#docs">文档</a>
+      <a href="https://github.com/astra-zhao/kylix" target="_blank" rel="noopener" class="nav-cta">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <button class="theme-btn" id="themeToggle" aria-label="Toggle theme" title="切换深色/浅色模式">☀️</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ====================== HERO ====================== -->
+<header class="hero" id="hero">
+  <div class="hero-inner">
+    <div class="badges">
+      <span class="badge badge-accent"><span class="badge-dot accent"></span> v1.0.3</span>
+      <span class="badge badge-green"><span class="badge-dot green"></span> MIT License</span>
+      <span class="badge">Go 1.21+</span>
+      <span class="badge">15/15 示例通过</span>
+    </div>
+
+    <h1 class="hero-title">
+      Modern Pascal.<br>
+      Compiled to <span class="gradient-text">Go</span>.
+    </h1>
+    <p class="hero-subtitle">
+      Kylix 融合 Pascal 的清晰语法与现代语言特性，编译为高性能 Go 代码。<br>
+      配备完整 IDE 工具链、Web 框架、ORM 和 12 个标准库模块。
+    </p>
+
+    <div class="hero-actions">
+      <a href="#quickstart" class="btn btn-primary">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 12 13 4 21 12"/><polyline points="5 20 13 12 21 20"/></svg>
+        快速开始
+      </a>
+      <a href="https://github.com/astra-zhao/kylix" class="btn btn-outline" target="_blank" rel="noopener">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <a href="md-viewer.html?file=CHANGELOG.md" class="btn btn-accent">📝 更新日志</a>
+    </div>
+
+    <!-- Hero code example -->
+    <div class="hero-code">
+      <div class="hero-code-header">
+        <span class="hero-code-dot"></span><span class="hero-code-dot"></span><span class="hero-code-dot"></span>
+        <span class="hero-code-fname">hello.klx</span>
+      </div>
+      <pre class="line-numbers"><code class="language-pascal">program Hello;
+begin
+  var name := 'Kylix';
+  WriteLn($"Hello, ${name}!");
+end.</code></pre>
+    </div>
+  </div>
+</header>
+
+<!-- ====================== STATS BAR ====================== -->
+<section class="section" style="padding-top:0;padding-bottom:0;margin-top:-20px;">
+  <div class="section-inner">
+    <div class="stats-bar">
+      <div class="stat-item">
+        <div class="stat-value">5</div>
+        <div class="stat-label">开发阶段完成</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">15/15</div>
+        <div class="stat-label">示例全部通过</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">12</div>
+        <div class="stat-label">标准库模块</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">9</div>
+        <div class="stat-label">CLI 命令</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== FEATURES ====================== -->
+<section class="section" id="features">
+  <div class="section-inner">
+    <p class="section-label">核心特性</p>
+    <h2 class="section-title">经典 Pascal，现代灵魂</h2>
+    <p class="section-desc">在保留 Pascal 清晰语法的基础上，注入现代语言的强大特性。从类型推断到泛型，从模式匹配到异步编程，Kylix 让 Pascal 焕发新生。</p>
+
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">🎯</div>
+        <h3>类型推断</h3>
+        <p>编译器自动推导变量类型，告别冗长的类型声明，让代码更简洁优雅。</p>
+        <code>var x := 42;</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">λ</div>
+        <h3>Lambda 表达式</h3>
+        <p>简洁的匿名函数语法，支持闭包捕获和高阶函数，函数式编程触手可及。</p>
+        <code>(x: Integer) -> x * x</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🧬</div>
+        <h3>泛型</h3>
+        <p>类型参数声明，编写类型安全的通用代码。支持泛型类和泛型函数。</p>
+        <code>TList&lt;T&gt; / TPair&lt;K, V&gt;</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔀</div>
+        <h3>模式匹配</h3>
+        <p>强大的 match 表达式，支持多值匹配、通配符和 when 条件守卫。</p>
+        <code>match x { 0 => 'zero', _ => 'other' }</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Async / Await</h3>
+        <p>基于 Goroutine + Channel 的异步模型，享受 Go 级并发性能。</p>
+        <code>async function FetchData(): String</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🌐</div>
+        <h3>Web 框架</h3>
+        <p>内置 HTTP 服务器、路由、中间件、JSON 处理，开箱即用。</p>
+        <code>app.get('/api/users', handler)</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🗂️</div>
+        <h3>Map 类型</h3>
+        <p>原生 map[K]V 字典类型，自动初始化，高效键值存储。</p>
+        <code>var m: map[String]Integer;</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔱</div>
+        <h3>变体类型</h3>
+        <p>Discriminated Union — 类型安全的联合类型，编译为 Go interface + struct。</p>
+        <code>variant IntLit: Integer; StrLit: String; end</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🏛️</div>
+        <h3>类与接口</h3>
+        <p>完整的面向对象支持：继承、多态、属性、构造/析构函数。</p>
+        <code>class Dog inherits Animal</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📝</div>
+        <h3>字符串插值</h3>
+        <p>现代字符串插值语法，表达式直接嵌入字符串。</p>
+        <code>$"Hello, ${name}!"</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🛡️</div>
+        <h3>异常处理</h3>
+        <p>try/except/finally + ON 子句类型化异常捕获。</p>
+        <code>on E: Exception do WriteLn(E.Message)</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔄</div>
+        <h3>多返回值</h3>
+        <p>函数支持元组返回，解构赋值一步到位。</p>
+        <code>function Div(a,b: Real): (Real, Boolean)</code>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== CODE COMPARE ====================== -->
+<section class="section" id="compare" style="background: var(--gradient-card);">
+  <div class="section-inner">
+    <p class="section-label">转译对比</p>
+    <h2 class="section-title">Pascal → Go，一目了然</h2>
+    <p class="section-desc">Kylix 将 Pascal 源码编译为干净、可读、可直接运行的 Go 代码。没有黑魔法，没有运行时依赖。</p>
+
+    <div class="compare-grid">
+      <div class="compare-col">
+        <div class="compare-col-header">
+          <span class="dot pascal"></span> Pascal 源码 (.klx)
+        </div>
+        <pre class="line-numbers"><code class="language-pascal">program WebApp;
+uses web;
+
+var app: TServer;
+begin
+  app := web.createServer(8080);
+
+  app.get('/hello',
+    procedure(req: TRequest; res: TResponse)
+    begin
+      res.json(record
+        message := 'Hello, Kylix!';
+      end);
+    end);
+
+  app.listen();
+end.</code></pre>
+      </div>
+      <div class="compare-col">
+        <div class="compare-col-header">
+          <span class="dot go"></span> 生成的 Go 代码 (.go)
+        </div>
+        <pre class="line-numbers"><code class="language-go">package main
+
+import "kylix/stdlib"
+
+var app *stdlib.TServer
+
+func main() {
+  app = stdlib.CreateServer(8080)
+
+  app.Get("/hello",
+    func(req *stdlib.TRequest, res *stdlib.TResponse) {
+      res.Json(struct {
+        Message string
+      }{Message: "Hello, Kylix!"})
+    })
+
+  app.Listen()
+}</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== QUICK START ====================== -->
+<section class="section" id="quickstart">
+  <div class="section-inner">
+    <p class="section-label">快速开始</p>
+    <h2 class="section-title">3 步上手 Kylix</h2>
+    <p class="section-desc">一分钟内从安装到运行你的第一个 Kylix 程序。</p>
+
+    <div class="steps-grid">
+      <div class="step-card">
+        <div class="step-number">1</div>
+        <h4>克隆 & 构建</h4>
+        <p>从 GitHub 克隆仓库，一条命令构建编译器。</p>
+      </div>
+      <div class="step-card">
+        <div class="step-number">2</div>
+        <h4>创建项目</h4>
+        <p>使用 kylix new 创建项目模板，自动生成配置和入口文件。</p>
+      </div>
+      <div class="step-card">
+        <div class="step-number">3</div>
+        <h4>编译运行</h4>
+        <p>kylix run 一键编译并运行，即刻看到结果。</p>
+      </div>
+    </div>
+
+    <div class="cli-block">
+      <pre class="line-numbers"><code class="language-bash"># 1. 克隆 & 构建
+git clone https://github.com/astra-zhao/kylix.git
+cd kylix && go build -o kylix cmd/kylix/main.go
+
+# 2. 创建项目
+./kylix new myapp && cd myapp
+
+# 3. 运行
+./kylix run
+# → Hello, Kylix World!</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== CLI TOOLS ====================== -->
+<section class="section" id="cli" style="background: var(--gradient-card);">
+  <div class="section-inner">
+    <p class="section-label">CLI 工具链</p>
+    <h2 class="section-title">9 个命令，覆盖全流程</h2>
+    <p class="section-desc">从创建项目到编译运行，再到格式化、REPL 交互、LSP 智能服务——完整的开发体验。</p>
+
+    <div class="cli-block">
+      <pre class="line-numbers"><code class="language-bash"># 创建新项目
+kylix new myapp
+
+# 编译 & 运行
+kylix build              # 编译为 Go 代码
+kylix run                # 编译 + 运行
+kylix run --keep         # 编译 + 运行（保留 .go 文件）
+
+# 开发辅助
+kylix check              # 语法检查（不生成代码）
+kylix fmt                # 代码格式化
+kylix fmt -w file.klx    # 原地格式化
+
+# 交互 & 编辑器
+kylix repl               # 交互式 REPL（支持历史记录）
+kylix lsp                # LSP 语言服务器
+
+# 信息
+kylix version            # 显示版本
+kylix help               # 帮助信息</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== STDLIB ====================== -->
+<section class="section" id="stdlib">
+  <div class="section-inner">
+    <p class="section-label">标准库</p>
+    <h2 class="section-title">开箱即用的能力</h2>
+    <p class="section-desc">12 个标准库模块，覆盖 Web 开发、数据处理、系统交互和日期时间等常见场景。</p>
+
+    <div class="stdlib-grid">
+      <div class="stdlib-card">
+        <div class="stdlib-icon">🌐</div>
+        <h4>web</h4>
+        <p>HTTP 服务器、路由、中间件</p>
+        <span class="stdlib-tag">uses web</span>
+      </div>
+      <div class="stdlib-card">
+        <div class="stdlib-icon">🗄️</div>
+        <h4>orm</h4>
+        <p>MySQL / PostgreSQL / SQLite</p>
+        <span class="stdlib-tag">uses orm</span>
+      </div>
+      <div class="stdlib-card">
+        <div class="stdlib-icon">📋</div>
+        <h4>template</h4>
+        <p>模板引擎、布局、片段</p>
+        <span class="stdlib-tag">uses template</span>
+      </div>
+      <div class="stdlib-card">
+        <div class="stdlib-icon">📦</div>
+        <h4>container</h4>
+        <p>依赖注入容器</p>
+        <span class="stdlib-tag">uses container</span>
+      </div>
+      <div class="stdlib-card">
+        <div class="stdlib-icon">⚙️</div>
+        <h4>config</h4>
+        <p>环境变量配置管理</p>
+        <span class="stdlib-tag">uses config</span>
+      </div>
+      <div class="stdlib-card">
+        <div class="stdlib-icon">🛡️</div>
+        <h4>middleware</h4>
+        <p>CORS / 认证 / 限流 / 日志</p>
+        <span class="stdlib-tag">uses middleware</span>
+      </div>
+      <div class="stdlib-card">
+        <div class="stdlib-icon">✅</div>
+        <h4>validation</h4>
+        <p>请求数据校验</p>
+        <span class="stdlib-tag">uses validation</span>
+      </div>
+      <div class="stdlib-card">
+        <div class="stdlib-icon">🔄</div>
+        <h4>autoconfig</h4>
+        <p>多源自动配置加载</p>
+        <span class="stdlib-tag">uses autoconfig</span>
+      </div>
+      <div class="stdlib-card">
+        <div class="stdlib-icon">📁</div>
+        <h4>sysutil</h4>
+        <p>文件 I/O、目录、路径工具</p>
+        <span class="stdlib-tag">uses sysutil</span>
+      </div>
+      <div class="stdlib-card">
+        <div class="stdlib-icon">📊</div>
+        <h4>jsonutil</h4>
+        <p>JSON 编解码、类型安全访问</p>
+        <span class="stdlib-tag">uses jsonutil</span>
+      </div>
+      <div class="stdlib-card">
+        <div class="stdlib-icon">📅</div>
+        <h4>datetime</h4>
+        <p>日期运算、格式化、解析</p>
+        <span class="stdlib-tag">uses datetime</span>
+      </div>
+      <div class="stdlib-card">
+        <div class="stdlib-icon">🔍</div>
+        <h4>regex</h4>
+        <p>正则匹配、查找、替换</p>
+        <span class="stdlib-tag">uses regex</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== DOCS ====================== -->
+<section class="section" id="docs" style="background: var(--gradient-card);">
+  <div class="section-inner">
+    <p class="section-label">文档</p>
+    <h2 class="section-title">深入学习 Kylix</h2>
+    <p class="section-desc">从入门到精通，完善的文档体系助你快速上手。</p>
+
+    <div class="docs-grid">
+      <a href="md-viewer.html?file=docs/KYLIX_IDE_USER_MANUAL.md" class="doc-card">
+        <span class="doc-icon">📘</span>
+        <div>
+          <h4>IDE 用户手册</h4>
+          <p>安装指南、命令参考、项目结构、FAQ</p>
+        </div>
+      </a>
+      <a href="md-viewer.html?file=docs/KYLIX_DEV_GUIDE.md" class="doc-card">
+        <span class="doc-icon">🛠️</span>
+        <div>
+          <h4>开发者指南</h4>
+          <p>架构设计、编译器原理、贡献指南</p>
+        </div>
+      </a>
+      <a href="md-viewer.html?file=docs/KYLIX_TOOLS_EXPLAINED.md" class="doc-card">
+        <span class="doc-icon">💡</span>
+        <div>
+          <h4>工具详解</h4>
+          <p>fmt / repl / lsp 通俗解释</p>
+        </div>
+      </a>
+      <a href="md-viewer.html?file=docs/WEB_FRAMEWORK.md" class="doc-card">
+        <span class="doc-icon">🌐</span>
+        <div>
+          <h4>Web 框架指南</h4>
+          <p>路由、中间件、REST API 开发</p>
+        </div>
+      </a>
+      <a href="md-viewer.html?file=docs/ORM_GUIDE.md" class="doc-card">
+        <span class="doc-icon">🗄️</span>
+        <div>
+          <h4>ORM 指南</h4>
+          <p>数据库连接、CRUD、查询构建器</p>
+        </div>
+      </a>
+      <a href="md-viewer.html?file=docs/TEMPLATE_GUIDE.md" class="doc-card">
+        <span class="doc-icon">📋</span>
+        <div>
+          <h4>模板引擎指南</h4>
+          <p>布局、片段、自定义函数</p>
+        </div>
+      </a>
+      <a href="md-viewer.html?file=docs/CHANGELOG.md" class="doc-card">
+        <span class="doc-icon">📝</span>
+        <div>
+          <h4>更新日志</h4>
+          <p>版本历史、Bug 修复、路线图</p>
+        </div>
+      </a>
+      <a href="https://github.com/astra-zhao/kylix" class="doc-card" target="_blank" rel="noopener">
+        <span class="doc-icon">🔗</span>
+        <div>
+          <h4>GitHub 仓库</h4>
+          <p>源码、Issue、Pull Request</p>
+        </div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== CTA BANNER ====================== -->
+<section class="section" id="contribute">
+  <div class="section-inner">
+    <div class="cta-banner">
+      <h3>🚀 加入 Kylix 社区</h3>
+      <p>Kylix 正在迈向自举——用 Kylix 写 Kylix 编译器。欢迎贡献代码、提交 Issue、完善文档。</p>
+      <div class="btn-group">
+        <a href="https://github.com/astra-zhao/kylix" class="btn btn-primary" target="_blank" rel="noopener">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          Star on GitHub
+        </a>
+        <a href="md-viewer.html?file=docs/ROADMAP.md" class="btn btn-outline">🗺️ 查看路线图</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== FOOTER ====================== -->
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-links">
+      <a href="https://github.com/astra-zhao/kylix">GitHub</a>
+      <a href="md-viewer.html?file=CHANGELOG.md">更新日志</a>
+      <a href="md-viewer.html?file=ROADMAP.md">路线图</a>
+      <a href="https://github.com/astra-zhao/kylix/blob/main/LICENSE">MIT License</a>
+      <a href="https://github.com/astra-zhao/kylix/issues">Issue</a>
+    </div>
+    <p class="footer-copy">
+      Kylix v1.0.3 &middot; Built with ❤️ by <a href="https://github.com/astra-zhao">astra-zhao</a> &middot; Pascal → Go &middot; Simple, Modern, Fast
+    </p>
+  </div>
+</footer>
+
+<!-- Scroll-to-top -->
+<button class="scroll-top" id="scrollTop" title="回到顶部">↑</button>
+
+<!-- =================================================================
+     JavaScript — theme toggle + scroll-to-top + Prism theme swap
+     ================================================================= -->
+<script>
+(function() {
+  /* ---- Theme toggle ---- */
+  const html = document.documentElement;
+  const btn = document.getElementById('themeToggle');
+  const prismLink = document.getElementById('prism-theme');
+
+  const DARK_CSS  = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css';
+  const LIGHT_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css';
+
+  function setTheme(theme) {
+    html.setAttribute('data-theme', theme);
+    btn.innerHTML = theme === 'dark' ? '☀️' : '🌙';
+    btn.title = theme === 'dark' ? '切换浅色模式' : '切换深色模式';
+    if (prismLink) prismLink.href = theme === 'dark' ? DARK_CSS : LIGHT_CSS;
+    try { localStorage.setItem('kylix-theme', theme); } catch(e) {}
+  }
+
+  // Init from localStorage or system preference
+  const saved = (function() {
+    try { return localStorage.getItem('kylix-theme'); } catch(e) { return null; }
+  })();
+  if (saved === 'light' || saved === 'dark') { setTheme(saved); }
+  else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) { setTheme('light'); }
+
+  btn.addEventListener('click', function() {
+    setTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+
+  /* ---- Scroll-to-top button ---- */
+  const scrollBtn = document.getElementById('scrollTop');
+  function toggleScrollBtn() {
+    scrollBtn.classList.toggle('visible', window.scrollY > 400);
+  }
+  window.addEventListener('scroll', toggleScrollBtn, { passive: true });
+  scrollBtn.addEventListener('click', function() { window.scrollTo({ top: 0, behavior: 'smooth' }); });
+  toggleScrollBtn(); // init state
+})();
+</script>
+
+</body>
+</html>

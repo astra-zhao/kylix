@@ -1,0 +1,8 @@
+# Allow all crawlers
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://kylix.top/sitemap.xml
+
+# Disallow nothing (public site)

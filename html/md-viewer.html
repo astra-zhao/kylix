@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title id="pageTitle">Kylix - Docs</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>⚡</text></svg>">
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" id="prism-theme">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-pascal.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-go.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js" defer></script>
+<style>
+/* =================================================================
+   Theme — mirrors index.html
+   ================================================================= */
+:root {
+  --c-primary: #4f6ef7;
+  --c-primary-dim: #3b5de7;
+  --c-accent: #f0a030;
+  --c-green: #34d399;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --max-w: 900px;
+}
+[data-theme="dark"] {
+  --bg-body: #090d14;
+  --bg-card: #111827;
+  --bg-code: #0b1018;
+  --border: #1e2d45;
+  --text-primary: #e8edf5;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --shadow: 0 2px 8px rgba(0,0,0,.4);
+}
+[data-theme="light"] {
+  --bg-body: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-code: #f1f5f9;
+  --border: #e2e8f0;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --shadow: 0 2px 8px rgba(0,0,0,.06);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: var(--bg-body); color: var(--text-primary);
+  line-height: 1.65; -webkit-font-smoothing: antialiased;
+  transition: background .3s, color .3s;
+}
+
+/* =================================================================
+   Nav
+   ================================================================= */
+.nav {
+  position: sticky; top: 0; z-index: 100;
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  background: rgba(17,24,39,.7); border-bottom: 1px solid var(--border);
+}
+.nav-inner {
+  max-width: var(--max-w); margin: 0 auto; padding: 0 24px;
+  display: flex; align-items: center; justify-content: space-between; height: 56px;
+}
+.nav-back {
+  color: var(--text-secondary); font-size: .88rem; font-weight: 500;
+  display: flex; align-items: center; gap: 6px; transition: color .2s;
+}
+.nav-back:hover { color: var(--text-primary); text-decoration: none; }
+.theme-btn {
+  width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-primary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 1rem;
+  transition: all .2s;
+}
+.theme-btn:hover { background: rgba(26,35,50,1); }
+
+/* =================================================================
+   Content
+   ================================================================= */
+.content {
+  max-width: var(--max-w); margin: 0 auto; padding: 40px 24px 80px;
+}
+.content h1 { font-size: 2rem; font-weight: 800; margin: 24px 0 16px; letter-spacing: -.03em; }
+.content h1:first-child { margin-top: 0; }
+.content h2 {
+  font-size: 1.4rem; font-weight: 700; margin: 36px 0 14px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border); letter-spacing: -.02em;
+}
+.content h3 { font-size: 1.15rem; font-weight: 700; margin: 28px 0 10px; }
+.content h4 { font-size: 1rem; font-weight: 700; margin: 20px 0 8px; }
+.content p { color: var(--text-secondary); margin-bottom: 14px; }
+.content a { color: var(--c-primary); }
+.content a:hover { color: var(--c-primary-dim); }
+.content ul, .content ol { margin: 8px 0 16px 24px; color: var(--text-secondary); }
+.content li { margin-bottom: 6px; }
+.content strong { color: var(--text-primary); font-weight: 600; }
+.content em { color: var(--text-secondary); }
+
+/* Inline code */
+.content code:not(pre code) {
+  background: var(--bg-code); padding: 2px 8px; border-radius: 4px;
+  font-size: .85rem; border: 1px solid var(--border);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  color: var(--c-accent);
+}
+
+/* Code blocks */
+.content pre {
+  background: var(--bg-code) !important; border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important; margin: 16px 0 !important;
+  font-size: .85rem !important;
+}
+
+/* Tables */
+.content table {
+  width: 100%; border-collapse: collapse; margin: 16px 0;
+  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+}
+.content th, .content td {
+  padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border);
+  font-size: .88rem;
+}
+.content th { background: var(--bg-card); color: var(--text-primary); font-weight: 700; }
+.content td { color: var(--text-secondary); }
+.content tr:last-child td { border-bottom: none; }
+
+/* Blockquote */
+.content blockquote {
+  border-left: 3px solid var(--c-primary); padding: 10px 16px;
+  margin: 14px 0; background: var(--bg-card); border-radius: 0 var(--radius) var(--radius) 0;
+  color: var(--text-secondary); font-size: .9rem;
+}
+
+/* Horizontal rule */
+.content hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
+
+/* Back to top */
+.scroll-top {
+  position: fixed; bottom: 24px; right: 24px; z-index: 99;
+  width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-primary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+  opacity: 0; transform: translateY(10px); transition: all .3s; pointer-events: none;
+  box-shadow: var(--shadow);
+}
+.scroll-top.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+/* Loading / Error */
+.loading, .error-msg {
+  text-align: center; padding: 80px 0; color: var(--text-muted);
+}
+.error-msg { color: #f87171; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-back">← 返回首页</a>
+    <button class="theme-btn" id="themeToggle" aria-label="Toggle theme" title="切换深色/浅色模式">☀️</button>
+  </div>
+</nav>
+
+<main class="content" id="content">
+  <div class="loading">加载中…</div>
+</main>
+
+<button class="scroll-top" id="scrollTop" title="回到顶部">↑</button>
+
+<script>
+(function() {
+  /* ---- Theme ---- */
+  const html = document.documentElement;
+  const btn = document.getElementById('themeToggle');
+  const prismLink = document.getElementById('prism-theme');
+  const DARK_CSS  = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css';
+  const LIGHT_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css';
+
+  function setTheme(theme) {
+    html.setAttribute('data-theme', theme);
+    btn.innerHTML = theme === 'dark' ? '☀️' : '🌙';
+    btn.title = theme === 'dark' ? '切换浅色模式' : '切换深色模式';
+    if (prismLink) prismLink.href = theme === 'dark' ? DARK_CSS : LIGHT_CSS;
+    try { localStorage.setItem('kylix-theme', theme); } catch(e) {}
+  }
+  const saved = (function() {
+    try { return localStorage.getItem('kylix-theme'); } catch(e) { return null; }
+  })();
+  if (saved === 'light' || saved === 'dark') { setTheme(saved); }
+  else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) { setTheme('light'); }
+  btn.addEventListener('click', function() {
+    setTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+
+  /* ---- Scroll to top ---- */
+  const scrollBtn = document.getElementById('scrollTop');
+  window.addEventListener('scroll', function() {
+    scrollBtn.classList.toggle('visible', window.scrollY > 400);
+  }, { passive: true });
+  scrollBtn.addEventListener('click', function() { window.scrollTo({ top: 0, behavior: 'smooth' }); });
+
+  /* ---- Markdown rendering ---- */
+  const contentEl = document.getElementById('content');
+
+  // Simple markdown-to-HTML renderer (no external dependency)
+  function renderMarkdown(md) {
+    // Escape HTML entities first
+    function esc(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // Store fenced code blocks
+    const codeBlocks = [];
+    md = md.replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code) {
+      const idx = codeBlocks.length;
+      codeBlocks.push({ lang: lang || '', code: code.replace(/\n$/, '') });
+      return '\x00CODE' + idx + '\x00';
+    });
+
+    // Store inline code
+    const inlineCodes = [];
+    md = md.replace(/`([^`]+)`/g, function(_, code) {
+      const idx = inlineCodes.length;
+      inlineCodes.push(code);
+      return '\x00ICODE' + idx + '\x00';
+    });
+
+    // Headers
+    md = md.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+    md = md.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    md = md.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    md = md.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+    // Bold, italic
+    md = md.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    md = md.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    md = md.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+    // Images
+    md = md.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%">');
+
+    // Links
+    md = md.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+
+    // Horizontal rules
+    md = md.replace(/^---$/gm, '<hr>');
+    md = md.replace(/^\*\*\*$/gm, '<hr>');
+
+    // Blockquotes
+    md = md.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+    // Merge consecutive blockquotes
+    md = md.replace(/<\/blockquote>\n<blockquote>/g, '\n');
+
+    // Tables
+    md = md.replace(/^\|(.+)\|\n\|[-| :]+\|\n((?:\|.+\|\n?)*)/gm, function(match, header, body) {
+      const hCells = header.split('|').map(function(c) { return c.trim(); }).filter(Boolean);
+      const hHtml = '<tr>' + hCells.map(function(c) { return '<th>' + c + '</th>'; }).join('') + '</tr>';
+      const rows = body.trim().split('\n');
+      const bHtml = rows.map(function(row) {
+        const cells = row.split('|').map(function(c) { return c.trim(); }).filter(Boolean);
+        return '<tr>' + cells.map(function(c) { return '<td>' + c + '</td>'; }).join('') + '</tr>';
+      }).join('');
+      return '<table>' + hHtml + bHtml + '</table>';
+    });
+
+    // Unordered lists — multi-line support
+    md = md.replace(/^([ \t]*)[-*] (.+)$/gm, '<li>$2</li>');
+    md = md.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+
+    // Ordered lists
+    md = md.replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>');
+    // Wrap ordered list items (detect by context)
+
+    // Paragraphs: wrap remaining text lines
+    md = md.replace(/\n\n+/g, '</p><p>');
+    md = '<p>' + md + '</p>';
+
+    // Clean up empty paragraphs
+    md = md.replace(/<p><\/p>/g, '');
+    md = md.replace(/<p>(\s*<h[1-4]|<\s*ul|<\s*table|<\s*pre|<\s*blockquote|<\s*hr)/g, '$1');
+    md = md.replace(/(<\/h[1-4]>|<\/ul>|<\/table>|<\/pre>|<\/blockquote>|<\/hr>)\s*<\/p>/g, '$1');
+    md = md.replace(/<p>(\s*<li>)/g, '<ul>$1');
+    md = md.replace(/(<\/li>)\s*<\/p>/g, '$1</ul>');
+
+    // Restore inline code
+    md = md.replace(/\x00ICODE(\d+)\x00/g, function(_, idx) {
+      return '<code>' + esc(inlineCodes[parseInt(idx)]) + '</code>';
+    });
+
+    // Restore code blocks
+    md = md.replace(/\x00CODE(\d+)\x00/g, function(_, idx) {
+      const cb = codeBlocks[parseInt(idx)];
+      const langClass = cb.lang ? ' class="language-' + cb.lang + '"' : '';
+      return '<pre' + langClass + '><code' + langClass + '>' + esc(cb.code) + '</code></pre>';
+    });
+
+    return md;
+  }
+
+  /* ---- Load & render ---- */
+  function getMdFile() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('file') || '';
+  }
+
+  function setDocTitle(title) {
+    document.getElementById('pageTitle').textContent = title + ' - Kylix';
+    document.title = title + ' - Kylix';
+  }
+
+  const file = getMdFile();
+  if (!file) {
+    contentEl.innerHTML = '<div class="error-msg">未指定文档路径。请在 URL 中添加 ?file=docs/XXX.md</div>';
+  } else {
+    fetch('/' + file)
+      .then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.text();
+      })
+      .then(function(text) {
+        // Extract title from first h1
+        const h1Match = text.match(/^# (.+)$/m);
+        if (h1Match) setDocTitle(h1Match[1]);
+        else setDocTitle(file.replace(/\.md$/, '').replace(/.*\//, ''));
+
+        const html = renderMarkdown(text);
+        contentEl.innerHTML = html;
+
+        // Highlight code blocks with Prism
+        if (window.Prism) {
+          document.querySelectorAll('pre code').forEach(function(block) {
+            Prism.highlightElement(block);
+          });
+        }
+      })
+      .catch(function(err) {
+        contentEl.innerHTML = '<div class="error-msg">加载文档失败: ' + file + ' (' + err.message + ')</div>';
+      });
+  }
+})();
+</script>
+</body>
+</html>

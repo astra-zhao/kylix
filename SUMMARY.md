@@ -1,16 +1,19 @@
 # Kylix 编译器项目总结
 
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-1.0.1-blue.svg)](CHANGELOG.md)
+[![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
+[![版本](https://img.shields.io/badge/version-1.0.3-blue.svg)](CHANGELOG.md)
 [![许可证](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ## 项目概述
 
 Kylix 是一个现代化的 Pascal 语言重新实现，编译为 Go 代码。它结合了 Pascal 的清晰性和简洁性，同时添加了现代语言特性，并配备了完整的 IDE 工具链和编辑器集成。
 
-**当前版本**：v1.0.1（2026-06-03 发布，15+ Bug 修复版本）
+**当前版本**：v1.0.3（2026-06-05 发布）
 
 **项目地址**：https://github.com/astra-zhao/kylix
+
+**官方网站**：https://kylix.top
 
 ---
 

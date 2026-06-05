@@ -2,6 +2,8 @@
 
 All notable changes to the Kylix compiler are documented in this file.
 
+> 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
+
 ## v1.0.3 (2026-06-05)
 
 ### New Features — Phase 7: Language Capabilities

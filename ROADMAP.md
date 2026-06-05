@@ -2,6 +2,7 @@
 
 > 最后更新: 2026-06-05
 > 当前版本: v1.0.3
+> 官网: [kylix.top](https://kylix.top)
 > 目标: Kylix 语言自举（用 Kylix 写 Kylix 编译器）
 
 ---

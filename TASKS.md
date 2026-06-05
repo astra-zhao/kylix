@@ -1,7 +1,8 @@
 # Kylix 开发任务清单
 
 > 最后更新: 2026-06-05
-> 关联文档: [ROADMAP.md](ROADMAP.md)
+> 官网: [kylix.top](https://kylix.top)
+> 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 > 当前版本: v1.0.3
 
 ---
