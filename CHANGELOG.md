@@ -98,6 +98,45 @@ self-hosting bootstrap works.
 - **`Delete` as function name**: `function Delete(...)` no longer fails (keyword recognized as identifier)
 - **Class field parsing**: Bare field declarations (`Name: Type;` without `var`) guarded by `peekTokenIs(COLON)`
 - **Parser regression**: 14/15 examples confirmed passing (no regressions from new features)
+- **Constructor argument mapping**: `T.Create(arg)` now generates `&T{Field: arg}` using collected class field names
+- **Bare method calls in assignment/condition**: `Prog := Par.ParseProgram` → `Prog := Par.ParseProgram()` (main.klx uses explicit parens)
+- **Unused local variables**: Generator appends `_ = varName` for local vars declared in function bodies
+- **For loop variable type**: `for i = 0` (no `:=`) avoids `int` vs `int64` type mismatch
+- **Map type as expression prefix**: `MAP` and `VARIANT` registered as prefix parse functions
+- **String escaping**: Proper `\`, `"`, `\n` escaping in string literals
+
+### New Builtins
+
+- **ReadFile(filename)** — reads file content, returns string (uses `os.ReadFile` internally, auto-adds `"os"` import)
+- **Ord(s)** — returns int value of first character (guards against empty string)
+- **Length(x)** — returns `int64(len(x))` for slices/strings
+- **IntToStr(n)** — converts int64 to string via `fmt.Sprintf`
+- **StrToInt64(s)** — parses string to int64 via `strconv.ParseInt`
+- **StrToFloat(s)** — parses string to float64 via `strconv.ParseFloat`
+
+### is/as Type Dispatch
+
+- `is` expression → Go type assertion check: `func() bool { _, ok := expr.(*Type); return ok }()`
+- `as` expression → Go type assertion: `expr.(*Type)`
+- Both work correctly with base class → `interface{}` polymorphism
+- Confirmed working in Go backend and usable from `.klx` source files
+
+### Self-Hosting Bootstrap Status
+
+**Build chain verified:**
+```
+7 .klx source files → kylix build → Go code → go build → kylix_compiler binary ✅
+```
+
+**Runtime status:**
+- Lexer→Parser→Error pipeline: ✅ functional
+- Tokenizer: 🟡 has known bug (some Pascal keywords produce tkIllegal tokens)
+- Generator (Kylix-side): 🟡 skeleton code, needs type dispatch implementation
+
+**Known issues to fix for full self-hosting:**
+- Kylix lexer tokenization bug: valid Pascal source strings produce unexpected tkIllegal tokens
+- Generator.klx skeleton needs completion with `is`/`as` type dispatch
+- Single-quoted string escaping in generated Go code needs improvement
 
 ### Files Changed
 
