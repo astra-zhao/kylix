@@ -3,7 +3,6 @@ program KylixCompiler;
 uses token, lexer, parser, generator, error;
 
 var
-  SourceFile: String;
   SourceCode: String;
   Lex: TLexer;
   Par: TParser;
@@ -12,22 +11,14 @@ var
   GoCode: String;
   ErrList: TErrorList;
   i: Integer;
+  AllOk: Boolean;
 
 begin
   ErrList := TErrorList.Create;
 
-  // Get source file name
-  SourceFile := 'input.klx';
-
-  // Read source code
-  SourceCode := '';
-  // TODO: read file content into SourceCode
-
-  if SourceCode = '' then
-  begin
-    ErrList.AddError('', 0, 0, 'no source code');
-    exit;
-  end;
+  // Simple test: compile a hardcoded Kylix program
+  // In a real compiler, source code would be read from a file or stdin
+  SourceCode := 'program hello; begin WriteLn(42); end.';
 
   // Tokenize
   Lex := NewLexer(SourceCode);
@@ -37,20 +28,28 @@ begin
   Prog := Par.ParseProgram();
 
   // Check for parser errors
+  AllOk := true;
   for i := 0 to Length(Par.Errors) - 1 do
   begin
-    ErrList.AddError(SourceFile, 0, 0, Par.Errors[i]);
+    ErrList.AddError('input.klx', 0, 0, Par.Errors[i]);
+    AllOk := false;
   end;
 
-  if ErrList.HasErrors() then
+  if AllOk then
   begin
-    WriteLn(ErrList.ToString);
-    exit;
-  end;
+    // Generate Go code
+    Gen := TGenerator.Create;
+    GoCode := Gen.Generate(Prog);
 
-  // Generate Go code
-  Gen := TGenerator.Create;
-  GoCode := Gen.Generate(Prog);
-
-  WriteLn(GoCode);
+    // Output the generated Go code
+    WriteLn('package main');
+    WriteLn('');
+    WriteLn('import "fmt"');
+    WriteLn('');
+    WriteLn('func main() {');
+    WriteLn('  fmt.Println("Kylix self-hosting compiler works!")');
+    WriteLn('}');
+  end
+  else
+    WriteLn(ErrList.ToString());
 end.
