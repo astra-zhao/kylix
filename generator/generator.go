@@ -1183,6 +1183,9 @@ func (g *Generator) scanExpressionForImports(expr ast.Expression) {
 			if ident.Value == "StrToInt64" || ident.Value == "StrToFloat" {
 				g.imports["strconv"] = true
 			}
+			if ident.Value == "ReadFile" {
+				g.imports["os"] = true
+			}
 		}
 	case *ast.InfixExpression:
 		g.scanExpressionForImports(e.Left)
@@ -1843,6 +1846,14 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 			g.write("func() float64 { v, _ := strconv.ParseFloat(")
 			g.generateExpression(e.Arguments[0])
 			g.write(", 64); return v }()")
+			break
+		}
+			// Handle ReadFile() — reads a file and returns its content as string
+		if ident, ok := e.Function.(*ast.Identifier); ok && ident.Value == "ReadFile" && len(e.Arguments) == 1 {
+			g.write("func() string { data, _ := os.ReadFile(")
+			g.generateExpression(e.Arguments[0])
+			g.write("); return string(data) }()")
+			g.imports["os"] = true
 			break
 		}
 		g.generateExpression(e.Function)

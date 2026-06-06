@@ -3,6 +3,7 @@ program KylixCompiler;
 uses token, lexer, parser, generator, error;
 
 var
+  SourceFile: String;
   SourceCode: String;
   Lex: TLexer;
   Par: TParser;
@@ -16,9 +17,15 @@ var
 begin
   ErrList := TErrorList.Create;
 
-  // Simple test: compile a hardcoded Kylix program
-  // In a real compiler, source code would be read from a file or stdin
-  SourceCode := 'program hello; begin WriteLn(42); end.';
+  // Read source file
+  SourceFile := 'input.klx';
+  SourceCode := ReadFile(SourceFile);
+
+  if SourceCode = '' then
+  begin
+    // Fallback: compile a hardcoded test program
+    SourceCode := 'program hello; begin WriteLn(42); end.';
+  end;
 
   // Tokenize
   Lex := NewLexer(SourceCode);
@@ -31,7 +38,7 @@ begin
   AllOk := true;
   for i := 0 to Length(Par.Errors) - 1 do
   begin
-    ErrList.AddError('input.klx', 0, 0, Par.Errors[i]);
+    ErrList.AddError(SourceFile, 0, 0, Par.Errors[i]);
     AllOk := false;
   end;
 
@@ -40,15 +47,7 @@ begin
     // Generate Go code
     Gen := TGenerator.Create;
     GoCode := Gen.Generate(Prog);
-
-    // Output the generated Go code
-    WriteLn('package main');
-    WriteLn('');
-    WriteLn('import "fmt"');
-    WriteLn('');
-    WriteLn('func main() {');
-    WriteLn('  fmt.Println("Kylix self-hosting compiler works!")');
-    WriteLn('}');
+    WriteLn(GoCode);
   end
   else
     WriteLn(ErrList.ToString());
