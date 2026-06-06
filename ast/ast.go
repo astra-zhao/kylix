@@ -23,6 +23,8 @@ type Expression interface {
 type Program struct {
 	Name         string
 	NameToken    token.Token // NEW: position of program name
+	UnitName     string      // module name for unit files
+	IsUnit       bool        // true if this is a unit file (no main function)
 	Uses         []string
 	Declarations []Node
 	Statements   []Statement
@@ -72,6 +74,7 @@ type FunctionDecl struct {
 	ReturnType  Expression   // single return type (traditional)
 	ReturnTypes []Expression // multiple return types (modern: (Type1, Type2))
 	Body        *BlockStatement
+	LocalDecls  []Node      // local var/const declarations before begin block
 	IsAsync     bool
 	IsExport    bool
 }
@@ -360,6 +363,14 @@ type VariantCase struct {
 	Type Expression
 }
 
+// Enum Type — e.g., type TTokenType = (tkEOF, tkIdent, ...);
+type EnumType struct {
+	Names []string
+}
+
+func (e *EnumType) expressionNode()       {}
+func (e *EnumType) TokenLiteral() string { return "enum" }
+
 // Generic Type (modern feature)
 type GenericType struct {
 	Base       string
@@ -510,6 +521,17 @@ type IndexExpression struct {
 
 func (i *IndexExpression) expressionNode()       {}
 func (i *IndexExpression) TokenLiteral() string { return i.Token.Literal }
+
+// Slice Expression — e.g., s[a:b]
+type SliceExpression struct {
+	Token token.Token
+	Left  Expression
+	Low   Expression
+	High  Expression
+}
+
+func (s *SliceExpression) expressionNode()       {}
+func (s *SliceExpression) TokenLiteral() string { return s.Token.Literal }
 
 // Await Expression (modern feature)
 type AwaitExpression struct {

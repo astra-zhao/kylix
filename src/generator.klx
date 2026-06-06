@@ -1,0 +1,222 @@
+unit generator;
+uses token, ast, error;
+
+// ============================================================================
+// Go Code Generator — converts AST to Go source code
+// ============================================================================
+
+type
+  TGenerator = class
+    Output: String;
+    Indent: Integer;
+    Variables: map[String]String;   // track variable types
+    InFunction: Boolean;
+    InReturnFunc: Boolean;           // true if current function has return value
+    Imports: map[String]Boolean;    // track which imports are needed
+    NeedsException: Boolean;
+    ExceptionTypes: map[String]Boolean;
+    MultiReturn: Boolean;
+    MultiReturnN: Integer;
+    ClassTypes: map[String]Boolean;  // track which user-defined types are classes
+    ClassIsBase: map[String]Boolean; // true if class is parent of another class
+
+    constructor Create;
+    begin
+      self.Output := '';
+      self.Indent := 0;
+      self.Variables := map[String]String; // TODO: init map
+      self.InFunction := false;
+      self.InReturnFunc := false;
+      self.Imports := map[String]Boolean; // TODO: init map
+      self.NeedsException := false;
+      self.ExceptionTypes := map[String]Boolean; // TODO: init map
+      self.MultiReturn := false;
+      self.MultiReturnN := 0;
+      self.ClassTypes := map[String]Boolean; // TODO: init map
+      self.ClassIsBase := map[String]Boolean; // TODO: init map
+    end;
+
+    procedure Write(s: String);
+    begin
+      self.Output := self.Output + s;
+    end;
+
+    procedure WriteLine(s: String);
+    var
+      i: Integer;
+    begin
+      for i := 0 to self.Indent - 1 do
+        self.Output := self.Output + '  ';
+      self.Output := self.Output + s + '\n';
+    end;
+
+    procedure IncreaseIndent;
+    begin
+      self.Indent := self.Indent + 1;
+    end;
+
+    procedure DecreaseIndent;
+    begin
+      self.Indent := self.Indent - 1;
+    end;
+
+    // Main entry point: generate Go code from a single program
+    function Generate(prog: TProgram): String;
+    begin
+      self.CollectClassTypes(prog);
+      self.ScanImports(prog);
+      self.ScanForException(prog);
+
+      self.WriteLine('package main');
+      self.WriteLine('');
+      self.GenerateImports;
+
+      self.GenerateTypes(prog);
+      self.GenerateExceptionTypes;
+      self.GenerateGlobals(prog);
+      self.GenerateFunctions(prog);
+
+      if prog.IsUnit = false then
+        if Length(prog.Statements) > 0 then
+        begin
+          self.WriteLine('func main() {');
+          self.IncreaseIndent;
+          self.GenerateStatements(prog.Statements);
+          self.DecreaseIndent;
+          self.WriteLine('}');
+        end;
+
+      result := self.Output;
+    end;
+
+    // Generate import block
+    procedure GenerateImports;
+    begin
+      // TODO: iterate map and generate imports
+      self.WriteLine('import (');
+      self.IncreaseIndent;
+      self.IncreaseIndent;
+      self.IncreaseIndent;
+      self.IncreaseIndent;
+      self.IncreaseIndent;
+      self.WriteLine('"fmt"');
+      self.WriteLine('"strings"');
+      self.WriteLine('"strconv"');
+      self.DecreaseIndent;
+      self.DecreaseIndent;
+      self.DecreaseIndent;
+      self.DecreaseIndent;
+      self.DecreaseIndent;
+      self.WriteLine(')');
+      self.WriteLine('');
+    end;
+
+    // Generate all type declarations
+    procedure GenerateTypes(prog: TProgram);
+    var
+      i: Integer;
+      decl: TNode;
+    begin
+      for i := 0 to Length(prog.Declarations) - 1 do
+      begin
+        decl := prog.Declarations[i];
+        // TODO: type-switch on decl to handle TypeDecl, ClassDecl, etc.
+      end;
+    end;
+
+    // Generate exception type structs
+    procedure GenerateExceptionTypes;
+    begin
+      if self.NeedsException then
+      begin
+        self.WriteLine('type Exception struct {');
+        self.IncreaseIndent;
+        self.WriteLine('Message string');
+        self.DecreaseIndent;
+        self.WriteLine('}');
+        self.WriteLine('');
+      end;
+    end;
+
+    // Generate global variable and constant declarations
+    procedure GenerateGlobals(prog: TProgram);
+    var
+      i: Integer;
+      decl: TNode;
+    begin
+      for i := 0 to Length(prog.Declarations) - 1 do
+      begin
+        decl := prog.Declarations[i];
+        // TODO: generate VarDecl and ConstDecl
+      end;
+    end;
+
+    // Generate all function declarations
+    procedure GenerateFunctions(prog: TProgram);
+    var
+      i: Integer;
+      decl: TNode;
+    begin
+      for i := 0 to Length(prog.Declarations) - 1 do
+      begin
+        decl := prog.Declarations[i];
+        // TODO: generate function declarations
+      end;
+    end;
+
+    // Generate statement list
+    procedure GenerateStatements(stmts: array of TStatement);
+    var
+      i: Integer;
+    begin
+      for i := 0 to Length(stmts) - 1 do
+      begin
+        self.GenerateStatement(stmts[i]);
+      end;
+    end;
+
+    // Generate a single statement
+    procedure GenerateStatement(stmt: TStatement);
+    begin
+      // TODO: dispatch by statement type
+    end;
+
+    // Pre-scan: collect class types
+    procedure CollectClassTypes(prog: TProgram);
+    var
+      i: Integer;
+    begin
+      for i := 0 to Length(prog.Declarations) - 1 do
+      begin
+        // TODO: check if TClassDecl, record name
+      end;
+    end;
+
+    // Pre-scan: detect needed Go imports
+    procedure ScanImports(prog: TProgram);
+    begin
+      // TODO: walk program and detect import needs
+    end;
+
+    // Pre-scan: detect exception type usage
+    procedure ScanForException(prog: TProgram);
+    begin
+      // TODO: detect try/raise/except usage
+    end;
+
+    // Map Kylix type to Go type
+    function MapType(kylixType: String): String;
+    begin
+      if kylixType = 'Integer' then
+        result := 'int64'
+      else if kylixType = 'Real' then
+        result := 'float64'
+      else if kylixType = 'Boolean' then
+        result := 'bool'
+      else if kylixType = 'String' then
+        result := 'string'
+      else
+        result := kylixType;
+    end;
+  end;
+end.

@@ -1,0 +1,8 @@
+[project]
+name = "kylix-compiler"
+version = "2.0.0"
+main = "main.klx"
+
+[build]
+output = "build/"
+go_module = "kylix-compiler"

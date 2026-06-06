@@ -1,0 +1,209 @@
+unit token;
+
+// Token type enumeration
+type
+  TTokenType = (
+    // Special tokens
+    tkIllegal, tkEOF, tkComment,
+
+    // Identifiers and literals
+    tkIdent, tkInt, tkFloat, tkString, tkStringInterp, tkChar,
+
+    // Operators
+    tkAssign, tkPlus, tkMinus, tkBang, tkAsterisk, tkSlash,
+    tkMod, tkDiv,
+    tkLT, tkGT, tkEQ, tkNotEQ, tkLTEQ, tkGTEQ,
+
+    // Delimiters
+    tkComma, tkSemicolon, tkColon, tkDot, tkDotDot,
+    tkArrow, tkFatArrow, tkAssignOp,
+    tkLParen, tkRParen, tkLBrace, tkRBrace, tkLBracket, tkRBracket,
+
+    // Keywords
+    tkProgram, tkUnit, tkUses, tkVar, tkConst, tkType,
+    tkBegin, tkEnd, tkFunction, tkProcedure,
+    tkIf, tkThen, tkElse, tkWhile, tkDo, tkFor, tkTo, tkDownTo,
+    tkRepeat, tkUntil, tkCase, tkOf, tkWith,
+    tkTry, tkExcept, tkFinally, tkRaise, tkOn,
+    tkClass, tkInterface, tkObject, tkRecord, tkArray, tkSet,
+    tkPacked, tkFile, tkMap, tkVariant,
+    tkInherits, tkImplements,
+    tkPublic, tkPrivate, tkProtected, tkPublished,
+    tkProperty, tkRead, tkWrite, tkDefault, tkStored,
+    tkVirtual, tkOverride, tkAbstract, tkStatic, tkDynamic,
+    tkExternal, tkForward, tkInline,
+    tkResult, tkSelf, tkNil, tkTrue, tkFalse,
+    tkAnd, tkOr, tkNot, tkXor, tkIn, tkIs, tkAs,
+    tkNew, tkDelete, tkBreak, tkContinue, tkExit, tkReturn,
+    tkAsync, tkAwait, tkConstructor, tkDestructor, tkInherited,
+    tkMatch, tkWhen,
+    tkImport, tkExport, tkModule
+  );
+
+  TToken = record
+    TokenType: TTokenType;
+    Literal: String;
+    Line: Integer;
+    Column: Integer;
+  end;
+
+var
+  Keywords: map[String]TTokenType;
+  KeywordsInitialized: Boolean;
+
+procedure InitKeywords();
+begin
+  if KeywordsInitialized = false then
+  begin
+    // Structural keywords
+  Keywords['program'] := tkProgram;
+  Keywords['unit'] := tkUnit;
+  Keywords['uses'] := tkUses;
+  Keywords['var'] := tkVar;
+  Keywords['const'] := tkConst;
+  Keywords['type'] := tkType;
+  Keywords['begin'] := tkBegin;
+  Keywords['end'] := tkEnd;
+  Keywords['function'] := tkFunction;
+  Keywords['procedure'] := tkProcedure;
+
+  // Control flow
+  Keywords['if'] := tkIf;
+  Keywords['then'] := tkThen;
+  Keywords['else'] := tkElse;
+  Keywords['while'] := tkWhile;
+  Keywords['do'] := tkDo;
+  Keywords['for'] := tkFor;
+  Keywords['to'] := tkTo;
+  Keywords['downto'] := tkDownTo;
+  Keywords['repeat'] := tkRepeat;
+  Keywords['until'] := tkUntil;
+  Keywords['case'] := tkCase;
+  Keywords['of'] := tkOf;
+  Keywords['with'] := tkWith;
+  Keywords['match'] := tkMatch;
+  Keywords['when'] := tkWhen;
+
+  // Exception handling
+  Keywords['try'] := tkTry;
+  Keywords['except'] := tkExcept;
+  Keywords['finally'] := tkFinally;
+  Keywords['raise'] := tkRaise;
+  Keywords['on'] := tkOn;
+
+  // Type system
+  Keywords['class'] := tkClass;
+  Keywords['interface'] := tkInterface;
+  Keywords['object'] := tkObject;
+  Keywords['record'] := tkRecord;
+  Keywords['array'] := tkArray;
+  Keywords['set'] := tkSet;
+  Keywords['packed'] := tkPacked;
+  Keywords['file'] := tkFile;
+  Keywords['map'] := tkMap;
+  Keywords['variant'] := tkVariant;
+  Keywords['inherits'] := tkInherits;
+  Keywords['implements'] := tkImplements;
+
+  // Visibility
+  Keywords['public'] := tkPublic;
+  Keywords['private'] := tkPrivate;
+  Keywords['protected'] := tkProtected;
+  Keywords['published'] := tkPublished;
+
+  // Properties
+  Keywords['property'] := tkProperty;
+  Keywords['read'] := tkRead;
+  Keywords['write'] := tkWrite;
+  Keywords['default'] := tkDefault;
+  Keywords['stored'] := tkStored;
+
+  // Method modifiers
+  Keywords['virtual'] := tkVirtual;
+  Keywords['override'] := tkOverride;
+  Keywords['abstract'] := tkAbstract;
+  Keywords['static'] := tkStatic;
+  Keywords['dynamic'] := tkDynamic;
+  Keywords['external'] := tkExternal;
+  Keywords['forward'] := tkForward;
+  Keywords['inline'] := tkInline;
+
+  // Special identifiers
+  Keywords['result'] := tkResult;
+  Keywords['self'] := tkSelf;
+  Keywords['nil'] := tkNil;
+  Keywords['true'] := tkTrue;
+  Keywords['false'] := tkFalse;
+
+  // Logical operators
+  Keywords['and'] := tkAnd;
+  Keywords['or'] := tkOr;
+  Keywords['not'] := tkNot;
+  Keywords['xor'] := tkXor;
+  Keywords['in'] := tkIn;
+  Keywords['is'] := tkIs;
+  Keywords['as'] := tkAs;
+
+  // Memory and control
+  Keywords['new'] := tkNew;
+  Keywords['delete'] := tkDelete;
+  Keywords['break'] := tkBreak;
+  Keywords['continue'] := tkContinue;
+  Keywords['exit'] := tkExit;
+  Keywords['return'] := tkReturn;
+
+  // Async
+  Keywords['async'] := tkAsync;
+  Keywords['await'] := tkAwait;
+
+  // OOP
+  Keywords['constructor'] := tkConstructor;
+  Keywords['destructor'] := tkDestructor;
+  Keywords['inherited'] := tkInherited;
+
+  // Module system
+  Keywords['import'] := tkImport;
+  Keywords['export'] := tkExport;
+  Keywords['module'] := tkModule;
+
+  // Arithmetic operators as keywords
+  Keywords['mod'] := tkMod;
+  Keywords['div'] := tkDiv;
+
+  KeywordsInitialized := true;
+  end;
+end;
+
+function LookupIdent(ident: String): TTokenType;
+var
+  lower: String;
+begin
+  if KeywordsInitialized = false then
+    InitKeywords();
+
+  lower := LowerCase(ident);
+  result := Keywords[lower];
+end;
+
+function IsLetter(ch: String): Boolean;
+begin
+  result := false;
+  if ch >= 'a' then
+    if ch <= 'z' then
+      result := true;
+  if result = false then
+    if ch >= 'A' then
+      if ch <= 'Z' then
+        result := true;
+  if result = false then
+    if ch = '_' then
+      result := true;
+end;
+
+function IsDigit(ch: String): Boolean;
+begin
+  result := false;
+  if ch >= '0' then
+    if ch <= '9' then
+      result := true;
+end;

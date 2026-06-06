@@ -1,0 +1,2338 @@
+unit parser;
+uses token, lexer, ast;
+
+const
+  PREC_LOWEST = 1;
+  PREC_EQUALS = 2;
+  PREC_LESSGREATER = 3;
+  PREC_SUM = 4;
+  PREC_PRODUCT = 5;
+  PREC_PREFIX = 6;
+  PREC_CALL = 7;
+  PREC_INDEX = 8;
+  PREC_MEMBER = 9;
+
+type
+  TParser = class
+    Lex: TLexer;
+    Errors: array of String;
+    CurToken: TToken;
+    PeekToken: TToken;
+  end;
+
+// ============================================================================
+// Constructor and Helpers
+// ============================================================================
+
+function NewParser(lex: TLexer): TParser;
+var p: TParser;
+begin
+  p := TParser.Create();
+  p.Lex := lex;
+    p.NextToken();
+  p.NextToken();
+  result := p;
+end;
+
+procedure TParser.NextToken();
+begin
+  self.CurToken := self.PeekToken;
+  self.PeekToken := self.Lex.NextToken();
+end;
+
+function TParser.CurTokenIs(t: TTokenType): Boolean;
+begin
+  result := self.CurToken.TokenType = t;
+end;
+
+function TParser.PeekTokenIs(t: TTokenType): Boolean;
+begin
+  result := self.PeekToken.TokenType = t;
+end;
+
+function TParser.ExpectPeek(t: TTokenType): Boolean;
+begin
+  if self.PeekTokenIs(t) then
+  begin
+    self.NextToken();
+    result := true;
+  end
+  else
+  begin
+    self.PeekError(t);
+    result := false;
+  end;
+end;
+
+function TParser.PeekPrecedence(): Integer;
+begin
+  result := self.GetPrecedence(self.PeekToken.TokenType);
+end;
+
+function TParser.CurPrecedence(): Integer;
+begin
+  result := self.GetPrecedence(self.CurToken.TokenType);
+end;
+
+function TParser.GetPrecedence(tt: TTokenType): Integer;
+begin
+  if tt = tkAssign then result := PREC_EQUALS
+  else if tt = tkEQ then result := PREC_EQUALS
+  else if tt = tkNotEQ then result := PREC_EQUALS
+  else if tt = tkIs then result := PREC_EQUALS
+  else if tt = tkAs then result := PREC_EQUALS
+  else if tt = tkLT then result := PREC_LESSGREATER
+  else if tt = tkLTEQ then result := PREC_LESSGREATER
+  else if tt = tkGT then result := PREC_LESSGREATER
+  else if tt = tkGTEQ then result := PREC_LESSGREATER
+  else if tt = tkPlus then result := PREC_SUM
+  else if tt = tkMinus then result := PREC_SUM
+  else if tt = tkOr then result := PREC_SUM
+  else if tt = tkXor then result := PREC_SUM
+  else if tt = tkAsterisk then result := PREC_PRODUCT
+  else if tt = tkSlash then result := PREC_PRODUCT
+  else if tt = tkDiv then result := PREC_PRODUCT
+  else if tt = tkMod then result := PREC_PRODUCT
+  else if tt = tkAnd then result := PREC_PRODUCT
+  else if tt = tkLParen then result := PREC_CALL
+  else if tt = tkLBracket then result := PREC_INDEX
+  else if tt = tkDot then result := PREC_MEMBER
+  else
+    result := PREC_LOWEST;
+end;
+
+procedure TParser.PeekError(t: TTokenType);
+var msg: String;
+begin
+  msg := 'expected ' + IntToStr(t) + ', got ' + IntToStr(self.PeekToken.TokenType)
+    + ' (line ' + IntToStr(self.PeekToken.Line) + ')';
+  append(self.Errors, msg);
+end;
+
+procedure TParser.NoPrefixError(t: TTokenType);
+var msg: String;
+begin
+  msg := 'no prefix parse function for ' + IntToStr(t)
+    + ' (line ' + IntToStr(self.CurToken.Line) + ')';
+  append(self.Errors, msg);
+end;
+
+function TParser.IsIdentOrSoftKeyword(): Boolean;
+begin
+  result := self.CurTokenIs(tkIdent) or self.CurTokenIs(tkMatch) or self.CurTokenIs(tkResult);
+end;
+
+function ReadInt64(s: String): Integer;
+begin
+  result := StrToInt64(s);
+end;
+
+function ReadFloat64(s: String): Real;
+begin
+  result := StrToFloat(s);
+end;
+
+// ============================================================================
+// Program Parsing
+// ============================================================================
+
+function TParser.ParseProgram(): TProgram;
+var prog: TProgram; var iterations: Integer;
+begin
+  prog := TProgram.Create();
+  iterations := 0;
+
+  // Parse unit declaration: unit X;
+  if self.CurTokenIs(tkUnit) then
+  begin
+    self.NextToken();
+    if self.CurTokenIs(tkIdent) then
+    begin
+      prog.UnitName := self.CurToken.Literal;
+      prog.IsUnit := true;
+      prog.Name := self.CurToken.Literal;
+      prog.NameToken := self.CurToken;
+      self.NextToken();
+    end;
+    if self.CurTokenIs(tkSemicolon) then
+      self.NextToken();
+  end;
+
+  // Parse program declaration: program X;
+  if self.CurTokenIs(tkProgram) then
+  begin
+    self.NextToken();
+    if self.CurTokenIs(tkIdent) then
+    begin
+      prog.Name := self.CurToken.Literal;
+      prog.NameToken := self.CurToken;
+      self.NextToken();
+    end;
+    if self.CurTokenIs(tkSemicolon) then
+      self.NextToken();
+  end;
+
+  // Parse uses clause
+  if self.CurTokenIs(tkUses) then
+  begin
+    self.NextToken();
+    while self.CurTokenIs(tkIdent) do
+    begin
+      // Uses is pre-allocated by TProgram.Create
+      self.NextToken();
+      if self.CurTokenIs(tkComma) then
+        self.NextToken()
+      else
+        break;
+    end;
+    if self.CurTokenIs(tkSemicolon) then
+      self.NextToken();
+  end;
+
+  // Parse declarations and statements
+  while (self.CurTokenIs(tkEOF) = false) and (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkDot) = false) do
+  begin
+    iterations := iterations + 1;
+    if iterations > 10000 then
+    begin
+      append(self.Errors, 'parser exceeded max iterations');
+      break;
+    end;
+
+    if self.CurTokenIs(tkVar) then
+    begin
+      self.NextToken();
+      while self.IsIdentOrSoftKeyword() or self.CurTokenIs(tkLParen) do
+      begin
+        append(prog.Declarations, self.ParseSingleVarDecl());
+        while self.CurTokenIs(tkSemicolon) do
+          self.NextToken();
+      end;
+    end
+    else if self.CurTokenIs(tkConst) then
+    begin
+      self.NextToken();
+      while self.CurTokenIs(tkIdent) do
+      begin
+        append(prog.Declarations, self.ParseSingleConstDecl());
+        while self.CurTokenIs(tkSemicolon) do
+          self.NextToken();
+      end;
+    end
+    else if self.CurTokenIs(tkType) then
+    begin
+      self.NextToken();
+      while self.CurTokenIs(tkIdent) do
+      begin
+        append(prog.Declarations, self.ParseSingleTypeDecl());
+        while self.CurTokenIs(tkSemicolon) do
+          self.NextToken();
+      end;
+    end
+    else if self.CurTokenIs(tkFunction) or self.CurTokenIs(tkProcedure) or self.CurTokenIs(tkAsync) then
+      append(prog.Declarations, self.ParseFunctionDecl())
+    else if self.CurTokenIs(tkClass) then
+      append(prog.Declarations, self.ParseClassDecl())
+    else if self.CurTokenIs(tkInterface) then
+      append(prog.Declarations, self.ParseInterfaceDecl())
+    else if self.CurTokenIs(tkBegin) then
+    begin
+      var block: TBlockStatement;
+      block := self.ParseBlockStatement();
+      if block <> nil then
+        append(prog.Statements, block);
+    end
+    else
+    begin
+      var stmt: TStatement;
+      stmt := self.ParseStatement();
+      if stmt <> nil then
+        append(prog.Statements, stmt)
+      else
+        self.NextToken();
+    end;
+
+    while self.CurTokenIs(tkSemicolon) do
+      self.NextToken();
+  end;
+
+  // Handle end. at the end of program
+  if self.CurTokenIs(tkEnd) then
+  begin
+    self.NextToken();
+    if self.CurTokenIs(tkDot) then
+      self.NextToken();
+  end;
+
+  result := prog;
+end;
+
+// ============================================================================
+// Declarations
+// ============================================================================
+
+function TParser.ParseSingleVarDecl(): TVarDecl;
+var decl: TVarDecl;
+begin
+  decl := TVarDecl.Create();
+  decl.Names := [];
+
+  // Handle destructuring: (a, b) := expr
+  if self.CurTokenIs(tkLParen) then
+  begin
+    self.NextToken();
+    while self.IsIdentOrSoftKeyword() do
+    begin
+      append(decl.Names, self.CurToken.Literal);
+      self.NextToken();
+      if self.CurTokenIs(tkComma) then
+        self.NextToken()
+      else
+        break;
+    end;
+    if self.CurTokenIs(tkRParen) then
+      self.NextToken();
+    if self.CurTokenIs(tkAssignOp) then
+    begin
+      decl.Inferred := true;
+      self.NextToken();
+      decl.Value := self.ParseExpression(PREC_LOWEST);
+      self.NextToken();
+    end;
+    result := decl;
+  end;
+
+  // Parse variable names (comma-separated)
+  while self.IsIdentOrSoftKeyword() do
+  begin
+    append(decl.Names, self.CurToken.Literal);
+    self.NextToken();
+    if self.CurTokenIs(tkComma) then
+      self.NextToken()
+    else
+      break;
+  end;
+
+  // Check for type inference :=
+  if self.CurTokenIs(tkAssignOp) then
+  begin
+    decl.Inferred := true;
+    self.NextToken();
+    decl.Value := self.ParseExpression(PREC_LOWEST);
+    self.NextToken();
+    result := decl;
+  end;
+
+  // Parse type annotation
+  if self.CurTokenIs(tkColon) then
+  begin
+    self.NextToken();
+    decl.VarType := self.ParseTypeExpression();
+  end;
+
+  // Parse optional initial value
+  if self.CurTokenIs(tkAssign) then
+  begin
+    self.NextToken();
+    decl.Value := self.ParseExpression(PREC_LOWEST);
+    self.NextToken();
+  end;
+
+  result := decl;
+end;
+
+function TParser.ParseSingleConstDecl(): TConstDecl;
+var decl: TConstDecl;
+begin
+  decl := TConstDecl.Create();
+
+  if self.CurTokenIs(tkIdent) then
+  begin
+    decl.Token := self.CurToken;
+    decl.Name := self.CurToken.Literal;
+    self.NextToken();
+  end;
+
+  if self.CurTokenIs(tkColon) then
+  begin
+    self.NextToken();
+    decl.ConstType := self.ParseTypeExpression();
+  end;
+
+  if self.CurTokenIs(tkAssign) then
+  begin
+    self.NextToken();
+    decl.Value := self.ParseExpression(PREC_LOWEST);
+    self.NextToken();
+  end;
+
+  result := decl;
+end;
+
+function TParser.ParseSingleTypeDecl(): TTypeDecl;
+var decl: TTypeDecl; var typeParams: array of TTypeParameter;
+begin
+  decl := TTypeDecl.Create();
+  typeParams := [];
+
+  if self.CurTokenIs(tkIdent) then
+  begin
+    decl.Token := self.CurToken;
+    decl.Name := self.CurToken.Literal;
+    self.NextToken();
+  end;
+
+  // Parse optional generic type parameters
+  if self.CurTokenIs(tkLT) then
+    typeParams := self.ParseTypeParameterList();
+
+  if self.CurTokenIs(tkAssign) then
+  begin
+    self.NextToken();
+
+    if self.CurTokenIs(tkClass) then
+    begin
+      var cd: TClassDecl;
+      cd := self.ParseClassDecl();
+      cd.Name := decl.Name;
+      cd.TypeParams := typeParams;
+      decl.DeclType := cd;
+    end
+    else if self.CurTokenIs(tkInterface) then
+    begin
+      var iface: TInterfaceDecl;
+      iface := self.ParseInterfaceDecl();
+      iface.Name := decl.Name;
+      decl.DeclType := iface;
+    end
+    else
+      decl.DeclType := self.ParseTypeExpression();
+  end;
+
+  result := decl;
+end;
+
+function TParser.ParseFunctionDecl(): TFunctionDecl;
+var decl: TFunctionDecl; var isProcedure: Boolean; var hasFuncKeyword: Boolean;
+    var localDecls: array of TStatement;
+begin
+  decl := TFunctionDecl.Create();
+  localDecls := [];
+
+  if self.CurTokenIs(tkAsync) then
+  begin
+    decl.IsAsync := true;
+    self.NextToken();
+  end;
+
+  decl.Token := self.CurToken;
+  isProcedure := self.CurTokenIs(tkProcedure);
+  hasFuncKeyword := (isProcedure = false) and (self.CurTokenIs(tkConstructor) = false) and (self.CurTokenIs(tkDestructor) = false);
+  self.NextToken();
+
+  if self.CurTokenIs(tkIdent) then
+  begin
+    decl.Name := self.CurToken.Literal;
+    self.NextToken();
+
+    // Handle method definitions: ClassName.MethodName
+    if self.CurTokenIs(tkDot) then
+    begin
+      self.NextToken();
+      if self.CurTokenIs(tkIdent) then
+      begin
+        decl.Name := decl.Name + '.' + self.CurToken.Literal;
+        self.NextToken();
+      end;
+    end;
+  end;
+
+  // Parse optional generic type parameters
+  if self.CurTokenIs(tkLT) then
+    decl.TypeParams := self.ParseTypeParameterList();
+
+  // Parse parameters
+  if self.CurTokenIs(tkLParen) then
+    decl.Parameters := self.ParseParameterList();
+
+  // Parse return type
+  if (isProcedure = false) and hasFuncKeyword and self.CurTokenIs(tkColon) then
+  begin
+    self.NextToken();
+    if self.CurTokenIs(tkLParen) then
+    begin
+      self.NextToken();
+      decl.ReturnTypes := [];
+      while self.CurTokenIs(tkRParen) = false do
+      begin
+        append(decl.ReturnTypes, self.ParseTypeExpression());
+        if self.CurTokenIs(tkComma) then
+          self.NextToken();
+      end;
+      if self.CurTokenIs(tkRParen) then
+        self.NextToken();
+    end
+    else
+      decl.ReturnType := self.ParseTypeExpression();
+  end;
+
+  if self.CurTokenIs(tkSemicolon) then
+    self.NextToken();
+
+  // Skip modifiers
+  if self.CurTokenIs(tkVirtual) or self.CurTokenIs(tkOverride) or
+     self.CurTokenIs(tkAbstract) or self.CurTokenIs(tkStatic) or
+     self.CurTokenIs(tkDynamic) then
+  begin
+    self.NextToken();
+    if self.CurTokenIs(tkSemicolon) then
+      self.NextToken();
+  end;
+
+  // Parse local declarations before begin
+  while true do
+  begin
+    if self.CurTokenIs(tkVar) then
+    begin
+      self.NextToken();
+      while self.IsIdentOrSoftKeyword() do
+      begin
+        append(localDecls, self.ParseSingleVarDecl());
+        while self.CurTokenIs(tkSemicolon) do
+          self.NextToken();
+      end;
+    end
+    else if self.CurTokenIs(tkConst) then
+    begin
+      self.NextToken();
+      while self.IsIdentOrSoftKeyword() do
+      begin
+        append(localDecls, self.ParseSingleConstDecl());
+        while self.CurTokenIs(tkSemicolon) do
+          self.NextToken();
+      end;
+    end
+    else
+      break;
+  end;
+
+  // Parse body
+  if self.CurTokenIs(tkBegin) then
+  begin
+    var block: TBlockStatement;
+    block := self.ParseBlockStatement();
+    decl.Body := block;
+  end;
+
+  if self.CurTokenIs(tkSemicolon) then
+    self.NextToken();
+
+  result := decl;
+end;
+
+function TParser.ParseParameterList(): array of TParameter;
+var params: array of TParameter; var param: TParameter;
+begin
+  params := [];
+  self.NextToken(); // skip (
+
+  while (self.CurTokenIs(tkRParen) = false) and (self.CurTokenIs(tkEOF) = false) do
+  begin
+    param := TParameter.Create();
+
+    if self.CurTokenIs(tkVar) then
+      self.NextToken();
+
+    if self.CurTokenIs(tkIdent) then
+    begin
+      param.Token := self.CurToken;
+      param.Name := self.CurToken.Literal;
+      self.NextToken();
+    end;
+
+    if self.CurTokenIs(tkColon) then
+    begin
+      self.NextToken();
+      param.ParamType := self.ParseTypeExpression();
+    end;
+
+    append(params, param);
+
+    if self.CurTokenIs(tkComma) then
+    begin
+      self.NextToken();
+    end
+    else if self.CurTokenIs(tkSemicolon) then
+      self.NextToken()
+    else if (self.CurTokenIs(tkRParen) = false) and (self.CurTokenIs(tkEOF) = false) then
+      self.NextToken();
+  end;
+
+  self.NextToken(); // skip )
+  result := params;
+end;
+
+function TParser.ParseTypeParameterList(): array of TTypeParameter;
+var params: array of TTypeParameter; var tp: TTypeParameter;
+begin
+  params := [];
+  self.NextToken(); // skip <
+
+  while (self.CurTokenIs(tkGT) = false) and (self.CurTokenIs(tkEOF) = false) do
+  begin
+    tp := TTypeParameter.Create();
+    if self.CurTokenIs(tkIdent) then
+    begin
+      tp.Token := self.CurToken;
+      tp.Name := self.CurToken.Literal;
+      self.NextToken();
+    end;
+    if self.CurTokenIs(tkColon) then
+    begin
+      self.NextToken();
+      tp.Constraint := self.ParseTypeExpression();
+    end;
+    append(params, tp);
+    if self.CurTokenIs(tkComma) then
+      self.NextToken();
+  end;
+
+  if self.CurTokenIs(tkGT) then
+    self.NextToken();
+
+  result := params;
+end;
+
+function TParser.ParseClassDecl(): TClassDecl;
+var decl: TClassDecl;
+begin
+  decl := TClassDecl.Create();
+  decl.Visibility := tkPublic;
+  decl.Fields := [];
+  decl.Methods := [];
+  decl.Properties := [];
+  decl.Interfaces := [];
+  self.NextToken(); // skip class
+
+  // Only parse name if not followed by ':' (which means field decl)
+  if self.CurTokenIs(tkIdent) and (self.PeekTokenIs(tkColon) = false) then
+  begin
+    decl.Name := self.CurToken.Literal;
+    self.NextToken();
+  end;
+
+  // Generic type parameters
+  if self.CurTokenIs(tkLT) then
+    decl.TypeParams := self.ParseTypeParameterList();
+
+  // Inheritance: (Parent) or inherits Parent
+  if self.CurTokenIs(tkLParen) then
+  begin
+    self.NextToken();
+    if self.CurTokenIs(tkIdent) then
+    begin
+      decl.Parent := self.CurToken.Literal;
+      self.NextToken();
+    end;
+    if self.CurTokenIs(tkRParen) then
+      self.NextToken();
+  end
+  else if self.CurTokenIs(tkInherits) then
+  begin
+    self.NextToken();
+    if self.CurTokenIs(tkIdent) then
+    begin
+      decl.Parent := self.CurToken.Literal;
+      self.NextToken();
+    end;
+  end;
+
+  // Implements
+  if self.CurTokenIs(tkImplements) then
+  begin
+    self.NextToken();
+    while self.CurTokenIs(tkIdent) do
+    begin
+      append(decl.Interfaces, self.CurToken.Literal);
+      self.NextToken();
+      if self.CurTokenIs(tkComma) then
+        self.NextToken()
+      else
+        break;
+    end;
+  end;
+
+  if self.CurTokenIs(tkSemicolon) then
+    self.NextToken();
+
+  // Parse class body
+  while (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkEOF) = false) do
+  begin
+    if self.CurTokenIs(tkPublic) or self.CurTokenIs(tkPrivate) or self.CurTokenIs(tkProtected) then
+    begin
+      decl.Visibility := self.CurToken.TokenType;
+      self.NextToken();
+    end
+    else if self.CurTokenIs(tkVar) then
+    begin
+      self.NextToken();
+      while self.IsIdentOrSoftKeyword() do
+      begin
+        append(decl.Fields, self.ParseSingleVarDecl());
+        while self.CurTokenIs(tkSemicolon) do
+          self.NextToken();
+      end;
+    end
+    else if self.CurTokenIs(tkFunction) or self.CurTokenIs(tkProcedure) or self.CurTokenIs(tkConstructor) or self.CurTokenIs(tkDestructor) then
+      append(decl.Methods, self.ParseFunctionDecl())
+    else if self.CurTokenIs(tkProperty) then
+      append(decl.Properties, self.ParsePropertyDecl())
+    else if self.IsIdentOrSoftKeyword() then
+    begin
+      append(decl.Fields, self.ParseSingleVarDecl());
+      while self.CurTokenIs(tkSemicolon) do
+        self.NextToken();
+    end
+    else
+      self.NextToken();
+  end;
+
+  if self.CurTokenIs(tkEnd) then
+    self.NextToken();
+  if self.CurTokenIs(tkSemicolon) then
+    self.NextToken();
+
+  result := decl;
+end;
+
+function TParser.ParseInterfaceDecl(): TInterfaceDecl;
+var decl: TInterfaceDecl;
+begin
+  decl := TInterfaceDecl.Create();
+  decl.Parents := [];
+  decl.Methods := [];
+  self.NextToken(); // skip interface
+
+  if self.CurTokenIs(tkIdent) then
+  begin
+    decl.Name := self.CurToken.Literal;
+    self.NextToken();
+  end;
+
+  if self.CurTokenIs(tkLParen) then
+  begin
+    self.NextToken();
+    while self.CurTokenIs(tkIdent) do
+    begin
+      append(decl.Parents, self.CurToken.Literal);
+      self.NextToken();
+      if self.CurTokenIs(tkComma) then
+        self.NextToken()
+      else
+        break;
+    end;
+    if self.CurTokenIs(tkRParen) then
+      self.NextToken();
+  end;
+
+  if self.CurTokenIs(tkSemicolon) then
+    self.NextToken();
+
+  while (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkEOF) = false) do
+  begin
+    if self.CurTokenIs(tkFunction) or self.CurTokenIs(tkProcedure) then
+      append(decl.Methods, self.ParseFunctionDecl())
+    else
+      self.NextToken();
+  end;
+
+  if self.CurTokenIs(tkEnd) then
+    self.NextToken();
+  if self.CurTokenIs(tkSemicolon) then
+    self.NextToken();
+
+  result := decl;
+end;
+
+function TParser.ParsePropertyDecl(): TPropertyDecl;
+var decl: TPropertyDecl;
+begin
+  decl := TPropertyDecl.Create();
+  self.NextToken(); // skip property
+
+  if self.CurTokenIs(tkIdent) then
+  begin
+    decl.Name := self.CurToken.Literal;
+    self.NextToken();
+  end;
+
+  if self.CurTokenIs(tkColon) then
+  begin
+    self.NextToken();
+    decl.PropType := self.ParseTypeExpression();
+  end;
+
+  while self.CurTokenIs(tkRead) or self.CurTokenIs(tkWrite) or self.CurTokenIs(tkDefault) do
+  begin
+    if self.CurTokenIs(tkRead) then
+    begin
+      self.NextToken();
+      if self.CurTokenIs(tkIdent) then
+      begin
+        decl.Getter := self.CurToken.Literal;
+        self.NextToken();
+      end;
+    end
+    else if self.CurTokenIs(tkWrite) then
+    begin
+      self.NextToken();
+      if self.CurTokenIs(tkIdent) then
+      begin
+        decl.Setter := self.CurToken.Literal;
+        self.NextToken();
+      end;
+    end
+    else if self.CurTokenIs(tkDefault) then
+    begin
+      self.NextToken();
+      decl.Default := self.ParseExpression(PREC_LOWEST);
+    end;
+  end;
+
+  if self.CurTokenIs(tkSemicolon) then
+    self.NextToken();
+
+  result := decl;
+end;
+
+// ============================================================================
+// Statements
+// ============================================================================
+
+function TParser.ParseStatement(): TStatement;
+begin
+  if self.CurTokenIs(tkVar) then
+  begin
+    self.NextToken();
+    var decl: TVarDecl;
+    decl := self.ParseSingleVarDecl();
+    while self.CurTokenIs(tkSemicolon) do
+      self.NextToken();
+    result := decl;
+  end
+  else if self.CurTokenIs(tkIf) then
+    result := self.ParseIfStatement()
+  else if self.CurTokenIs(tkWhile) then
+    result := self.ParseWhileStatement()
+  else if self.CurTokenIs(tkFor) then
+    result := self.ParseForStatement()
+  else if self.CurTokenIs(tkRepeat) then
+    result := self.ParseRepeatStatement()
+  else if self.CurTokenIs(tkCase) then
+    result := self.ParseCaseStatement()
+  else if self.CurTokenIs(tkMatch) then
+  begin
+    if self.PeekTokenIs(tkAssignOp) or self.PeekTokenIs(tkColon) then
+      result := self.ParseExpressionOrAssignment()
+    else
+      result := self.ParseMatchStatement();
+  end
+  else if self.CurTokenIs(tkTry) then
+    result := self.ParseTryStatement()
+  else if self.CurTokenIs(tkRaise) then
+    result := self.ParseRaiseStatement()
+  else if self.CurTokenIs(tkInherited) then
+    result := self.ParseInheritedStatement()
+  else if self.CurTokenIs(tkBreak) then
+  begin
+    var brk: TBreakStatement;
+    brk := TBreakStatement.Create();
+    brk.Token := self.CurToken;
+    self.NextToken();
+    result := brk;
+  end
+  else if self.CurTokenIs(tkContinue) then
+  begin
+    var cont: TContinueStatement;
+    cont := TContinueStatement.Create();
+    cont.Token := self.CurToken;
+    self.NextToken();
+    result := cont;
+  end
+  else if self.CurTokenIs(tkReturn) then
+    result := self.ParseReturnStatement()
+  else
+    result := self.ParseExpressionOrAssignment();
+end;
+
+function TParser.ParseBlockStatement(): TBlockStatement;
+var block: TBlockStatement; var stmt: TStatement; var iterations: Integer;
+begin
+  block := TBlockStatement.Create();
+  block.Token := self.CurToken;
+  block.Statements := [];
+  self.NextToken(); // skip begin
+  iterations := 0;
+
+  while (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkEOF) = false) do
+  begin
+    iterations := iterations + 1;
+    if iterations > 10000 then
+    begin
+      append(self.Errors, 'block parsing exceeded max iterations');
+      break;
+    end;
+
+    stmt := self.ParseStatement();
+    if stmt <> nil then
+      append(block.Statements, stmt)
+    else if self.CurTokenIs(tkSemicolon) = false then
+      self.NextToken();
+
+    while self.CurTokenIs(tkSemicolon) do
+      self.NextToken();
+  end;
+
+  if self.CurTokenIs(tkEnd) then
+    self.NextToken();
+
+  result := block;
+end;
+
+function TParser.ParseIfStatement(): TIfStatement;
+var stmt: TIfStatement; var s: TStatement;
+begin
+  stmt := TIfStatement.Create();
+  stmt.Token := self.CurToken;
+  self.NextToken(); // skip if
+
+  stmt.Condition := self.ParseExpression(PREC_LOWEST);
+  self.NextToken();
+
+  if self.CurTokenIs(tkThen) then
+    self.NextToken();
+
+  if self.CurTokenIs(tkBegin) then
+    stmt.Consequence := self.ParseBlockStatement()
+  else
+  begin
+    s := self.ParseStatement();
+    var blk: TBlockStatement;
+    blk := TBlockStatement.Create();
+    blk.Statements := [];
+    if s <> nil then
+      append(blk.Statements, s);
+    stmt.Consequence := blk;
+  end;
+
+  while self.CurTokenIs(tkSemicolon) do
+    self.NextToken();
+
+  if self.CurTokenIs(tkElse) then
+  begin
+    self.NextToken();
+    if self.CurTokenIs(tkBegin) then
+      stmt.Alternative := self.ParseBlockStatement()
+    else
+    begin
+      s := self.ParseStatement();
+      var blk2: TBlockStatement;
+      blk2 := TBlockStatement.Create();
+      blk2.Statements := [];
+      if s <> nil then
+        append(blk2.Statements, s);
+      stmt.Alternative := blk2;
+    end;
+  end;
+
+  result := stmt;
+end;
+
+function TParser.ParseWhileStatement(): TWhileStatement;
+var stmt: TWhileStatement; var s: TStatement;
+begin
+  stmt := TWhileStatement.Create();
+  stmt.Token := self.CurToken;
+  self.NextToken();
+
+  stmt.Condition := self.ParseExpression(PREC_LOWEST);
+  self.NextToken();
+
+  if self.CurTokenIs(tkDo) then
+    self.NextToken();
+
+  if self.CurTokenIs(tkBegin) then
+    stmt.Body := self.ParseBlockStatement()
+  else
+  begin
+    s := self.ParseStatement();
+    var blk: TBlockStatement;
+    blk := TBlockStatement.Create();
+    blk.Statements := [];
+    if s <> nil then
+      append(blk.Statements, s);
+    stmt.Body := blk;
+  end;
+
+  result := stmt;
+end;
+
+function TParser.ParseForStatement(): TStatement;
+var forToken: TToken; var variable: String;
+begin
+  forToken := self.CurToken;
+  self.NextToken(); // skip for
+
+  variable := '';
+  if self.CurTokenIs(tkIdent) then
+  begin
+    variable := self.CurToken.Literal;
+    self.NextToken();
+  end;
+
+  // Check for foreach: for x in collection do
+  if self.CurTokenIs(tkIn) then
+  begin
+    self.NextToken();
+    var foreach: TForEachStatement;
+    foreach := TForEachStatement.Create();
+    foreach.Token := forToken;
+    foreach.Variable := variable;
+    foreach.Iterable := self.ParseExpression(PREC_LOWEST);
+    self.NextToken();
+    if self.CurTokenIs(tkDo) then
+      self.NextToken();
+    if self.CurTokenIs(tkBegin) then
+      foreach.Body := self.ParseBlockStatement()
+    else
+    begin
+      var s: TStatement;
+      s := self.ParseStatement();
+      var blk: TBlockStatement;
+      blk := TBlockStatement.Create();
+      blk.Statements := [];
+      if s <> nil then
+        append(blk.Statements, s);
+      foreach.Body := blk;
+    end;
+    result := foreach;
+  end;
+
+  // Regular for loop
+  var stmt: TForStatement;
+  stmt := TForStatement.Create();
+  stmt.Token := forToken;
+  stmt.Variable := variable;
+
+  if self.CurTokenIs(tkAssignOp) then
+    self.NextToken();
+
+  stmt.From := self.ParseExpression(PREC_LOWEST);
+  self.NextToken();
+
+  if self.CurTokenIs(tkTo) then
+  begin
+    self.NextToken();
+    stmt.DownTo := false;
+  end
+  else if self.CurTokenIs(tkDownTo) then
+  begin
+    self.NextToken();
+    stmt.DownTo := true;
+  end;
+
+  stmt.To := self.ParseExpression(PREC_LOWEST);
+  self.NextToken();
+
+  if self.CurTokenIs(tkDo) then
+    self.NextToken();
+
+  if self.CurTokenIs(tkBegin) then
+    stmt.Body := self.ParseBlockStatement()
+  else
+  begin
+    var s2: TStatement;
+    s2 := self.ParseStatement();
+    var blk2: TBlockStatement;
+    blk2 := TBlockStatement.Create();
+    blk2.Statements := [];
+    if s2 <> nil then
+      append(blk2.Statements, s2);
+    stmt.Body := blk2;
+  end;
+
+  result := stmt;
+end;
+
+function TParser.ParseRepeatStatement(): TRepeatStatement;
+var stmt: TRepeatStatement; var s: TStatement;
+begin
+  stmt := TRepeatStatement.Create();
+  stmt.Token := self.CurToken;
+  self.NextToken(); // skip repeat
+
+  stmt.Body := TBlockStatement.Create();
+  stmt.Body.Statements := [];
+
+  while (self.CurTokenIs(tkUntil) = false) and (self.CurTokenIs(tkEOF) = false) do
+  begin
+    s := self.ParseStatement();
+    if s <> nil then
+      append(stmt.Body.Statements, s);
+    while self.CurTokenIs(tkSemicolon) do
+      self.NextToken();
+  end;
+
+  if self.CurTokenIs(tkUntil) then
+  begin
+    self.NextToken();
+    stmt.Condition := self.ParseExpression(PREC_LOWEST);
+  end;
+
+  result := stmt;
+end;
+
+function TParser.ParseCaseStatement(): TCaseStatement;
+var stmt: TCaseStatement; var branch: TCaseBranch; var iterations: Integer;
+begin
+  stmt := TCaseStatement.Create();
+  stmt.Token := self.CurToken;
+  stmt.Branches := [];
+  self.NextToken();
+
+  stmt.Expression := self.ParseExpression(PREC_LOWEST);
+  self.NextToken();
+
+  if self.CurTokenIs(tkOf) then
+    self.NextToken();
+
+  iterations := 0;
+  while (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkEOF) = false) do
+  begin
+    iterations := iterations + 1;
+    if iterations > 10000 then break;
+
+    branch := TCaseBranch.Create();
+    branch.Values := [];
+
+    // Parse case values
+    while true do
+    begin
+      var val: TExpression;
+      val := self.ParseExpression(PREC_LOWEST);
+      if val <> nil then
+        append(branch.Values, val)
+      else
+        break;
+      self.NextToken();
+      if self.CurTokenIs(tkComma) then
+        self.NextToken()
+      else
+        break;
+    end;
+
+    if self.CurTokenIs(tkColon) then
+      self.NextToken();
+
+    if self.CurTokenIs(tkBegin) then
+      branch.Body := self.ParseBlockStatement()
+    else
+    begin
+      var s: TStatement;
+      s := self.ParseStatement();
+      var blk: TBlockStatement;
+      blk := TBlockStatement.Create();
+      blk.Statements := [];
+      if s <> nil then
+        append(blk.Statements, s);
+      branch.Body := blk;
+    end;
+
+    append(stmt.Branches, branch);
+
+    if self.CurTokenIs(tkSemicolon) then
+      self.NextToken();
+  end;
+
+  if self.CurTokenIs(tkEnd) then
+    self.NextToken();
+
+  result := stmt;
+end;
+
+function TParser.ParseMatchStatement(): TMatchStatement;
+var stmt: TMatchStatement; var branch: TMatchBranch; var isBrace: Boolean; var endType: TTokenType;
+begin
+  stmt := TMatchStatement.Create();
+  stmt.Token := self.CurToken;
+  stmt.Branches := [];
+  self.NextToken();
+
+  stmt.Expression := self.ParseExpression(PREC_LOWEST);
+  self.NextToken();
+
+  if self.CurTokenIs(tkLBrace) or self.CurTokenIs(tkBegin) then
+  begin
+    isBrace := self.CurTokenIs(tkLBrace);
+    self.NextToken();
+
+    if isBrace then
+      endType := tkRBrace
+    else
+      endType := tkEnd;
+
+    while (self.CurTokenIs(endType) = false) and (self.CurTokenIs(tkEOF) = false) do
+    begin
+      branch := TMatchBranch.Create();
+      branch.AdditionalPatterns := [];
+
+      if self.CurTokenIs(tkWhen) then
+      begin
+        self.NextToken();
+        branch.When := self.ParseExpression(PREC_LOWEST);
+        self.NextToken();
+      end
+      else
+      begin
+        branch.Pattern := self.ParseExpression(PREC_LOWEST);
+        self.NextToken();
+
+        while self.CurTokenIs(tkComma) and (self.PeekTokenIs(tkFatArrow) = false) do
+        begin
+          self.NextToken();
+          append(branch.AdditionalPatterns, self.ParseExpression(PREC_LOWEST));
+          self.NextToken();
+        end;
+
+        if self.CurTokenIs(tkWhen) then
+        begin
+          self.NextToken();
+          branch.When := self.ParseExpression(PREC_LOWEST);
+          self.NextToken();
+        end;
+      end;
+
+      if self.CurTokenIs(tkFatArrow) or self.CurTokenIs(tkColon) then
+        self.NextToken();
+
+      if self.CurTokenIs(tkBegin) then
+        branch.Body := self.ParseBlockStatement()
+      else
+      begin
+        var s: TStatement;
+        s := self.ParseStatement();
+        var blk: TBlockStatement;
+        blk := TBlockStatement.Create();
+        blk.Statements := [];
+        if s <> nil then
+          append(blk.Statements, s);
+        branch.Body := blk;
+      end;
+
+      append(stmt.Branches, branch);
+
+      if self.CurTokenIs(tkComma) or self.CurTokenIs(tkSemicolon) then
+        self.NextToken();
+    end;
+
+    self.NextToken(); // skip end token
+  end;
+
+  result := stmt;
+end;
+
+function TParser.ParseTryStatement(): TTryStatement;
+var stmt: TTryStatement; var s: TStatement;
+begin
+  stmt := TTryStatement.Create();
+  stmt.Token := self.CurToken;
+  stmt.OnClauses := [];
+  self.NextToken();
+
+  if self.CurTokenIs(tkBegin) then
+    stmt.Body := self.ParseBlockStatement()
+  else
+  begin
+    stmt.Body := TBlockStatement.Create();
+    stmt.Body.Statements := [];
+    while (self.CurTokenIs(tkExcept) = false) and (self.CurTokenIs(tkFinally) = false) and
+          (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkEOF) = false) do
+    begin
+      s := self.ParseStatement();
+      if s <> nil then
+        append(stmt.Body.Statements, s)
+      else if self.CurTokenIs(tkSemicolon) = false then
+        self.NextToken();
+      while self.CurTokenIs(tkSemicolon) do
+        self.NextToken();
+    end;
+  end;
+
+  if self.CurTokenIs(tkExcept) then
+  begin
+    self.NextToken();
+    if self.CurTokenIs(tkBegin) then
+      stmt.ExceptBlock := self.ParseBlockStatement()
+    else
+    begin
+      while (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkFinally) = false) and (self.CurTokenIs(tkEOF) = false) do
+      begin
+        if self.CurTokenIs(tkOn) then
+          append(stmt.OnClauses, self.ParseOnClause())
+        else
+        begin
+          if stmt.ExceptBlock = nil then
+          begin
+            stmt.ExceptBlock := TBlockStatement.Create();
+            stmt.ExceptBlock.Statements := [];
+          end;
+          s := self.ParseStatement();
+          if s <> nil then
+            append(stmt.ExceptBlock.Statements, s)
+          else if self.CurTokenIs(tkSemicolon) = false then
+            self.NextToken();
+        end;
+        while self.CurTokenIs(tkSemicolon) do
+          self.NextToken();
+      end;
+    end;
+  end;
+
+  if self.CurTokenIs(tkFinally) then
+  begin
+    self.NextToken();
+    if self.CurTokenIs(tkBegin) then
+      stmt.FinallyBlock := self.ParseBlockStatement()
+    else
+    begin
+      stmt.FinallyBlock := TBlockStatement.Create();
+      stmt.FinallyBlock.Statements := [];
+      while (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkEOF) = false) do
+      begin
+        s := self.ParseStatement();
+        if s <> nil then
+          append(stmt.FinallyBlock.Statements, s)
+        else if self.CurTokenIs(tkSemicolon) = false then
+          self.NextToken();
+        while self.CurTokenIs(tkSemicolon) do
+          self.NextToken();
+      end;
+    end;
+  end;
+
+  if self.CurTokenIs(tkEnd) then
+    self.NextToken();
+
+  result := stmt;
+end;
+
+function TParser.ParseOnClause(): TOnClause;
+var clause: TOnClause; var s: TStatement;
+begin
+  clause := TOnClause.Create();
+  clause.Token := self.CurToken;
+  self.NextToken(); // skip on
+
+  if self.CurTokenIs(tkIdent) then
+  begin
+    clause.Variable := self.CurToken.Literal;
+    self.NextToken();
+  end;
+
+  if self.CurTokenIs(tkColon) then
+  begin
+    self.NextToken();
+    clause.OnType := self.ParseTypeExpression();
+  end;
+
+  if self.CurTokenIs(tkDo) then
+    self.NextToken();
+
+  if self.CurTokenIs(tkBegin) then
+    clause.Body := self.ParseBlockStatement()
+  else
+  begin
+    s := self.ParseStatement();
+    clause.Body := TBlockStatement.Create();
+    clause.Body.Statements := [];
+    if s <> nil then
+      append(clause.Body.Statements, s);
+  end;
+
+  result := clause;
+end;
+
+function TParser.ParseRaiseStatement(): TRaiseStatement;
+var stmt: TRaiseStatement;
+begin
+  stmt := TRaiseStatement.Create();
+  stmt.Token := self.CurToken;
+  self.NextToken();
+
+  if self.CurTokenIs(tkSemicolon) = false then
+  begin
+    stmt.Exception := self.ParseExpression(PREC_LOWEST);
+    self.NextToken();
+  end;
+
+  result := stmt;
+end;
+
+function TParser.ParseReturnStatement(): TReturnStatement;
+var stmt: TReturnStatement;
+begin
+  stmt := TReturnStatement.Create();
+  stmt.Token := self.CurToken;
+  self.NextToken();
+
+  if (self.CurTokenIs(tkSemicolon) = false) and (self.CurTokenIs(tkEnd) = false) then
+    stmt.ReturnValue := self.ParseExpression(PREC_LOWEST);
+
+  result := stmt;
+end;
+
+function TParser.ParseInheritedStatement(): TInheritedStatement;
+var stmt: TInheritedStatement;
+begin
+  stmt := TInheritedStatement.Create();
+  stmt.Token := self.CurToken;
+  self.NextToken();
+
+  if self.CurTokenIs(tkSemicolon) = false then
+    stmt.Expr := self.ParseExpression(PREC_LOWEST);
+
+  result := stmt;
+end;
+
+function TParser.ParseExpressionOrAssignment(): TStatement;
+var firstToken: TToken; var expr: TExpression;
+begin
+  firstToken := self.CurToken;
+  expr := self.ParseExpression(PREC_LOWEST);
+  if expr = nil then
+  begin
+    result := nil;
+  end;
+
+  if self.PeekTokenIs(tkAssign) or self.PeekTokenIs(tkAssignOp) then
+  begin
+    self.NextToken();
+    var assignTok: TToken;
+    assignTok := self.CurToken;
+    self.NextToken();
+    var value: TExpression;
+    value := self.ParseExpression(PREC_LOWEST);
+    self.NextToken();
+    var assign: TAssignmentStatement;
+    assign := TAssignmentStatement.Create();
+    assign.Token := assignTok;
+    assign.Name := expr;
+    assign.Value := value;
+    result := assign;
+  end;
+
+  self.NextToken();
+
+  var exprStmt: TExpressionStatement;
+  exprStmt := TExpressionStatement.Create();
+  exprStmt.Token := firstToken;
+  exprStmt.Expression := expr;
+  result := exprStmt;
+end;
+
+// ============================================================================
+// Expressions (Pratt Parser)
+// ============================================================================
+
+function TParser.ParseExpression(prec: Integer): TExpression;
+var leftExp: TExpression;
+begin
+  // Prefix dispatch
+  if self.CurTokenIs(tkIdent) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkResult) then leftExp := self.ParseResultIdent()
+  else if self.CurTokenIs(tkInt) then leftExp := self.ParseIntegerLiteral()
+  else if self.CurTokenIs(tkFloat) then leftExp := self.ParseFloatLiteral()
+  else if self.CurTokenIs(tkString) then leftExp := self.ParseStringLiteral()
+  else if self.CurTokenIs(tkStringInterp) then leftExp := self.ParseStringInterpolation()
+  else if self.CurTokenIs(tkChar) then leftExp := self.ParseStringLiteral()
+  else if self.CurTokenIs(tkTrue) or self.CurTokenIs(tkFalse) then leftExp := self.ParseBooleanLiteral()
+  else if self.CurTokenIs(tkNil) then leftExp := self.ParseNilLiteral()
+  else if self.CurTokenIs(tkBang) or self.CurTokenIs(tkMinus) or self.CurTokenIs(tkNot) then leftExp := self.ParsePrefixExpression()
+  else if self.CurTokenIs(tkLParen) then leftExp := self.ParseGroupedExpression()
+  else if self.CurTokenIs(tkLBracket) then leftExp := self.ParseArrayLiteral()
+  else if self.CurTokenIs(tkAwait) then leftExp := self.ParseAwaitExpression()
+  else if self.CurTokenIs(tkSelf) then leftExp := self.ParseSelfExpression()
+  else if self.CurTokenIs(tkProcedure) or self.CurTokenIs(tkFunction) then leftExp := self.ParseAnonymousFunction()
+  else if self.CurTokenIs(tkMatch) then leftExp := self.ParseIdentifier()
+  else
+  begin
+    self.NoPrefixError(self.CurToken.TokenType);
+    result := nil;
+  end;
+
+  // Infix loop
+  while (self.PeekTokenIs(tkSemicolon) = false) and (prec < self.PeekPrecedence()) do
+  begin
+    if self.PeekTokenIs(tkPlus) or self.PeekTokenIs(tkMinus) or
+       self.PeekTokenIs(tkAsterisk) or self.PeekTokenIs(tkSlash) or
+       self.PeekTokenIs(tkDiv) or self.PeekTokenIs(tkMod) or
+       self.PeekTokenIs(tkAssign) or self.PeekTokenIs(tkEQ) or
+       self.PeekTokenIs(tkNotEQ) or self.PeekTokenIs(tkLT) or
+       self.PeekTokenIs(tkLTEQ) or self.PeekTokenIs(tkGT) or
+       self.PeekTokenIs(tkGTEQ) or self.PeekTokenIs(tkAnd) or
+       self.PeekTokenIs(tkOr) or self.PeekTokenIs(tkXor) then
+    begin
+      self.NextToken();
+      leftExp := self.ParseInfixExpression(leftExp);
+    end
+    else if self.PeekTokenIs(tkLParen) then
+    begin
+      self.NextToken();
+      leftExp := self.ParseCallExpression(leftExp);
+    end
+    else if self.PeekTokenIs(tkLBracket) then
+    begin
+      self.NextToken();
+      leftExp := self.ParseIndexExpression(leftExp);
+    end
+    else if self.PeekTokenIs(tkDot) then
+    begin
+      self.NextToken();
+      leftExp := self.ParseMemberExpression(leftExp);
+    end
+    else if self.PeekTokenIs(tkIs) then
+    begin
+      self.NextToken();
+      leftExp := self.ParseIsExpression(leftExp);
+    end
+    else if self.PeekTokenIs(tkAs) then
+    begin
+      self.NextToken();
+      leftExp := self.ParseAsExpression(leftExp);
+    end
+    else
+      break;
+  end;
+
+  result := leftExp;
+end;
+
+// Prefix parsers
+function TParser.ParseIdentifier(): TExpression;
+var ident: TIdentifier;
+begin
+  ident := TIdentifier.Create();
+  ident.Token := self.CurToken;
+  ident.Value := self.CurToken.Literal;
+  result := ident;
+end;
+
+function TParser.ParseResultIdent(): TExpression;
+var ident: TIdentifier;
+begin
+  ident := TIdentifier.Create();
+  ident.Token := self.CurToken;
+  ident.Value := 'result';
+  result := ident;
+end;
+
+function TParser.ParseIntegerLiteral(): TExpression;
+var lit: TIntegerLiteral;
+begin
+  lit := TIntegerLiteral.Create();
+  lit.Token := self.CurToken;
+  lit.Value := ReadInt64(self.CurToken.Literal);
+  result := lit;
+end;
+
+function TParser.ParseFloatLiteral(): TExpression;
+var lit: TFloatLiteral;
+begin
+  lit := TFloatLiteral.Create();
+  lit.Token := self.CurToken;
+  lit.Value := ReadFloat64(self.CurToken.Literal);
+  result := lit;
+end;
+
+function TParser.ParseStringLiteral(): TExpression;
+var lit: TStringLiteral;
+begin
+  lit := TStringLiteral.Create();
+  lit.Token := self.CurToken;
+  lit.Value := self.CurToken.Literal;
+  result := lit;
+end;
+
+function TParser.ParseBooleanLiteral(): TExpression;
+var lit: TBooleanLiteral;
+begin
+  lit := TBooleanLiteral.Create();
+  lit.Token := self.CurToken;
+  lit.Value := self.CurTokenIs(tkTrue);
+  result := lit;
+end;
+
+function TParser.ParseNilLiteral(): TExpression;
+var lit: TNilLiteral;
+begin
+  lit := TNilLiteral.Create();
+  lit.Token := self.CurToken;
+  result := lit;
+end;
+
+function TParser.ParseSelfExpression(): TExpression;
+var ident: TIdentifier;
+begin
+  ident := TIdentifier.Create();
+  ident.Token := self.CurToken;
+  ident.Value := 'self';
+  result := ident;
+end;
+
+function TParser.ParsePrefixExpression(): TExpression;
+var expr: TPrefixExpression;
+begin
+  expr := TPrefixExpression.Create();
+  expr.Token := self.CurToken;
+  expr.Operator := self.CurToken.Literal;
+  self.NextToken();
+  expr.Right := self.ParseExpression(PREC_PREFIX);
+  result := expr;
+end;
+
+function TParser.ParseInfixExpression(left: TExpression): TExpression;
+var expr: TInfixExpression;
+begin
+  expr := TInfixExpression.Create();
+  expr.Token := self.CurToken;
+  expr.Operator := self.CurToken.Literal;
+  expr.Left := left;
+  var prec: Integer;
+  prec := self.CurPrecedence();
+  self.NextToken();
+  expr.Right := self.ParseExpression(prec);
+  result := expr;
+end;
+
+function TParser.ParseGroupedExpression(): TExpression;
+var openParen: TToken; var exp: TExpression;
+begin
+  openParen := self.CurToken;
+  self.NextToken(); // skip (
+
+  // Empty params lambda: () -> expr
+  if self.CurTokenIs(tkRParen) and self.PeekTokenIs(tkArrow) then
+  begin
+    self.NextToken(); // skip )
+    self.NextToken(); // skip ->
+    var lam: TLambdaExpression;
+    lam := TLambdaExpression.Create();
+    lam.Token := openParen;
+    lam.Parameters := [];
+    lam.Body := self.ParseExpression(PREC_LOWEST);
+    result := lam;
+  end;
+
+  // Lambda with params: (x: Type) -> expr
+  if self.CurTokenIs(tkIdent) and self.PeekTokenIs(tkColon) then
+  begin
+    result := self.TryParseLambdaParams(openParen);
+  end;
+
+  // Regular grouped expression
+  exp := self.ParseExpression(PREC_LOWEST);
+
+  // Check for tuple: (expr1, expr2, ...)
+  if self.PeekTokenIs(tkComma) then
+  begin
+    self.NextToken();
+    var tuple: TTupleLiteral;
+    tuple := TTupleLiteral.Create();
+    tuple.Token := openParen;
+    tuple.Elements := [];
+    append(tuple.Elements, exp);
+    while self.CurTokenIs(tkComma) do
+    begin
+      self.NextToken();
+      append(tuple.Elements, self.ParseExpression(PREC_LOWEST));
+      if self.PeekTokenIs(tkComma) then
+        self.NextToken();
+    end;
+    if self.ExpectPeek(tkRParen) = false then
+    begin
+      result := nil;
+    end;
+    result := tuple;
+  end;
+
+  if self.ExpectPeek(tkRParen) = false then
+  begin
+    result := nil;
+  end;
+
+  result := exp;
+end;
+
+function TParser.TryParseLambdaParams(openParen: TToken): TExpression;
+var params: array of TParameter; var param: TParameter;
+begin
+  params := [];
+
+  while (self.CurTokenIs(tkRParen) = false) and (self.CurTokenIs(tkEOF) = false) do
+  begin
+    if self.CurTokenIs(tkIdent) = false then
+    begin
+      result := nil;
+    end;
+
+    param := TParameter.Create();
+    param.Token := self.CurToken;
+    param.Name := self.CurToken.Literal;
+    self.NextToken();
+
+    if self.CurTokenIs(tkColon) then
+    begin
+      self.NextToken();
+      param.ParamType := self.ParseTypeExpression();
+    end;
+
+    append(params, param);
+
+    if self.CurTokenIs(tkSemicolon) then
+    begin
+      self.NextToken();
+    end
+    else if self.CurTokenIs(tkComma) then
+      self.NextToken();
+  end;
+
+  if self.CurTokenIs(tkRParen) = false then
+  begin
+    result := nil;
+  end;
+  self.NextToken(); // skip )
+
+  if self.CurTokenIs(tkArrow) = false then
+  begin
+    result := nil;
+  end;
+  self.NextToken(); // skip ->
+
+  var lam: TLambdaExpression;
+  lam := TLambdaExpression.Create();
+  lam.Token := openParen;
+  lam.Parameters := params;
+
+  if self.CurTokenIs(tkBegin) then
+    lam.Body := self.ParseBlockStatement()
+  else
+    lam.Body := self.ParseExpression(PREC_LOWEST);
+
+  result := lam;
+end;
+
+function TParser.ParseCallExpression(fn: TExpression): TExpression;
+var expr: TCallExpression;
+begin
+  expr := TCallExpression.Create();
+  expr.Token := self.CurToken;
+  expr.Func := fn;
+  expr.Arguments := self.ParseExpressionList(tkRParen);
+  result := expr;
+end;
+
+function TParser.ParseIndexExpression(left: TExpression): TExpression;
+var tok: TToken; var first: TExpression;
+begin
+  tok := self.CurToken;
+  self.NextToken();
+
+  first := self.ParseExpression(PREC_LOWEST);
+
+  // Check for slice: [a:b]
+  if self.PeekTokenIs(tkColon) then
+  begin
+    self.NextToken(); // move to :
+    self.NextToken(); // skip :
+    var high: TExpression;
+    high := self.ParseExpression(PREC_LOWEST);
+    if self.ExpectPeek(tkRBracket) = false then
+    begin
+      result := nil;
+    end;
+    var slice: TSliceExpression;
+    slice := TSliceExpression.Create();
+    slice.Token := tok;
+    slice.Left := left;
+    slice.Low := first;
+    slice.High := high;
+    result := slice;
+  end;
+
+  if self.ExpectPeek(tkRBracket) = false then
+  begin
+    result := nil;
+  end;
+
+  var idx: TIndexExpression;
+  idx := TIndexExpression.Create();
+  idx.Token := tok;
+  idx.Left := left;
+  idx.Index := first;
+  result := idx;
+end;
+
+function TParser.ParseMemberExpression(left: TExpression): TExpression;
+var dotToken: TToken;
+begin
+  dotToken := self.CurToken;
+  self.NextToken();
+  if self.CurTokenIs(tkIdent) then
+  begin
+    var mem: TMemberExpression;
+    mem := TMemberExpression.Create();
+    mem.Token := dotToken;
+    mem.Obj := left;
+    mem.Member := self.CurToken.Literal;
+    result := mem;
+  end;
+  result := left;
+end;
+
+function TParser.ParseArrayLiteral(): TExpression;
+var arr: TArrayLiteral;
+begin
+  arr := TArrayLiteral.Create();
+  arr.Token := self.CurToken;
+  arr.Elements := [];
+
+  self.NextToken(); // skip [
+
+  while (self.CurTokenIs(tkRBracket) = false) and (self.CurTokenIs(tkEOF) = false) do
+  begin
+    var elem: TExpression;
+    elem := self.ParseExpression(PREC_LOWEST);
+    if elem <> nil then
+      append(arr.Elements, elem);
+    self.NextToken();
+    if self.CurTokenIs(tkComma) then
+      self.NextToken();
+  end;
+
+  result := arr;
+end;
+
+function TParser.ParseAwaitExpression(): TExpression;
+var awaitToken: TToken; var expr: TAwaitExpression;
+begin
+  awaitToken := self.CurToken;
+  self.NextToken();
+  expr := TAwaitExpression.Create();
+  expr.Token := awaitToken;
+  expr.Expression := self.ParseExpression(PREC_PREFIX);
+  result := expr;
+end;
+
+function TParser.ParseIsExpression(left: TExpression): TExpression;
+var isToken: TToken; var expr: TIsExpression;
+begin
+  isToken := self.CurToken;
+  self.NextToken();
+  expr := TIsExpression.Create();
+  expr.Token := isToken;
+  expr.Expression := left;
+  expr.TargetType := self.ParseTypeExpression();
+  result := expr;
+end;
+
+function TParser.ParseAsExpression(left: TExpression): TExpression;
+var asToken: TToken; var expr: TTypeCastExpression;
+begin
+  asToken := self.CurToken;
+  self.NextToken();
+  expr := TTypeCastExpression.Create();
+  expr.Token := asToken;
+  expr.Expression := left;
+  expr.TargetType := self.ParseTypeExpression();
+  result := expr;
+end;
+
+function TParser.ParseStringInterpolation(): TExpression;
+var interp: TStringInterpolation; var raw: String; var i: Integer; var depth: Integer;
+    var currentText: String; var exprStr: String; var j: Integer;
+begin
+  interp := TStringInterpolation.Create();
+  interp.Parts := [];
+  raw := self.CurToken.Literal;
+  currentText := '';
+  i := 0;
+
+  while i < Length(raw) do
+  begin
+    if (raw[i:i+1] = '$') and (i + 1 < Length(raw)) and (raw[i+1:i+2] = '{') then
+    begin
+      // Flush text
+      if currentText <> '' then
+      begin
+        var lit: TStringLiteral;
+        lit := TStringLiteral.Create();
+        lit.Value := currentText;
+        append(interp.Parts, lit);
+        currentText := '';
+      end;
+
+      // Find matching }
+      depth := 1;
+      j := i + 2;
+      while (j < Length(raw)) and (depth > 0) do
+      begin
+        if raw[j:j+1] = '{' then depth := depth + 1;
+        if raw[j:j+1] = '}' then depth := depth - 1;
+        j := j + 1;
+      end;
+
+      // Parse sub-expression
+      exprStr := raw[i+2:j-1];
+      var subLex: TLexer;
+      subLex := NewLexer(exprStr);
+      var subParser: TParser;
+      subParser := NewParser(subLex);
+      var subExpr: TExpression;
+      subExpr := subParser.ParseExpression(PREC_LOWEST);
+      if subExpr <> nil then
+        append(interp.Parts, subExpr);
+
+      i := j;
+    end
+    else
+    begin
+      currentText := currentText + raw[i:i+1];
+      i := i + 1;
+    end;
+  end;
+
+  if currentText <> '' then
+  begin
+    var lit2: TStringLiteral;
+    lit2 := TStringLiteral.Create();
+    lit2.Value := currentText;
+    append(interp.Parts, lit2);
+  end;
+
+  result := interp;
+end;
+
+function TParser.ParseAnonymousFunction(): TExpression;
+var kind: TToken; var params: array of TParameter; var param: TParameter;
+begin
+  kind := self.CurToken;
+  self.NextToken(); // skip procedure/function
+
+  params := [];
+
+  // Parse optional parameters
+  if self.CurTokenIs(tkLParen) then
+  begin
+    self.NextToken();
+    while (self.CurTokenIs(tkRParen) = false) and (self.CurTokenIs(tkEOF) = false) do
+    begin
+      if self.CurTokenIs(tkIdent) then
+      begin
+        param := TParameter.Create();
+        param.Token := self.CurToken;
+        param.Name := self.CurToken.Literal;
+        self.NextToken();
+        if self.CurTokenIs(tkColon) then
+        begin
+          self.NextToken();
+          param.ParamType := self.ParseTypeExpression();
+        end;
+        append(params, param);
+        if self.CurTokenIs(tkSemicolon) then
+          self.NextToken()
+        else if self.CurTokenIs(tkComma) then
+          self.NextToken();
+      end
+      else
+        self.NextToken();
+    end;
+    if self.CurTokenIs(tkRParen) then
+      self.NextToken();
+  end;
+
+  // Skip optional return type for functions
+  if kind.TokenType = tkFunction then
+    if self.CurTokenIs(tkColon) then
+    begin
+      self.NextToken();
+      self.ParseTypeExpression();
+    end;
+
+  if self.CurTokenIs(tkSemicolon) then
+    self.NextToken();
+
+  // Skip local declarations
+  while self.CurTokenIs(tkVar) or self.CurTokenIs(tkConst) do
+  begin
+    if self.CurTokenIs(tkVar) then
+    begin
+      self.NextToken();
+      while self.IsIdentOrSoftKeyword() do
+      begin
+        self.ParseSingleVarDecl();
+        while self.CurTokenIs(tkSemicolon) do
+          self.NextToken();
+      end;
+    end
+    else
+    begin
+      self.NextToken();
+      while self.IsIdentOrSoftKeyword() do
+      begin
+        self.ParseSingleConstDecl();
+        while self.CurTokenIs(tkSemicolon) do
+          self.NextToken();
+      end;
+    end;
+  end;
+
+  // Parse body
+  var lam: TLambdaExpression;
+  lam := TLambdaExpression.Create();
+  lam.Token := kind;
+  lam.Parameters := params;
+
+  if self.CurTokenIs(tkBegin) then
+  begin
+    self.NextToken();
+    var block: TBlockStatement;
+    block := TBlockStatement.Create();
+    block.Statements := [];
+    var iter: Integer;
+    iter := 0;
+    while (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkEOF) = false) do
+    begin
+      iter := iter + 1;
+      if iter > 1000 then break;
+      var s: TStatement;
+      s := self.ParseStatement();
+      if s <> nil then
+        append(block.Statements, s)
+      else if self.CurTokenIs(tkSemicolon) = false then
+        self.NextToken();
+      while self.CurTokenIs(tkSemicolon) do
+        self.NextToken();
+    end;
+    // Don't consume 'end' — let the caller handle it
+    lam.Body := block;
+  end;
+
+  result := lam;
+end;
+
+function TParser.ParseExpressionList(endType: TTokenType): array of TExpression;
+var list: array of TExpression;
+begin
+  list := [];
+
+  if self.PeekTokenIs(endType) then
+  begin
+    self.NextToken();
+    result := list;
+  end;
+
+  self.NextToken();
+  append(list, self.ParseExpression(PREC_LOWEST));
+
+  while self.PeekTokenIs(tkComma) do
+  begin
+    self.NextToken();
+    self.NextToken();
+    append(list, self.ParseExpression(PREC_LOWEST));
+  end;
+
+  if self.ExpectPeek(endType) = false then
+  begin
+    result := nil;
+  end;
+
+  result := list;
+end;
+
+// ============================================================================
+// Type Expressions
+// ============================================================================
+
+function TParser.ParseTypeExpression(): TExpression;
+begin
+  // Enum type: (ident, ident, ...)
+  if self.CurTokenIs(tkLParen) then
+  begin
+    var enumType: TEnumType;
+    enumType := self.TryParseEnumType();
+    if enumType <> nil then
+    begin
+      result := enumType;
+    end;
+  end;
+
+  if self.CurTokenIs(tkIdent) then
+  begin
+    var name: String;
+    name := self.CurToken.Literal;
+    self.NextToken();
+
+    // Generic type: TList<T>
+    if self.CurTokenIs(tkLT) then
+    begin
+      self.NextToken();
+      var gen: TGenericType;
+      gen := TGenericType.Create();
+      gen.Base := name;
+      gen.TypeParams := [];
+      while (self.CurTokenIs(tkGT) = false) and (self.CurTokenIs(tkEOF) = false) do
+      begin
+        append(gen.TypeParams, self.ParseTypeExpression());
+        if self.CurTokenIs(tkComma) then
+          self.NextToken();
+      end;
+      if self.CurTokenIs(tkGT) then
+        self.NextToken();
+      result := gen;
+    end;
+
+    var ident: TIdentifier;
+    ident := TIdentifier.Create();
+    ident.Value := name;
+    result := ident;
+  end;
+
+  if self.CurTokenIs(tkMap) then
+  begin
+    self.NextToken();
+    var mapType: TMapType;
+    mapType := TMapType.Create();
+    if self.CurTokenIs(tkLBracket) then
+    begin
+      self.NextToken();
+      mapType.KeyType := self.ParseTypeExpression();
+      if self.CurTokenIs(tkRBracket) then
+        self.NextToken();
+    end;
+    mapType.ValueType := self.ParseTypeExpression();
+    result := mapType;
+  end;
+
+  if self.CurTokenIs(tkVariant) then
+  begin
+    self.NextToken();
+    var vtype: TVariantType;
+    vtype := TVariantType.Create();
+    vtype.Cases := [];
+    while self.IsIdentOrSoftKeyword() do
+    begin
+      var caseNode: TVariantCase;
+      caseNode := TVariantCase.Create();
+      caseNode.Name := self.CurToken.Literal;
+      self.NextToken();
+      if self.CurTokenIs(tkColon) then
+      begin
+        self.NextToken();
+        caseNode.CaseType := self.ParseTypeExpression();
+      end;
+      append(vtype.Cases, caseNode);
+      while self.CurTokenIs(tkSemicolon) do
+        self.NextToken();
+    end;
+    if self.CurTokenIs(tkEnd) then
+      self.NextToken();
+    result := vtype;
+  end;
+
+  if self.CurTokenIs(tkArray) then
+  begin
+    self.NextToken();
+    var arrayType: TArrayType;
+    arrayType := TArrayType.Create();
+    arrayType.Dynamic := true;
+
+    if self.CurTokenIs(tkLBracket) then
+    begin
+      self.NextToken();
+      var lowerBound: TExpression;
+      lowerBound := self.ParseExpression(PREC_LOWEST);
+      self.NextToken();
+      arrayType.Dynamic := false;
+      if self.CurTokenIs(tkDotDot) then
+      begin
+        self.NextToken();
+        var upperBound: TExpression;
+        upperBound := self.ParseExpression(PREC_LOWEST);
+        self.NextToken();
+        // Size = upperBound - lowerBound + 1
+        var sub: TInfixExpression;
+        sub := TInfixExpression.Create();
+        sub.Left := upperBound;
+        sub.Operator := '-';
+        sub.Right := lowerBound;
+        var add: TInfixExpression;
+        add := TInfixExpression.Create();
+        add.Left := sub;
+        add.Operator := '+';
+        var one: TIntegerLiteral;
+        one := TIntegerLiteral.Create();
+        one.Value := 1;
+        add.Right := one;
+        arrayType.Size := add;
+      end
+      else
+        arrayType.Size := lowerBound;
+      if self.CurTokenIs(tkRBracket) then
+        self.NextToken();
+    end;
+
+    if self.CurTokenIs(tkOf) then
+    begin
+      self.NextToken();
+      arrayType.ElementType := self.ParseTypeExpression();
+    end;
+
+    result := arrayType;
+  end;
+
+  if self.CurTokenIs(tkRecord) then
+  begin
+    self.NextToken();
+    var rec: TRecordType;
+    rec := TRecordType.Create();
+    rec.Fields := [];
+    var depth: Integer;
+    depth := 1;
+    while (depth > 0) and (self.CurTokenIs(tkEOF) = false) do
+    begin
+      if self.CurTokenIs(tkRecord) then
+        depth := depth + 1
+      else if self.CurTokenIs(tkEnd) then
+      begin
+        depth := depth - 1;
+        if depth = 0 then
+        begin
+          self.NextToken();
+          // continue without processing
+        end;
+      end;
+
+      if depth > 0 then
+      begin
+        if self.CurTokenIs(tkVar) then
+        begin
+          self.NextToken();
+          while self.CurTokenIs(tkIdent) do
+          begin
+            var field: TVarDecl;
+            field := self.ParseSingleVarDecl();
+            if field <> nil then
+              append(rec.Fields, field);
+            while self.CurTokenIs(tkSemicolon) do
+              self.NextToken();
+          end;
+        end
+        else if self.CurTokenIs(tkIdent) then
+        begin
+          var field2: TVarDecl;
+          field2 := self.ParseSingleVarDecl();
+          if field2 <> nil then
+            append(rec.Fields, field2);
+          while self.CurTokenIs(tkSemicolon) do
+            self.NextToken();
+        end
+        else
+          self.NextToken();
+      end;
+    end;
+    result := rec;
+  end;
+
+  // Function/procedure types
+  if self.CurTokenIs(tkFunction) or self.CurTokenIs(tkProcedure) then
+  begin
+    var funcToken: TToken;
+    funcToken := self.CurToken;
+    self.NextToken();
+    var funcType: TIdentifier;
+    funcType := TIdentifier.Create();
+    funcType.Token := funcToken;
+    funcType.Value := funcToken.Literal;
+
+    if self.CurTokenIs(tkLParen) then
+    begin
+      self.NextToken();
+      var d: Integer;
+      d := 1;
+      while (d > 0) and (self.CurTokenIs(tkEOF) = false) do
+      begin
+        if self.CurTokenIs(tkLParen) then d := d + 1;
+        if self.CurTokenIs(tkRParen) then d := d - 1;
+        if d > 0 then self.NextToken();
+      end;
+      if self.CurTokenIs(tkRParen) then
+        self.NextToken();
+    end;
+
+    if self.CurTokenIs(tkColon) then
+    begin
+      self.NextToken();
+      self.ParseTypeExpression();
+    end;
+
+    result := funcType;
+  end;
+
+  // Fallback
+  var fallback: TIdentifier;
+  fallback := TIdentifier.Create();
+  fallback.Token := self.CurToken;
+  fallback.Value := self.CurToken.Literal;
+  result := fallback;
+end;
+
+function TParser.TryParseEnumType(): TEnumType;
+var savedCur: TToken; var savedPeek: TToken; var enum: TEnumType;
+begin
+  savedCur := self.CurToken;
+  savedPeek := self.PeekToken;
+
+  self.NextToken(); // skip (
+
+  if self.CurTokenIs(tkIdent) = false then
+  begin
+    self.CurToken := savedCur;
+    self.PeekToken := savedPeek;
+    result := nil;
+  end;
+
+  if (self.PeekTokenIs(tkComma) = false) and (self.PeekTokenIs(tkRParen) = false) then
+  begin
+    self.CurToken := savedCur;
+    self.PeekToken := savedPeek;
+    result := nil;
+  end;
+
+  enum := TEnumType.Create();
+  enum.Names := [];
+
+  while self.CurTokenIs(tkIdent) do
+  begin
+    append(enum.Names, self.CurToken.Literal);
+    self.NextToken();
+    if self.CurTokenIs(tkComma) then
+      self.NextToken()
+    else
+      break;
+  end;
+
+  if self.CurTokenIs(tkRParen) then
+    self.NextToken();
+
+  result := enum;
+end;

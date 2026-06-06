@@ -12,14 +12,17 @@ type Generator struct {
 	program         *ast.Program
 	variables       map[string]string // track variable types
 	inFunction      bool
-	inExceptHandler bool   // tracks if we're inside recover() for bare raise
-	reRaiseVar      string // variable name holding the recovered value for re-raise
+	inReturnFunc    bool   // true if current function has a return value (Exit → return result)
+	inExceptHandler bool             // tracks if we're inside recover() for bare raise
+	reRaiseVar      string           // variable name holding the recovered value for re-raise
 	nameMap         map[string]string // temporary name substitutions (e.g., E→e in on clause)
-	imports         map[string]bool // track which imports are needed
-	needsException  bool   // whether Exception type needs to be generated
-	exceptionTypes  map[string]bool // exception type names referenced in on clauses
-	multiReturn     bool   // whether current function has multiple return values
-	multiReturnN    int    // number of return values in current function
+	imports         map[string]bool  // track which imports are needed
+	needsException  bool             // whether Exception type needs to be generated
+	exceptionTypes  map[string]bool  // exception type names referenced in on clauses
+	multiReturn     bool             // whether current function has multiple return values
+	multiReturnN    int              // number of return values in current function
+	classTypes      map[string]bool  // track which user-defined types are classes
+	classIsBase     map[string]bool  // true if class is parent of another class (→ interface{} in type expressions)
 }
 
 func New() *Generator {
@@ -28,6 +31,8 @@ func New() *Generator {
 		nameMap:        make(map[string]string),
 		imports:        make(map[string]bool),
 		exceptionTypes: make(map[string]bool),
+		classTypes:     make(map[string]bool),
+		classIsBase:    make(map[string]bool),
 	}
 }
 
@@ -35,6 +40,7 @@ func (g *Generator) Generate(program *ast.Program) string {
 	g.program = program
 
 	// First pass: scan for needed imports and exception usage
+	g.collectClassTypes(program)
 	g.scanImports(program)
 	g.scanForException(program)
 
@@ -108,8 +114,8 @@ func (g *Generator) Generate(program *ast.Program) string {
 		}
 	}
 
-	// Generate main function if there are top-level statements
-	if len(program.Statements) > 0 {
+	// Generate main function if there are top-level statements (skip for unit files)
+	if !program.IsUnit && len(program.Statements) > 0 {
 		g.writeLine("func main() {")
 		g.indent++
 		for _, stmt := range program.Statements {
@@ -117,6 +123,99 @@ func (g *Generator) Generate(program *ast.Program) string {
 		}
 		g.indent--
 		g.writeLine("}")
+	}
+
+	return g.output.String()
+}
+
+// GenerateMulti compiles multiple Kylix source files into a single Go package.
+func (g *Generator) GenerateMulti(programs []*ast.Program) string {
+	// Pre-scan: collect all class types from all programs
+	for _, prog := range programs {
+		g.collectClassTypes(prog)
+	}
+
+	for _, prog := range programs {
+		g.scanImports(prog)
+		g.scanForException(prog)
+	}
+
+	g.writeLine("package main")
+	g.writeLine("")
+	if len(g.imports) > 0 {
+		g.writeLine("import (")
+		g.indent++
+		for imp := range g.imports {
+			g.writeLine(fmt.Sprintf(`"%s"`, imp))
+		}
+		g.indent--
+		g.writeLine(")")
+		g.writeLine("")
+	}
+
+	for _, prog := range programs {
+		for _, decl := range prog.Declarations {
+			switch d := decl.(type) {
+			case *ast.TypeDecl:
+				g.generateTypeDecl(d)
+			case *ast.ClassDecl:
+				g.generateClassDecl(d)
+			case *ast.InterfaceDecl:
+				g.generateInterfaceDecl(d)
+			}
+		}
+	}
+
+	if g.needsException {
+		g.writeLine("type Exception struct {")
+		g.indent++
+		g.writeLine("Message string")
+		g.indent--
+		g.writeLine("}")
+		g.writeLine("")
+		g.writeLine("func (e *Exception) Error() string { return e.Message }")
+		g.writeLine("")
+		for excType := range g.exceptionTypes {
+			if excType != "Exception" {
+				g.writeLine(fmt.Sprintf("type %s struct {", excType))
+				g.indent++
+				g.writeLine("Exception")
+				g.indent--
+				g.writeLine("}")
+				g.writeLine("")
+			}
+		}
+	}
+
+	for _, prog := range programs {
+		for _, decl := range prog.Declarations {
+			switch d := decl.(type) {
+			case *ast.VarDecl:
+				g.generateGlobalVarDecl(d)
+			case *ast.ConstDecl:
+				g.generateConstDecl(d)
+			}
+		}
+	}
+
+	for _, prog := range programs {
+		for _, decl := range prog.Declarations {
+			if d, ok := decl.(*ast.FunctionDecl); ok {
+				g.generateFunctionDecl(d)
+			}
+		}
+	}
+
+	for _, prog := range programs {
+		if !prog.IsUnit && len(prog.Statements) > 0 {
+			g.writeLine("func main() {")
+			g.indent++
+			for _, stmt := range prog.Statements {
+				g.generateStatement(stmt)
+			}
+			g.indent--
+			g.writeLine("}")
+		}
 	}
 
 	return g.output.String()
@@ -192,6 +291,10 @@ func (g *Generator) generateTypeDecl(decl *ast.TypeDecl) {
 		g.generateVariantType(decl.Name, variantDecl)
 		return
 	}
+	if enumDecl, ok := decl.Type.(*ast.EnumType); ok {
+		g.generateEnumType(decl.Name, enumDecl)
+		return
+	}
 
 	g.write(fmt.Sprintf("type %s ", decl.Name))
 	g.generateTypeExpression(decl.Type)
@@ -199,19 +302,20 @@ func (g *Generator) generateTypeDecl(decl *ast.TypeDecl) {
 }
 
 func (g *Generator) generateClassDecl(decl *ast.ClassDecl) {
-	// Generate struct
+	// Record as class type
+	g.classTypes[decl.Name] = true
+
+	// All classes generate as plain structs with parent embedding.
+	// Polymorphism is handled via interface{} at the type-expression level
+	// (for fields/params typed as base classes like TNode/TStatement/TExpression).
 	g.write("type ")
 	g.write(decl.Name)
 	g.generateTypeParams(decl.TypeParams)
 	g.writeLine(" struct {")
 	g.indent++
-
-	// Add parent embedding
 	if decl.Parent != "" {
 		g.writeLine(decl.Parent)
 	}
-
-	// Add fields
 	for _, field := range decl.Fields {
 		for _, name := range field.Names {
 			g.write(name + " ")
@@ -223,35 +327,68 @@ func (g *Generator) generateClassDecl(decl *ast.ClassDecl) {
 			g.write("\n")
 		}
 	}
-
 	g.indent--
 	g.writeLine("}")
 	g.writeLine("")
 
-	// Generate methods
 	for _, method := range decl.Methods {
-		g.write(fmt.Sprintf("func (self *%s", decl.Name))
-		g.generateTypeParams(decl.TypeParams)
-		g.write(fmt.Sprintf(") %s", method.Name))
-		g.generateFunctionSignature(method)
-		g.writeLine(" {")
-		g.indent++
-		if method.Body != nil {
-			g.inFunction = true
-			for _, stmt := range method.Body.Statements {
-				g.generateStatement(stmt)
-			}
-			g.inFunction = false
-		}
-		g.indent--
-		g.writeLine("}")
-		g.writeLine("")
+		g.generateClassMethod(decl.Name, method)
 	}
 
-	// Generate property accessor methods
 	for _, prop := range decl.Properties {
 		g.generatePropertyAccessors(decl.Name, prop)
 	}
+}
+
+// generateClassMethod generates a single method of a class, including
+// the var result declaration and local var/const declarations.
+func (g *Generator) generateClassMethod(className string, method *ast.FunctionDecl) {
+	hasReturnType := method.ReturnType != nil || len(method.ReturnTypes) > 0
+
+	g.write(fmt.Sprintf("func (self *%s) %s", className, method.Name))
+	g.generateFunctionSignature(method)
+	g.writeLine(" {")
+	g.indent++
+
+	if hasReturnType {
+		if method.ReturnType != nil {
+			g.write("var result ")
+			g.generateTypeExpression(method.ReturnType)
+			g.write("\n")
+		} else if len(method.ReturnTypes) == 1 {
+			g.write("var result ")
+			g.generateTypeExpression(method.ReturnTypes[0])
+			g.write("\n")
+		}
+	}
+
+	// Generate local var/const declarations
+	for _, local := range method.LocalDecls {
+		switch d := local.(type) {
+		case *ast.VarDecl:
+			g.generateLocalVarDecl(d)
+		case *ast.ConstDecl:
+			g.generateLocalConstDecl(d)
+		}
+	}
+
+	if method.Body != nil {
+		g.inFunction = true
+		g.inReturnFunc = hasReturnType
+		for _, stmt := range method.Body.Statements {
+			g.generateStatement(stmt)
+		}
+		g.inFunction = false
+		g.inReturnFunc = false
+	}
+
+	if hasReturnType {
+		g.writeLine("return result")
+	}
+
+	g.indent--
+	g.writeLine("}")
+	g.writeLine("")
 }
 
 // generatePropertyAccessors generates getter and setter methods for a property.
@@ -336,6 +473,27 @@ func (g *Generator) generateVariantType(name string, variant *ast.VariantType) {
 		g.writeLine(fmt.Sprintf("func (s *%s) is%s() {}", structName, name))
 		g.writeLine("")
 	}
+}
+
+// generateEnumType generates Go const + iota for enum types
+func (g *Generator) generateEnumType(name string, enum *ast.EnumType) {
+	if len(enum.Names) == 0 {
+		return
+	}
+	g.writeLine("const (")
+	g.indent++
+	for i, n := range enum.Names {
+		if i == 0 {
+			g.writeLine(fmt.Sprintf("%s %s = iota", n, name))
+		} else {
+			g.writeLine(n)
+		}
+	}
+	g.indent--
+	g.writeLine(")")
+	g.writeLine("")
+	g.writeLine(fmt.Sprintf("type %s int", name))
+	g.writeLine("")
 }
 
 func (g *Generator) generateGlobalVarDecl(decl *ast.VarDecl) {
@@ -436,7 +594,14 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 	}
 
 	// Regular (non-async) function
-	g.write(fmt.Sprintf("func %s", decl.Name))
+	// Check if this is a method definition: ClassName.MethodName
+	if idx := strings.Index(decl.Name, "."); idx >= 0 {
+		className := decl.Name[:idx]
+		methodName := decl.Name[idx+1:]
+		g.write(fmt.Sprintf("func (self *%s) %s", className, methodName))
+	} else {
+		g.write(fmt.Sprintf("func %s", decl.Name))
+	}
 	g.generateTypeParams(decl.TypeParams)
 	g.generateFunctionSignature(decl)
 	g.writeLine(" {")
@@ -458,12 +623,24 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 		}
 	}
 
+	// Generate local var/const declarations
+	for _, local := range decl.LocalDecls {
+		switch d := local.(type) {
+		case *ast.VarDecl:
+			g.generateLocalVarDecl(d)
+		case *ast.ConstDecl:
+			g.generateLocalConstDecl(d)
+		}
+	}
+
 	if decl.Body != nil {
 		g.inFunction = true
+		g.inReturnFunc = hasReturnType
 		for _, stmt := range decl.Body.Statements {
 			g.generateStatement(stmt)
 		}
 		g.inFunction = false
+		g.inReturnFunc = false
 	}
 
 	if hasReturnType {
@@ -560,7 +737,18 @@ func (g *Generator) generateMultiReturnType(types []ast.Expression) {
 func (g *Generator) generateTypeExpression(expr ast.Expression) {
 	switch t := expr.(type) {
 	case *ast.Identifier:
-		g.write(g.mapType(t.Value))
+		typeName := t.Value
+		if g.classTypes[typeName] {
+			// Base classes (parents of other classes) → interface{} for polymorphism.
+			// Concrete classes → *ClassName (pointer to struct).
+			if g.classIsBase[typeName] {
+				g.write("interface{}")
+			} else {
+				g.write("*" + typeName)
+			}
+		} else {
+			g.write(g.mapType(typeName))
+		}
 	case *ast.ArrayType:
 		if t.Dynamic {
 			g.write("[]")
@@ -619,6 +807,21 @@ func (g *Generator) generateTypeExpression(expr ast.Expression) {
 	default:
 		g.write("interface{}")
 	}
+}
+
+// generateTypeExpressionForCast emits a type expression suitable for a Go type
+// assertion. Unlike generateTypeExpression, base class types map to *ClassName
+// (the concrete struct pointer) instead of interface{}, because you can't
+// type-assert to interface{}.
+func (g *Generator) generateTypeExpressionForCast(expr ast.Expression) {
+	if ident, ok := expr.(*ast.Identifier); ok {
+		typeName := ident.Value
+		if g.classTypes[typeName] {
+			g.write("*" + typeName)
+			return
+		}
+	}
+	g.generateTypeExpression(expr)
 }
 
 func (g *Generator) mapType(kylixType string) string {
@@ -777,6 +980,26 @@ func (g *Generator) scanStatementForException(stmt ast.Statement) {
 	}
 }
 
+// collectClassTypes scans a program and records all class type names and base class relationships.
+func (g *Generator) collectClassTypes(program *ast.Program) {
+	for _, decl := range program.Declarations {
+		switch d := decl.(type) {
+		case *ast.ClassDecl:
+			g.classTypes[d.Name] = true
+			if d.Parent != "" {
+				g.classIsBase[d.Parent] = true
+			}
+		case *ast.TypeDecl:
+			if cd, ok := d.Type.(*ast.ClassDecl); ok {
+				g.classTypes[d.Name] = true
+				if cd.Parent != "" {
+					g.classIsBase[cd.Parent] = true
+				}
+			}
+		}
+	}
+}
+
 func (g *Generator) scanImports(program *ast.Program) {
 	// Map uses clause stdlib modules to Go imports
 	for _, module := range program.Uses {
@@ -929,6 +1152,11 @@ func (g *Generator) scanExpressionForImports(expr ast.Expression) {
 		for _, arg := range e.Arguments {
 			g.scanExpressionForImports(arg)
 		}
+		if ident, ok := e.Function.(*ast.Identifier); ok {
+			if ident.Value == "StrToInt64" || ident.Value == "StrToFloat" {
+				g.imports["strconv"] = true
+			}
+		}
 	case *ast.InfixExpression:
 		g.scanExpressionForImports(e.Left)
 		g.scanExpressionForImports(e.Right)
@@ -988,9 +1216,25 @@ func (g *Generator) generateStatement(stmt ast.Statement) {
 					break
 				}
 			}
+			// Generate standalone expression as a statement
 			g.generateExpression(s.Expression)
 			g.write("\n")
 		} else {
+			// Handle Exit: generates "return result" for functions with return values, "return" otherwise
+			if ident, ok := s.Expression.(*ast.Identifier); ok && ident.Value == "Exit" {
+				if g.inReturnFunc {
+					g.write("return result\n")
+				} else {
+					g.write("return\n")
+				}
+				break
+			}
+			// Handle bare member access as procedure call: self.Method → self.Method()
+			if _, ok := s.Expression.(*ast.MemberExpression); ok {
+				g.generateExpression(s.Expression)
+				g.write("()\n")
+				break
+			}
 			g.generateExpression(s.Expression)
 			g.write("\n")
 		}
@@ -1059,6 +1303,33 @@ func (g *Generator) generateVarDecl(decl *ast.VarDecl) {
 		}
 		g.write("\n")
 	}
+}
+
+// generateLocalVarDecl generates a local variable declaration inside a function body.
+func (g *Generator) generateLocalVarDecl(decl *ast.VarDecl) {
+	for _, name := range decl.Names {
+		g.write("var " + name + " ")
+		if decl.Type != nil {
+			g.generateTypeExpression(decl.Type)
+		} else {
+			g.write("interface{}")
+		}
+		g.write("\n")
+	}
+}
+
+// generateLocalConstDecl generates a local constant declaration inside a function body.
+func (g *Generator) generateLocalConstDecl(decl *ast.ConstDecl) {
+	g.write("const " + decl.Name)
+	if decl.Type != nil {
+		g.write(" ")
+		g.generateTypeExpression(decl.Type)
+	}
+	g.write(" = ")
+	if decl.Value != nil {
+		g.generateExpression(decl.Value)
+	}
+	g.write("\n")
 }
 
 func (g *Generator) generateAssignment(stmt *ast.AssignmentStatement) {
@@ -1132,7 +1403,7 @@ func (g *Generator) generateForStatement(stmt *ast.ForStatement) {
 		op = ">="
 	}
 
-	g.write(fmt.Sprintf("for %s := ", stmt.Variable))
+	g.write(fmt.Sprintf("for %s = ", stmt.Variable))
 	g.generateExpression(stmt.From)
 	g.write(fmt.Sprintf("; %s %s ", stmt.Variable, op))
 	g.generateExpression(stmt.To)
@@ -1142,7 +1413,7 @@ func (g *Generator) generateForStatement(stmt *ast.ForStatement) {
 	} else {
 		g.write("++")
 	}
-	g.writeLine(") {")
+	g.write(" {\n")
 	g.indent++
 	if stmt.Body != nil {
 		for _, s := range stmt.Body.Statements {
@@ -1424,7 +1695,10 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 	case *ast.FloatLiteral:
 		g.write(fmt.Sprintf("%f", e.Value))
 	case *ast.StringLiteral:
-		g.write(fmt.Sprintf(`"%s"`, e.Value))
+		escaped := strings.ReplaceAll(e.Value, `\`, `\\`)
+		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+		escaped = strings.ReplaceAll(escaped, "\n", `\n`)
+		g.write(fmt.Sprintf(`"%s"`, escaped))
 	case *ast.StringInterpolation:
 		g.writeInterpolation(e)
 	case *ast.BooleanLiteral:
@@ -1436,14 +1710,19 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 	case *ast.NilLiteral:
 		g.write("nil")
 	case *ast.ArrayLiteral:
-		g.write("[]interface{}{")
-		for i, elem := range e.Elements {
-			if i > 0 {
-				g.write(", ")
+		// Empty array literal: use nil (assignable to any slice type)
+		if len(e.Elements) == 0 {
+			g.write("nil")
+		} else {
+			g.write("[]interface{}{")
+			for i, elem := range e.Elements {
+				if i > 0 {
+					g.write(", ")
+				}
+				g.generateExpression(elem)
 			}
-			g.generateExpression(elem)
+			g.write("}")
 		}
-		g.write("}")
 	case *ast.PrefixExpression:
 		op := e.Operator
 		if op == "not" {
@@ -1479,15 +1758,12 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 		g.generateExpression(e.Right)
 		g.write(")")
 	case *ast.CallExpression:
-		// Handle constructor pattern: ClassName.Create(args) → &ClassName{...}
+		// Handle constructor pattern: ClassName.Create(args) → &ClassName{args...}
 		if member, ok := e.Function.(*ast.MemberExpression); ok && member.Member == "Create" {
 			if ident, ok := member.Object.(*ast.Identifier); ok {
-				// Constructor call: generate as &TypeName{field: arg}
 				g.write("&")
 				g.write(ident.Value)
 				g.write("{")
-				// For constructors with positional args, we can't know field names
-				// Use a placeholder approach with positional initialization
 				for i, arg := range e.Arguments {
 					if i > 0 {
 						g.write(", ")
@@ -1497,6 +1773,45 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 				g.write("}")
 				break
 			}
+		}
+		// Handle Ord() — use int(s[0]) with empty string guard
+		if ident, ok := e.Function.(*ast.Identifier); ok && ident.Value == "Ord" && len(e.Arguments) == 1 {
+			g.write("func() int { if len(")
+			g.generateExpression(e.Arguments[0])
+			g.write(") == 0 { return 0 }; return int(")
+			g.generateExpression(e.Arguments[0])
+			g.write("[0]) }()")
+			break
+		}
+		// Handle Length() — cast to int64
+		if ident, ok := e.Function.(*ast.Identifier); ok && ident.Value == "Length" && len(e.Arguments) == 1 {
+			g.write("int64(len(")
+			g.generateExpression(e.Arguments[0])
+			g.write("))")
+			break
+		}
+		// Handle IntToStr() — use fmt.Sprintf
+		if ident, ok := e.Function.(*ast.Identifier); ok && ident.Value == "IntToStr" && len(e.Arguments) == 1 {
+			g.write("fmt.Sprintf(\"%d\", ")
+			g.generateExpression(e.Arguments[0])
+			g.write(")")
+			break
+		}
+		// Handle StrToInt64()
+		if ident, ok := e.Function.(*ast.Identifier); ok && ident.Value == "StrToInt64" && len(e.Arguments) == 1 {
+			g.imports["strconv"] = true
+			g.write("func() int64 { v, _ := strconv.ParseInt(")
+			g.generateExpression(e.Arguments[0])
+			g.write(", 10, 64); return v }()")
+			break
+		}
+		// Handle StrToFloat()
+		if ident, ok := e.Function.(*ast.Identifier); ok && ident.Value == "StrToFloat" && len(e.Arguments) == 1 {
+			g.imports["strconv"] = true
+			g.write("func() float64 { v, _ := strconv.ParseFloat(")
+			g.generateExpression(e.Arguments[0])
+			g.write(", 64); return v }()")
+			break
 		}
 		g.generateExpression(e.Function)
 		g.write("(")
@@ -1508,6 +1823,15 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 		}
 		g.write(")")
 	case *ast.MemberExpression:
+		// Handle constructor without parens: ClassName.Create → &ClassName{}
+		if e.Member == "Create" {
+			if ident, ok := e.Object.(*ast.Identifier); ok {
+				g.write("&")
+				g.write(ident.Value)
+				g.write("{}")
+				break
+			}
+		}
 		g.generateExpression(e.Object)
 		g.write(".")
 		g.write(e.Member)
@@ -1515,6 +1839,17 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 		g.generateExpression(e.Left)
 		g.write("[")
 		g.generateExpression(e.Index)
+		g.write("]")
+	case *ast.SliceExpression:
+		g.generateExpression(e.Left)
+		g.write("[")
+		if e.Low != nil {
+			g.generateExpression(e.Low)
+		}
+		g.write(":")
+		if e.High != nil {
+			g.generateExpression(e.High)
+		}
 		g.write("]")
 	case *ast.LambdaExpression:
 		g.write("func(")
@@ -1552,17 +1887,17 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 		g.write("<-")
 		g.generateExpression(e.Expression)
 	case *ast.IsExpression:
-		// Type assertion check
+		// Type assertion check — use concrete type for class types
 		g.write("func() bool { _, ok := ")
 		g.generateExpression(e.Expression)
 		g.write(".(")
-		g.generateTypeExpression(e.TargetType)
+		g.generateTypeExpressionForCast(e.TargetType)
 		g.write("); return ok }()")
 	case *ast.TypeCastExpression:
-		// Type assertion
+		// Type assertion — use concrete type for class types
 		g.generateExpression(e.Expression)
 		g.write(".(")
-		g.generateTypeExpression(e.TargetType)
+		g.generateTypeExpressionForCast(e.TargetType)
 		g.write(")")
 	case *ast.TupleLiteral:
 		// In expression context, a tuple literal doesn't make sense in Go
@@ -1573,5 +1908,20 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 			}
 			g.generateExpression(elem)
 		}
+	case *ast.MapType:
+		// Map type used as a value: generate map[K]V{}
+		g.write("map[")
+		if e.KeyType != nil {
+			g.generateTypeExpression(e.KeyType)
+		} else {
+			g.write("string")
+		}
+		g.write("]")
+		if e.ValueType != nil {
+			g.generateTypeExpression(e.ValueType)
+		} else {
+			g.write("interface{}")
+		}
+		g.write("{}")
 	}
 }

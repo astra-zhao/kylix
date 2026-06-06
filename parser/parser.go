@@ -89,6 +89,8 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(token.PROCEDURE, p.parseAnonymousFunction)
 	p.registerPrefix(token.FUNCTION, p.parseAnonymousFunction)
 	p.registerPrefix(token.MATCH, p.parseIdentifier) // 'match' can be used as identifier
+	p.registerPrefix(token.MAP, p.parseTypeAsExpression)
+	p.registerPrefix(token.VARIANT, p.parseTypeAsExpression)
 
 	p.infixParseFns = make(map[token.TokenType]infixParseFn)
 	p.registerInfix(token.PLUS, p.parseInfixExpression)
@@ -182,6 +184,21 @@ func (p *Parser) registerInfix(tokenType token.TokenType, fn infixParseFn) {
 
 func (p *Parser) ParseProgram() *ast.Program {
 	program := &ast.Program{}
+
+	// Parse unit declaration: unit X;
+	if p.curTokenIs(token.UNIT) {
+		p.nextToken()
+		if p.curTokenIs(token.IDENT) {
+			program.UnitName = p.curToken.Literal
+			program.IsUnit = true
+			program.Name = p.curToken.Literal
+			program.NameToken = p.curToken
+			p.nextToken()
+		}
+		if p.curTokenIs(token.SEMICOLON) {
+			p.nextToken()
+		}
+	}
 
 	// Parse program name if present
 	if p.curTokenIs(token.PROGRAM) {
@@ -351,6 +368,13 @@ func (p *Parser) parseStatement() ast.Statement {
 		return &ast.ContinueStatement{Token: tok}
 	case token.RETURN:
 		return p.parseReturnStatement()
+	case token.EXIT:
+		tok := p.curToken
+		p.nextToken()
+		return &ast.ExpressionStatement{
+			Token:      tok,
+			Expression: &ast.Identifier{Token: tok, Value: "Exit"},
+		}
 	default:
 		return p.parseExpressionOrAssignment()
 	}
@@ -364,8 +388,16 @@ func (p *Parser) parseStatement() ast.Statement {
 // isSoftKeyword returns true if the current token is a keyword that can also be used as an identifier
 // in certain contexts (variable names, field names, etc.)
 func (p *Parser) isSoftKeyword() bool {
+	// All keywords can be used as identifiers in member positions (e.g., obj.Default, obj.To)
+	// Most Pascal keywords are also valid field/method/property names.
 	switch p.curToken.Type {
-	case token.MATCH, token.RESULT:
+	case token.MATCH, token.RESULT, token.DEFAULT, token.DOWNTO,
+		token.DYNAMIC, token.TO, token.DO, token.OF, token.IN,
+		token.READ, token.WRITE, token.ABSTRACT, token.EXTERNAL,
+		token.FORWARD, token.VIRTUAL, token.OVERRIDE, token.STATIC,
+		token.STORED, token.PACKED, token.FILE, token.NEW, token.DELETE,
+		token.EXPORT, token.IMPORT, token.MODULE, token.IS,
+		token.EXCEPT, token.ON, token.WHEN:
 		return true
 	}
 	return false
@@ -567,9 +599,18 @@ func (p *Parser) parseFunctionDecl() *ast.FunctionDecl {
 	hasFuncKeyword := !isConstructor && !isDestructor
 	p.nextToken() // skip function/procedure/constructor/destructor
 
-	if p.curTokenIs(token.IDENT) {
+	if p.curTokenIs(token.IDENT) || p.isSoftKeyword() {
 		decl.Name = p.curToken.Literal
 		p.nextToken()
+
+		// Handle method definitions: ClassName.MethodName
+		if p.curTokenIs(token.DOT) {
+			p.nextToken()
+			if p.curTokenIs(token.IDENT) {
+				decl.Name = decl.Name + "." + p.curToken.Literal
+				p.nextToken()
+			}
+		}
 	}
 
 	// Parse optional generic type parameters: Foo<T> or Swap<T, U>
@@ -616,6 +657,36 @@ func (p *Parser) parseFunctionDecl() *ast.FunctionDecl {
 		p.nextToken()
 		if p.curTokenIs(token.SEMICOLON) {
 			p.nextToken()
+		}
+	}
+
+	// Parse local declarations (var, const) before begin block
+	for {
+		if p.curTokenIs(token.VAR) {
+			varToken := p.curToken
+			p.nextToken()
+			for p.isIdentOrSoftKeyword() {
+				vd := p.parseSingleVarDecl(varToken)
+				if vd != nil {
+					decl.LocalDecls = append(decl.LocalDecls, vd)
+				}
+				for p.curTokenIs(token.SEMICOLON) {
+					p.nextToken()
+				}
+			}
+		} else if p.curTokenIs(token.CONST) {
+			p.nextToken()
+			for p.isIdentOrSoftKeyword() {
+				cd := p.parseSingleConstDecl()
+				if cd != nil {
+					decl.LocalDecls = append(decl.LocalDecls, cd)
+				}
+				for p.curTokenIs(token.SEMICOLON) {
+					p.nextToken()
+				}
+			}
+		} else {
+			break
 		}
 	}
 
@@ -1222,7 +1293,8 @@ func (p *Parser) parseClassDecl() *ast.ClassDecl {
 	decl := &ast.ClassDecl{Visibility: token.PUBLIC}
 	p.nextToken() // skip 'class'
 
-	if p.curTokenIs(token.IDENT) {
+	// Only parse name if NOT followed by ':' (which would be a field declaration)
+	if p.curTokenIs(token.IDENT) && !p.peekTokenIs(token.COLON) {
 		decl.Name = p.curToken.Literal
 		p.nextToken()
 	}
@@ -1302,6 +1374,16 @@ func (p *Parser) parseClassDecl() *ast.ClassDecl {
 			prop := p.parsePropertyDecl()
 			if prop != nil {
 				decl.Properties = append(decl.Properties, prop)
+			}
+		} else if p.isIdentOrSoftKeyword() && p.peekTokenIs(token.COLON) {
+			// Handle bare field declarations without 'var' prefix: name: Type;
+			varToken := p.curToken
+			field := p.parseSingleVarDecl(varToken)
+			if field != nil {
+				decl.Fields = append(decl.Fields, field)
+			}
+			for p.curTokenIs(token.SEMICOLON) {
+				p.nextToken()
 			}
 		} else {
 			p.nextToken()
@@ -1882,22 +1964,43 @@ func (p *Parser) parseCallExpression(function ast.Expression) ast.Expression {
 	return exp
 }
 
+// parseTypeAsExpression parses a type keyword (map, variant) as an expression.
+// This handles cases like: var m := map[String]Integer;
+func (p *Parser) parseTypeAsExpression() ast.Expression {
+	return p.parseTypeExpression()
+}
+
 func (p *Parser) parseIndexExpression(left ast.Expression) ast.Expression {
-	exp := &ast.IndexExpression{Token: p.curToken, Left: left}
+	tok := p.curToken
 	p.nextToken()
-	exp.Index = p.parseExpression(LOWEST)
+
+	first := p.parseExpression(LOWEST)
+
+	// Check for slice: [a:b]
+	if p.peekTokenIs(token.COLON) {
+		p.nextToken() // move to ':'
+		p.nextToken() // skip ':'
+		high := p.parseExpression(LOWEST)
+		if !p.expectPeek(token.RBRACKET) {
+			return nil
+		}
+		return &ast.SliceExpression{Token: tok, Left: left, Low: first, High: high}
+	}
 
 	if !p.expectPeek(token.RBRACKET) {
 		return nil
 	}
 
-	return exp
+	return &ast.IndexExpression{Token: tok, Left: left, Index: first}
 }
 
+// parseMemberExpression parses object.member expressions.
+// After '.', members can be identifiers OR keywords used as identifiers
+// (e.g., 'default' in property records).
 func (p *Parser) parseMemberExpression(left ast.Expression) ast.Expression {
 	dotToken := p.curToken
 	p.nextToken() // skip .
-	if p.curTokenIs(token.IDENT) {
+	if p.curTokenIs(token.IDENT) || p.isSoftKeyword() {
 		return &ast.MemberExpression{Token: dotToken, Object: left, Member: p.curToken.Literal}
 	}
 	return left
@@ -1942,6 +2045,13 @@ func (p *Parser) parseExpressionList(end token.TokenType) []ast.Expression {
 }
 
 func (p *Parser) parseTypeExpression() ast.Expression {
+	// Check for enum type: (ident1, ident2, ...)
+	if p.curTokenIs(token.LPAREN) {
+		if enumType := p.tryParseEnumType(); enumType != nil {
+			return enumType
+		}
+	}
+
 	if p.curTokenIs(token.IDENT) {
 		name := p.curToken.Literal
 		p.nextToken()
@@ -2065,6 +2175,16 @@ func (p *Parser) parseTypeExpression() ast.Expression {
 							p.nextToken()
 						}
 					}
+				} else if p.curTokenIs(token.IDENT) {
+					// Handle record fields without 'var' keyword
+					varToken := p.curToken
+					field := p.parseSingleVarDecl(varToken)
+					if field != nil {
+						record.Fields = append(record.Fields, field)
+					}
+					for p.curTokenIs(token.SEMICOLON) {
+						p.nextToken()
+					}
 				} else {
 					p.nextToken()
 				}
@@ -2109,4 +2229,41 @@ func (p *Parser) parseTypeExpression() ast.Expression {
 	}
 
 	return &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+}
+
+// tryParseEnumType attempts to parse an enum type: (ident1, ident2, ...)
+func (p *Parser) tryParseEnumType() *ast.EnumType {
+	savedCur := p.curToken
+	savedPeek := p.peekToken
+
+	p.nextToken() // skip '('
+
+	if !p.curTokenIs(token.IDENT) {
+		p.curToken = savedCur
+		p.peekToken = savedPeek
+		return nil
+	}
+
+	if !p.peekTokenIs(token.COMMA) && !p.peekTokenIs(token.RPAREN) {
+		p.curToken = savedCur
+		p.peekToken = savedPeek
+		return nil
+	}
+
+	enum := &ast.EnumType{}
+	for p.curTokenIs(token.IDENT) {
+		enum.Names = append(enum.Names, p.curToken.Literal)
+		p.nextToken()
+		if p.curTokenIs(token.COMMA) {
+			p.nextToken()
+		} else {
+			break
+		}
+	}
+
+	if p.curTokenIs(token.RPAREN) {
+		p.nextToken()
+	}
+
+	return enum
 }

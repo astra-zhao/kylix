@@ -4,6 +4,118 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v1.1.0 (2026-06-06)
+
+### Phase 8: Bootstrap Compiler — Go Backend Upgrades
+
+This release upgrades the Go compiler backend with the features needed to
+compile the Kylix self-hosting compiler (`src/*.klx`). All 14 example files
+continue to pass, all Go tests pass.
+
+#### P0 - Enum Types
+
+- **AST**: Added `EnumType` node with `Names []string`
+- **Parser**: `tryParseEnumType()` parses `(val1, val2, ...)` syntax via `parseTypeExpression`
+- **Generator**: `generateEnumType()` → Go `const` + `iota` + `type X int`
+- Example: `type TTokenType = (tkEOF, tkIdent, ...);` → `const (tkEOF TTokenType = iota; tkIdent; ...)`
+
+#### P0 - Slice Expressions
+
+- **AST**: Added `SliceExpression` node (`Low`, `High`)
+- **Parser**: `parseIndexExpression` detects `[a:b]` vs `[a]`
+- **Generator**: `s[a:b]` → `s[a:b]` (Go slice syntax)
+
+#### P0 - Unit File System & Multi-File Compilation
+
+- **Parser**: `unit X;` declaration at file start → `Program.UnitName`, `Program.IsUnit`
+- **Generator**: `GenerateMulti([]*Program)` — compiles multiple files into one Go package
+- **Compiler API**: `CompileProject(files, opts)` with topological dependency sort
+- **CLI**: `kylix build a.klx b.klx c.klx` multi-file mode
+- **CLI**: `kylix run` auto-detects all `.klx` files via `FindAllKlxFiles()`
+
+#### P0 - Class Code Generation (Hybrid Struct/Interface Approach)
+
+- **All classes** generate as Go structs with parent embedding
+- **Base classes** (parents of other classes) → `interface{}` in type positions for polymorphism
+- **Concrete classes** → `*ClassName` pointers
+- **Constructors**: `ClassName.Create` (no args) → `&ClassName{}`; `ClassName.Create(args)` → `&ClassName{args...}`
+- **Class methods** generate `var result` declaration and local var/const declarations
+- **Property accessors** generate getter/setter methods on the class
+
+#### P1 - Soft Keyword Expansion (25+ keywords)
+
+~25 Pascal keywords can now be used as identifiers in member positions
+(`obj.Default`, `obj.DownTo`, `obj.When`, `obj.Dynamic`, `obj.To`, `obj.Do`,
+`obj.Of`, `obj.In`, `obj.Read`, `obj.Write`, `obj.Abstract`, `obj.External`,
+`obj.Forward`, `obj.Virtual`, `obj.Override`, `obj.Static`, `obj.Stored`,
+`obj.Packed`, `obj.File`, `obj.New`, `obj.Delete`, `obj.Export`, `obj.Import`,
+`obj.Module`, `obj.Is`, `obj.Except`, `obj.On`).
+
+- **Parser**: `isSoftKeyword()` expanded; `parseMemberExpression` accepts soft keywords
+- **Parser**: `parseFunctionDecl` accepts keywords as function names (fixes `function Delete`)
+
+#### P1 - Other Generator Fixes
+
+- **Local var/const in functions**: `FunctionDecl.LocalDecls` parsed and generated before body
+- **`Exit` statement**: Pascal `exit` → `return result` (with return value) or `return` (procedure)
+- **Bare method calls**: `self.Method` as statement → `self.Method()` (auto-parens)
+- **Map type as expression**: `map[K]V` registered as prefix parse function, generates `map[K]V{}`
+- **Empty array `[]`**: generates `nil` (assignable to any Go slice type)
+- **String escaping**: proper `\`, `"`, `\n` escaping in string literals
+- **New builtins**: `Ord`, `Length`, `IntToStr`, `StrToInt64`, `StrToFloat`
+- **`for` loop**: generates `for i = 0` (no `:=`, avoids type mismatch with pre-declared `int64`)
+
+### Bootstrap Compiler Source Files (Phase 8)
+
+Seven Kylix source files written as the self-hosting compiler:
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `src/token.klx` | 209 | Token type enum, keyword map, lex helpers |
+| `src/ast.klx` | 374 | AST node class hierarchy (54 classes) |
+| `src/lexer.klx` | 366 | Lexical analyzer (character → token stream) |
+| `src/parser.klx` | 2338 | Pratt parser (token stream → AST) |
+| `src/error.klx` | 91 | Compiler error types and diagnostics |
+| `src/generator.klx` | 221 | Go code generator (AST → Go source, skeleton) |
+| `src/main.klx` | 56 | Entry point wiring lexer→parser→generator |
+| **Total** | **3655** | |
+
+**Build status:** All 7 `.klx` files compile to Go code successfully. The generated
+Go code has ~6 remaining type/API compatibility issues to resolve before full
+self-hosting bootstrap works.
+
+### Example File Status (15 files)
+
+| ✅ Passing (14/15) | ❌ Failing (1) |
+|---|---|
+| hello, simple, types, control, classes | web_advanced (Go syntax mixed into Kylix code) |
+| modern, exceptions, stdlib_demo, orm_example | |
+| functions, web_demo, test_formatter, test_map | |
+| web_fullstack | |
+
+### Bug Fixes
+
+- **`Delete` as function name**: `function Delete(...)` no longer fails (keyword recognized as identifier)
+- **Class field parsing**: Bare field declarations (`Name: Type;` without `var`) guarded by `peekTokenIs(COLON)`
+- **Parser regression**: 14/15 examples confirmed passing (no regressions from new features)
+
+### Files Changed
+
+- `ast/ast.go` — Added `EnumType`, `SliceExpression`, `LocalDecls` on `FunctionDecl`
+- `parser/parser.go` — Enum parsing, slice parsing, unit file parsing, soft keyword expansion, map/variant prefix, local var/const storage, class field safety, function-as-keyword-name fix
+- `generator/generator.go` — Major rewrite: class codegen (hybrid struct/interface), enum generation, slice generation, multi-file `GenerateMulti`, constructor handling, bare method call parens, exit statement, for loop type fix, string escaping, new builtins, class method result+locals generation, map type as expression
+- `cmd/kylix/main.go` — Multi-file build/run support
+- `pkg/compiler/compiler.go` — `CompileProject` with topological sort
+- `src/*.klx` — 7 new bootstrap compiler source files (3655 lines total)
+
+### Version Bumps
+
+| Component | Old | New |
+|-----------|-----|-----|
+| Compiler, REPL, LSP, Project | 1.0.3 | **1.1.0** |
+
+---
+
 ## v1.0.3 (2026-06-05)
 
 ### New Features — Phase 7: Language Capabilities

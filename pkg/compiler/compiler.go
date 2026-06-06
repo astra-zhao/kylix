@@ -3,6 +3,7 @@ package compiler
 import (
 	"fmt"
 	"io/ioutil"
+	"kylix/ast"
 	"kylix/generator"
 	"kylix/lexer"
 	"kylix/parser"
@@ -171,4 +172,114 @@ func parseLocation(d *Diagnostic, msg string) {
 			d.Column = col
 		}
 	}
+}
+
+// CompileProject compiles multiple .klx files as a single project.
+func CompileProject(files []string, opts Options) (*Result, error) {
+	result := &Result{}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no source files provided")
+	}
+
+	programs := make([]*ast.Program, 0, len(files))
+	fileMap := make(map[string]*ast.Program)
+
+	for _, file := range files {
+		source, err := ioutil.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read %s: %v", file, err)
+		}
+
+		l := lexer.New(string(source))
+		p := parser.New(l)
+		program := p.ParseProgram()
+
+		for _, errMsg := range p.Errors() {
+			d := Diagnostic{
+				File:    file,
+				Level:   "error",
+				Message: errMsg,
+			}
+			parseLocation(&d, errMsg)
+			result.Diagnostics = append(result.Diagnostics, d)
+		}
+
+		if len(p.Errors()) > 0 {
+			result.Success = false
+			return result, nil
+		}
+
+		name := program.UnitName
+		if name == "" {
+			name = program.Name
+		}
+		if name != "" {
+			fileMap[name] = program
+		}
+		programs = append(programs, program)
+	}
+
+	sorted, err := topoSort(programs, fileMap)
+	if err != nil {
+		return nil, fmt.Errorf("dependency error: %v", err)
+	}
+
+	gen := generator.New()
+	goCode := gen.GenerateMulti(sorted)
+	result.GoCode = goCode
+
+	outputFile := opts.OutputFile
+	if outputFile == "" {
+		outputFile = "main.go"
+		if opts.WorkingDir != "" {
+			outputFile = filepath.Join(opts.WorkingDir, outputFile)
+		}
+	}
+
+	if err := ioutil.WriteFile(outputFile, []byte(goCode), 0644); err != nil {
+		return nil, fmt.Errorf("cannot write %s: %v", outputFile, err)
+	}
+	result.OutputFile = outputFile
+	result.Success = true
+
+	return result, nil
+}
+
+func topoSort(programs []*ast.Program, fileMap map[string]*ast.Program) ([]*ast.Program, error) {
+	visited := make(map[*ast.Program]bool)
+	inStack := make(map[*ast.Program]bool)
+	var sorted []*ast.Program
+
+	var visit func(prog *ast.Program) error
+	visit = func(prog *ast.Program) error {
+		if visited[prog] {
+			return nil
+		}
+		if inStack[prog] {
+			return fmt.Errorf("circular dependency detected")
+		}
+		inStack[prog] = true
+
+		for _, use := range prog.Uses {
+			if dep, ok := fileMap[use]; ok {
+				if err := visit(dep); err != nil {
+					return err
+				}
+			}
+		}
+
+		inStack[prog] = false
+		visited[prog] = true
+		sorted = append(sorted, prog)
+		return nil
+	}
+
+	for _, prog := range programs {
+		if err := visit(prog); err != nil {
+			return nil, err
+		}
+	}
+
+	return sorted, nil
 }

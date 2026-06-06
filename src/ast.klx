@@ -1,0 +1,374 @@
+unit ast;
+uses token;
+
+// ============================================================================
+// Base Classes
+// ============================================================================
+
+type
+  TNode = class
+  end;
+
+  TStatement = class(TNode)
+  end;
+
+  TExpression = class(TNode)
+  end;
+
+// ============================================================================
+// Helper Classes
+// ============================================================================
+
+  TParameter = class(TNode)
+    Token: TToken;
+    Name: String;
+    ParamType: TExpression;
+  end;
+
+  TTypeParameter = class(TNode)
+    Token: TToken;
+    Name: String;
+    Constraint: TExpression;
+  end;
+
+  TCaseBranch = class(TNode)
+    Values: array of TExpression;
+    Body: TNode; // TBlockStatement
+  end;
+
+  TMatchBranch = class(TNode)
+    Pattern: TExpression;
+    AdditionalPatterns: array of TExpression;
+    When: TExpression;
+    Body: TNode; // TBlockStatement
+  end;
+
+  TVariantCase = class(TNode)
+    Name: String;
+    CaseType: TExpression;
+  end;
+
+// ============================================================================
+// Program (Root Node)
+// ============================================================================
+
+  TProgram = class(TNode)
+    Name: String;
+    NameToken: TToken;
+    UnitName: String;
+    IsUnit: Boolean;
+    Uses: array of String;
+    Declarations: array of TNode;
+    Statements: array of TStatement;
+  end;
+
+// ============================================================================
+// Declarations
+// ============================================================================
+
+  TVarDecl = class(TStatement)
+    Token: TToken;
+    Names: array of String;
+    VarType: TExpression;
+    Value: TExpression;
+    Inferred: Boolean;
+  end;
+
+  TConstDecl = class(TStatement)
+    Token: TToken;
+    Name: String;
+    ConstType: TExpression;
+    Value: TExpression;
+  end;
+
+  TTypeDecl = class(TStatement)
+    Token: TToken;
+    Name: String;
+    DeclType: TExpression;
+  end;
+
+  TFunctionDecl = class(TStatement)
+    Token: TToken;
+    Name: String;
+    TypeParams: array of TTypeParameter;
+    Parameters: array of TParameter;
+    ReturnType: TExpression;
+    ReturnTypes: array of TExpression;
+    Body: TNode; // TBlockStatement
+    IsAsync: Boolean;
+    IsExport: Boolean;
+  end;
+
+  TClassDecl = class(TStatement)
+    Token: TToken;
+    Name: String;
+    TypeParams: array of TTypeParameter;
+    Parent: String;
+    Interfaces: array of String;
+    Fields: array of TVarDecl;
+    Methods: array of TFunctionDecl;
+    Properties: array of TNode; // TPropertyDecl
+    Visibility: TTokenType;
+  end;
+
+  TInterfaceDecl = class(TStatement)
+    Token: TToken;
+    Name: String;
+    Parents: array of String;
+    Methods: array of TFunctionDecl;
+  end;
+
+  TPropertyDecl = class(TStatement)
+    Token: TToken;
+    Name: String;
+    PropType: TExpression;
+    Getter: String;
+    Setter: String;
+    Default: TExpression;
+  end;
+
+// ============================================================================
+// Statements
+// ============================================================================
+
+  TBlockStatement = class(TStatement)
+    Token: TToken;
+    Statements: array of TStatement;
+  end;
+
+  TAssignmentStatement = class(TStatement)
+    Token: TToken;
+    Name: TExpression;
+    Value: TExpression;
+  end;
+
+  TReturnStatement = class(TStatement)
+    Token: TToken;
+    ReturnValue: TExpression;
+  end;
+
+  TExpressionStatement = class(TStatement)
+    Token: TToken;
+    Expression: TExpression;
+  end;
+
+  TIfStatement = class(TStatement)
+    Token: TToken;
+    Condition: TExpression;
+    Consequence: TBlockStatement;
+    Alternative: TBlockStatement;
+  end;
+
+  TWhileStatement = class(TStatement)
+    Token: TToken;
+    Condition: TExpression;
+    Body: TBlockStatement;
+  end;
+
+  TForStatement = class(TStatement)
+    Token: TToken;
+    Variable: String;
+    From: TExpression;
+    To: TExpression;
+    DownTo: Boolean;
+    Body: TBlockStatement;
+  end;
+
+  TForEachStatement = class(TStatement)
+    Token: TToken;
+    Variable: String;
+    Iterable: TExpression;
+    Body: TBlockStatement;
+  end;
+
+  TRepeatStatement = class(TStatement)
+    Token: TToken;
+    Body: TBlockStatement;
+    Condition: TExpression;
+  end;
+
+  TCaseStatement = class(TStatement)
+    Token: TToken;
+    Expression: TExpression;
+    Branches: array of TCaseBranch;
+    ElseBranch: TBlockStatement;
+  end;
+
+  TMatchStatement = class(TStatement)
+    Token: TToken;
+    Expression: TExpression;
+    Branches: array of TMatchBranch;
+  end;
+
+  TOnClause = class(TStatement)
+    Token: TToken;
+    Variable: String;
+    OnType: TExpression;
+    Body: TBlockStatement;
+  end;
+
+  TTryStatement = class(TStatement)
+    Token: TToken;
+    Body: TBlockStatement;
+    OnClauses: array of TOnClause;
+    ExceptBlock: TBlockStatement;
+    FinallyBlock: TBlockStatement;
+  end;
+
+  TRaiseStatement = class(TStatement)
+    Token: TToken;
+    Exception: TExpression;
+  end;
+
+  TBreakStatement = class(TStatement)
+    Token: TToken;
+  end;
+
+  TContinueStatement = class(TStatement)
+    Token: TToken;
+  end;
+
+  TInheritedStatement = class(TStatement)
+    Token: TToken;
+    Expr: TExpression;
+  end;
+
+// ============================================================================
+// Expressions
+// ============================================================================
+
+  TIdentifier = class(TExpression)
+    Token: TToken;
+    Value: String;
+  end;
+
+  TIntegerLiteral = class(TExpression)
+    Token: TToken;
+    Value: Integer;
+  end;
+
+  TFloatLiteral = class(TExpression)
+    Token: TToken;
+    Value: Real;
+  end;
+
+  TStringLiteral = class(TExpression)
+    Token: TToken;
+    Value: String;
+  end;
+
+  TStringInterpolation = class(TExpression)
+    Parts: array of TExpression;
+  end;
+
+  TBooleanLiteral = class(TExpression)
+    Token: TToken;
+    Value: Boolean;
+  end;
+
+  TNilLiteral = class(TExpression)
+    Token: TToken;
+  end;
+
+  TArrayLiteral = class(TExpression)
+    Token: TToken;
+    Elements: array of TExpression;
+  end;
+
+  TTupleLiteral = class(TExpression)
+    Token: TToken;
+    Elements: array of TExpression;
+  end;
+
+  TPrefixExpression = class(TExpression)
+    Token: TToken;
+    Operator: String;
+    Right: TExpression;
+  end;
+
+  TInfixExpression = class(TExpression)
+    Token: TToken;
+    Left: TExpression;
+    Operator: String;
+    Right: TExpression;
+  end;
+
+  TCallExpression = class(TExpression)
+    Token: TToken;
+    Func: TExpression;
+    Arguments: array of TExpression;
+  end;
+
+  TMemberExpression = class(TExpression)
+    Token: TToken;
+    Obj: TExpression;
+    Member: String;
+  end;
+
+  TIndexExpression = class(TExpression)
+    Token: TToken;
+    Left: TExpression;
+    Index: TExpression;
+  end;
+
+  TSliceExpression = class(TExpression)
+    Token: TToken;
+    Left: TExpression;
+    Low: TExpression;
+    High: TExpression;
+  end;
+
+  TLambdaExpression = class(TExpression)
+    Token: TToken;
+    Parameters: array of TParameter;
+    Body: TNode; // TBlockStatement or TExpression
+  end;
+
+  TAwaitExpression = class(TExpression)
+    Token: TToken;
+    Expression: TExpression;
+  end;
+
+  TTypeCastExpression = class(TExpression)
+    Token: TToken;
+    Expression: TExpression;
+    TargetType: TExpression;
+  end;
+
+  TIsExpression = class(TExpression)
+    Token: TToken;
+    Expression: TExpression;
+    TargetType: TExpression;
+  end;
+
+// ============================================================================
+// Type Expressions
+// ============================================================================
+
+  TRecordType = class(TExpression)
+    Fields: array of TVarDecl;
+  end;
+
+  TArrayType = class(TExpression)
+    ElementType: TExpression;
+    Size: TExpression;
+    Dynamic: Boolean;
+  end;
+
+  TMapType = class(TExpression)
+    KeyType: TExpression;
+    ValueType: TExpression;
+  end;
+
+  TVariantType = class(TExpression)
+    Cases: array of TVariantCase;
+  end;
+
+  TEnumType = class(TExpression)
+    Names: array of String;
+  end;
+
+  TGenericType = class(TExpression)
+    Base: String;
+    TypeParams: array of TExpression;
+  end;

@@ -1,0 +1,56 @@
+program KylixCompiler;
+
+uses token, lexer, parser, generator, error;
+
+var
+  SourceFile: String;
+  SourceCode: String;
+  Lex: TLexer;
+  Par: TParser;
+  Gen: TGenerator;
+  Prog: TProgram;
+  GoCode: String;
+  ErrList: TErrorList;
+  i: Integer;
+
+begin
+  ErrList := TErrorList.Create;
+
+  // Get source file name
+  SourceFile := 'input.klx';
+
+  // Read source code
+  SourceCode := '';
+  // TODO: read file content into SourceCode
+
+  if SourceCode = '' then
+  begin
+    ErrList.AddError('', 0, 0, 'no source code');
+    exit;
+  end;
+
+  // Tokenize
+  Lex := NewLexer(SourceCode);
+
+  // Parse
+  Par := TParser.Create(Lex);
+  Prog := Par.ParseProgram;
+
+  // Check for parser errors
+  for i := 0 to Length(Par.Errors) - 1 do
+  begin
+    ErrList.AddError(SourceFile, 0, 0, Par.Errors[i]);
+  end;
+
+  if ErrList.HasErrors then
+  begin
+    WriteLn(ErrList.ToString);
+    exit;
+  end;
+
+  // Generate Go code
+  Gen := TGenerator.Create;
+  GoCode := Gen.Generate(Prog);
+
+  WriteLn(GoCode);
+end.

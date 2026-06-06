@@ -1,0 +1,92 @@
+unit error;
+uses token;
+
+// ============================================================================
+// Error/Diagnostic Types
+// ============================================================================
+
+type
+  TDiagnostic = class
+    FileName: String;
+    Line: Integer;
+    Column: Integer;
+    Level: String;     // 'error' or 'warning'
+    Message: String;
+    Source: String;     // the source line where the issue occurred
+  end;
+
+  TErrorList = class
+    Errors: array of TDiagnostic;
+
+    function Count: Integer;
+    begin
+      result := Length(self.Errors);
+    end;
+
+    procedure Add(fileName: String; line, col: Integer; level, msg: String);
+    var
+      d: TDiagnostic;
+    begin
+      d := TDiagnostic.Create;
+      d.FileName := fileName;
+      d.Line := line;
+      d.Column := col;
+      d.Level := level;
+      d.Message := msg;
+      d.Source := '';
+      self.Errors := append(self.Errors, d);
+    end;
+
+    procedure AddError(fileName: String; line, col: Integer; msg: String);
+    begin
+      self.Add(fileName, line, col, 'error', msg);
+    end;
+
+    procedure AddWarning(fileName: String; line, col: Integer; msg: String);
+    begin
+      self.Add(fileName, line, col, 'warning', msg);
+    end;
+
+    function HasErrors: Boolean;
+    var
+      i: Integer;
+    begin
+      result := false;
+      for i := 0 to Length(self.Errors) - 1 do
+      begin
+        if self.Errors[i].Level = 'error' then
+        begin
+          result := true;
+          exit;
+        end;
+      end;
+    end;
+
+    function ToString: String;
+    var
+      i: Integer;
+      s: String;
+    begin
+      s := '';
+      for i := 0 to Length(self.Errors) - 1 do
+      begin
+        s := s + self.Errors[i].FileName + '(';
+        s := s + IntToStr(self.Errors[i].Line) + ':';
+        s := s + IntToStr(self.Errors[i].Column) + '): ';
+        s := s + self.Errors[i].Level + ': ';
+        s := s + self.Errors[i].Message;
+        if i < Length(self.Errors) - 1 then
+          s := s + '\n';
+      end;
+      result := s;
+    end;
+  end;
+
+  // Represents a single position in source code
+  TSourcePosition = record
+    FileName: String;
+    Line: Integer;
+    Column: Integer;
+    Offset: Integer;
+  end;
+end.

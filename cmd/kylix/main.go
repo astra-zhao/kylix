@@ -11,10 +11,11 @@ import (
 	"kylix/pkg/project"
 	"kylix/pkg/repl"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
-const Version = "1.0.3"
+const Version = "1.1.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -105,14 +106,31 @@ OPTIONS:
 		os.Exit(1)
 	}
 
-	// Single file mode
+	// Single file or multi-file mode
 	if fs.NArg() > 0 {
-		file := fs.Arg(0)
 		opts := compiler.Options{
 			OutputFile: *output,
 			Verbose:    *verbose,
 		}
-		result, err := compiler.CompileFile(file, opts)
+
+		if fs.NArg() == 1 {
+			file := fs.Arg(0)
+			result, err := compiler.CompileFile(file, opts)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			printDiagnostics(result.Diagnostics)
+			if !result.Success {
+				os.Exit(1)
+			}
+			fmt.Printf("✓ Compiled %s → %s\n", file, result.OutputFile)
+			return
+		}
+
+		// Multi-file mode
+		files := fs.Args()
+		result, err := compiler.CompileProject(files, opts)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -121,7 +139,7 @@ OPTIONS:
 		if !result.Success {
 			os.Exit(1)
 		}
-		fmt.Printf("✓ Compiled %s → %s\n", file, result.OutputFile)
+		fmt.Printf("✓ Compiled %d files → %s\n", len(files), result.OutputFile)
 		return
 	}
 
@@ -242,7 +260,19 @@ OPTIONS:
 		KeepGoFile: *keepGo,
 	}
 
-	result, err := compiler.RunFile(mainFile, opts)
+	// Find all .klx files
+	klxFiles, err := cfg.FindAllKlxFiles()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error finding source files: %v\n", err)
+		os.Exit(1)
+	}
+
+	var result *compiler.Result
+	if len(klxFiles) > 1 {
+		result, err = compiler.CompileProject(klxFiles, opts)
+	} else {
+		result, err = compiler.RunFile(mainFile, opts)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -250,6 +280,27 @@ OPTIONS:
 	printDiagnostics(result.Diagnostics)
 	if !result.Success {
 		os.Exit(1)
+	}
+
+	// For multi-file mode, run the generated Go file
+	if len(klxFiles) > 1 && result.OutputFile != "" {
+		goModPath := filepath.Join(outDir, "go.mod")
+		if _, err := os.Stat(goModPath); os.IsNotExist(err) {
+			goMod := fmt.Sprintf("module %s\n\ngo 1.21\n", cfg.GoMod)
+			os.WriteFile(goModPath, []byte(goMod), 0644)
+		}
+		cmd := exec.Command("go", "run", filepath.Base(result.OutputFile))
+		cmd.Dir = outDir
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+		if runErr := cmd.Run(); runErr != nil {
+			fmt.Fprintf(os.Stderr, "Runtime error: %v\n", runErr)
+			os.Exit(1)
+		}
+		if !*keepGo {
+			os.Remove(result.OutputFile)
+		}
 	}
 }
 

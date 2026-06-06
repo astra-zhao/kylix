@@ -1,0 +1,366 @@
+unit lexer;
+uses token;
+
+type
+  TLexer = class
+    Input: String;
+    Position: Integer;
+    ReadPosition: Integer;
+    Ch: String;
+    Line: Integer;
+    Column: Integer;
+  end;
+
+function NewLexer(input: String): TLexer;
+var lex: TLexer;
+begin
+  lex := TLexer.Create();
+  lex.Input := input;
+  lex.Position := 0;
+  lex.ReadPosition := 0;
+  lex.Ch := '';
+  lex.Line := 1;
+  lex.Column := 0;
+  lex.ReadChar();
+  result := lex;
+end;
+
+procedure TLexer.ReadChar();
+begin
+  if self.ReadPosition >= Length(self.Input) then
+    self.Ch := ''
+  else
+    self.Ch := self.Input[self.ReadPosition:self.ReadPosition+1];
+
+  self.Position := self.ReadPosition;
+  self.ReadPosition := self.ReadPosition + 1;
+  self.Column := self.Column + 1;
+
+  if Ord(self.Ch) = 10 then
+  begin
+    self.Line := self.Line + 1;
+    self.Column := 0;
+  end;
+end;
+
+function TLexer.PeekChar(): String;
+begin
+  if self.ReadPosition >= Length(self.Input) then
+    result := ''
+  else
+    result := self.Input[self.ReadPosition:self.ReadPosition+1];
+end;
+
+function TLexer.NewToken(tokenType: TTokenType; literal: String): TToken;
+var tok: TToken;
+begin
+  tok.TokenType := tokenType;
+  tok.Literal := literal;
+  tok.Line := self.Line;
+  tok.Column := self.Column;
+  result := tok;
+end;
+
+procedure TLexer.SkipWhitespace();
+var done: Boolean;
+begin
+  done := false;
+  while done = false do
+  begin
+    if self.Ch = ' ' then
+      self.ReadChar()
+    else if Ord(self.Ch) = 9 then
+      self.ReadChar()
+    else if Ord(self.Ch) = 10 then
+      self.ReadChar()
+    else if Ord(self.Ch) = 13 then
+      self.ReadChar()
+    else
+      done := true;
+  end;
+end;
+
+procedure TLexer.SkipComments();
+begin
+  // Line comments: //
+  if self.Ch = '/' then
+    if self.PeekChar() = '/' then
+      while (Ord(self.Ch) <> 10) and (self.Ch <> '') do
+        self.ReadChar();
+
+  // Block comments: (* ... *)
+  if self.Ch = '(' then
+    if self.PeekChar() = '*' then
+    begin
+      self.ReadChar();
+      self.ReadChar();
+      while ((self.Ch <> '*') or (self.PeekChar() <> ')')) and (self.Ch <> '') do
+        self.ReadChar();
+      if self.Ch = '*' then
+      begin
+        self.ReadChar();
+        self.ReadChar();
+      end;
+    end;
+end;
+
+function TLexer.ReadIdentifier(): String;
+var startPos: Integer;
+begin
+  startPos := self.Position;
+  while IsLetter(self.Ch) or IsDigit(self.Ch) do
+    self.ReadChar();
+  result := self.Input[startPos:self.Position];
+end;
+
+function TLexer.ReadNumber(): TToken;
+var startPos: Integer;
+var startLine: Integer;
+var startCol: Integer;
+var tokType: TTokenType;
+begin
+  startPos := self.Position;
+  startLine := self.Line;
+  startCol := self.Column;
+  tokType := tkInt;
+
+  while IsDigit(self.Ch) do
+    self.ReadChar();
+
+  if self.Ch = '.' then
+    if IsDigit(self.PeekChar()) then
+    begin
+      tokType := tkFloat;
+      self.ReadChar();
+      while IsDigit(self.Ch) do
+        self.ReadChar();
+    end;
+
+  result.TokenType := tokType;
+  result.Literal := self.Input[startPos:self.Position];
+  result.Line := startLine;
+  result.Column := startCol;
+end;
+
+function TLexer.ReadString(): String;
+var startPos: Integer;
+begin
+  self.ReadChar(); // skip opening "
+  startPos := self.Position;
+  while (self.Ch <> '"') and (self.Ch <> '') do
+    self.ReadChar();
+  result := self.Input[startPos:self.Position];
+  self.ReadChar(); // skip closing "
+end;
+
+function TLexer.ReadSingleQuotedString(): String;
+var startPos: Integer;
+begin
+  self.ReadChar(); // skip opening '
+  startPos := self.Position;
+  while (Ord(self.Ch) <> 39) and (self.Ch <> '') do
+    self.ReadChar();
+  result := self.Input[startPos:self.Position];
+  self.ReadChar(); // skip closing '
+end;
+
+function TLexer.ReadInterpolatedString(): String;
+var startPos: Integer;
+var braceDepth: Integer;
+var done: Boolean;
+begin
+  self.ReadChar(); // skip opening "
+  startPos := self.Position;
+  braceDepth := 0;
+  done := false;
+
+  while (self.Ch <> '') and (done = false) do
+  begin
+    if self.Ch = '{' then
+      braceDepth := braceDepth + 1
+    else if self.Ch = '}' then
+      braceDepth := braceDepth - 1
+    else if (self.Ch = '"') and (braceDepth = 0) then
+      done := true;
+
+    if done = false then
+      self.ReadChar();
+  end;
+
+  result := self.Input[startPos:self.Position];
+  self.ReadChar(); // skip closing "
+end;
+
+function TLexer.NextToken(): TToken;
+var tok: TToken;
+var before: String;
+var nextCh: String;
+var skipRead: Boolean;
+begin
+  InitKeywords();
+  skipRead := false;
+
+  // Loop to handle consecutive comments and whitespace
+  while true do
+  begin
+    self.SkipWhitespace();
+    before := self.Ch;
+    self.SkipComments();
+    if self.Ch = before then
+      break;
+  end;
+  self.SkipWhitespace();
+
+  tok.Line := self.Line;
+  tok.Column := self.Column;
+  nextCh := self.PeekChar();
+
+  if self.Ch = '=' then
+  begin
+    if nextCh = '=' then
+    begin
+      self.ReadChar();
+      tok := self.NewToken(tkEQ, '==');
+    end
+    else if nextCh = '>' then
+    begin
+      self.ReadChar();
+      tok := self.NewToken(tkFatArrow, '=>');
+    end
+    else
+      tok := self.NewToken(tkAssign, '=');
+  end
+  else if self.Ch = '+' then
+    tok := self.NewToken(tkPlus, '+')
+  else if self.Ch = '-' then
+  begin
+    if nextCh = '>' then
+    begin
+      self.ReadChar();
+      tok := self.NewToken(tkArrow, '->');
+    end
+    else
+      tok := self.NewToken(tkMinus, '-');
+  end
+  else if self.Ch = '!' then
+  begin
+    if nextCh = '=' then
+    begin
+      self.ReadChar();
+      tok := self.NewToken(tkNotEQ, '!=');
+    end
+    else
+      tok := self.NewToken(tkBang, '!');
+  end
+  else if self.Ch = '*' then
+    tok := self.NewToken(tkAsterisk, '*')
+  else if self.Ch = '/' then
+    tok := self.NewToken(tkSlash, '/')
+  else if self.Ch = '<' then
+  begin
+    if nextCh = '=' then
+    begin
+      self.ReadChar();
+      tok := self.NewToken(tkLTEQ, '<=');
+    end
+    else if nextCh = '>' then
+    begin
+      self.ReadChar();
+      tok := self.NewToken(tkNotEQ, '<>');
+    end
+    else
+      tok := self.NewToken(tkLT, '<');
+  end
+  else if self.Ch = '>' then
+  begin
+    if nextCh = '=' then
+    begin
+      self.ReadChar();
+      tok := self.NewToken(tkGTEQ, '>=');
+    end
+    else
+      tok := self.NewToken(tkGT, '>');
+  end
+  else if self.Ch = ':' then
+  begin
+    if nextCh = '=' then
+    begin
+      self.ReadChar();
+      tok := self.NewToken(tkAssignOp, ':=');
+    end
+    else
+      tok := self.NewToken(tkColon, ':');
+  end
+  else if self.Ch = ';' then
+    tok := self.NewToken(tkSemicolon, ';')
+  else if self.Ch = ',' then
+    tok := self.NewToken(tkComma, ',')
+  else if self.Ch = '.' then
+  begin
+    if nextCh = '.' then
+    begin
+      self.ReadChar();
+      tok := self.NewToken(tkDotDot, '..');
+    end
+    else
+      tok := self.NewToken(tkDot, '.');
+  end
+  else if self.Ch = '(' then
+    tok := self.NewToken(tkLParen, '(')
+  else if self.Ch = ')' then
+    tok := self.NewToken(tkRParen, ')')
+  else if self.Ch = '{' then
+    tok := self.NewToken(tkLBrace, '{')
+  else if self.Ch = '}' then
+    tok := self.NewToken(tkRBrace, '}')
+  else if self.Ch = '[' then
+    tok := self.NewToken(tkLBracket, '[')
+  else if self.Ch = ']' then
+    tok := self.NewToken(tkRBracket, ']')
+  else if Ord(self.Ch) = 39 then
+  begin
+    tok.TokenType := tkString;
+    tok.Literal := self.ReadSingleQuotedString();
+    skipRead := true;
+  end
+  else if self.Ch = '"' then
+  begin
+    tok.TokenType := tkString;
+    tok.Literal := self.ReadString();
+    skipRead := true;
+  end
+  else if self.Ch = '$' then
+  begin
+    if nextCh = '"' then
+    begin
+      self.ReadChar();
+      tok.TokenType := tkStringInterp;
+      tok.Literal := self.ReadInterpolatedString();
+      skipRead := true;
+    end
+    else
+      tok := self.NewToken(tkIllegal, self.Ch);
+  end
+  else if self.Ch = '' then
+  begin
+    tok.Literal := '';
+    tok.TokenType := tkEOF;
+  end
+  else if IsLetter(self.Ch) then
+  begin
+    tok.Literal := self.ReadIdentifier();
+    tok.TokenType := LookupIdent(tok.Literal);
+    skipRead := true;
+  end
+  else if IsDigit(self.Ch) then
+  begin
+    tok := self.ReadNumber();
+    skipRead := true;
+  end
+  else
+    tok := self.NewToken(tkIllegal, self.Ch);
+
+  if skipRead = false then
+    self.ReadChar();
+  result := tok;
+end;
