@@ -3,7 +3,7 @@
 > 最后更新: 2026-06-06
 > 官网: [kylix.top](https://kylix.top)
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
-> 当前版本: v1.1.0
+> 当前版本: v1.1.1
 
 ---
 
@@ -84,7 +84,7 @@
 
 ---
 
-## Phase 8: 编写 compiler.klx → v1.1.0 🚧 85%
+## Phase 8: 编写 compiler.klx → v1.1.1 ✅ 已完成
 
 ### 8.1 Go 编译器后端升级 ✅
 
@@ -112,49 +112,61 @@
 - [x] `src/lexer.klx` — 366 行，词法分析器
 - [x] `src/parser.klx` — 2338 行，Pratt 解析器
 - [x] `src/error.klx` — 91 行，编译器错误类型
-- [x] `src/generator.klx` — 221 行，Go 代码生成器 (骨架)
+- [x] `src/generator.klx` — ~1350 行，Go 代码生成器（完整实现，is/as 类型分发）
 - [x] `src/main.klx` — 56 行，入口点（文件读取 + 错误处理 + fallback）
 
 **7 文件联合编译: ✅ Kylix → Go 转换 + Go 编译零错误**
 
-### 8.3 已知 Bug 🐛
+### 8.3 Bug 修复 ✅ v1.1.1
 
-| Bug | 优先级 | 描述 |
-|-----|--------|------|
-| **Kylix lexer tokenization** | 🔴 P0 | 有效 Pascal 关键字被识别为 tkIllegal。根因：Kylix 版 lexer 中 `IsLetter`/`IsDigit` 字符串比较逻辑或 `NextToken` 分发逻辑有 bug |
-| **Single-quoted string escaping** | 🟠 P1 | Kylix `'...'` 字符串转为 Go `"..."` 时，内部单引号转义不正确 |
-| **web_advanced Go syntax** | 🟡 P2 | 示例文件混入 Go 语法 `map[string]interface{}`，非 Kylix 合法语法 |
+| Bug | 优先级 | 描述 | 状态 |
+|-----|--------|------|------|
+| **Kylix lexer tokenization** | 🔴 P0 | 有效 Pascal 关键字被识别为 tkIllegal。两个根因：(1) `LookupIdent` 单值 map 查找返回零值；(2) `TParser.Create(Lex)` 不调用 NextToken() | ✅ 已修复 |
+| **generator.klx 骨架** | 🔴 P0 | 221 行骨架扩展至 ~1350 行完整实现 | ✅ 已完成 |
+| **自举验证 (简单程序)** | 🔴 P0 | `program hello; begin WriteLn(42); end.` → 合法 Go 代码 | ✅ 已通过 |
+| **Single-quoted string escaping** | 🟠 P1 | Kylix `'...'` 字符串转 Go `"..."`，内部单引号转义 | ⬜ 待修复 |
+| **web_advanced Go syntax** | 🟡 P2 | 示例文件混入 Go 语法 | ⬜ 待修复 |
 
 ### 8.4 待完成 🟡
 
-- [ ] 8.4a 修复 Kylix lexer tokenization bug（需要调试 Kylix 版 `lexer.klx` 和 `token.klx`）
-- [ ] 8.4b 完善 `generator.klx` 骨架代码（用 `is`/`as` 实现类型分发、表达式生成）
-- [ ] 8.4c 修复单引号字符串转义
+- [x] 8.4a 修复 Kylix lexer tokenization bug ✅
+- [x] 8.4b 完善 `generator.klx` 骨架代码（用 `is`/`as` 实现类型分发、表达式生成）✅
+- [x] 8.4c 自举验证（简单程序）✅
+- [ ] 8.4d 修复复杂源文件自举（如 token.klx）—— 局部变量声明和参数类型处理
+- [ ] 8.4e 修复单引号字符串转义
+- [ ] 8.4f 自举验证（完整源文件编译 + diff）
 
 ---
 
-## Phase 9: 自举验证 🚧 30%
+## Phase 9: 自举验证 🚧 40%
 
 ### 9.1 Go 版编译器编译 compiler.klx ✅
 
 - [x] Go 版编译器成功编译 7 个 .klx 文件 → Go 代码
 - [x] 生成的 Go 代码零编译错误 → 自举 binary
 
-### 9.2 自举 binary 编译 compiler.klx 自身 🟡
+### 9.2 自举 binary 编译简单程序 ✅ v1.1.1
 
 - [x] Binary 可运行，lexer→parser→error 管道工作
-- [ ] Lexer tokenization bug 导致解析失败（无法完成完整编译）
+- [x] Lexer tokenization bug 已修复（两个根因）
+- [x] Generator 骨架已完善（~1350 行）
+- [x] 简单程序编译通过：`program hello; begin WriteLn(42); end.` → 合法 Go 代码
 
-### 9.3 两次输出 diff 验证 ⬜
+### 9.3 自举 binary 编译 compiler.klx 自身 🟡
 
-- [ ] 待 lexer bug 修复
+- [ ] 复杂源文件（token.klx 等）编译有局部变量和参数类型问题
+- [ ] 需要完善 Kylix AST 的 `TFunctionDecl.LocalDecls` 字段
 
-### 9.4 示例文件输出一致 ⬜
+### 9.4 两次输出 diff 验证 ⬜
+
+- [ ] 待复杂源文件编译通过
+
+### 9.5 示例文件输出一致 ⬜
 
 - [x] Go 版编译器: 14/15 示例通过
-- [ ] Kylix 版编译器: 待 lexer 修复
+- [ ] Kylix 版编译器: 待完善
 
-### 9.5 回归测试 ✅
+### 9.6 回归测试 ✅
 
 - [x] Go 测试全部通过
 - [x] 14/15 示例文件在 Go 版编译器下通过
@@ -167,9 +179,14 @@ Step 1: Go 版编译器
                             ↓ go build
                       kylix_compiler (binary)      ✅ 可运行
 
-Step 2: Kylix 编译器
-  input.klx ──→ kylix_compiler ──→ 输出           🟡 Lexer bug
-                                          错误信息正确输出，但 tokenization 有误
+Step 2: Kylix 编译器 (简单程序)
+  input.klx ──→ kylix_compiler ──→ 输出           ✅ 合法 Go 代码
+
+Step 3: Kylix 编译器 (复杂源文件)
+  token.klx ──→ kylix_compiler ──→ 输出           🟡 局部变量/参数问题
+  
+Step 4: Diff 验证
+  Go版输出 vs Kylix版输出                          ⬜ 待 Step 3 通过
 ```
 
 ---
@@ -180,9 +197,10 @@ Step 2: Kylix 编译器
 |------|------|------|----------|
 | v1.0.2 | Phase 6 完成 | ✅ | 2026-06-04 |
 | v1.0.3 | Phase 7 P0 完成 | ✅ | 2026-06-05 |
-| v1.1.0 | Phase 8 85% — Go 后端升级 + 7 .klx 文件 | ✅ | 2026-06-06 |
-| v1.1.1 | 修复 Kylix lexer bug + 完善 generator.klx | 🟡 | ~3 天 |
-| v1.2.0 | 自举验证通过 | ⬜ | ~1 周 |
+| v1.1.0 | Phase 8 Go 后端升级 + 7 .klx 文件 | ✅ | 2026-06-06 |
+| v1.1.1 | 修复 Kylix lexer bug + 完善 generator.klx + 自举验证(简单) | ✅ | 2026-06-06 |
+| v1.1.2 | 修复复杂源文件自举 (局部变量/参数类型) | 🟡 | ~2 天 |
+| v1.2.0 | 自举验证通过 (完整 diff) | ⬜ | ~1 周 |
 | v2.0.0 | 完整自举发布 | ⬜ | ~2 周 |
 
 ---

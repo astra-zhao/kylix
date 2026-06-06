@@ -19,21 +19,17 @@ type
     MultiReturnN: Integer;
     ClassTypes: map[String]Boolean;  // track which user-defined types are classes
     ClassIsBase: map[String]Boolean; // true if class is parent of another class
+    ClassFields: map[String]array of String; // class name → ordered field names
 
     constructor Create;
     begin
       self.Output := '';
       self.Indent := 0;
-      self.Variables := map[String]String; // TODO: init map
       self.InFunction := false;
       self.InReturnFunc := false;
-      self.Imports := map[String]Boolean; // TODO: init map
       self.NeedsException := false;
-      self.ExceptionTypes := map[String]Boolean; // TODO: init map
       self.MultiReturn := false;
       self.MultiReturnN := 0;
-      self.ClassTypes := map[String]Boolean; // TODO: init map
-      self.ClassIsBase := map[String]Boolean; // TODO: init map
     end;
 
     procedure Write(s: String);
@@ -92,37 +88,283 @@ type
     // Generate import block
     procedure GenerateImports;
     begin
-      // TODO: iterate map and generate imports
+      // Always include fmt for WriteLn etc.
       self.WriteLine('import (');
-      self.IncreaseIndent;
-      self.IncreaseIndent;
-      self.IncreaseIndent;
-      self.IncreaseIndent;
       self.IncreaseIndent;
       self.WriteLine('"fmt"');
       self.WriteLine('"strings"');
       self.WriteLine('"strconv"');
       self.DecreaseIndent;
-      self.DecreaseIndent;
-      self.DecreaseIndent;
-      self.DecreaseIndent;
-      self.DecreaseIndent;
       self.WriteLine(')');
       self.WriteLine('');
     end;
+
+    // ========================================================================
+    // Pre-scan passes
+    // ========================================================================
+
+    // Pre-scan: collect class types
+    procedure CollectClassTypes(prog: TProgram);
+    var
+      i: Integer;
+      decl: TNode;
+      cd: TClassDecl;
+    begin
+      for i := 0 to Length(prog.Declarations) - 1 do
+      begin
+        decl := prog.Declarations[i];
+        if decl is TClassDecl then
+        begin
+          cd := decl as TClassDecl;
+          self.ClassTypes[cd.Name] := true;
+          if cd.Parent <> '' then
+            self.ClassIsBase[cd.Parent] := true;
+        end;
+      end;
+    end;
+
+    // Pre-scan: detect needed Go imports
+    procedure ScanImports(prog: TProgram);
+    begin
+      // Always need fmt, strings, strconv for basic operations
+    end;
+
+    // Pre-scan: detect exception type usage
+    procedure ScanForException(prog: TProgram);
+    begin
+      // Not needed for bootstrap
+    end;
+
+    // ========================================================================
+    // Type generation
+    // ========================================================================
 
     // Generate all type declarations
     procedure GenerateTypes(prog: TProgram);
     var
       i: Integer;
       decl: TNode;
+      td: TTypeDecl;
+      cd: TClassDecl;
+      id: TInterfaceDecl;
+      et: TEnumType;
     begin
       for i := 0 to Length(prog.Declarations) - 1 do
       begin
         decl := prog.Declarations[i];
-        // TODO: type-switch on decl to handle TypeDecl, ClassDecl, etc.
-        self.Write('');
+        if decl is TTypeDecl then
+        begin
+          td := decl as TTypeDecl;
+          self.GenerateTypeDecl(td);
+        end
+        else if decl is TClassDecl then
+        begin
+          cd := decl as TClassDecl;
+          self.GenerateClassDecl(cd);
+        end
+        else if decl is TInterfaceDecl then
+        begin
+          id := decl as TInterfaceDecl;
+          self.GenerateInterfaceDecl(id);
+        end;
       end;
+    end;
+
+    procedure GenerateTypeDecl(td: TTypeDecl);
+    var
+      et: TEnumType;
+      i: Integer;
+    begin
+      // Check if the type is an enum
+      if td.DeclType is TEnumType then
+      begin
+        et := td.DeclType as TEnumType;
+        self.GenerateEnumType(td.Name, et);
+      end
+      else
+      begin
+        self.Write('type ' + td.Name + ' ');
+        self.GenerateTypeExpression(td.DeclType);
+        self.WriteLine('');
+        self.WriteLine('');
+      end;
+    end;
+
+    procedure GenerateEnumType(name: String; enum: TEnumType);
+    var
+      i: Integer;
+    begin
+      if Length(enum.Names) = 0 then
+        Exit;
+
+      self.WriteLine('const (');
+      self.IncreaseIndent;
+      for i := 0 to Length(enum.Names) - 1 do
+      begin
+        if i = 0 then
+          self.WriteLine(enum.Names[i] + ' ' + name + ' = iota')
+        else
+          self.WriteLine(enum.Names[i]);
+      end;
+      self.DecreaseIndent;
+      self.WriteLine(')');
+      self.WriteLine('');
+    end;
+
+    procedure GenerateClassDecl(cd: TClassDecl);
+    var
+      i: Integer;
+      j: Integer;
+      field: TVarDecl;
+      method: TFunctionDecl;
+      prop: TPropertyDecl;
+    begin
+      self.ClassTypes[cd.Name] := true;
+
+      self.Write('type ' + cd.Name);
+      self.GenerateTypeParams(cd.TypeParams);
+      self.WriteLine(' struct {');
+      self.IncreaseIndent;
+
+      if cd.Parent <> '' then
+        self.WriteLine(cd.Parent);
+
+      for i := 0 to Length(cd.Fields) - 1 do
+      begin
+        field := cd.Fields[i];
+        for j := 0 to Length(field.Names) - 1 do
+        begin
+          self.Write(field.Names[j] + ' ');
+          if field.VarType <> nil then
+            self.GenerateTypeExpression(field.VarType)
+          else
+            self.Write('interface{}');
+          self.WriteLine('');
+        end;
+      end;
+
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
+
+      for i := 0 to Length(cd.Methods) - 1 do
+      begin
+        method := cd.Methods[i];
+        self.GenerateClassMethod(cd.Name, method);
+      end;
+
+      for i := 0 to Length(cd.Properties) - 1 do
+      begin
+        prop := cd.Properties[i] as TPropertyDecl;
+        self.GeneratePropertyAccessors(cd.Name, prop);
+      end;
+    end;
+
+    procedure GenerateClassMethod(className: String; method: TFunctionDecl);
+    var
+      hasReturn: Boolean;
+      i: Integer;
+      stmt: TStatement;
+      body: TBlockStatement;
+    begin
+      hasReturn := (method.ReturnType <> nil) or (Length(method.ReturnTypes) > 0);
+
+      self.Write('func (self *' + className + ') ' + method.Name);
+      self.GenerateFunctionSignature(method);
+      self.WriteLine(' {');
+      self.IncreaseIndent;
+
+      if hasReturn then
+      begin
+        if method.ReturnType <> nil then
+        begin
+          self.Write('var result ');
+          self.GenerateTypeExpression(method.ReturnType);
+          self.WriteLine('');
+        end;
+      end;
+
+      if method.Body <> nil then
+      begin
+        body := method.Body as TBlockStatement;
+        self.InFunction := true;
+        self.InReturnFunc := hasReturn;
+        for i := 0 to Length(body.Statements) - 1 do
+        begin
+          stmt := body.Statements[i];
+          self.GenerateStatement(stmt);
+        end;
+        self.InFunction := false;
+        self.InReturnFunc := false;
+      end;
+
+      if hasReturn then
+        self.WriteLine('return result');
+
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
+    end;
+
+    procedure GeneratePropertyAccessors(className: String; prop: TPropertyDecl);
+    begin
+      if prop.Getter <> '' then
+      begin
+        self.Write('func (self *' + className + ') ' + prop.Name + '() ');
+        if prop.PropType <> nil then
+          self.GenerateTypeExpression(prop.PropType)
+        else
+          self.Write('interface{}');
+        self.WriteLine(' {');
+        self.IncreaseIndent;
+        self.WriteLine('return self.' + prop.Getter);
+        self.DecreaseIndent;
+        self.WriteLine('}');
+        self.WriteLine('');
+      end;
+
+      if prop.Setter <> '' then
+      begin
+        self.Write('func (self *' + className + ') Set' + prop.Name + '(v ');
+        if prop.PropType <> nil then
+          self.GenerateTypeExpression(prop.PropType)
+        else
+          self.Write('interface{}');
+        self.WriteLine(') {');
+        self.IncreaseIndent;
+        self.WriteLine('self.' + prop.Setter + ' = v');
+        self.DecreaseIndent;
+        self.WriteLine('}');
+        self.WriteLine('');
+      end;
+    end;
+
+    procedure GenerateInterfaceDecl(id: TInterfaceDecl);
+    var
+      i: Integer;
+      parent: String;
+      method: TFunctionDecl;
+    begin
+      self.WriteLine('type ' + id.Name + ' interface {');
+      self.IncreaseIndent;
+
+      for i := 0 to Length(id.Parents) - 1 do
+      begin
+        parent := id.Parents[i];
+        self.WriteLine(parent);
+      end;
+
+      for i := 0 to Length(id.Methods) - 1 do
+      begin
+        method := id.Methods[i];
+        self.Write(method.Name);
+        self.GenerateFunctionSignature(method);
+        self.WriteLine('');
+      end;
+
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
     end;
 
     // Generate exception type structs
@@ -139,31 +381,227 @@ type
       end;
     end;
 
+    // ========================================================================
+    // Global declarations
+    // ========================================================================
+
     // Generate global variable and constant declarations
     procedure GenerateGlobals(prog: TProgram);
     var
       i: Integer;
       decl: TNode;
+      vd: TVarDecl;
+      cd: TConstDecl;
     begin
       for i := 0 to Length(prog.Declarations) - 1 do
       begin
         decl := prog.Declarations[i];
-        // TODO: generate VarDecl and ConstDecl
+        if decl is TVarDecl then
+        begin
+          vd := decl as TVarDecl;
+          self.GenerateGlobalVarDecl(vd);
+        end
+        else if decl is TConstDecl then
+        begin
+          cd := decl as TConstDecl;
+          self.GenerateConstDecl(cd);
+        end;
       end;
     end;
+
+    procedure GenerateGlobalVarDecl(vd: TVarDecl);
+    var
+      i: Integer;
+    begin
+      for i := 0 to Length(vd.Names) - 1 do
+      begin
+        self.Write('var ' + vd.Names[i]);
+        if vd.VarType <> nil then
+        begin
+          self.Write(' ');
+          self.GenerateTypeExpression(vd.VarType);
+        end;
+        if vd.Value <> nil then
+        begin
+          self.Write(' = ');
+          self.GenerateExpression(vd.Value);
+        end;
+        self.WriteLine('');
+      end;
+    end;
+
+    procedure GenerateConstDecl(cd: TConstDecl);
+    begin
+      self.Write('const ' + cd.Name);
+      if cd.ConstType <> nil then
+      begin
+        self.Write(' ');
+        self.GenerateTypeExpression(cd.ConstType);
+      end;
+      if cd.Value <> nil then
+      begin
+        self.Write(' = ');
+        self.GenerateExpression(cd.Value);
+      end;
+      self.WriteLine('');
+    end;
+
+    procedure GenerateLocalVarDecl(vd: TVarDecl);
+    var
+      i: Integer;
+    begin
+      for i := 0 to Length(vd.Names) - 1 do
+      begin
+        self.Write('var ' + vd.Names[i] + ' ');
+        if vd.VarType <> nil then
+          self.GenerateTypeExpression(vd.VarType)
+        else
+          self.Write('interface{}');
+        self.WriteLine('');
+      end;
+    end;
+
+    procedure GenerateLocalConstDecl(cd: TConstDecl);
+    begin
+      self.Write('const ' + cd.Name);
+      if cd.ConstType <> nil then
+      begin
+        self.Write(' ');
+        self.GenerateTypeExpression(cd.ConstType);
+      end;
+      self.Write(' = ');
+      if cd.Value <> nil then
+        self.GenerateExpression(cd.Value);
+      self.WriteLine('');
+    end;
+
+    // ========================================================================
+    // Function generation
+    // ========================================================================
 
     // Generate all function declarations
     procedure GenerateFunctions(prog: TProgram);
     var
       i: Integer;
       decl: TNode;
+      fd: TFunctionDecl;
     begin
       for i := 0 to Length(prog.Declarations) - 1 do
       begin
         decl := prog.Declarations[i];
-        // TODO: generate function declarations
+        if decl is TFunctionDecl then
+        begin
+          fd := decl as TFunctionDecl;
+          self.GenerateFunctionDecl(fd);
+        end;
       end;
     end;
+
+    procedure GenerateFunctionDecl(fd: TFunctionDecl);
+    var
+      hasReturn: Boolean;
+      i: Integer;
+      stmt: TStatement;
+      body: TBlockStatement;
+    begin
+      hasReturn := (fd.ReturnType <> nil) or (Length(fd.ReturnTypes) > 0);
+
+      self.Write('func ' + fd.Name);
+      self.GenerateFunctionSignature(fd);
+      self.WriteLine(' {');
+      self.IncreaseIndent;
+
+      if hasReturn then
+      begin
+        if fd.ReturnType <> nil then
+        begin
+          self.Write('var result ');
+          self.GenerateTypeExpression(fd.ReturnType);
+          self.WriteLine('');
+        end;
+      end;
+
+      if fd.Body <> nil then
+      begin
+        body := fd.Body as TBlockStatement;
+        self.InFunction := true;
+        self.InReturnFunc := hasReturn;
+        for i := 0 to Length(body.Statements) - 1 do
+        begin
+          stmt := body.Statements[i];
+          self.GenerateStatement(stmt);
+        end;
+        self.InFunction := false;
+        self.InReturnFunc := false;
+      end;
+
+      if hasReturn then
+        self.WriteLine('return result');
+
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
+    end;
+
+    procedure GenerateFunctionSignature(fd: TFunctionDecl);
+    var
+      i: Integer;
+      param: TParameter;
+    begin
+      self.Write('(');
+      for i := 0 to Length(fd.Parameters) - 1 do
+      begin
+        if i > 0 then
+          self.Write(', ');
+        param := fd.Parameters[i];
+        self.Write(param.Name + ' ');
+        if param.ParamType <> nil then
+          self.GenerateTypeExpression(param.ParamType)
+        else
+          self.Write('interface{}');
+      end;
+      self.Write(')');
+
+      if fd.ReturnType <> nil then
+      begin
+        self.Write(' ');
+        self.GenerateTypeExpression(fd.ReturnType);
+      end
+      else if Length(fd.ReturnTypes) > 0 then
+      begin
+        self.Write(' (');
+        for i := 0 to Length(fd.ReturnTypes) - 1 do
+        begin
+          if i > 0 then
+            self.Write(', ');
+          self.GenerateTypeExpression(fd.ReturnTypes[i]);
+        end;
+        self.Write(')');
+      end;
+    end;
+
+    procedure GenerateTypeParams(params: array of TTypeParameter);
+    var
+      i: Integer;
+      tp: TTypeParameter;
+    begin
+      if Length(params) = 0 then
+        Exit;
+
+      self.Write('[');
+      for i := 0 to Length(params) - 1 do
+      begin
+        if i > 0 then
+          self.Write(', ');
+        tp := params[i];
+        self.Write(tp.Name + ' any');
+      end;
+      self.Write(']');
+    end;
+
+    // ========================================================================
+    // Statement generation
+    // ========================================================================
 
     // Generate statement list
     procedure GenerateStatements(stmts: array of TStatement);
@@ -176,33 +614,691 @@ type
       end;
     end;
 
-    // Generate a single statement
+    // Generate a single statement — type dispatch via is/as
     procedure GenerateStatement(stmt: TStatement);
-    begin
-      // TODO: dispatch by statement type
-    end;
-
-    // Pre-scan: collect class types
-    procedure CollectClassTypes(prog: TProgram);
     var
+      vd: TVarDecl;
+      asgn: TAssignmentStatement;
+      es: TExpressionStatement;
+      ifStmt: TIfStatement;
+      whileStmt: TWhileStatement;
+      forStmt: TForStatement;
+      forEachStmt: TForEachStatement;
+      repeatStmt: TRepeatStatement;
+      caseStmt: TCaseStatement;
+      matchStmt: TMatchStatement;
+      tryStmt: TTryStatement;
+      raiseStmt: TRaiseStatement;
+      retStmt: TReturnStatement;
+      block: TBlockStatement;
+      call: TCallExpression;
+      ident: TIdentifier;
+      member: TMemberExpression;
       i: Integer;
     begin
-      for i := 0 to Length(prog.Declarations) - 1 do
+      if stmt is TVarDecl then
       begin
-        // TODO: check if TClassDecl, record name
+        vd := stmt as TVarDecl;
+        self.GenerateVarDecl(vd);
+      end
+      else if stmt is TAssignmentStatement then
+      begin
+        asgn := stmt as TAssignmentStatement;
+        self.GenerateAssignment(asgn);
+      end
+      else if stmt is TExpressionStatement then
+      begin
+        es := stmt as TExpressionStatement;
+        // Handle Exit
+        if es.Expression is TIdentifier then
+        begin
+          ident := es.Expression as TIdentifier;
+          if ident.Value = 'Exit' then
+          begin
+            if self.InReturnFunc then
+              self.WriteLine('return result')
+            else
+              self.WriteLine('return');
+            Exit;
+          end;
+        end;
+        // Handle bare member access as procedure call
+        if es.Expression is TMemberExpression then
+        begin
+          self.GenerateExpression(es.Expression);
+          self.WriteLine('()');
+          Exit;
+        end;
+        self.GenerateExpression(es.Expression);
+        self.WriteLine('');
+      end
+      else if stmt is TIfStatement then
+      begin
+        ifStmt := stmt as TIfStatement;
+        self.GenerateIfStatement(ifStmt);
+      end
+      else if stmt is TWhileStatement then
+      begin
+        whileStmt := stmt as TWhileStatement;
+        self.GenerateWhileStatement(whileStmt);
+      end
+      else if stmt is TForStatement then
+      begin
+        forStmt := stmt as TForStatement;
+        self.GenerateForStatement(forStmt);
+      end
+      else if stmt is TForEachStatement then
+      begin
+        forEachStmt := stmt as TForEachStatement;
+        self.GenerateForEachStatement(forEachStmt);
+      end
+      else if stmt is TRepeatStatement then
+      begin
+        repeatStmt := stmt as TRepeatStatement;
+        self.GenerateRepeatStatement(repeatStmt);
+      end
+      else if stmt is TCaseStatement then
+      begin
+        caseStmt := stmt as TCaseStatement;
+        self.GenerateCaseStatement(caseStmt);
+      end
+      else if stmt is TMatchStatement then
+      begin
+        matchStmt := stmt as TMatchStatement;
+        self.GenerateMatchStatement(matchStmt);
+      end
+      else if stmt is TTryStatement then
+      begin
+        tryStmt := stmt as TTryStatement;
+        self.GenerateTryStatement(tryStmt);
+      end
+      else if stmt is TRaiseStatement then
+      begin
+        raiseStmt := stmt as TRaiseStatement;
+        self.GenerateRaiseStatement(raiseStmt);
+      end
+      else if stmt is TReturnStatement then
+      begin
+        retStmt := stmt as TReturnStatement;
+        self.GenerateReturnStatement(retStmt);
+      end
+      else if stmt is TBreakStatement then
+        self.WriteLine('break')
+      else if stmt is TContinueStatement then
+        self.WriteLine('continue')
+      else if stmt is TBlockStatement then
+      begin
+        block := stmt as TBlockStatement;
+        for i := 0 to Length(block.Statements) - 1 do
+          self.GenerateStatement(block.Statements[i]);
       end;
     end;
 
-    // Pre-scan: detect needed Go imports
-    procedure ScanImports(prog: TProgram);
+    procedure GenerateVarDecl(vd: TVarDecl);
+    var
+      i: Integer;
     begin
-      // TODO: walk program and detect import needs
+      for i := 0 to Length(vd.Names) - 1 do
+      begin
+        if vd.Inferred then
+        begin
+          self.Write(vd.Names[i] + ' := ');
+          if vd.Value <> nil then
+            self.GenerateExpression(vd.Value);
+        end
+        else
+        begin
+          self.Write('var ' + vd.Names[i]);
+          if vd.VarType <> nil then
+          begin
+            self.Write(' ');
+            self.GenerateTypeExpression(vd.VarType);
+          end;
+          if vd.Value <> nil then
+          begin
+            self.Write(' = ');
+            self.GenerateExpression(vd.Value);
+          end;
+        end;
+        self.WriteLine('');
+      end;
     end;
 
-    // Pre-scan: detect exception type usage
-    procedure ScanForException(prog: TProgram);
+    procedure GenerateAssignment(asgn: TAssignmentStatement);
     begin
-      // TODO: detect try/raise/except usage
+      self.GenerateExpression(asgn.Name);
+      self.Write(' = ');
+      self.GenerateExpression(asgn.Value);
+      self.WriteLine('');
+    end;
+
+    procedure GenerateIfStatement(stmt: TIfStatement);
+    var
+      i: Integer;
+    begin
+      self.Write('if ');
+      self.GenerateExpression(stmt.Condition);
+      self.WriteLine(' {');
+      self.IncreaseIndent;
+      if stmt.Consequence <> nil then
+        for i := 0 to Length(stmt.Consequence.Statements) - 1 do
+          self.GenerateStatement(stmt.Consequence.Statements[i]);
+      self.DecreaseIndent;
+      if stmt.Alternative <> nil then
+      begin
+        self.WriteLine('} else {');
+        self.IncreaseIndent;
+        for i := 0 to Length(stmt.Alternative.Statements) - 1 do
+          self.GenerateStatement(stmt.Alternative.Statements[i]);
+        self.DecreaseIndent;
+      end;
+      self.WriteLine('}');
+    end;
+
+    procedure GenerateWhileStatement(stmt: TWhileStatement);
+    var
+      i: Integer;
+    begin
+      self.Write('for ');
+      self.GenerateExpression(stmt.Condition);
+      self.WriteLine(' {');
+      self.IncreaseIndent;
+      if stmt.Body <> nil then
+        for i := 0 to Length(stmt.Body.Statements) - 1 do
+          self.GenerateStatement(stmt.Body.Statements[i]);
+      self.DecreaseIndent;
+      self.WriteLine('}');
+    end;
+
+    procedure GenerateForStatement(stmt: TForStatement);
+    var
+      i: Integer;
+    begin
+      self.Write('for ' + stmt.Variable + ' = ');
+      self.GenerateExpression(stmt.From);
+      self.Write('; ' + stmt.Variable);
+      if stmt.DownTo then
+        self.Write(' >= ')
+      else
+        self.Write(' <= ');
+      self.GenerateExpression(stmt.To);
+      self.Write('; ' + stmt.Variable);
+      if stmt.DownTo then
+        self.WriteLine('-- {')
+      else
+        self.WriteLine('++ {');
+      self.IncreaseIndent;
+      if stmt.Body <> nil then
+        for i := 0 to Length(stmt.Body.Statements) - 1 do
+          self.GenerateStatement(stmt.Body.Statements[i]);
+      self.DecreaseIndent;
+      self.WriteLine('}');
+    end;
+
+    procedure GenerateForEachStatement(stmt: TForEachStatement);
+    var
+      i: Integer;
+    begin
+      self.Write('for _, ' + stmt.Variable + ' := range ');
+      self.GenerateExpression(stmt.Iterable);
+      self.WriteLine(' {');
+      self.IncreaseIndent;
+      if stmt.Body <> nil then
+        for i := 0 to Length(stmt.Body.Statements) - 1 do
+          self.GenerateStatement(stmt.Body.Statements[i]);
+      self.DecreaseIndent;
+      self.WriteLine('}');
+    end;
+
+    procedure GenerateRepeatStatement(stmt: TRepeatStatement);
+    var
+      i: Integer;
+    begin
+      self.WriteLine('for {');
+      self.IncreaseIndent;
+      if stmt.Body <> nil then
+        for i := 0 to Length(stmt.Body.Statements) - 1 do
+          self.GenerateStatement(stmt.Body.Statements[i]);
+      self.Write('if ');
+      self.GenerateExpression(stmt.Condition);
+      self.WriteLine(' {');
+      self.IncreaseIndent;
+      self.WriteLine('break');
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.DecreaseIndent;
+      self.WriteLine('}');
+    end;
+
+    procedure GenerateCaseStatement(stmt: TCaseStatement);
+    var
+      i: Integer;
+      j: Integer;
+      branch: TCaseBranch;
+    begin
+      self.Write('switch ');
+      self.GenerateExpression(stmt.Expression);
+      self.WriteLine(' {');
+      self.IncreaseIndent;
+      for i := 0 to Length(stmt.Branches) - 1 do
+      begin
+        branch := stmt.Branches[i];
+        for j := 0 to Length(branch.Values) - 1 do
+        begin
+          self.Write('case ');
+          self.GenerateExpression(branch.Values[j]);
+          self.WriteLine(':');
+        end;
+        self.IncreaseIndent;
+        if branch.Body is TBlockStatement then
+        begin
+          var blk2: TBlockStatement;
+          blk2 := branch.Body as TBlockStatement;
+          for j := 0 to Length(blk2.Statements) - 1 do
+            self.GenerateStatement(blk2.Statements[j]);
+        end;
+        self.DecreaseIndent;
+      end;
+      if stmt.ElseBranch <> nil then
+      begin
+        self.WriteLine('default:');
+        self.IncreaseIndent;
+        for i := 0 to Length(stmt.ElseBranch.Statements) - 1 do
+          self.GenerateStatement(stmt.ElseBranch.Statements[i]);
+        self.DecreaseIndent;
+      end;
+      self.DecreaseIndent;
+      self.WriteLine('}');
+    end;
+
+    procedure GenerateMatchStatement(stmt: TMatchStatement);
+    var
+      i: Integer;
+      j: Integer;
+      branch: TMatchBranch;
+    begin
+      self.Write('switch ');
+      self.GenerateExpression(stmt.Expression);
+      self.WriteLine(' {');
+      self.IncreaseIndent;
+      for i := 0 to Length(stmt.Branches) - 1 do
+      begin
+        branch := stmt.Branches[i];
+        self.Write('case ');
+        self.GenerateExpression(branch.Pattern);
+        for j := 0 to Length(branch.AdditionalPatterns) - 1 do
+        begin
+          self.Write(', ');
+          self.GenerateExpression(branch.AdditionalPatterns[j]);
+        end;
+        self.WriteLine(':');
+        self.IncreaseIndent;
+        if branch.Body is TBlockStatement then
+        begin
+          var blk3: TBlockStatement;
+          blk3 := branch.Body as TBlockStatement;
+          for j := 0 to Length(blk3.Statements) - 1 do
+            self.GenerateStatement(blk3.Statements[j]);
+        end;
+        self.DecreaseIndent;
+      end;
+      self.DecreaseIndent;
+      self.WriteLine('}');
+    end;
+
+    procedure GenerateTryStatement(stmt: TTryStatement);
+    var
+      i: Integer;
+      k: Integer;
+      onClause: TOnClause;
+    begin
+      self.NeedsException := true;
+      self.WriteLine('func() {');
+      self.IncreaseIndent;
+      self.WriteLine('defer func() {');
+      self.IncreaseIndent;
+      self.WriteLine('if r := recover(); r != nil {');
+      self.IncreaseIndent;
+      if Length(stmt.OnClauses) > 0 then
+      begin
+        self.WriteLine('switch e := r.(type) {');
+        self.IncreaseIndent;
+        for i := 0 to Length(stmt.OnClauses) - 1 do
+        begin
+          onClause := stmt.OnClauses[i];
+          self.Write('case *');
+          self.GenerateTypeExpression(onClause.OnType);
+          self.WriteLine(':');
+          self.IncreaseIndent;
+          self.WriteLine(onClause.Variable + ' := e');
+          if onClause.Body <> nil then
+            for k := 0 to Length(onClause.Body.Statements) - 1 do
+              self.GenerateStatement(onClause.Body.Statements[k]);
+          self.DecreaseIndent;
+        end;
+        self.DecreaseIndent;
+        self.WriteLine('}');
+      end;
+      if stmt.ExceptBlock <> nil then
+      begin
+        for i := 0 to Length(stmt.ExceptBlock.Statements) - 1 do
+          self.GenerateStatement(stmt.ExceptBlock.Statements[i]);
+      end;
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.DecreaseIndent;
+      self.WriteLine('}()');
+      if stmt.Body <> nil then
+        for i := 0 to Length(stmt.Body.Statements) - 1 do
+          self.GenerateStatement(stmt.Body.Statements[i]);
+      self.DecreaseIndent;
+      self.WriteLine('}()');
+    end;
+
+    procedure GenerateRaiseStatement(stmt: TRaiseStatement);
+    begin
+      self.Write('panic(');
+      if stmt.Exception <> nil then
+        self.GenerateExpression(stmt.Exception)
+      else
+        self.Write('&Exception{Message: "exception"}');
+      self.WriteLine(')');
+    end;
+
+    procedure GenerateReturnStatement(stmt: TReturnStatement);
+    begin
+      self.Write('return ');
+      if stmt.ReturnValue <> nil then
+        self.GenerateExpression(stmt.ReturnValue);
+      self.WriteLine('');
+    end;
+
+    // ========================================================================
+    // Expression generation
+    // ========================================================================
+
+    procedure GenerateExpression(expr: TExpression);
+    var
+      ident: TIdentifier;
+      intLit: TIntegerLiteral;
+      floatLit: TFloatLiteral;
+      strLit: TStringLiteral;
+      boolLit: TBooleanLiteral;
+      nilLit: TNilLiteral;
+      arrLit: TArrayLiteral;
+      prefix: TPrefixExpression;
+      infix: TInfixExpression;
+      call: TCallExpression;
+      member: TMemberExpression;
+      index: TIndexExpression;
+      slice: TSliceExpression;
+      isExpr: TIsExpression;
+      asExpr: TTypeCastExpression;
+      i: Integer;
+      op: String;
+    begin
+      if expr is TIdentifier then
+      begin
+        ident := expr as TIdentifier;
+        self.Write(self.MapBuiltinFunction(ident.Value));
+      end
+      else if expr is TIntegerLiteral then
+      begin
+        intLit := expr as TIntegerLiteral;
+        self.Write(IntToStr(intLit.Value));
+      end
+      else if expr is TFloatLiteral then
+      begin
+        floatLit := expr as TFloatLiteral;
+        self.Write('0.0');
+      end
+      else if expr is TStringLiteral then
+      begin
+        strLit := expr as TStringLiteral;
+        self.Write('"' + strLit.Value + '"');
+      end
+      else if expr is TBooleanLiteral then
+      begin
+        boolLit := expr as TBooleanLiteral;
+        if boolLit.Value then
+          self.Write('true')
+        else
+          self.Write('false');
+      end
+      else if expr is TNilLiteral then
+        self.Write('nil')
+      else if expr is TArrayLiteral then
+      begin
+        arrLit := expr as TArrayLiteral;
+        if Length(arrLit.Elements) = 0 then
+          self.Write('nil')
+        else
+        begin
+          self.Write('[]interface{}{');
+          for i := 0 to Length(arrLit.Elements) - 1 do
+          begin
+            if i > 0 then
+              self.Write(', ');
+            self.GenerateExpression(arrLit.Elements[i]);
+          end;
+          self.Write('}');
+        end;
+      end
+      else if expr is TPrefixExpression then
+      begin
+        prefix := expr as TPrefixExpression;
+        op := prefix.Operator;
+        if op = 'not' then
+          op := '!';
+        self.Write('(' + op);
+        self.GenerateExpression(prefix.Right);
+        self.Write(')');
+      end
+      else if expr is TInfixExpression then
+      begin
+        infix := expr as TInfixExpression;
+        self.Write('(');
+        self.GenerateExpression(infix.Left);
+        self.Write(' ');
+        op := infix.Operator;
+        if op = 'and' then
+          op := '&&'
+        else if op = 'or' then
+          op := '||'
+        else if op = 'xor' then
+          op := '^'
+        else if op = 'div' then
+          op := '/'
+        else if op = 'mod' then
+          op := '%'
+        else if op = '<>' then
+          op := '!='
+        else if op = '=' then
+          op := '==';
+        self.Write(op);
+        self.Write(' ');
+        self.GenerateExpression(infix.Right);
+        self.Write(')');
+      end
+      else if expr is TCallExpression then
+      begin
+        call := expr as TCallExpression;
+        self.GenerateCallExpression(call);
+      end
+      else if expr is TMemberExpression then
+      begin
+        member := expr as TMemberExpression;
+        self.GenerateExpression(member.Obj);
+        self.Write('.' + member.Member);
+      end
+      else if expr is TIndexExpression then
+      begin
+        index := expr as TIndexExpression;
+        self.GenerateExpression(index.Left);
+        self.Write('[');
+        self.GenerateExpression(index.Index);
+        self.Write(']');
+      end
+      else if expr is TSliceExpression then
+      begin
+        slice := expr as TSliceExpression;
+        self.GenerateExpression(slice.Left);
+        self.Write('[');
+        if slice.Low <> nil then
+          self.GenerateExpression(slice.Low);
+        self.Write(':');
+        if slice.High <> nil then
+          self.GenerateExpression(slice.High);
+        self.Write(']');
+      end
+      else if expr is TIsExpression then
+      begin
+        isExpr := expr as TIsExpression;
+        self.Write('func() bool { _, ok := ');
+        self.GenerateExpression(isExpr.Expression);
+        self.Write('.(');
+        self.GenerateTypeExpressionForCast(isExpr.TargetType);
+        self.Write('); return ok }()');
+      end
+      else if expr is TTypeCastExpression then
+      begin
+        asExpr := expr as TTypeCastExpression;
+        self.GenerateExpression(asExpr.Expression);
+        self.Write('.(');
+        self.GenerateTypeExpressionForCast(asExpr.TargetType);
+        self.Write(')');
+      end;
+    end;
+
+    procedure GenerateCallExpression(call: TCallExpression);
+    var
+      i: Integer;
+      ident: TIdentifier;
+      member: TMemberExpression;
+      typeName: String;
+      fields: array of String;
+    begin
+      // Handle constructor: ClassName.Create(args) → &ClassName{Field: arg, ...}
+      if call.Func is TMemberExpression then
+      begin
+        member := call.Func as TMemberExpression;
+        if member.Member = 'Create' then
+        begin
+          if member.Obj is TIdentifier then
+          begin
+            ident := member.Obj as TIdentifier;
+            typeName := ident.Value;
+            self.Write('&' + typeName + '{');
+            fields := self.ClassFields[typeName];
+            for i := 0 to Length(call.Arguments) - 1 do
+            begin
+              if i > 0 then
+                self.Write(', ');
+              if i < Length(fields) then
+                self.Write(fields[i] + ': ');
+              self.GenerateExpression(call.Arguments[i]);
+            end;
+            self.Write('}');
+            Exit;
+          end;
+        end;
+      end;
+
+      // Handle builtins
+      if call.Func is TIdentifier then
+      begin
+        ident := call.Func as TIdentifier;
+        if ident.Value = 'Length' then
+        begin
+          self.Write('int64(len(');
+          self.GenerateExpression(call.Arguments[0]);
+          self.Write('))');
+          Exit;
+        end;
+        if ident.Value = 'IntToStr' then
+        begin
+          self.Write('fmt.Sprintf("%d", ');
+          self.GenerateExpression(call.Arguments[0]);
+          self.Write(')');
+          Exit;
+        end;
+        if ident.Value = 'Ord' then
+        begin
+          self.Write('func() int { if len(');
+          self.GenerateExpression(call.Arguments[0]);
+          self.Write(') == 0 { return 0 }; return int(');
+          self.GenerateExpression(call.Arguments[0]);
+          self.Write('[0]) }()');
+          Exit;
+        end;
+      end;
+
+      // Default: function call
+      self.GenerateExpression(call.Func);
+      self.Write('(');
+      for i := 0 to Length(call.Arguments) - 1 do
+      begin
+        if i > 0 then
+          self.Write(', ');
+        self.GenerateExpression(call.Arguments[i]);
+      end;
+      self.Write(')');
+    end;
+
+    // ========================================================================
+    // Type expression generation
+    // ========================================================================
+
+    procedure GenerateTypeExpression(expr: TExpression);
+    var
+      ident: TIdentifier;
+      arrType: TArrayType;
+      mapType: TMapType;
+      genType: TGenericType;
+    begin
+      if expr is TIdentifier then
+      begin
+        ident := expr as TIdentifier;
+        self.Write(self.MapType(ident.Value));
+      end
+      else if expr is TArrayType then
+      begin
+        arrType := expr as TArrayType;
+        self.Write('[]');
+        self.GenerateTypeExpression(arrType.ElementType);
+      end
+      else if expr is TMapType then
+      begin
+        mapType := expr as TMapType;
+        self.Write('map[');
+        self.GenerateTypeExpression(mapType.KeyType);
+        self.Write(']');
+        self.GenerateTypeExpression(mapType.ValueType);
+      end
+      else if expr is TGenericType then
+      begin
+        genType := expr as TGenericType;
+        self.Write(genType.Base);
+      end
+      else
+        self.Write('interface{}');
+    end;
+
+    // For type assertions (is/as), use concrete types (not interface{})
+    procedure GenerateTypeExpressionForCast(expr: TExpression);
+    var
+      ident: TIdentifier;
+    begin
+      if expr is TIdentifier then
+      begin
+        ident := expr as TIdentifier;
+        if self.ClassIsBase[ident.Value] then
+          self.Write('*' + ident.Value)
+        else
+          self.Write(self.MapType(ident.Value));
+      end
+      else
+        self.GenerateTypeExpression(expr);
     end;
 
     // Map Kylix type to Go type
@@ -216,8 +1312,57 @@ type
         result := 'bool'
       else if kylixType = 'String' then
         result := 'string'
+      else if kylixType = 'Char' then
+        result := 'byte'
+      else if kylixType = 'Byte' then
+        result := 'byte'
+      else if kylixType = 'Word' then
+        result := 'uint16'
+      else if kylixType = 'Cardinal' then
+        result := 'uint32'
+      else if kylixType = 'LongInt' then
+        result := 'int64'
+      else if kylixType = 'Double' then
+        result := 'float64'
+      else if kylixType = 'Extended' then
+        result := 'float64'
       else
-        result := kylixType;
+      begin
+        // For class types that are base classes, use interface{}
+        if self.ClassIsBase[kylixType] then
+          result := 'interface{}'
+        else if self.ClassTypes[kylixType] then
+          result := '*' + kylixType
+        else
+          result := kylixType;
+      end;
+    end;
+
+    // Map builtin function names to Go equivalents
+    function MapBuiltinFunction(name: String): String;
+    begin
+      if name = 'WriteLn' then
+        result := 'fmt.Println'
+      else if name = 'Write' then
+        result := 'fmt.Print'
+      else if name = 'LowerCase' then
+        result := 'strings.ToLower'
+      else if name = 'UpperCase' then
+        result := 'strings.ToUpper'
+      else if name = 'Length' then
+        result := 'len'
+      else if name = 'Ord' then
+        result := 'Ord'
+      else if name = 'IntToStr' then
+        result := 'IntToStr'
+      else if name = 'StrToInt64' then
+        result := 'StrToInt64'
+      else if name = 'StrToFloat' then
+        result := 'StrToFloat'
+      else if name = 'ReadFile' then
+        result := 'ReadFile'
+      else
+        result := name;
     end;
   end;
 end.

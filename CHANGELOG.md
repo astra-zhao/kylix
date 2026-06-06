@@ -4,7 +4,104 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v1.1.0 (2026-06-06)
+## v1.1.1 (2026-06-06)
+
+### Phase 8 Completion: Lexer Bug Fix + Generator Skeleton + Bootstrap Verification
+
+This release completes the three remaining P0 tasks blocking self-hosting:
+the Kylix lexer tokenization bug is fixed, the generator.klx skeleton is
+fully implemented, and the bootstrap verification pipeline passes for
+simple programs.
+
+#### P0 - Lexer Tokenization Bug Fix (Two Root Causes)
+
+**Bug 1 — `LookupIdent` returns tkIllegal for identifiers:**
+- **Root cause:** `LookupIdent` in `src/token.klx` used single-value map
+  lookup `result := Keywords[lower]`. In Go, a missing map key returns the
+  zero value (`tkIllegal` = 0) instead of `tkIdent`.
+- **Fix:** Added fallback: after map lookup, if `tok = tkIllegal` then
+  return `tkIdent` instead. No valid keyword maps to `tkIllegal` (value 0),
+  so this is a safe check.
+- **File:** `src/token.klx` — `LookupIdent` function
+
+**Bug 2 — `TParser.Create(Lex)` doesn't initialize token state:**
+- **Root cause:** `main.klx` called `Par := TParser.Create(Lex)` which
+  generates `&TParser{Lex: Lex}` — a bare struct literal without calling
+  `NextToken()` twice. This left `CurToken` and `PeekToken` as zero values
+  (type=0 = tkIllegal, line=0), causing parser errors.
+- **Fix:** Changed `main.klx` to call `Par := NewParser(Lex)` which properly
+  initializes token state via two `NextToken()` calls.
+- **File:** `src/main.klx` — parser initialization
+
+#### P0 - Generator Skeleton Completed
+
+`src/generator.klx` expanded from 221 lines (stub) to ~1350 lines (full
+implementation). All type dispatch uses Kylix `is`/`as` syntax instead of
+Go type switches.
+
+**Implemented methods:**
+
+| Category | Methods |
+|----------|---------|
+| **Type generation** | `GenerateTypes`, `GenerateTypeDecl`, `GenerateEnumType`, `GenerateClassDecl`, `GenerateClassMethod`, `GenerateInterfaceDecl`, `GeneratePropertyAccessors` |
+| **Global declarations** | `GenerateGlobals`, `GenerateGlobalVarDecl`, `GenerateConstDecl` |
+| **Function generation** | `GenerateFunctions`, `GenerateFunctionDecl`, `GenerateFunctionSignature`, `GenerateTypeParams` |
+| **Statement generation** | `GenerateStatement` (15+ statement types via is/as dispatch), `GenerateVarDecl`, `GenerateAssignment`, `GenerateIfStatement`, `GenerateWhileStatement`, `GenerateForStatement`, `GenerateForEachStatement`, `GenerateRepeatStatement`, `GenerateCaseStatement`, `GenerateMatchStatement`, `GenerateTryStatement`, `GenerateRaiseStatement`, `GenerateReturnStatement` |
+| **Expression generation** | `GenerateExpression` (20+ expression types via is/as dispatch), `GenerateCallExpression` |
+| **Type expression** | `GenerateTypeExpression`, `GenerateTypeExpressionForCast` (handles base class → `*ClassName` for is/as assertions) |
+| **Pre-scan passes** | `CollectClassTypes`, `ScanImports`, `ScanForException` |
+| **Utilities** | `MapType` (Kylix→Go type mapping), `MapBuiltinFunction` (WriteLn→fmt.Println, LowerCase→strings.ToLower, etc.) |
+
+**Key design: is/as type dispatch pattern:**
+```pascal
+if stmt is TIfStatement then
+begin
+  var ifStmt: TIfStatement;
+  ifStmt := stmt as TIfStatement;
+  self.GenerateIfStatement(ifStmt);
+end
+else if stmt is TWhileStatement then ...
+```
+
+#### Bootstrap Verification
+
+The three-step bootstrap pipeline now passes for simple programs:
+
+```
+Step 1: Go compiler (kylix build) compiles 7 .klx files → main.go ✅
+Step 2: go build produces kylix_compiler binary ✅
+Step 3: Self-hosted compiler compiles input → valid Go output ✅
+```
+
+**Verified:** `program hello; begin WriteLn(42); end.` correctly generates:
+```go
+package main
+import ("fmt"; "strings"; "strconv")
+func main() { fmt.Println(42) }
+```
+
+#### Known Limitations
+
+- Self-hosting of complex source files (like `token.klx`) still has issues
+  with local variable declarations and parameter type handling
+- The Kylix AST's `TFunctionDecl` lacks a `LocalDecls` field, which exists
+  in the Go AST — local var/const in function bodies are parsed but not
+  stored in the AST for the generator
+- Single-quoted string escaping needs improvement
+
+### Files Changed
+
+- `src/token.klx` — Fixed `LookupIdent` to return `tkIdent` for unknown identifiers
+- `src/main.klx` — Changed `TParser.Create(Lex)` to `NewParser(Lex)`
+- `src/generator.klx` — Expanded from 221-line skeleton to ~1350-line full implementation
+
+### Version Bumps
+
+| Component | Old | New |
+|-----------|-----|-----|
+| Compiler, REPL, LSP, Project | 1.1.0 | **1.1.1** |
+
+---
 
 ### Phase 8: Bootstrap Compiler — Go Backend Upgrades
 

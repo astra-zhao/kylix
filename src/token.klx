@@ -177,12 +177,17 @@ end;
 function LookupIdent(ident: String): TTokenType;
 var
   lower: String;
+  tok: TTokenType;
 begin
   if KeywordsInitialized = false then
     InitKeywords();
 
   lower := LowerCase(ident);
-  result := Keywords[lower];
+  tok := Keywords[lower];
+  if tok = tkIllegal then
+    result := tkIdent
+  else
+    result := tok;
 end;
 
 function IsLetter(ch: String): Boolean;

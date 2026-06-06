@@ -31,7 +31,7 @@ begin
   Lex := NewLexer(SourceCode);
 
   // Parse
-  Par := TParser.Create(Lex);
+  Par := NewParser(Lex);
   Prog := Par.ParseProgram();
 
   // Check for parser errors
