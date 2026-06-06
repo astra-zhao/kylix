@@ -121,6 +121,7 @@ type
       begin
         decl := prog.Declarations[i];
         // TODO: type-switch on decl to handle TypeDecl, ClassDecl, etc.
+        self.Write('');
       end;
     end;
 

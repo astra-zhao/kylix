@@ -34,7 +34,7 @@ begin
 
   // Parse
   Par := TParser.Create(Lex);
-  Prog := Par.ParseProgram;
+  Prog := Par.ParseProgram();
 
   // Check for parser errors
   for i := 0 to Length(Par.Errors) - 1 do
@@ -42,7 +42,7 @@ begin
     ErrList.AddError(SourceFile, 0, 0, Par.Errors[i]);
   end;
 
-  if ErrList.HasErrors then
+  if ErrList.HasErrors() then
   begin
     WriteLn(ErrList.ToString);
     exit;

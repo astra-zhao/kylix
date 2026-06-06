@@ -968,6 +968,8 @@ func (p *Parser) parseRepeatStatement() *ast.RepeatStatement {
 	if p.curTokenIs(token.UNTIL) {
 		p.nextToken()
 		stmt.Condition = p.parseExpression(LOWEST)
+		// Advance past condition expression
+		p.nextToken()
 	}
 
 	return stmt

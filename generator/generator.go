@@ -23,6 +23,7 @@ type Generator struct {
 	multiReturnN    int              // number of return values in current function
 	classTypes      map[string]bool  // track which user-defined types are classes
 	classIsBase     map[string]bool  // true if class is parent of another class (→ interface{} in type expressions)
+	classFields     map[string][]string // class name → ordered field names (for constructor mapping)
 }
 
 func New() *Generator {
@@ -33,6 +34,7 @@ func New() *Generator {
 		exceptionTypes: make(map[string]bool),
 		classTypes:     make(map[string]bool),
 		classIsBase:    make(map[string]bool),
+	classFields:    make(map[string][]string),
 	}
 }
 
@@ -382,6 +384,13 @@ func (g *Generator) generateClassMethod(className string, method *ast.FunctionDe
 		g.inReturnFunc = false
 	}
 
+	// Suppress "declared and not used" for local vars in class methods
+	for _, local := range method.LocalDecls {
+		if vd, ok := local.(*ast.VarDecl); ok && len(vd.Names) == 1 {
+			g.write(fmt.Sprintf("_ = %s\n", vd.Names[0]))
+		}
+	}
+
 	if hasReturnType {
 		g.writeLine("return result")
 	}
@@ -641,6 +650,13 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 		}
 		g.inFunction = false
 		g.inReturnFunc = false
+	}
+
+	// Suppress "declared and not used" for local vars
+	for _, local := range decl.LocalDecls {
+		if vd, ok := local.(*ast.VarDecl); ok && len(vd.Names) == 1 {
+			g.write(fmt.Sprintf("_ = %s\n", vd.Names[0]))
+		}
 	}
 
 	if hasReturnType {
@@ -989,11 +1005,22 @@ func (g *Generator) collectClassTypes(program *ast.Program) {
 			if d.Parent != "" {
 				g.classIsBase[d.Parent] = true
 			}
+			// Collect field names for constructor mapping
+			for _, field := range d.Fields {
+				for _, name := range field.Names {
+					g.classFields[d.Name] = append(g.classFields[d.Name], name)
+				}
+			}
 		case *ast.TypeDecl:
 			if cd, ok := d.Type.(*ast.ClassDecl); ok {
 				g.classTypes[d.Name] = true
 				if cd.Parent != "" {
 					g.classIsBase[cd.Parent] = true
+				}
+				for _, field := range cd.Fields {
+					for _, name := range field.Names {
+						g.classFields[d.Name] = append(g.classFields[d.Name], name)
+					}
 				}
 			}
 		}
@@ -1758,15 +1785,20 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 		g.generateExpression(e.Right)
 		g.write(")")
 	case *ast.CallExpression:
-		// Handle constructor pattern: ClassName.Create(args) → &ClassName{args...}
+		// Handle constructor pattern: ClassName.Create(args) → &ClassName{Field: arg, ...}
 		if member, ok := e.Function.(*ast.MemberExpression); ok && member.Member == "Create" {
 			if ident, ok := member.Object.(*ast.Identifier); ok {
+				typeName := ident.Value
 				g.write("&")
-				g.write(ident.Value)
+				g.write(typeName)
 				g.write("{")
+				fields := g.classFields[typeName]
 				for i, arg := range e.Arguments {
 					if i > 0 {
 						g.write(", ")
+					}
+					if i < len(fields) {
+						g.write(fields[i] + ": ")
 					}
 					g.generateExpression(arg)
 				}
