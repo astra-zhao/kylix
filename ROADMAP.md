@@ -1,7 +1,7 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-06-06
-> 当前版本: v1.1.1
+> 最后更新: 2026-06-07
+> 当前版本: v1.1.2
 > 官网: [kylix.top](https://kylix.top)
 > 目标: Kylix 语言自举（用 Kylix 写 Kylix 编译器）
 
@@ -18,7 +18,7 @@
 | Phase 8 | 编写 compiler.klx | ✅ 完成 | ~4 周 |
 | Phase 9 | 自举验证 | 🚧 40% | ~1 周 |
 
-**当前进度：Phase 8 完成，lexer bug 已修复，generator.klx 已完善，简单程序自举通过，复杂源文件自举待完善**
+**当前进度：Phase 8 完成，Phase 9 推进至 60%。v1.1.2 修复了 6 个 parser result 覆盖 bug 和 4 个代码生成缺陷，7 个源文件全部可被自举编译器解析并生成 Go 代码。**
 
 **总计剩余工期：约 1 周**
 
@@ -48,7 +48,7 @@
 
 ---
 
-## Phase 8: 编写 compiler.klx → v1.1.1 ✅ 已完成
+## Phase 8: 编写 compiler.klx → v1.1.2 ✅ 已完成
 
 ### ✅ 已完成 — Go 编译器后端升级
 
@@ -86,22 +86,26 @@ src/
 
 总计 ~4800 行 Kylix 代码。7 文件联合编译通过（Kylix → Go 转换 + Go 编译零错误）。
 
-### ✅ v1.1.1 完成内容
+### ✅ v1.1.2 完成内容
 
 | 任务 | 优先级 | 描述 | 状态 |
 |------|--------|------|------|
-| **Kylix lexer tokenization bug** | 🔴 P0 | 两个根因：(1) `LookupIdent` 单值 map 查找返回零值；(2) `TParser.Create` 未初始化 token 状态 | ✅ 已修复 |
-| **generator.klx 完善** | 🔴 P0 | 221 行 → ~1350 行，is/as 类型分发，15+ 语句类型，20+ 表达式类型 | ✅ 已完成 |
-| **自举验证 (简单程序)** | 🔴 P0 | `program hello; begin WriteLn(42); end.` → 合法 Go 代码 | ✅ 已通过 |
+| **Parser result 覆盖 bug** | 🔴 P0 | 6 个函数中 result 被后续代码覆盖，添加 Exit 语句修复 | ✅ v1.1.2 |
+| **Record 类型生成** | 🔴 P0 | `TRecordType` → Go `struct { ... }`（之前生成 `interface{}`） | ✅ v1.1.2 |
+| **Map 自动初始化** | 🔴 P0 | `var x map[K]V` → `var x map[K]V = map[K]V{}` | ✅ v1.1.2 |
+| **局部变量声明** | 🔴 P0 | 添加 `TFunctionDecl.LocalDecls` AST 字段 + 生成器输出 | ✅ v1.1.2 |
+| **ReadFile 内置函数** | 🔴 P0 | 生成 `os.ReadFile` IIFE 包装 | ✅ v1.1.2 |
+| **自举验证 (7 源文件)** | 🔴 P0 | 全部 7 个 .klx 源文件成功编译 | ✅ v1.1.2 |
 
 ### 🟡 待完成
 
 | 任务 | 优先级 | 描述 |
 |------|--------|------|
-| **复杂源文件自举** | 🔴 P0 | token.klx 等复杂文件编译有局部变量和参数类型问题 |
-| **Kylix AST TFunctionDecl.LocalDecls** | 🟠 P1 | Kylix AST 缺少此字段，局部 var/const 无法传递给生成器 |
+| **多文件自举联编** | 🔴 P0 | main.klx 目前只编译单文件，需支持 uses 多文件 |
+| **生成代码完整 diff** | 🔴 P0 | Go 版输出 vs Kylix 版输出逐行对比 |
 | **单引号字符串转义** | 🟠 P1 | Kylix `'...'` → Go `"..."` 转义 |
-| **完整 diff 验证** | 🟡 P2 | Go 版输出 vs Kylix 版输出逐行对比 |
+| **Class 类型生成** | 🟠 P1 | 类声明生成 struct + 嵌入（目前生成 `interface{}`） |
+| **示例文件 Kylix 版验证** | 🟡 P2 | 用 Kylix 编译器编译 14 个示例文件 |
 
 ### 🟡 示例文件通过率
 
@@ -112,17 +116,20 @@ src/
 
 ---
 
-## Phase 9: 自举验证 🚧 40%
+## Phase 9: 自举验证 🚧 60%
 
-### ✅ 已验证 (v1.1.1)
+### ✅ 已验证 (v1.1.2)
 
 1. ✅ **Kylix → Go 编译通过** — Go 版编译器成功编译 7 个 .klx 文件
 2. ✅ **Go 代码编译通过** — 生成的 Go 代码零编译错误
 3. ✅ **Binary 运行** — Kylix 编译器 binary 可以运行
-4. ✅ **Lexer→Parser→Error 管道** — 全链路工作，错误信息正确输出
+4. ✅ **Lexer→Parser→Error 管道** — 全链路工作
 5. ✅ **Lexer bug 修复** — 两个根因均已修复
-6. ✅ **Generator 完善** — 221 行骨架 → ~1350 行完整实现
+6. ✅ **Generator 完善** — 221 行骨架 → ~1400 行完整实现
 7. ✅ **简单程序自举** — `program hello; begin WriteLn(42); end.` → 合法 Go 代码
+8. ✅ **Parser result 覆盖修复** — 6 个函数添加 Exit 语句
+9. ✅ **代码生成修复** — Record 类型、Map 初始化、局部变量、ReadFile
+10. ✅ **7 源文件全编译** — token/ast/error/lexer/parser/generator/main 全部通过
 
 ### 🟡 待完成
 
@@ -130,10 +137,11 @@ src/
 |------|------|------|
 | 9.1 Go 版编译器编译 compiler.klx | ✅ | 已完成 |
 | 9.2 编译出的 binary 编译简单程序 | ✅ | v1.1.1 已验证 |
-| 9.3 编译出的 binary 编译 compiler.klx 自身 | 🟡 | 复杂源文件有局部变量/参数类型问题 |
-| 9.4 两次输出 diff 验证 | ⬜ | 待 9.3 通过 |
-| 9.5 示例文件输出一致 | ⬜ | 待 9.3 通过 |
-| 9.6 回归测试 | ✅ | 14/15 示例通过 |
+| 9.3 编译出的 binary 编译 7 个源文件 | ✅ | v1.1.2 已验证（单文件逐个编译） |
+| 9.4 多文件自举联编 | 🟡 | main.klx 需支持 uses 多文件编译 |
+| 9.5 Go版 vs Kylix版 diff 验证 | 🟡 | 待 9.4 完成后逐行对比 |
+| 9.6 示例文件 Kylix 版验证 | ⬜ | 14 个示例文件用 Kylix 编译器编译 |
+| 9.7 回归测试 | ✅ | Go 版 14/15 示例通过，全部测试通过 |
 
 ### 自举管道架构
 
@@ -146,8 +154,14 @@ Kylix 编译器 (binary)       ✅ 可运行
     ↓ 运行 (简单程序)
 输出                        ✅ 合法 Go 代码
 
-    ↓ 运行 (复杂源文件)
-输出                        🟡 局部变量/参数类型问题
+    ↓ 运行 (7 个源文件，逐个)
+输出                        ✅ 全部编译成功
+
+    ↓ 运行 (多文件联编)
+输出                        🟡 待实现
+
+    ↓ Diff 验证
+Go版 vs Kylix版             🟡 待多文件联编完成
 ```
 
 ---
