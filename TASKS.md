@@ -3,7 +3,7 @@
 > 最后更新: 2026-06-07
 > 官网: [kylix.top](https://kylix.top)
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
-> 当前版本: v1.1.2
+> 当前版本: v1.1.3
 
 ---
 
@@ -117,29 +117,37 @@
 
 **7 文件联合编译: ✅ Kylix → Go 转换 + Go 编译零错误**
 
-### 8.3 Bug 修复 ✅ v1.1.1
+### 8.3 Bug 修复 ✅ v1.1.3
 
 | Bug | 优先级 | 描述 | 状态 |
 |-----|--------|------|------|
-| **Kylix lexer tokenization** | 🔴 P0 | 有效 Pascal 关键字被识别为 tkIllegal。两个根因：(1) `LookupIdent` 单值 map 查找返回零值；(2) `TParser.Create(Lex)` 不调用 NextToken() | ✅ 已修复 |
-| **generator.klx 骨架** | 🔴 P0 | 221 行骨架扩展至 ~1350 行完整实现 | ✅ 已完成 |
-| **自举验证 (简单程序)** | 🔴 P0 | `program hello; begin WriteLn(42); end.` → 合法 Go 代码 | ✅ 已通过 |
-| **Single-quoted string escaping** | 🟠 P1 | Kylix `'...'` 字符串转 Go `"..."`，内部单引号转义 | ⬜ 待修复 |
+| **Kylix lexer tokenization** | 🔴 P0 | `LookupIdent` 单值 map 查找 + `TParser.Create` 未初始化 | ✅ v1.1.1 |
+| **generator.klx 骨架** | 🔴 P0 | 221 行扩展至 ~1400 行 | ✅ v1.1.1 |
+| **Parser result 覆盖** | 🔴 P0 | 7 个函数中 result 被后续代码覆盖 | ✅ v1.1.2 |
+| **Record/Map/局部变量** | 🔴 P0 | Record→struct, map 初始化, LocalDecls | ✅ v1.1.2 |
+| **软关键字 + prefix parse** | 🔴 P0 | 25+软关键字, 17 个缺失 prefix | ✅ v1.1.3 |
+| **字符串转义** | 🔴 P0 | `\n` 字面量 → Go 换行符转义 | ✅ v1.1.3 |
+| **多文件自举联编** | 🔴 P0 | main.klx 多文件 + GenerateMulti | ✅ v1.1.3 |
+| **Single-quoted string escaping** | 🟠 P1 | Kylix `'...'` → Go `"..."` | ✅ v1.1.3 |
 | **web_advanced Go syntax** | 🟡 P2 | 示例文件混入 Go 语法 | ⬜ 待修复 |
 
 ### 8.4 待完成 🟡
 
-- [x] 8.4a 修复 Kylix lexer tokenization bug ✅
-- [x] 8.4b 完善 `generator.klx` 骨架代码（用 `is`/`as` 实现类型分发、表达式生成）✅
-- [x] 8.4c 自举验证（简单程序）✅
-- [x] 8.4d 修复复杂源文件自举 — 局部变量声明和参数类型处理 ✅ v1.1.2
+- [x] 8.4a 修复 Kylix lexer tokenization bug ✅ v1.1.1
+- [x] 8.4b 完善 `generator.klx` 骨架代码 ✅ v1.1.1
+- [x] 8.4c 自举验证（简单程序）✅ v1.1.1
+- [x] 8.4d 修复复杂源文件自举 ✅ v1.1.2
 - [x] 8.4e Record 类型、Map 初始化、Unit 文件处理 ✅ v1.1.2
-- [ ] 8.4f 单引号字符串转义
-- [ ] 8.4g 自举验证（完整 diff）
+- [x] 8.4f Parser result 覆盖 bug 修复 ✅ v1.1.2
+- [x] 8.4g 软关键字扩展 + prefix parse 注册 ✅ v1.1.3
+- [x] 8.4h 字符串转义修复 ✅ v1.1.3
+- [x] 8.4i 多文件自举联编 (GenerateMulti) ✅ v1.1.3
+- [ ] 8.4j 类方法代码生成 (Create/receiver 格式)
+- [ ] 8.4k 完整 diff 验证 (Go 版 vs Kylix 版)
 
 ---
 
-## Phase 9: 自举验证 🚧 40%
+## Phase 9: 自举验证 🚧 70%
 
 ### 9.1 Go 版编译器编译 compiler.klx ✅
 
@@ -150,24 +158,36 @@
 
 - [x] Binary 可运行，lexer→parser→error 管道工作
 - [x] Lexer tokenization bug 已修复（两个根因）
-- [x] Generator 骨架已完善（~1350 行）
-- [x] 简单程序编译通过：`program hello; begin WriteLn(42); end.` → 合法 Go 代码
+- [x] 简单程序编译通过
 
-### 9.3 自举 binary 编译 compiler.klx 自身 🟡
+### 9.3 自举 binary 编译 7 个源文件 ✅ v1.1.2
 
-- [ ] 复杂源文件（token.klx 等）编译有局部变量和参数类型问题
-- [ ] 需要完善 Kylix AST 的 `TFunctionDecl.LocalDecls` 字段
+- [x] 全部 7 个 .klx 源文件解析通过
+- [x] 生成的 Go 代码语义正确（类型、函数、变量、赋值）
+- [x] 单文件 Go 编译通过（token/ast/error/lexer/parser）
 
-### 9.4 两次输出 diff 验证 ⬜
+### 9.4 多文件自举联编 ✅ v1.1.3
 
-- [ ] 待复杂源文件编译通过
+- [x] main.klx 支持多文件编译（6 个依赖文件）
+- [x] GenerateMulti 合并多个 program 的输出
+- [x] 字符串转义修复（\n 不再是字面量）
+- [x] 6 文件合并输出 134KB
 
-### 9.5 示例文件输出一致 ⬜
+### 9.5 多文件 Go 编译 🟡
+
+- [ ] 类方法代码生成修复（Create 空方法名、receiver 格式）
+- [ ] 多文件输出 Go 编译通过
+
+### 9.6 完整 diff 验证 ⬜
+
+- [ ] 待 Go 编译通过后对比 Go 版 vs Kylix 版输出
+
+### 9.7 示例文件 Kylix 版验证 ⬜
 
 - [x] Go 版编译器: 14/15 示例通过
 - [ ] Kylix 版编译器: 待完善
 
-### 9.6 回归测试 ✅
+### 9.8 回归测试 ✅
 
 - [x] Go 测试全部通过
 - [x] 14/15 示例文件在 Go 版编译器下通过
@@ -183,11 +203,17 @@ Step 1: Go 版编译器
 Step 2: Kylix 编译器 (简单程序)
   input.klx ──→ kylix_compiler ──→ 输出           ✅ 合法 Go 代码
 
-Step 3: Kylix 编译器 (复杂源文件)
-  token.klx ──→ kylix_compiler ──→ 输出           🟡 局部变量/参数问题
-  
-Step 4: Diff 验证
-  Go版输出 vs Kylix版输出                          ⬜ 待 Step 3 通过
+Step 3: Kylix 编译器 (7 个源文件，逐个)
+  token.klx 等 ──→ kylix_compiler ──→ 输出        ✅ 全部编译成功
+
+Step 4: Kylix 编译器 (多文件联编)
+  6 files ──→ kylix_compiler ──→ 134KB main.go   ✅ 合并输出正确
+
+Step 5: Go 编译多文件输出
+  main.go ──→ go build                            🟡 类方法问题
+
+Step 6: Diff 验证
+  Go版输出 vs Kylix版输出                          ⬜ 待 Step 5 通过
 ```
 
 ---
@@ -201,9 +227,10 @@ Step 4: Diff 验证
 | v1.1.0 | Phase 8 Go 后端升级 + 7 .klx 文件 | ✅ | 2026-06-06 |
 | v1.1.1 | 修复 Kylix lexer bug + 完善 generator.klx + 自举验证(简单) | ✅ | 2026-06-06 |
 | v1.1.2 | 修复 6 个 parser result 覆盖 bug + 4 个代码生成缺陷 | ✅ | 2026-06-07 |
-| v1.1.3 | 完善代码生成细节 + 完整 diff 验证 | 🟡 | ~2 天 |
-| v1.2.0 | 完整自举发布 | ⬜ | ~1 周 |
-| v2.0.0 | 自举编译器达到生产级 | ⬜ | ~2 周 |
+| v1.1.3 | 字符串转义修复 + 多文件自举联编 + 软关键字/prefix parse | ✅ | 2026-06-07 |
+| v1.1.4 | 类方法代码生成修复 + 多文件 Go 编译通过 | 🟡 | ~1 天 |
+| v1.2.0 | 完整自举 diff 验证通过 | ⬜ | ~3 天 |
+| v2.0.0 | 自举编译器达到生产级 | ⬜ | ~1 周 |
 
 ---
 

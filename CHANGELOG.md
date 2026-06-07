@@ -4,9 +4,88 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v1.1.2 (2026-06-07)
+## v1.1.3 (2026-06-07)
 
-### Phase 8/9: Parser Result Overwrite Fixes + Code Generation Improvements
+### Phase 9: String Escaping Fix + Multi-File Bootstrap + GenerateMulti
+
+This release fixes the critical string escaping bug that prevented the
+self-hosted compiler's Go output from being compilable, and adds multi-file
+bootstrap compilation support.
+
+#### P0 - String Escaping Fix
+
+**Root cause:** Go generator's `generateExpression` for `TStringLiteral` applied
+escape transformations in the wrong order. `\` → `\\` was done before `\n` handling,
+so Kylix's `'\n'` literal (two characters: backslash + n) became Go's `"\\n"`
+(literal backslash-n) instead of `"\n"` (newline escape sequence).
+
+This caused the self-hosted compiler to output all Go code as a single line
+with literal `\n` characters, making the output un-compilable.
+
+**Fix:** Reordered escape processing in `generator/generator.go`:
+1. Protect `\n`, `\t`, `\r` with temporary markers (`\x00n`, etc.)
+2. Escape `\` → `\\` and `"` → `\"`
+3. Restore markers to correct Go escape sequences (`\n`, `\t`, `\r`)
+
+**Result:** Self-hosted compiler output now has proper newlines and is
+compilable Go source code.
+
+#### P0 - Multi-File Bootstrap Compilation
+
+**main.klx:**
+- Rewrote from single-file to multi-file mode
+- Reads 6 dependency files in hardcoded order: token → error → ast →
+  lexer → parser → generator
+- Parses each file independently, collects errors
+- Calls `GenerateMulti(Programs)` for combined output
+
+**generator.klx — `GenerateMulti`:**
+- New method accepting `array of TProgram`
+- Pre-scans all programs (class types, imports, exceptions)
+- Generates types, globals, functions from all programs in order
+- Generates single `func main()` from the non-unit program
+- Output: single combined `main.go` with all declarations merged
+
+#### P1 - Soft Keyword & Prefix Parse Expansion
+
+**parser.klx:**
+- `IsIdentOrSoftKeyword` expanded from 3 to 25+ tokens (matching Go version)
+- 17 missing prefix parse functions registered: `exit`, `return`, `break`,
+  `continue`, `delete`, `new`, `default`, `inherited`, `import`, `export`,
+  `module`, `abstract`, `static`, `virtual`, `override` → all map to
+  `ParseIdentifier`
+- `ParseMemberExpression`: fixed result overwrite + soft keyword support
+
+**generator.klx:**
+- `GenerateTypeDecl`: unwrap `TClassDecl`/`TInterfaceDecl` inside `TTypeDecl`
+- `GenerateTypeExpression`: added `TClassDecl` → `*ClassName` pointer mapping
+- Removed nil map writes to `ClassTypes`/`ClassIsBase` (prevents nil map panic)
+
+### Bootstrap Status
+
+| Step | Status | Description |
+|------|--------|-------------|
+| 7 files parse | ✅ | All 7 source files parse correctly |
+| 7 files generate | ✅ | All generate valid Go output |
+| Single-file Go compile | ✅ | token/ast/error/lexer/parser compile OK |
+| Multi-file Go output | ✅ | 134KB combined output with proper newlines |
+| Multi-file Go compile | 🟡 | Class method codegen issues (Create, receiver format) |
+| Diff verification | 🟡 | Blocked on class method codegen |
+
+### Files Changed
+
+- `generator/generator.go` — String escape reordering (Pascal \n → Go \n)
+- `src/main.klx` — Multi-file mode with 6 dependency files
+- `src/generator.klx` — `GenerateMulti` method + class type unwrap
+- `src/parser.klx` — Soft keyword expansion + prefix parse registration + member expr fix
+
+### Version Bumps
+
+| Component | Old | New |
+|-----------|-----|-----|
+| Compiler, REPL, LSP, Project | 1.1.2 | **1.1.3** |
+
+---
 
 This release fixes 6 critical "result overwrite" bugs in the Kylix parser
 and 4 code generation defects in the self-hosted generator, enabling the
