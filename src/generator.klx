@@ -88,6 +88,65 @@ type
       result := self.Output;
     end;
 
+    // GenerateMulti compiles multiple Kylix source files into a single Go package.
+    function GenerateMulti(progs: array of TProgram): String;
+    var
+      pi: Integer;
+      prog: TProgram;
+    begin
+      // Pre-scan all programs
+      for pi := 0 to Length(progs) - 1 do
+      begin
+        prog := progs[pi];
+        self.CollectClassTypes(prog);
+        self.ScanImports(prog);
+        self.ScanForException(prog);
+      end;
+
+      self.WriteLine('package main');
+      self.WriteLine('');
+      self.GenerateImports;
+
+      // Generate types from all programs
+      for pi := 0 to Length(progs) - 1 do
+      begin
+        prog := progs[pi];
+        self.GenerateTypes(prog);
+      end;
+
+      self.GenerateExceptionTypes;
+
+      // Generate globals from all programs
+      for pi := 0 to Length(progs) - 1 do
+      begin
+        prog := progs[pi];
+        self.GenerateGlobals(prog);
+      end;
+
+      // Generate functions from all programs
+      for pi := 0 to Length(progs) - 1 do
+      begin
+        prog := progs[pi];
+        self.GenerateFunctions(prog);
+      end;
+
+      // Generate main function from the last program (if it has statements)
+      for pi := 0 to Length(progs) - 1 do
+      begin
+        prog := progs[pi];
+        if (prog.IsUnit = false) and (Length(prog.Statements) > 0) then
+        begin
+          self.WriteLine('func main() {');
+          self.IncreaseIndent;
+          self.GenerateStatements(prog.Statements);
+          self.DecreaseIndent;
+          self.WriteLine('}');
+        end;
+      end;
+
+      result := self.Output;
+    end;
+
     // Generate import block
     procedure GenerateImports;
     begin

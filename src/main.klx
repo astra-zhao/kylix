@@ -13,40 +13,58 @@ var
   ErrList: TErrorList;
   i: Integer;
   AllOk: Boolean;
+  // Multi-file support
+  Files: array of String;
+  Programs: array of TProgram;
 
 begin
   ErrList := TErrorList.Create;
 
-  // Read source file
-  SourceFile := 'input.klx';
-  SourceCode := ReadFile(SourceFile);
+  // Define files in dependency order (hardcoded for bootstrap)
+  Files := [];
+  append(Files, 'token.klx');
+  append(Files, 'error.klx');
+  append(Files, 'ast.klx');
+  append(Files, 'lexer.klx');
+  append(Files, 'parser.klx');
+  append(Files, 'generator.klx');
 
-  if SourceCode = '' then
-  begin
-    // Fallback: compile a hardcoded test program
-    SourceCode := 'program hello; begin WriteLn(42); end.';
-  end;
-
-  // Tokenize
-  Lex := NewLexer(SourceCode);
-
-  // Parse
-  Par := NewParser(Lex);
-  Prog := Par.ParseProgram();
-
-  // Check for parser errors
+  Programs := [];
+  for i := 0 to Length(Files) - 1 do
+    append(Programs, nil);
   AllOk := true;
-  for i := 0 to Length(Par.Errors) - 1 do
+
+  for i := 0 to Length(Files) - 1 do
   begin
-    ErrList.AddError(SourceFile, 0, 0, Par.Errors[i]);
-    AllOk := false;
+    SourceFile := Files[i];
+    SourceCode := ReadFile(SourceFile);
+    if SourceCode = '' then
+    begin
+      ErrList.AddError(SourceFile, 0, 0, 'cannot read file');
+      AllOk := false;
+    end
+    else
+    begin
+      Lex := NewLexer(SourceCode);
+      Par := NewParser(Lex);
+      Programs[i] := Par.ParseProgram();
+
+      if Length(Par.Errors) > 0 then
+      begin
+        var j: Integer;
+        for j := 0 to Length(Par.Errors) - 1 do
+        begin
+          ErrList.AddError(SourceFile, 0, 0, Par.Errors[j]);
+          AllOk := false;
+        end;
+      end;
+    end;
   end;
 
   if AllOk then
   begin
-    // Generate Go code
     Gen := TGenerator.Create;
-    GoCode := Gen.Generate(Prog);
+    GoCode := Gen.GenerateMulti(Programs);
     WriteLn(GoCode);
   end
   else

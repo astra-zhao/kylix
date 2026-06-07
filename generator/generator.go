@@ -1725,9 +1725,18 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 	case *ast.FloatLiteral:
 		g.write(fmt.Sprintf("%f", e.Value))
 	case *ast.StringLiteral:
-		escaped := strings.ReplaceAll(e.Value, `\`, `\\`)
+		// Escape for Go string literal.
+		// Strategy: protect \n, \t, \r first with markers,
+		// then escape \ and ", then restore markers to Go escapes.
+		escaped := e.Value
+		escaped = strings.ReplaceAll(escaped, `\n`, "\x00n")
+		escaped = strings.ReplaceAll(escaped, `\t`, "\x00t")
+		escaped = strings.ReplaceAll(escaped, `\r`, "\x00r")
+		escaped = strings.ReplaceAll(escaped, `\`, `\\`)
 		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-		escaped = strings.ReplaceAll(escaped, "\n", `\n`)
+		escaped = strings.ReplaceAll(escaped, "\x00n", `\n`)
+		escaped = strings.ReplaceAll(escaped, "\x00t", `\t`)
+		escaped = strings.ReplaceAll(escaped, "\x00r", `\r`)
 		g.write(fmt.Sprintf(`"%s"`, escaped))
 	case *ast.StringInterpolation:
 		g.writeInterpolation(e)
