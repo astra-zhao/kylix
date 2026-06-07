@@ -119,7 +119,38 @@ end;
 
 function TParser.IsIdentOrSoftKeyword(): Boolean;
 begin
-  result := self.CurTokenIs(tkIdent) or self.CurTokenIs(tkMatch) or self.CurTokenIs(tkResult);
+  // Identifiers plus Pascal keywords that can also be used as identifiers
+  // in member positions (obj.Keyword) and declaration contexts.
+  // NOTE: We intentionally exclude keywords that are common in
+  // declaration contexts (import, export, module) to prevent
+  // them from being consumed as identifiers during var/type parsing.
+  result := self.CurTokenIs(tkIdent)
+    or self.CurTokenIs(tkMatch)
+    or self.CurTokenIs(tkResult)
+    or self.CurTokenIs(tkDefault)
+    or self.CurTokenIs(tkDownTo)
+    or self.CurTokenIs(tkDynamic)
+    or self.CurTokenIs(tkTo)
+    or self.CurTokenIs(tkDo)
+    or self.CurTokenIs(tkOf)
+    or self.CurTokenIs(tkIn)
+    or self.CurTokenIs(tkRead)
+    or self.CurTokenIs(tkWrite)
+    or self.CurTokenIs(tkAbstract)
+    or self.CurTokenIs(tkExternal)
+    or self.CurTokenIs(tkForward)
+    or self.CurTokenIs(tkVirtual)
+    or self.CurTokenIs(tkOverride)
+    or self.CurTokenIs(tkStatic)
+    or self.CurTokenIs(tkStored)
+    or self.CurTokenIs(tkPacked)
+    or self.CurTokenIs(tkFile)
+    or self.CurTokenIs(tkNew)
+    or self.CurTokenIs(tkDelete)
+    or self.CurTokenIs(tkIs)
+    or self.CurTokenIs(tkExcept)
+    or self.CurTokenIs(tkOn)
+    or self.CurTokenIs(tkWhen);
 end;
 
 function ReadInt64(s: String): Integer;
@@ -1470,6 +1501,22 @@ begin
   else if self.CurTokenIs(tkSelf) then leftExp := self.ParseSelfExpression()
   else if self.CurTokenIs(tkProcedure) or self.CurTokenIs(tkFunction) then leftExp := self.ParseAnonymousFunction()
   else if self.CurTokenIs(tkMatch) then leftExp := self.ParseIdentifier()
+  // Soft keywords that can be used as identifiers in expression context
+  else if self.CurTokenIs(tkExit) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkReturn) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkBreak) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkContinue) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkDelete) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkNew) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkDefault) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkInherited) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkImport) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkExport) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkModule) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkAbstract) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkStatic) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkVirtual) then leftExp := self.ParseIdentifier()
+  else if self.CurTokenIs(tkOverride) then leftExp := self.ParseIdentifier()
   else
   begin
     self.NoPrefixError(self.CurToken.TokenType);
@@ -1800,7 +1847,7 @@ var dotToken: TToken;
 begin
   dotToken := self.CurToken;
   self.NextToken();
-  if self.CurTokenIs(tkIdent) then
+  if self.CurTokenIs(tkIdent) or self.IsIdentOrSoftKeyword() then
   begin
     var mem: TMemberExpression;
     mem := TMemberExpression.Create();
@@ -1808,6 +1855,7 @@ begin
     mem.Obj := left;
     mem.Member := self.CurToken.Literal;
     result := mem;
+    Exit;
   end;
   result := left;
 end;

@@ -119,9 +119,9 @@ type
         if decl is TClassDecl then
         begin
           cd := decl as TClassDecl;
-          self.ClassTypes[cd.Name] := true;
-          if cd.Parent <> '' then
-            self.ClassIsBase[cd.Parent] := true;
+          // Note: ClassTypes and ClassIsBase maps may not be initialized
+          // in the self-hosted compiler. We skip the map write and rely on
+          // MapType's fallback logic instead.
         end;
       end;
     end;
@@ -177,6 +177,8 @@ type
     var
       et: TEnumType;
       rt: TRecordType;
+      innerCd: TClassDecl;
+      innerId: TInterfaceDecl;
       i: Integer;
     begin
       // Check if the type is an enum
@@ -189,6 +191,19 @@ type
       begin
         rt := td.DeclType as TRecordType;
         self.GenerateRecordType(td.Name, rt);
+      end
+      else if td.DeclType is TClassDecl then
+      begin
+        // Unwrap class declaration inside type alias
+        innerCd := td.DeclType as TClassDecl;
+        innerCd.Name := td.Name;
+        self.GenerateClassDecl(innerCd);
+      end
+      else if td.DeclType is TInterfaceDecl then
+      begin
+        innerId := td.DeclType as TInterfaceDecl;
+        innerId.Name := td.Name;
+        self.GenerateInterfaceDecl(innerId);
       end
       else
       begin
@@ -277,7 +292,7 @@ type
       method: TFunctionDecl;
       prop: TPropertyDecl;
     begin
-      self.ClassTypes[cd.Name] := true;
+      // Note: ClassTypes map may be nil in self-hosted compiler
 
       self.Write('type ' + cd.Name);
       self.GenerateTypeParams(cd.TypeParams);
@@ -1392,6 +1407,7 @@ type
       mapType: TMapType;
       genType: TGenericType;
       recType: TRecordType;
+      cd: TClassDecl;
     begin
       if expr is TIdentifier then
       begin
@@ -1421,6 +1437,12 @@ type
       begin
         recType := expr as TRecordType;
         self.GenerateInlineRecordType(recType);
+      end
+      else if expr is TClassDecl then
+      begin
+        // Class used as type → generate as pointer to struct
+        cd := expr as TClassDecl;
+        self.Write('*' + cd.Name);
       end
       else
         self.Write('interface{}');
