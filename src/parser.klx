@@ -524,6 +524,9 @@ begin
     decl.Body := block;
   end;
 
+  // Store local declarations in the AST
+  decl.LocalDecls := localDecls;
+
   if self.CurTokenIs(tkSemicolon) then
     self.NextToken();
 
@@ -1016,6 +1019,7 @@ begin
       foreach.Body := blk;
     end;
     result := foreach;
+    Exit;
   end;
 
   // Regular for loop
@@ -1412,6 +1416,7 @@ begin
   if expr = nil then
   begin
     result := nil;
+    Exit;
   end;
 
   if self.PeekTokenIs(tkAssign) or self.PeekTokenIs(tkAssignOp) then
@@ -1429,6 +1434,7 @@ begin
     assign.Name := expr;
     assign.Value := value;
     result := assign;
+    Exit;
   end;
 
   self.NextToken();
@@ -1631,12 +1637,14 @@ begin
     lam.Parameters := [];
     lam.Body := self.ParseExpression(PREC_LOWEST);
     result := lam;
+    Exit;
   end;
 
   // Lambda with params: (x: Type) -> expr
   if self.CurTokenIs(tkIdent) and self.PeekTokenIs(tkColon) then
   begin
     result := self.TryParseLambdaParams(openParen);
+    Exit;
   end;
 
   // Regular grouped expression
@@ -1661,13 +1669,16 @@ begin
     if self.ExpectPeek(tkRParen) = false then
     begin
       result := nil;
+      Exit;
     end;
     result := tuple;
+    Exit;
   end;
 
   if self.ExpectPeek(tkRParen) = false then
   begin
     result := nil;
+    Exit;
   end;
 
   result := exp;
@@ -1767,11 +1778,13 @@ begin
     slice.Low := first;
     slice.High := high;
     result := slice;
+    Exit;
   end;
 
   if self.ExpectPeek(tkRBracket) = false then
   begin
     result := nil;
+    Exit;
   end;
 
   var idx: TIndexExpression;
@@ -2039,6 +2052,7 @@ begin
   begin
     self.NextToken();
     result := list;
+    Exit;
   end;
 
   self.NextToken();
@@ -2054,6 +2068,7 @@ begin
   if self.ExpectPeek(endType) = false then
   begin
     result := nil;
+    Exit;
   end;
 
   result := list;
@@ -2073,6 +2088,7 @@ begin
     if enumType <> nil then
     begin
       result := enumType;
+      Exit;
     end;
   end;
 
@@ -2099,12 +2115,14 @@ begin
       if self.CurTokenIs(tkGT) then
         self.NextToken();
       result := gen;
+      Exit;
     end;
 
     var ident: TIdentifier;
     ident := TIdentifier.Create();
     ident.Value := name;
     result := ident;
+    Exit;
   end;
 
   if self.CurTokenIs(tkMap) then
@@ -2121,6 +2139,7 @@ begin
     end;
     mapType.ValueType := self.ParseTypeExpression();
     result := mapType;
+    Exit;
   end;
 
   if self.CurTokenIs(tkVariant) then
@@ -2147,6 +2166,7 @@ begin
     if self.CurTokenIs(tkEnd) then
       self.NextToken();
     result := vtype;
+    Exit;
   end;
 
   if self.CurTokenIs(tkArray) then
@@ -2198,6 +2218,7 @@ begin
     end;
 
     result := arrayType;
+    Exit;
   end;
 
   if self.CurTokenIs(tkRecord) then
@@ -2251,6 +2272,7 @@ begin
       end;
     end;
     result := rec;
+    Exit;
   end;
 
   // Function/procedure types
@@ -2286,6 +2308,7 @@ begin
     end;
 
     result := funcType;
+    Exit;
   end;
 
   // Fallback

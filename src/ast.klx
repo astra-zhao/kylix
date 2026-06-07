@@ -94,6 +94,7 @@ type
     Parameters: array of TParameter;
     ReturnType: TExpression;
     ReturnTypes: array of TExpression;
+    LocalDecls: array of TNode; // local var/const declarations
     Body: TNode; // TBlockStatement
     IsAsync: Boolean;
     IsExport: Boolean;

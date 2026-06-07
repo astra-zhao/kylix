@@ -4,9 +4,85 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v1.1.1 (2026-06-06)
+## v1.1.2 (2026-06-07)
 
-### Phase 8 Completion: Lexer Bug Fix + Generator Skeleton + Bootstrap Verification
+### Phase 8/9: Parser Result Overwrite Fixes + Code Generation Improvements
+
+This release fixes 6 critical "result overwrite" bugs in the Kylix parser
+and 4 code generation defects in the self-hosted generator, enabling the
+self-hosted compiler to successfully compile all 7 bootstrap source files.
+
+#### P0 - Parser "Result Overwrite" Bug Fixes (6 functions)
+
+The Kylix parser (`src/parser.klx`) had a systematic bug pattern: in Pascal,
+`result` is the implicit return variable. When `result` is set inside an
+`if` block but execution continues past the block, subsequent code
+overwrites the correct return value.
+
+**Fixed functions:**
+
+| Function | Bug | Impact |
+|----------|-----|--------|
+| `ParseTypeExpression` | No `Exit` after setting result; fallback always overwrites | Parameter types corrupted (e.g., `Integer` → `)`) |
+| `ParseExpressionOrAssignment` | No `Exit` after assignment branch; `exprStmt` always overwrites | `x := 42` lost the `= 42` part |
+| `ParseExpressionList` | No `Exit` after empty-list early return; continues parsing | `Foo()` (no-arg calls) caused parse failure |
+| `ParseForStatement` | No `Exit` after for-each branch; for-loop always overwrites | For-each parsed as regular for |
+| `ParseIndexExpression` | No `Exit` after slice branch; index always overwrites | `s[a:b]` parsed as `s[a]` |
+| `ParseGroupedExpression` | No `Exit` after lambda/tuple branches; grouped expr overwrites | Lambda and tuple expressions lost |
+
+**Fix pattern:** Added `Exit` statement after each `result := ...` that
+should be the final return value, preventing fallthrough to later code.
+
+#### P0 - Code Generation Improvements (4 defects)
+
+**1. Record type generation:**
+- **Before:** `type TToken = record ... end` → `type TToken interface{}`
+- **After:** → `type TToken struct { TokenType TTokenType; Literal string; ... }`
+- Added `GenerateRecordType` and `GenerateInlineRecordType` methods
+- Added `TRecordType` branch in `GenerateTypeExpression`
+
+**2. Map auto-initialization:**
+- **Before:** `var Keywords: map[String]TTokenType` → `var Keywords map[string]TTokenType`
+- **After:** → `var Keywords map[string]TTokenType = map[string]TTokenType{}`
+- Prevents nil map panic at runtime
+
+**3. Local variable declarations:**
+- Added `LocalDecls` field to `TFunctionDecl` in `src/ast.klx`
+- Modified `ParseFunctionDecl` to store local declarations in AST
+- Modified `GenerateFunctionDecl` and `GenerateClassMethod` to emit `var` declarations before body
+- Added `_ = name` suppression for unused local variables
+
+**4. ReadFile builtin:**
+- Added `ReadFile` special handling in `GenerateCallExpression`
+- Generates: `func() string { data, _ := os.ReadFile(path); return string(data) }()`
+
+### Bootstrap Status
+
+All 7 Kylix source files now compile successfully with the self-hosted compiler:
+
+| File | Parse | Generate | Notes |
+|------|-------|----------|-------|
+| `token.klx` | ✅ | ✅ | Enum, record, map init, functions all correct |
+| `ast.klx` | ✅ | ✅ | 54 class types generated |
+| `error.klx` | ✅ | ✅ | Error types generated |
+| `lexer.klx` | ✅ | ✅ | Lexer with ReadChar, NextToken, etc. |
+| `parser.klx` | ✅ | ✅ | Full Pratt parser (2338 lines) |
+| `generator.klx` | ✅ | ✅ | Full code generator (~1400 lines) |
+| `main.klx` | ✅ | ✅ | Entry point with ReadFile |
+
+### Files Changed
+
+- `src/parser.klx` — 6 result overwrite fixes with `Exit` statements
+- `src/ast.klx` — Added `LocalDecls` field to `TFunctionDecl`
+- `src/generator.klx` — Record type, map init, local vars, ReadFile builtin
+
+### Version Bumps
+
+| Component | Old | New |
+|-----------|-----|-----|
+| Compiler, REPL, LSP, Project | 1.1.1 | **1.1.2** |
+
+---
 
 This release completes the three remaining P0 tasks blocking self-hosting:
 the Kylix lexer tokenization bug is fixed, the generator.klx skeleton is

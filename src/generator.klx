@@ -63,7 +63,10 @@ type
       self.ScanImports(prog);
       self.ScanForException(prog);
 
-      self.WriteLine('package main');
+      if prog.IsUnit then
+        self.WriteLine('package main // unit: ' + prog.UnitName)
+      else
+        self.WriteLine('package main');
       self.WriteLine('');
       self.GenerateImports;
 
@@ -173,6 +176,7 @@ type
     procedure GenerateTypeDecl(td: TTypeDecl);
     var
       et: TEnumType;
+      rt: TRecordType;
       i: Integer;
     begin
       // Check if the type is an enum
@@ -180,6 +184,11 @@ type
       begin
         et := td.DeclType as TEnumType;
         self.GenerateEnumType(td.Name, et);
+      end
+      else if td.DeclType is TRecordType then
+      begin
+        rt := td.DeclType as TRecordType;
+        self.GenerateRecordType(td.Name, rt);
       end
       else
       begin
@@ -209,6 +218,55 @@ type
       self.DecreaseIndent;
       self.WriteLine(')');
       self.WriteLine('');
+    end;
+
+    procedure GenerateRecordType(name: String; rec: TRecordType);
+    var
+      i: Integer;
+      j: Integer;
+      field: TVarDecl;
+    begin
+      self.WriteLine('type ' + name + ' struct {');
+      self.IncreaseIndent;
+      for i := 0 to Length(rec.Fields) - 1 do
+      begin
+        field := rec.Fields[i];
+        for j := 0 to Length(field.Names) - 1 do
+        begin
+          self.Write(field.Names[j] + ' ');
+          if field.VarType <> nil then
+            self.GenerateTypeExpression(field.VarType)
+          else
+            self.Write('interface{}');
+          self.WriteLine('');
+        end;
+      end;
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
+    end;
+
+    procedure GenerateInlineRecordType(rec: TRecordType);
+    var
+      i: Integer;
+      j: Integer;
+      field: TVarDecl;
+    begin
+      self.Write('struct {');
+      for i := 0 to Length(rec.Fields) - 1 do
+      begin
+        field := rec.Fields[i];
+        for j := 0 to Length(field.Names) - 1 do
+        begin
+          self.Write(field.Names[j] + ' ');
+          if field.VarType <> nil then
+            self.GenerateTypeExpression(field.VarType)
+          else
+            self.Write('interface{}');
+          self.Write('; ');
+        end;
+      end;
+      self.Write('}');
     end;
 
     procedure GenerateClassDecl(cd: TClassDecl);
@@ -266,6 +324,9 @@ type
       i: Integer;
       stmt: TStatement;
       body: TBlockStatement;
+      local: TNode;
+      localVd: TVarDecl;
+      localCd: TConstDecl;
     begin
       hasReturn := (method.ReturnType <> nil) or (Length(method.ReturnTypes) > 0);
 
@@ -284,6 +345,22 @@ type
         end;
       end;
 
+      // Generate local var/const declarations
+      for i := 0 to Length(method.LocalDecls) - 1 do
+      begin
+        local := method.LocalDecls[i];
+        if local is TVarDecl then
+        begin
+          localVd := local as TVarDecl;
+          self.GenerateLocalVarDecl(localVd);
+        end
+        else if local is TConstDecl then
+        begin
+          localCd := local as TConstDecl;
+          self.GenerateLocalConstDecl(localCd);
+        end;
+      end;
+
       if method.Body <> nil then
       begin
         body := method.Body as TBlockStatement;
@@ -296,6 +373,18 @@ type
         end;
         self.InFunction := false;
         self.InReturnFunc := false;
+      end;
+
+      // Suppress unused variable warnings
+      for i := 0 to Length(method.LocalDecls) - 1 do
+      begin
+        local := method.LocalDecls[i];
+        if local is TVarDecl then
+        begin
+          localVd := local as TVarDecl;
+          if Length(localVd.Names) = 1 then
+            self.WriteLine('_ = ' + localVd.Names[0]);
+        end;
       end;
 
       if hasReturn then
@@ -425,6 +514,13 @@ type
         begin
           self.Write(' = ');
           self.GenerateExpression(vd.Value);
+        end
+        else if vd.VarType is TMapType then
+        begin
+          // Auto-initialize map types to avoid nil map panic
+          self.Write(' = ');
+          self.GenerateTypeExpression(vd.VarType);
+          self.Write('{}');
         end;
         self.WriteLine('');
       end;
@@ -521,6 +617,25 @@ type
         end;
       end;
 
+      // Generate local var/const declarations
+      for i := 0 to Length(fd.LocalDecls) - 1 do
+      begin
+        var local: TNode;
+        var localVd: TVarDecl;
+        var localCd: TConstDecl;
+        local := fd.LocalDecls[i];
+        if local is TVarDecl then
+        begin
+          localVd := local as TVarDecl;
+          self.GenerateLocalVarDecl(localVd);
+        end
+        else if local is TConstDecl then
+        begin
+          localCd := local as TConstDecl;
+          self.GenerateLocalConstDecl(localCd);
+        end;
+      end;
+
       if fd.Body <> nil then
       begin
         body := fd.Body as TBlockStatement;
@@ -533,6 +648,20 @@ type
         end;
         self.InFunction := false;
         self.InReturnFunc := false;
+      end;
+
+      // Suppress unused variable warnings
+      for i := 0 to Length(fd.LocalDecls) - 1 do
+      begin
+        var local2: TNode;
+        var localVd2: TVarDecl;
+        local2 := fd.LocalDecls[i];
+        if local2 is TVarDecl then
+        begin
+          localVd2 := local2 as TVarDecl;
+          if Length(localVd2.Names) = 1 then
+            self.WriteLine('_ = ' + localVd2.Names[0]);
+        end;
       end;
 
       if hasReturn then
@@ -1231,6 +1360,13 @@ type
           self.Write('[0]) }()');
           Exit;
         end;
+        if ident.Value = 'ReadFile' then
+        begin
+          self.Write('func() string { data, _ := os.ReadFile(');
+          self.GenerateExpression(call.Arguments[0]);
+          self.Write('); return string(data) }()');
+          Exit;
+        end;
       end;
 
       // Default: function call
@@ -1255,6 +1391,7 @@ type
       arrType: TArrayType;
       mapType: TMapType;
       genType: TGenericType;
+      recType: TRecordType;
     begin
       if expr is TIdentifier then
       begin
@@ -1279,6 +1416,11 @@ type
       begin
         genType := expr as TGenericType;
         self.Write(genType.Base);
+      end
+      else if expr is TRecordType then
+      begin
+        recType := expr as TRecordType;
+        self.GenerateInlineRecordType(recType);
       end
       else
         self.Write('interface{}');
