@@ -461,7 +461,7 @@ begin
   hasFuncKeyword := (isProcedure = false) and (self.CurTokenIs(tkConstructor) = false) and (self.CurTokenIs(tkDestructor) = false);
   self.NextToken();
 
-  if self.CurTokenIs(tkIdent) then
+  if self.CurTokenIs(tkIdent) or self.IsIdentOrSoftKeyword() then
   begin
     decl.Name := self.CurToken.Literal;
     self.NextToken();
@@ -470,7 +470,7 @@ begin
     if self.CurTokenIs(tkDot) then
     begin
       self.NextToken();
-      if self.CurTokenIs(tkIdent) then
+      if self.CurTokenIs(tkIdent) or self.IsIdentOrSoftKeyword() then
       begin
         decl.Name := decl.Name + '.' + self.CurToken.Literal;
         self.NextToken();

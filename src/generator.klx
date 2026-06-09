@@ -673,10 +673,34 @@ type
       i: Integer;
       stmt: TStatement;
       body: TBlockStatement;
+      dotPos: Integer;
+      className: String;
+      methodName: String;
+      fullName: String;
     begin
       hasReturn := (fd.ReturnType <> nil) or (Length(fd.ReturnTypes) > 0);
 
-      self.Write('func ' + fd.Name);
+      // Check if this is a class method: ClassName.MethodName
+      fullName := fd.Name;
+      dotPos := 0;
+      // Search for '.' manually
+      for i := 0 to Length(fullName) - 1 do
+      begin
+        if fullName[i:i+1] = '.' then
+        begin
+          dotPos := i;
+          break;
+        end;
+      end;
+
+      if dotPos > 0 then
+      begin
+        className := fullName[0:dotPos];
+        methodName := fullName[dotPos+1:Length(fullName)];
+        self.Write('func (self *' + className + ') ' + methodName);
+      end
+      else
+        self.Write('func ' + fd.Name);
       self.GenerateFunctionSignature(fd);
       self.WriteLine(' {');
       self.IncreaseIndent;
