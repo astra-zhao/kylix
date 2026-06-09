@@ -26,7 +26,7 @@ type Config struct {
 func Default() *Config {
 	return &Config{
 		Name:    "myapp",
-		Version: "1.1.3",
+		Version: "1.1.4",
 		Main:    "main.klx",
 		Output:  "build/",
 		GoMod:   "myapp",
@@ -163,7 +163,7 @@ func Init(dir string, name string) (*Config, error) {
 
 	cfg := &Config{
 		Name:    name,
-		Version: "1.1.3",
+		Version: "1.1.4",
 		Main:    "main.klx",
 		Output:  "build/",
 		GoMod:   name,

@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 )
 
-const Version = "1.1.3"
+const Version = "1.1.4"
 
 func main() {
 	if len(os.Args) < 2 {

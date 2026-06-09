@@ -18,7 +18,7 @@ import (
 const (
 	prompt         = "kylix> "
 	continuePrompt = "...    "
-	version        = "1.1.3"
+	version        = "1.1.4"
 )
 
 // Color codes for terminal output
