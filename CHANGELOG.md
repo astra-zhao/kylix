@@ -4,7 +4,84 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v1.1.4 (2026-06-08)
+## v1.1.5 (2026-06-08)
+
+### Phase 9: Multi-File Go Compile Passes — String Escaping + Codegen Fixes
+
+This release achieves a major milestone: the self-hosted multi-file Go output
+(136KB, 6 source files merged) now **compiles and runs with zero errors**.
+
+#### P0 - String Escaping in Generated Go Code
+
+**Root cause:** `TStringLiteral` in the self-hosted generator output escaped
+Go strings without handling embedded quotes, causing `""fmt""` instead of
+`"\"fmt\""` in the generated Go code.
+
+**Fix:** Added `WriteEscapedGoString` method that escapes `\` → `\\` and
+`"` → `\"` before writing Go string literals. Applied to `GenerateExpression`
+for `TStringLiteral` handling.
+
+#### P0 - Base Class Type Mapping
+
+**Root cause:** `MapType` relied on `ClassIsBase`/`ClassTypes` maps which are
+nil in the self-hosted compiler. Base classes (TNode, TStatement, TExpression)
+were not being mapped to `interface{}`, causing "is not an interface" errors.
+
+**Fix:** Hardcoded TNode/TStatement/TExpression → `interface{}` in MapType.
+Added default pointer type (`*Type`) for unknown class-like types.
+
+#### P0 - Enum Type Declaration
+
+**Root cause:** `GenerateEnumType` only emitted the `const (...)` block
+without the underlying `type Name int` declaration, causing "undefined: TTokenType"
+errors.
+
+**Fix:** Added `type Name int` output after the const block.
+
+#### P0 - Builtin Functions
+
+- **StrToInt64/StrToFloat:** Added IIFE wrapper generation in `GenerateCallExpression`
+- **append:** Added `arr = append(arr, elem)` auto-assignment in `GenerateStatement`
+- **Exit/Break/Continue:** Added to `MapBuiltinFunction` (Exit→return, etc.)
+- **ClassName.Create (no parens):** Added `&ClassName{}` generation in `TMemberExpression`
+
+#### P0 - Multi-Name Parameter Parsing
+
+**Root cause:** `ParseParameterList` only handled `name: Type` (single name)
+syntax. Multi-name declarations like `line, col: Integer` left early names
+without type annotations.
+
+**Fix:** Rewrote `ParseParameterList` to collect all comma-separated names
+first, then apply the type annotation to all collected names when `:` is found.
+
+#### P0 - Empty Main Function
+
+**Fix:** `GenerateMulti` now emits `func main() {}` when no program has
+top-level statements.
+
+### Bootstrap Status
+
+| Step | Status | Description |
+|------|--------|-------------|
+| 7 files parse | ✅ | All 7 source files parse correctly |
+| 7 files generate | ✅ | All generate valid Go output |
+| Multi-file merged output | ✅ | 136KB combined with correct receivers |
+| Multi-file Go compile | ✅ | **Zero errors, binary runs correctly** |
+| Diff verification | 🟡 | Next step: compare Go vs Kylix output |
+
+### Files Changed
+
+- `src/generator.klx` — WriteEscapedGoString, MapType base classes, enum type,
+  builtins, append, Create, empty main
+- `src/parser.klx` — ParseParameterList multi-name support
+
+### Version Bumps
+
+| Component | Old | New |
+|-----------|-----|-----|
+| Compiler, REPL, LSP, Project | 1.1.4 | **1.1.5** |
+
+---
 
 ### Phase 9: Class Method Receiver Fix + String Escaping Fixes
 

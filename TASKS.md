@@ -3,7 +3,7 @@
 > 最后更新: 2026-06-08
 > 官网: [kylix.top](https://kylix.top)
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
-> 当前版本: v1.1.4
+> 当前版本: v1.1.5
 
 ---
 
@@ -143,13 +143,14 @@
 - [x] 8.4h 字符串转义修复 ✅ v1.1.3
 - [x] 8.4i 多文件自举联编 (GenerateMulti) ✅ v1.1.3
 - [x] 8.4j 类方法 receiver 修复 (ClassName.MethodName) ✅ v1.1.4
-- [ ] 8.4k Go 字符串转义残余问题 (引号嵌套、raw newline)
-- [ ] 8.4l 多文件 Go 编译通过
+- [x] 8.4k Go 字符串转义残余问题 ✅ v1.1.5
+- [x] 8.4l 多文件 Go 编译通过 ✅ v1.1.5
 - [ ] 8.4m 完整 diff 验证 (Go 版 vs Kylix 版)
+- [ ] 8.4n 示例文件 Kylix 版验证
 
 ---
 
-## Phase 9: 自举验证 🚧 80%
+## Phase 9: 自举验证 🚧 90%
 
 ### 9.1 Go 版编译器编译 compiler.klx ✅
 
@@ -181,14 +182,15 @@
 - [x] 软关键字方法名（Write, Read, New 等）正常识别
 - [x] TLexer: 11 methods, TParser: 59 methods, TGenerator: 50 methods
 
-### 9.6 多文件 Go 编译 🟡
+### 9.6 多文件 Go 编译 ✅ v1.1.5
 
-- [ ] Go 字符串转义残余（引号嵌套 `""fmt""`、raw newline）
-- [ ] 多文件输出 Go 编译通过
+- [x] Go 字符串转义残余修复（引号嵌套、raw newline）
+- [x] 多文件输出 Go 编译通过（136KB，零错误）
+- [x] 编译后的 binary 运行正常
 
-### 9.7 完整 diff 验证 ⬜
+### 9.7 完整 diff 验证 🟡
 
-- [ ] 待 Go 编译通过后对比 Go 版 vs Kylix 版输出
+- [ ] 待对比 Go 版 vs Kylix 版输出（语义等价）
 
 ### 9.8 示例文件 Kylix 版验证 ⬜
 
@@ -221,10 +223,10 @@ Step 5: 类方法 receiver
   ClassName.MethodName → self *ClassName          ✅ v1.1.4 修复
 
 Step 6: Go 编译多文件输出
-  main.go ──→ go build                            🟡 字符串转义残余
+  main.go ──→ go build                            ✅ v1.1.5 零错误
 
 Step 7: Diff 验证
-  Go版输出 vs Kylix版输出                          ⬜ 待 Step 6 通过
+  Go版输出 vs Kylix版输出                          🟡 待验证
 ```
 
 ---
@@ -240,8 +242,8 @@ Step 7: Diff 验证
 | v1.1.2 | 修复 6 个 parser result 覆盖 bug + 4 个代码生成缺陷 | ✅ | 2026-06-07 |
 | v1.1.3 | 字符串转义修复 + 多文件自举联编 + 软关键字/prefix parse | ✅ | 2026-06-07 |
 | v1.1.4 | 类方法 receiver 修复 (ClassName.MethodName 语法) | ✅ | 2026-06-08 |
-| v1.1.5 | Go 字符串转义残余修复 + 多文件 Go 编译通过 | 🟡 | ~1 天 |
-| v1.2.0 | 完整自举 diff 验证通过 | ⬜ | ~2 天 |
+| v1.1.5 | 字符串转义 + 多文件 Go 编译通过（零错误）| ✅ | 2026-06-08 |
+| v1.2.0 | 完整自举 diff 验证通过 + 示例文件 Kylix 版 | 🟡 | ~2 天 |
 | v2.0.0 | 自举编译器达到生产级 | ⬜ | ~1 周 |
 
 ---

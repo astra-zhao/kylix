@@ -2,12 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-1.0.3-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.1.5-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Self-Hosting](https://img.shields.io/badge/self--hosting-90%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
+> 
+> 🔥 **Major Milestone (v1.1.5)**: Self-hosted multi-file Go output compiles and runs with zero errors — the Kylix compiler can now compile itself! See [ROADMAP.md](ROADMAP.md) for details.
 
 ## Features
 
@@ -609,6 +612,14 @@ kylix/
 ├── ast/                # Abstract Syntax Tree
 ├── parser/             # Parser (Pratt parsing)
 ├── generator/          # Go code generator
+├── src/                # Self-hosting compiler source (.klx files)
+│   ├── token.klx       # Token types (209 lines)
+│   ├── ast.klx         # AST node hierarchy, 54 classes (374 lines)
+│   ├── lexer.klx       # Lexical analyzer (366 lines)
+│   ├── parser.klx      # Pratt parser (2338 lines)
+│   ├── error.klx       # Error/diagnostic types (91 lines)
+│   ├── generator.klx   # Go code generator (~1500 lines)
+│   └── main.klx        # Entry point with multi-file support
 ├── examples/           # Example programs
 ├── vscode-ext/         # VS Code extension
 └── docs/               # Documentation
@@ -704,7 +715,36 @@ Kylix LSP supports any editor with LSP client:
 - ✅ Formatter fixes — class visibility modifiers, properties, const type annotations
 - ✅ Generator stdlib wiring — sysutil, jsonutil, datetime, regex modules
 
+### Phase 6-7: Bug Fixes & Language Capabilities ✅
+- ✅ String interpolation (Lexer→Parser→Generator)
+- ✅ Exception types with ON clause
+- ✅ Multi-value return (`function Div(a,b: Integer): (Integer, Integer)`)
+- ✅ Properties code generation (getter/setter)
+- ✅ Map type (`map[K]V`), Variant type, Dynamic arrays
+- ✅ Enum types (`type TColor = (Red, Green, Blue)`)
+- ✅ Multi-file module system (`unit X;`, `uses X;`)
+
+### Phase 8: Self-Hosting Compiler ✅
+- ✅ 7 Kylix source files written (token, ast, lexer, parser, error, generator, main)
+- ✅ Class code generation (struct + interface{} polymorphism)
+- ✅ Soft keywords (25+ keywords usable as identifiers)
+- ✅ is/as type dispatch for expressions and statements
+- ✅ Local variable declarations, constructor, builtins
+
+### Phase 9: Bootstrap Verification 🚧 90%
+- ✅ Multi-file bootstrap compilation
+- ✅ Self-hosted Go output compiles and runs with zero errors
+- 🟡 Diff verification in progress
+
 ## Changelog
+
+### v1.1.5 (2026-06-08) — Multi-File Go Compile Passes 🎉
+
+Self-hosted multi-file Go output (136KB) now compiles and runs with zero errors. Major fixes: string escaping, base class type mapping, enum type declarations, builtin functions (StrToInt64, StrToFloat, append, Create), multi-name parameter parsing.
+
+### v1.1.0-v1.1.4 (2026-06-06~08) — Self-Hosting Bootstrap
+
+Lexer bug fixes, generator skeleton completion, parser result-overwrite fixes, code generation improvements (record types, map init, local vars), soft keyword expansion, multi-file bootstrap, class method receiver generation.
 
 ### v1.0.1 (2026-06-02)
 

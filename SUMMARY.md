@@ -2,18 +2,21 @@
 
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
-[![版本](https://img.shields.io/badge/version-1.0.3-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-1.1.5-blue.svg)](CHANGELOG.md)
 [![许可证](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![自举进度](https://img.shields.io/badge/self--hosting-90%25-brightgreen.svg)](ROADMAP.md)
 
 ## 项目概述
 
 Kylix 是一个现代化的 Pascal 语言重新实现，编译为 Go 代码。它结合了 Pascal 的清晰性和简洁性，同时添加了现代语言特性，并配备了完整的 IDE 工具链和编辑器集成。
 
-**当前版本**：v1.0.3（2026-06-05 发布）
+**当前版本**：v1.1.5（2026-06-08 发布）
 
 **项目地址**：https://github.com/astra-zhao/kylix
 
 **官方网站**：https://kylix.top
+
+> 🔥 **重大里程碑 (v1.1.5)**：自举编译器生成的多文件 Go 代码（136KB）编译零错误通过，Kylix 编译器可以编译自身！详见 [ROADMAP.md](ROADMAP.md)。
 
 ---
 
@@ -498,95 +501,67 @@ require('lspconfig').kylix.setup{}
 - ✅ 格式化器修复 — 类可见性修饰符、属性、常量类型注解
 - ✅ 生成器 stdlib 映射 — sysutil、jsonutil、datetime、regex 模块
 
+### 第六-七阶段：Bug 修复与语言能力 ✅
+- ✅ 字符串插值全链路修复（Lexer→Parser→Generator）
+- ✅ 异常类型定义（`on E: ExceptionType do`）
+- ✅ 多返回值支持（`function Div(): (Real, Boolean)`）
+- ✅ Properties 代码生成（getter/setter 方法）
+- ✅ Map 类型（`map[K]V`）、Variant 类型、动态数组
+- ✅ 枚举类型（`type TColor = (Red, Green, Blue)`）
+- ✅ 多文件模块系统（`unit X;`、`uses X;`）
+
+### 第八阶段：自举编译器 ✅
+- ✅ 7 个 Kylix 源文件（token, ast, lexer, parser, error, generator, main）
+- ✅ 类代码生成（struct + interface{} 多态）
+- ✅ 软关键字（25+ 关键字可作为标识符）
+- ✅ is/as 类型分发（表达式和语句）
+- ✅ 局部变量声明、构造函数、内置函数
+
+### 第九阶段：自举验证 🚧 90%
+- ✅ 多文件自举联编（6 文件合并输出 136KB）
+- ✅ 自举 Go 输出编译零错误，运行正常
+- 🟡 Diff 验证进行中
+
 ---
 
-## 性能指标
+## 当前版本状态
 
-- **编译速度**：~100ms（小型程序）
-- **生成代码质量**：可直接运行，无需手动修改
-- **内存使用**：~50MB（编译器本身）
-- **支持的文件大小**：无限制（受系统内存限制）
+**v1.1.5** — 自举编译器多文件 Go 输出编译通过！
 
----
+| 版本 | 日期 | 核心内容 |
+|------|------|----------|
+| v1.1.0 | 06-06 | Go 后端升级 + 7 个 .klx 文件 |
+| v1.1.1 | 06-06 | Lexer bug + Generator 骨架 |
+| v1.1.2 | 06-07 | Parser result 覆盖 + 代码生成 |
+| v1.1.3 | 06-07 | 字符串转义 + 多文件联编 |
+| v1.1.4 | 06-08 | 类方法 receiver |
+| **v1.1.5** | **06-08** | **多文件 Go 编译零错误** |
 
-## 当前限制
+### 示例文件状态 (15个)
 
-1. 某些高级 Pascal 特性尚未完全实现
-2. 标准库还不完整
-3. 错误恢复机制可以改进
-4. `kylix fmt` 目前只检查语法，未实现真正的格式化
-5. LSP 功能还比较简单，缺少跳转定义、查找引用等高级功能
-6. REPL 功能基础，缺少历史记录和多行编辑
-
----
-
-## 总结
-
-Kylix 编译器第一阶段至第五阶段已全部成功完成！
-
-**第一阶段**实现了一个功能完整的 Pascal-to-Go 转译器，支持传统 Pascal 特性和现代语言特性。所有示例程序都能成功编译和运行。
-
-**第二阶段**构建了完整的 IDE 工具链，包括 CLI 工具、项目管理、LSP 服务器、VS Code 扩展和详尽的文档。
-
-**第三阶段**实现了完整的 Web 框架：HTTP 服务器、路由系统、中间件、JSON处理、静态文件服务、依赖注入、配置系统、ORM、模板引擎和自动配置。
-
-**第四阶段**完善了语言特性：泛型类型参数声明、异常处理 ON 子句、构造器/析构器/inherited 关键字、Lambda 参数解析和 Async/Await 代码生成改进。
-
-**第五阶段**扩展了标准库和工具：文件 I/O（sysutil）、JSON 处理（jsonutil）、日期时间（datetime）、正则表达式（regex），同时改进了 REPL（readline 历史、词法分析检测、stderr 分离）和格式化器（类可见性、属性、常量类型）。
-
-**当前状态**：Phase 1-5 已完成，v1.0.1 已发布！🎉
-
-### v1.0.1 BUG 修复 (2026-06-03) — 15+ 个修复
-
-| 优先级 | 问题 | 修复 |
-|--------|------|------|
-| **P0** | `inherits` 关键字静默忽略 | 添加 `INHERITS` 解析分支 |
-| **P0** | 匿名 `procedure()`/`function()` 不解析 | 注册为 prefix 解析函数，支持局部声明 |
-| **P0** | Match 通配符 `_` 生成无效 Go | 检测 `_` 模式生成 `default:` |
-| **P0** | Match 多模式 `2, 3 =>` 和 `when` 守卫 | 扩展 match 解析和生成 |
-| **P0** | `{ }` 注释与 match 块冲突 | 移除 `{}` 注释语法 |
-| **P0** | Case 语句无限循环 | 添加 `nextToken()` 调用 |
-| **P0** | While/for 循环解析失败 | 条件/起始值后推进 token |
-| **P0** | `function(Type)` 参数类型无限循环 | `parseTypeExpression` 支持 function 类型 |
-| **P0** | 连续 `//` 注释不跳过 | 循环调用直到无注释 |
-| **P1** | 构造函数无效 Go代码 | `Dog.Create(args)` → `&Dog{args}` |
-| **P1** | `match`/`result` 作为变量名冲突 | 软关键字机制 |
-| **P1** | `try/except` 中 `begin...end` 不解析 | 添加 block 解析分支 |
-| **P1** | 静态数组 `array[0..2]` 不解析 | `DOTDOT` 后推进 token |
-| **P1** | 参数解析无防护 | 添加迭代计数器 |
-
-### 示例文件状态 (14个)
-
-| ✅ 通过 (11) | ❌ 失败 (3, 功能缺口) |
+| ✅ 通过 (14) | ❌ 失败 (1) |
 |---|---|
-| hello, simple, types, control, classes | functions (多返回值) |
-| modern, exceptions, stdlib_demo | web_demo (匿名过程边缘情况) |
-| test_formatter, web_advanced, orm_example | web_fullstack (Go 语法) |
+| hello, simple, types, control, classes | web_advanced（Go 语法混入） |
+| modern, exceptions, stdlib_demo, orm_example | |
+| functions, web_demo, test_formatter, test_map | |
+| web_fullstack | |
 
-### 版本号升级记录 (v1.0.0 → v1.0.1)
+### 版本号升级记录
 
-| 组件 | v1.0.0 | **v1.0.1** |
+| 组件 | v1.1.4 | **v1.1.5** |
 |------|--------|-----------|
-| 编译器 (`cmd/kylix/main.go`) | 1.0.0 | **1.0.1** |
-| REPL (`pkg/repl/repl.go`) | 1.0.0 | **1.0.1** |
-| LSP 服务器 (`pkg/lsp/server.go`) | 1.0.0 | **1.0.1** |
-| 项目配置 (`pkg/project/project.go`) | 1.0.0 | **1.0.1** |
-| VS Code 扩展 (`vscode-ext/package.json`) | 1.0.0 | **1.0.1** |
+| 编译器 (`cmd/kylix/main.go`) | 1.1.4 | **1.1.5** |
+| REPL (`pkg/repl/repl.go`) | 1.1.4 | **1.1.5** |
+| LSP 服务器 (`pkg/lsp/server.go`) | 1.1.4 | **1.1.5** |
+| 项目配置 (`pkg/project/project.go`) | 1.1.4 | **1.1.5** |
 
-### 待修复问题 (计划 v1.0.2+)
+### 下一步计划 (v1.2.0)
 
-| 优先级 | 问题 | 影响 |
+| 优先级 | 任务 | 描述 |
 |--------|------|------|
-| P1 | 字符串插值三层断裂 | Lexer→Parser→Generator 全链路修复 |
-| P1 | 异常类型在 Go 中不存在 | `on E: Exception do` 生成无效类型 |
-| P2 | 多返回值不支持 | `function Div(): (Real, Boolean)` 失败 |
-| P2 | Properties 被跳过 | `property Name: String` 不生成 Go 代码 |
-| P2 | 无多文件编译 | `uses` 仅导入 stdlib，不处理用户文件 |
-| P2 | Map 类型不支持 | 符号表等场景需要 |
-| P2 | 核心模块无测试 | Lexer/Parser/Generator 无单元测试 |
-| P3 | 18 个 Token 无解析处理 | `with`, `set`, `new`, `exit` 等 |
-| P3 | LSP 代码操作是 stub | 无实际 import 整理/格式化功能 |
-| P3 | REPL 不支持 uses/class | REPL 中无法使用模块或定义类 |
+| 🔴 P0 | Diff 验证 | Go 版 vs Kylix 版输出逐行对比 |
+| 🟡 P2 | 示例文件验证 | 用 Kylix 编译器编译 14 个示例文件 |
+| 🟡 P2 | web_advanced 修复 | 清理混入的 Go 语法 |
 
 详细更新日志见 [CHANGELOG.md](CHANGELOG.md)。
 

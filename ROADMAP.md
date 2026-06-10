@@ -1,7 +1,7 @@
 # Kylix Development Roadmap
 
 > 最后更新: 2026-06-08
-> 当前版本: v1.1.4
+> 当前版本: v1.1.5
 > 官网: [kylix.top](https://kylix.top)
 > 目标: Kylix 语言自举（用 Kylix 写 Kylix 编译器）
 
@@ -16,11 +16,11 @@
 | Phase 6 | 修复关键 Bug | ✅ 完成 | ~2 周 |
 | Phase 7 | 补齐语言能力 | ✅ 完成 | ~3 周 |
 | Phase 8 | 编写 compiler.klx | ✅ 完成 | ~4 周 |
-| Phase 9 | 自举验证 | 🚧 80% | ~2 天 |
+| Phase 9 | 自举验证 | 🚧 90% | ~1 天 |
 
-**当前进度：Phase 8 完成，Phase 9 推进至 80%。v1.1.4 修复了类方法 receiver 生成（ClassName.MethodName → self *ClassName），126 个类方法全部正确。**
+**当前进度：Phase 8 完成，Phase 9 推进至 90%。v1.1.5 实现了多文件 Go 编译零错误通过——自举编译器生成的 136KB Go 代码可编译并运行。**
 
-**总计剩余工期：约 2 天**
+**总计剩余工期：约 1 天**
 
 ---
 
@@ -86,7 +86,7 @@ src/
 
 总计 ~4800 行 Kylix 代码。7 文件联合编译通过（Kylix → Go 转换 + Go 编译零错误）。
 
-### ✅ v1.1.4 完成内容
+### ✅ v1.1.5 完成内容
 
 | 任务 | 优先级 | 描述 | 状态 |
 |------|--------|------|------|
@@ -97,15 +97,17 @@ src/
 | **Class 类型 unwrap** | 🟠 P1 | TClassDecl/TInterfaceDecl 在 TTypeDecl 中展开 | ✅ v1.1.3 |
 | **类方法 receiver** | 🔴 P0 | ClassName.MethodName → func (self *CN) Method | ✅ v1.1.4 |
 | **软关键字方法名** | 🔴 P0 | Write/Read/New 等软关键字作为方法名 | ✅ v1.1.4 |
-| **自举验证 (7 源文件)** | 🔴 P0 | 全部 7 个 .klx 源文件成功编译 | ✅ v1.1.4 |
-| **多文件合并输出** | 🔴 P0 | 6 文件合并输出 135KB Go 代码 | ✅ v1.1.4 |
+| **字符串转义 (Go输出)** | 🔴 P0 | WriteEscapedGoString 转义 \ 和 " | ✅ v1.1.5 |
+| **基类类型映射** | 🔴 P0 | TNode/TStatement/TExpression → interface{} | ✅ v1.1.5 |
+| **枚举类型声明** | 🔴 P0 | 生成 type Name int 声明 | ✅ v1.1.5 |
+| **内置函数完善** | 🔴 P0 | StrToInt64/StrToFloat/append/Exit/Create | ✅ v1.1.5 |
+| **多参数解析** | 🔴 P0 | a, b: Type 多变量参数声明 | ✅ v1.1.5 |
+| **多文件 Go 编译通过** | 🔴 P0 | 136KB 输出零错误，binary 运行正常 | ✅ v1.1.5 |
 
 ### 🟡 待完成
 
 | 任务 | 优先级 | 描述 |
 |------|--------|------|
-| **Go 字符串转义残余** | 🔴 P0 | 引号嵌套 `""fmt""`、raw newline in strings |
-| **多文件 Go 编译通过** | 🔴 P0 | 当前 135KB 输出有字符串转义语法错误 |
 | **完整 diff 验证** | 🔴 P0 | Go 版输出 vs Kylix 版输出逐行对比 |
 | **示例文件 Kylix 版验证** | 🟡 P2 | 用 Kylix 编译器编译 14 个示例文件 |
 
@@ -118,32 +120,22 @@ src/
 
 ---
 
-## Phase 9: 自举验证 🚧 80%
+## Phase 9: 自举验证 🚧 90%
 
-### ✅ 已验证 (v1.1.4)
+### ✅ 已验证 (v1.1.5)
 
-1. ✅ **Kylix → Go 编译通过**
-2. ✅ **Go 代码编译通过**
-3. ✅ **Binary 运行**
-4. ✅ **Lexer→Parser→Error 管道**
-5. ✅ **Lexer bug 修复** (v1.1.1)
-6. ✅ **Generator 完善** ~1400 行 (v1.1.1)
-7. ✅ **简单程序自举** (v1.1.1)
-8. ✅ **Parser result 覆盖修复** 7 个函数 (v1.1.2)
-9. ✅ **代码生成修复** Record/Map/Local/ReadFile (v1.1.2)
-10. ✅ **7 源文件全编译** (v1.1.2)
-11. ✅ **软关键字 + prefix** 25+/17 (v1.1.3)
-12. ✅ **字符串转义修复** (v1.1.3)
-13. ✅ **多文件自举联编** 135KB (v1.1.3)
-14. ✅ **类方法 receiver** 126 个方法全部正确 (v1.1.4)
+1-14. (v1.1.1-v1.1.4 全部修复)
+15. ✅ **多文件 Go 编译通过** — 136KB 输出零错误 (v1.1.5)
+16. ✅ **字符串转义修复** — WriteEscapedGoString (v1.1.5)
+17. ✅ **基类类型映射** — TNode/TStatement/TExpression → interface{} (v1.1.5)
+18. ✅ **内置函数完善** — StrToInt64/StrToFloat/append/Create (v1.1.5)
 
 ### 🟡 待完成
 
 | 步骤 | 状态 | 描述 |
 |------|------|------|
-| 9.1-9.5 | ✅ | Go 编译、简单程序、7 文件、多文件、receiver 全部通过 |
-| 9.6 Go 编译多文件输出 | 🟡 | 字符串转义残余（引号嵌套、raw newline）|
-| 9.7 Diff 验证 | ⬜ | 待 9.6 通过 |
+| 9.1-9.6 | ✅ | Go 编译、简单程序、7 文件、多文件、receiver、Go 编译全部通过 |
+| 9.7 Diff 验证 | 🟡 | Go 版 vs Kylix 版输出对比 |
 
 ### 自举管道架构
 
@@ -156,11 +148,11 @@ Kylix 编译器 (binary)       ✅ 可运行
     ↓ 运行 (逐个源文件)
 输出                        ✅ 全部编译成功
     ↓ 运行 (多文件联编)
-输出 (135KB)                ✅ 合并输出正确
+输出 (136KB)                ✅ 合并输出正确
     ↓ Go 编译
-输出                        🟡 字符串转义残余
+输出                        ✅ 零错误，运行正常
     ↓ Diff 验证
-Go版 vs Kylix版             ⬜ 待 Go 编译通过
+Go版 vs Kylix版             🟡 待验证
 ```
 
 ---
