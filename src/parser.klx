@@ -566,37 +566,45 @@ end;
 
 function TParser.ParseParameterList(): array of TParameter;
 var params: array of TParameter; var param: TParameter;
+var names: array of String; var i: Integer;
 begin
   params := [];
   self.NextToken(); // skip (
 
   while (self.CurTokenIs(tkRParen) = false) and (self.CurTokenIs(tkEOF) = false) do
   begin
-    param := TParameter.Create();
-
-    if self.CurTokenIs(tkVar) then
-      self.NextToken();
-
-    if self.CurTokenIs(tkIdent) then
+    // Collect parameter names (may be comma-separated: a, b: Type)
+    names := [];
+    while self.CurTokenIs(tkIdent) do
     begin
-      param.Token := self.CurToken;
-      param.Name := self.CurToken.Literal;
+      append(names, self.CurToken.Literal);
       self.NextToken();
+      if self.CurTokenIs(tkComma) then
+        self.NextToken()
+      else
+        break;
     end;
 
+    // Parse optional type annotation
+    var paramType: TExpression;
+    paramType := nil;
     if self.CurTokenIs(tkColon) then
     begin
       self.NextToken();
-      param.ParamType := self.ParseTypeExpression();
+      paramType := self.ParseTypeExpression();
     end;
 
-    append(params, param);
-
-    if self.CurTokenIs(tkComma) then
+    // Create a parameter for each collected name
+    for i := 0 to Length(names) - 1 do
     begin
-      self.NextToken();
-    end
-    else if self.CurTokenIs(tkSemicolon) then
+      param := TParameter.Create();
+      param.Name := names[i];
+      param.ParamType := paramType;
+      append(params, param);
+    end;
+
+    // Skip separator
+    if self.CurTokenIs(tkSemicolon) then
       self.NextToken()
     else if (self.CurTokenIs(tkRParen) = false) and (self.CurTokenIs(tkEOF) = false) then
       self.NextToken();

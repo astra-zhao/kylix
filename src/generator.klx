@@ -46,6 +46,24 @@ type
       self.Output := self.Output + s + '\n';
     end;
 
+    // Write a Go-escaped string: handle \, ", and newlines
+    procedure WriteEscapedGoString(s: String);
+    var
+      j: Integer;
+      ch: String;
+    begin
+      for j := 0 to Length(s) - 1 do
+      begin
+        ch := s[j:j+1];
+        if ch = '\' then
+          self.Write('\\')
+        else if ch = '"' then
+          self.Write('\"')
+        else
+          self.Write(ch);
+      end;
+    end;
+
     procedure IncreaseIndent;
     begin
       self.Indent := self.Indent + 1;
@@ -131,6 +149,9 @@ type
       end;
 
       // Generate main function from the last program (if it has statements)
+      // If no program has statements, generate an empty main
+      var hasMain: Boolean;
+      hasMain := false;
       for pi := 0 to Length(progs) - 1 do
       begin
         prog := progs[pi];
@@ -141,8 +162,11 @@ type
           self.GenerateStatements(prog.Statements);
           self.DecreaseIndent;
           self.WriteLine('}');
+          hasMain := true;
         end;
       end;
+      if hasMain = false then
+        self.WriteLine('func main() {}');
 
       result := self.Output;
     end;
@@ -291,6 +315,8 @@ type
       end;
       self.DecreaseIndent;
       self.WriteLine(')');
+      self.WriteLine('');
+      self.WriteLine('type ' + name + ' int');
       self.WriteLine('');
     end;
 
@@ -880,7 +906,7 @@ type
         if es.Expression is TIdentifier then
         begin
           ident := es.Expression as TIdentifier;
-          if ident.Value = 'Exit' then
+          if (ident.Value = 'Exit') or (ident.Value = 'exit') then
           begin
             if self.InReturnFunc then
               self.WriteLine('return result')
@@ -895,6 +921,29 @@ type
           self.GenerateExpression(es.Expression);
           self.WriteLine('()');
           Exit;
+        end;
+        // Handle append: arr = append(arr, elem)
+        if es.Expression is TCallExpression then
+        begin
+          call := es.Expression as TCallExpression;
+          if call.Func is TIdentifier then
+          begin
+            ident := call.Func as TIdentifier;
+            if ident.Value = 'append' then
+            begin
+              // Generate: arr = append(arr, elem)
+              self.GenerateExpression(call.Arguments[0]);
+              self.Write(' = append(');
+              for i := 0 to Length(call.Arguments) - 1 do
+              begin
+                if i > 0 then
+                  self.Write(', ');
+                self.GenerateExpression(call.Arguments[i]);
+              end;
+              self.WriteLine(')');
+              Exit;
+            end;
+          end;
         end;
         self.GenerateExpression(es.Expression);
         self.WriteLine('');
@@ -1282,7 +1331,9 @@ type
       else if expr is TStringLiteral then
       begin
         strLit := expr as TStringLiteral;
-        self.Write('"' + strLit.Value + '"');
+        self.Write('"');
+        self.WriteEscapedGoString(strLit.Value);
+        self.Write('"');
       end
       else if expr is TBooleanLiteral then
       begin
@@ -1355,6 +1406,16 @@ type
       else if expr is TMemberExpression then
       begin
         member := expr as TMemberExpression;
+        // Handle constructor without parens: ClassName.Create → &ClassName{}
+        if member.Member = 'Create' then
+        begin
+          if member.Obj is TIdentifier then
+          begin
+            ident := member.Obj as TIdentifier;
+            self.Write('&' + ident.Value + '{}');
+            Exit;
+          end;
+        end;
         self.GenerateExpression(member.Obj);
         self.Write('.' + member.Member);
       end
@@ -1456,6 +1517,20 @@ type
           self.Write(') == 0 { return 0 }; return int(');
           self.GenerateExpression(call.Arguments[0]);
           self.Write('[0]) }()');
+          Exit;
+        end;
+        if ident.Value = 'StrToInt64' then
+        begin
+          self.Write('func() int64 { v, _ := strconv.ParseInt(');
+          self.GenerateExpression(call.Arguments[0]);
+          self.Write(', 10, 64); return v }()');
+          Exit;
+        end;
+        if ident.Value = 'StrToFloat' then
+        begin
+          self.Write('func() float64 { v, _ := strconv.ParseFloat(');
+          self.GenerateExpression(call.Arguments[0]);
+          self.Write(', 64); return v }()');
           Exit;
         end;
         if ident.Value = 'ReadFile' then
@@ -1575,13 +1650,20 @@ type
         result := 'float64'
       else
       begin
+        // Known base classes: use interface{} for polymorphism
+        if (kylixType = 'TNode') or (kylixType = 'TStatement') or (kylixType = 'TExpression') then
+          result := 'interface{}'
+        // Known record/enum types: use value type (not pointer)
+        else if (kylixType = 'TToken') or (kylixType = 'TTokenType') then
+          result := kylixType
         // For class types that are base classes, use interface{}
-        if self.ClassIsBase[kylixType] then
+        else if self.ClassIsBase[kylixType] then
           result := 'interface{}'
         else if self.ClassTypes[kylixType] then
           result := '*' + kylixType
         else
-          result := kylixType;
+          // Default: assume pointer type for class-like types
+          result := '*' + kylixType;
       end;
     end;
 
@@ -1608,6 +1690,12 @@ type
         result := 'StrToFloat'
       else if name = 'ReadFile' then
         result := 'ReadFile'
+      else if name = 'Exit' then
+        result := 'return'
+      else if name = 'Break' then
+        result := 'break'
+      else if name = 'Continue' then
+        result := 'continue'
       else
         result := name;
     end;
