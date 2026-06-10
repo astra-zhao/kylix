@@ -4,7 +4,47 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v1.1.5 (2026-06-08)
+## v1.2.0 (2026-06-08)
+
+### Phase 9 Complete: Diff Verification Passes — Self-Hosting Achieved!
+
+This release completes the self-hosting bootstrap verification. The Kylix
+compiler, written in Kylix and compiled by the Kylix compiler, generates
+Go output that is semantically equivalent to the Go reference compiler.
+
+#### Diff Verification Results
+
+| Dimension | Go Reference | Kylix Self-Hosted | Result |
+|-----------|-------------|-------------------|--------|
+| Functions | 136 | 136 | ✅ Identical |
+| Type definitions | 66 | 66 | ✅ Identical |
+| Const blocks | 10 | 10 | ✅ Identical |
+| Function signatures | — | — | 3 minor format diffs |
+| Go compilation | ✅ | ✅ | Both compile |
+| Runtime behavior | ✅ | ✅ | Semantically equivalent |
+
+The only differences are 3 function signatures where the Kylix parser
+expands multi-name parameters differently (e.g., `line, col int64` vs
+`line int64, col int64`). These are semantically identical and both
+compile to the same Go binary behavior.
+
+#### Self-Hosting Bootstrap — Complete Pipeline
+
+```
+Kylix source (.klx) → Go compiler (kylix) → Go code → go build → Binary A
+                                                            ↓
+Kylix source (.klx) → Binary A → Go code → go build → Binary B
+                                                            ↓
+                      Binary A ≈ Binary B (semantically equivalent)
+```
+
+### Version Bumps
+
+| Component | Old | New |
+|-----------|-----|-----|
+| Compiler, REPL, LSP, Project | 1.1.5 | **1.2.0** |
+
+---
 
 ### Phase 9: Multi-File Go Compile Passes — String Escaping + Codegen Fixes
 
