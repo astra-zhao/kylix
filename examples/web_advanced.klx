@@ -117,10 +117,10 @@ begin
   // Health check endpoint
   app.Get('/health', procedure(req: TRequest; res: TResponse)
   begin
-    res.JSON(map[string]interface{}{
-      'status': 'ok',
-      'timestamp': Now
-    });
+    var data: map[String]String;
+    data['status'] := 'ok';
+    data['timestamp'] := 'now';
+    res.JSON(data);
   end);
 
   // Get all users
@@ -129,7 +129,7 @@ begin
     service: TUserService;
     users: array of TUser;
   begin
-    service := di.Resolve('UserService').(TUserService);
+    service := di.Resolve('UserService') as TUserService;
     users := service.GetAll;
     res.JSON(users);
   end);
@@ -141,14 +141,14 @@ begin
     user: TUser;
     id: Integer;
   begin
-    service := di.Resolve('UserService').(TUserService);
+    service := di.Resolve('UserService') as TUserService;
     id := StrToInt(req.Param('id'));
     user := service.GetByID(id);
     if user.ID = 0 then
     begin
-      res.Status(404).JSON(map[string]interface{}{
-        'error': 'User not found'
-      });
+      var errData: map[String]String;
+      errData['error'] := 'User not found';
+      res.Status(404).JSON(errData);
     end
     else
       res.JSON(user);
@@ -163,7 +163,7 @@ begin
     name, email: String;
     age: Integer;
   begin
-    service := di.Resolve('UserService').(TUserService);
+    service := di.Resolve('UserService') as TUserService;
 
     // Validate request
     validator := NewRequestValidator(req);
@@ -196,7 +196,7 @@ begin
     name, email: String;
     age: Integer;
   begin
-    service := di.Resolve('UserService').(TUserService);
+    service := di.Resolve('UserService') as TUserService;
     id := StrToInt(req.Param('id'));
 
     // Validate request
@@ -219,9 +219,9 @@ begin
     user := service.Update(id, name, email, age);
     if user.ID = 0 then
     begin
-      res.Status(404).JSON(map[string]interface{}{
-        'error': 'User not found'
-      });
+      var errData: map[String]String;
+      errData['error'] := 'User not found';
+      res.Status(404).JSON(errData);
     end
     else
       res.JSON(user);
@@ -234,16 +234,18 @@ begin
     id: Integer;
     deleted: Boolean;
   begin
-    service := di.Resolve('UserService').(TUserService);
+    service := di.Resolve('UserService') as TUserService;
     id := StrToInt(req.Param('id'));
     deleted := service.Delete(id);
 
     if deleted then
       res.Status(204).Send
     else
-      res.Status(404).JSON(map[string]interface{}{
-        'error': 'User not found'
-      });
+      begin
+        var errData2: map[String]String;
+        errData2['error'] := 'User not found';
+        res.Status(404).JSON(errData2);
+      end;
   end);
 
   // Start server
