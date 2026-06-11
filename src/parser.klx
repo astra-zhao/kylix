@@ -1444,6 +1444,12 @@ begin
   if self.CurTokenIs(tkSemicolon) = false then
     stmt.Expr := self.ParseExpression(PREC_LOWEST);
 
+  // After ParseExpression, curToken is on the last token of the expression
+  // (e.g. ')' for a call like Create(name, age)). Advance past the trailing
+  // semicolon so ParseBlockStatement's semicolon-skip loop works correctly.
+  while self.PeekTokenIs(tkSemicolon) do
+    self.NextToken();
+
   result := stmt;
 end;
 

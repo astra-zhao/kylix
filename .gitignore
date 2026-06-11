@@ -34,3 +34,4 @@ vscode-ext/node_modules/
 vscode-ext/*.vsix
 kylix_bin
 *.txt
+.omc/

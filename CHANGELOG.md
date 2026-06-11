@@ -4,6 +4,53 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v1.2.2 (2026-06-12)
+
+### Tests + inherited keyword fix — 15/15 examples pass on both compilers
+
+#### Bug Fix: `inherited` keyword in self-hosted compiler
+
+`inherited Create(name, age)` inside class constructors caused a parse error
+("no prefix parse function for )") in the self-hosted Kylix compiler.
+
+**Root cause:** After `ParseInheritedStatement` called `ParseExpression`, the
+Pratt parser left `curToken` on the closing `)` of the call. The outer
+`ParseBlockStatement` semicolon-skip loop then started from the wrong position,
+consuming a real identifier token as whitespace and leaving the parser desync'd.
+
+**Fix** (`src/parser.klx`): added a `while PeekTokenIs(tkSemicolon)` advance
+after `ParseExpression` returns, so the inherited statement correctly positions
+to the trailing semicolon before returning.
+
+#### New Tests
+
+**parser/parser_test.go** (25 tests)
+Covers: literals (int, float, bool, string), infix/prefix expressions, call
+expressions, member access, array indexing, if/while/for statements,
+assignments, function/procedure/var/const declarations, class declarations,
+inherited calls, try/except, is/as expressions, map/array types,
+program/unit name, empty program.
+
+**generator/generator_test.go** (15 tests)
+Covers end-to-end Kylix → Go codegen: hello world, var decl, function decl,
+if/else, while loop, for loop, class with struct, map types, try/except,
+booleans, arithmetic, nil, package header, string interpolation, inherited calls.
+
+#### Example file coverage
+
+| Compiler | v1.2.1 | v1.2.2 |
+|----------|--------|--------|
+| Go reference | 15/15 | 15/15 |
+| Kylix self-hosted | 14/15 | **15/15** ✅ |
+
+### Version Bumps
+
+| Component | Old | New |
+|-----------|-----|-----|
+| Compiler, REPL, LSP, Project | 1.2.0 | **1.2.2** |
+
+---
+
 ## v1.2.0 (2026-06-08)
 
 ### Phase 9 Complete: Diff Verification Passes — Self-Hosting Achieved!
