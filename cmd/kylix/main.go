@@ -91,6 +91,7 @@ func cmdBuild(args []string) {
 	fs := flag.NewFlagSet("build", flag.ExitOnError)
 	output := fs.String("o", "", "Output file (for single file compilation)")
 	verbose := fs.Bool("v", false, "Verbose output")
+	target := fs.String("target", "", "Cross-compile target: os/arch (e.g. linux/amd64, windows/amd64, darwin/arm64)")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix build [options] [file.klx]
 
@@ -104,6 +105,17 @@ OPTIONS:
 
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
+	}
+
+	// Parse --target into GOOS/GOARCH
+	var targetGOOS, targetGOARCH string
+	if *target != "" {
+		parts := splitTarget(*target)
+		if parts == nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid --target %q, expected os/arch (e.g. linux/amd64)\n", *target)
+			os.Exit(1)
+		}
+		targetGOOS, targetGOARCH = parts[0], parts[1]
 	}
 
 	// Single file or multi-file mode
@@ -124,7 +136,22 @@ OPTIONS:
 			if !result.Success {
 				os.Exit(1)
 			}
-			fmt.Printf("✓ Compiled %s → %s\n", file, result.OutputFile)
+			if targetGOOS != "" {
+				binOut := *output
+				if binOut == "" {
+					binOut = stripExt(file)
+					if targetGOOS == "windows" {
+						binOut += ".exe"
+					}
+				}
+				if err := goBuild(result.OutputFile, binOut, targetGOOS, targetGOARCH); err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					os.Exit(1)
+				}
+				fmt.Printf("✓ Built %s → %s [%s/%s]\n", file, binOut, targetGOOS, targetGOARCH)
+			} else {
+				fmt.Printf("✓ Compiled %s → %s\n", file, result.OutputFile)
+			}
 			return
 		}
 
@@ -194,7 +221,51 @@ OPTIONS:
 		}
 	}
 
-	fmt.Printf("✓ Built %s → %s\n", cfg.Name, outFile)
+	if targetGOOS != "" {
+		binOut := filepath.Join(outDir, cfg.Name)
+		if targetGOOS == "windows" {
+			binOut += ".exe"
+		}
+		if err := goBuild(outFile, binOut, targetGOOS, targetGOARCH); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("✓ Built %s → %s [%s/%s]\n", cfg.Name, binOut, targetGOOS, targetGOARCH)
+	} else {
+		fmt.Printf("✓ Built %s → %s\n", cfg.Name, outFile)
+	}
+}
+
+// splitTarget parses "os/arch" into [os, arch], returns nil on bad input.
+func splitTarget(t string) []string {
+	for i, c := range t {
+		if c == '/' {
+			return []string{t[:i], t[i+1:]}
+		}
+	}
+	return nil
+}
+
+// goBuild compiles a .go file to a native binary with optional cross-compilation.
+func goBuild(goFile, outBin, goos, goarch string) error {
+	cmd := exec.Command("go", "build", "-o", outBin, goFile)
+	cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// stripExt removes the file extension.
+func stripExt(name string) string {
+	for i := len(name) - 1; i >= 0; i-- {
+		if name[i] == '.' {
+			return name[:i]
+		}
+		if name[i] == '/' || name[i] == os.PathSeparator {
+			break
+		}
+	}
+	return name
 }
 
 func cmdRun(args []string) {

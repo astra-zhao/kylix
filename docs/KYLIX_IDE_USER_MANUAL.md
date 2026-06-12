@@ -118,11 +118,62 @@ kylix build <file.klx>
 
 # 指定输出文件
 kylix build -o output.go <file.klx>
+
+# 交叉编译到指定平台（生成原生二进制）
+kylix build --target=<os>/<arch> <file.klx>
 ```
 
 **选项：**
 - `-o, --output <file>` - 指定输出文件路径
 - `-v, --verbose` - 显示详细编译信息
+- `--target <os/arch>` - 交叉编译目标平台
+
+---
+
+### 跨平台编译
+
+Kylix 通过 Go 的交叉编译能力，可以在一台机器上编译出所有平台的原生二进制。
+
+**编译流程：**
+
+```
+你的 .klx 文件
+    ↓  kylix build  （Pascal → Go 转译）
+生成的 .go 文件
+    ↓  go build     （Go → 原生二进制）
+可执行文件（无需安装 Go 或 Kylix）
+```
+
+**示例：**
+
+```bash
+# 编译 Linux 版本（在 macOS 或 Windows 上运行此命令）
+kylix build --target=linux/amd64 main.klx
+# 输出：✓ Built main → main [linux/amd64]
+
+# 编译 Windows 版本
+kylix build --target=windows/amd64 main.klx
+# 输出：✓ Built main → main.exe [windows/amd64]
+
+# 编译 macOS Apple Silicon 版本
+kylix build --target=darwin/arm64 main.klx
+# 输出：✓ Built main → main [darwin/arm64]
+
+# 编译 Linux ARM（树莓派）
+kylix build --target=linux/arm64 main.klx
+```
+
+**支持的目标平台：**
+
+| 操作系统 | 架构 | `--target` 值 |
+|---------|------|--------------|
+| Linux | x86-64 | `linux/amd64` |
+| Linux | ARM64 | `linux/arm64` |
+| Windows | x86-64 | `windows/amd64` |
+| macOS | x86-64 | `darwin/amd64` |
+| macOS | Apple Silicon | `darwin/arm64` |
+
+> 注意：交叉编译需要本机安装 Go 工具链（`go build`）。最终生成的二进制文件无需任何依赖，可直接在目标平台运行。
 
 **示例：**
 ```bash

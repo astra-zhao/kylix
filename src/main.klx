@@ -13,21 +13,28 @@ var
   ErrList: TErrorList;
   i: Integer;
   AllOk: Boolean;
-  // Multi-file support
   Files: array of String;
   Programs: array of TProgram;
 
 begin
   ErrList := TErrorList.Create;
 
-  // Define files in dependency order (hardcoded for bootstrap)
+  // Use command-line arguments if provided, otherwise fall back to default bootstrap files
   Files := [];
-  append(Files, 'token.klx');
-  append(Files, 'error.klx');
-  append(Files, 'ast.klx');
-  append(Files, 'lexer.klx');
-  append(Files, 'parser.klx');
-  append(Files, 'generator.klx');
+  if Length(Args) > 0 then
+  begin
+    for i := 0 to Length(Args) - 1 do
+      append(Files, Args[i]);
+  end
+  else
+  begin
+    append(Files, 'token.klx');
+    append(Files, 'error.klx');
+    append(Files, 'ast.klx');
+    append(Files, 'lexer.klx');
+    append(Files, 'parser.klx');
+    append(Files, 'generator.klx');
+  end;
 
   Programs := [];
   for i := 0 to Length(Files) - 1 do

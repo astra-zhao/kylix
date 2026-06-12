@@ -1,0 +1,631 @@
+// generator_types.go — Type and function declaration code generation.
+package generator
+
+import (
+	"fmt"
+	"kylix/ast"
+	"strings"
+)
+
+func (g *Generator) generateTypeDecl(decl *ast.TypeDecl) {
+	if classDecl, ok := decl.Type.(*ast.ClassDecl); ok {
+		classDecl.Name = decl.Name
+		g.generateClassDecl(classDecl)
+		return
+	}
+	if ifaceDecl, ok := decl.Type.(*ast.InterfaceDecl); ok {
+		ifaceDecl.Name = decl.Name
+		g.generateInterfaceDecl(ifaceDecl)
+		return
+	}
+	if variantDecl, ok := decl.Type.(*ast.VariantType); ok {
+		g.generateVariantType(decl.Name, variantDecl)
+		return
+	}
+	if enumDecl, ok := decl.Type.(*ast.EnumType); ok {
+		g.generateEnumType(decl.Name, enumDecl)
+		return
+	}
+	g.write(fmt.Sprintf("type %s ", decl.Name))
+	g.generateTypeExpression(decl.Type)
+	g.write("\n\n")
+}
+
+// generateClassDecl emits a Go struct with embedded parent and methods.
+// All classes are plain structs; polymorphism is handled via interface{} at the
+// type-expression level for fields typed as base classes.
+func (g *Generator) generateClassDecl(decl *ast.ClassDecl) {
+	g.classTypes[decl.Name] = true
+
+	g.write("type ")
+	g.write(decl.Name)
+	g.generateTypeParams(decl.TypeParams)
+	g.writeLine(" struct {")
+	g.indent++
+	if decl.Parent != "" {
+		g.writeLine(decl.Parent) // embed parent struct
+	}
+	for _, field := range decl.Fields {
+		for _, name := range field.Names {
+			g.write(name + " ")
+			if field.Type != nil {
+				g.generateTypeExpression(field.Type)
+			} else {
+				g.write("interface{}")
+			}
+			g.write("\n")
+		}
+	}
+	g.indent--
+	g.writeLine("}")
+	g.writeLine("")
+
+	for _, method := range decl.Methods {
+		g.generateClassMethod(decl.Name, method)
+	}
+	for _, prop := range decl.Properties {
+		g.generatePropertyAccessors(decl.Name, prop)
+	}
+}
+
+// generateClassMethod emits a single method bound to *ClassName.
+func (g *Generator) generateClassMethod(className string, method *ast.FunctionDecl) {
+	hasReturnType := method.ReturnType != nil || len(method.ReturnTypes) > 0
+
+	g.write(fmt.Sprintf("func (self *%s) %s", className, method.Name))
+	g.generateFunctionSignature(method)
+	g.writeLine(" {")
+	g.indent++
+
+	if hasReturnType {
+		if method.ReturnType != nil {
+			g.write("var result ")
+			g.generateTypeExpression(method.ReturnType)
+			g.write("\n")
+		} else if len(method.ReturnTypes) == 1 {
+			g.write("var result ")
+			g.generateTypeExpression(method.ReturnTypes[0])
+			g.write("\n")
+		}
+	}
+
+	for _, local := range method.LocalDecls {
+		switch d := local.(type) {
+		case *ast.VarDecl:
+			g.generateLocalVarDecl(d)
+		case *ast.ConstDecl:
+			g.generateLocalConstDecl(d)
+		}
+	}
+
+	if method.Body != nil {
+		g.inFunction = true
+		g.inReturnFunc = hasReturnType
+		for _, stmt := range method.Body.Statements {
+			g.generateStatement(stmt)
+		}
+		g.inFunction = false
+		g.inReturnFunc = false
+	}
+
+	// Suppress "declared and not used" for local vars.
+	for _, local := range method.LocalDecls {
+		if vd, ok := local.(*ast.VarDecl); ok && len(vd.Names) == 1 {
+			g.write(fmt.Sprintf("_ = %s\n", vd.Names[0]))
+		}
+	}
+
+	if hasReturnType {
+		g.writeLine("return result")
+	}
+
+	g.indent--
+	g.writeLine("}")
+	g.writeLine("")
+}
+
+// generatePropertyAccessors emits getter and setter methods for a property declaration.
+// property Name: Type read FieldA write FieldB;
+// → func (self *C) Name() Type { return self.FieldA }
+// → func (self *C) SetName(v Type) { self.FieldB = v }
+func (g *Generator) generatePropertyAccessors(className string, prop *ast.PropertyDecl) {
+	if prop.Getter != "" {
+		g.write(fmt.Sprintf("func (self *%s) %s() ", className, prop.Name))
+		if prop.Type != nil {
+			g.generateTypeExpression(prop.Type)
+		} else {
+			g.write("interface{}")
+		}
+		g.writeLine(" {")
+		g.indent++
+		g.write(fmt.Sprintf("return self.%s\n", prop.Getter))
+		g.indent--
+		g.writeLine("}")
+		g.writeLine("")
+	}
+
+	if prop.Setter != "" {
+		g.write(fmt.Sprintf("func (self *%s) Set%s(v ", className, prop.Name))
+		if prop.Type != nil {
+			g.generateTypeExpression(prop.Type)
+		} else {
+			g.write("interface{}")
+		}
+		g.writeLine(") {")
+		g.indent++
+		g.write(fmt.Sprintf("self.%s = v\n", prop.Setter))
+		g.indent--
+		g.writeLine("}")
+		g.writeLine("")
+	}
+}
+
+func (g *Generator) generateInterfaceDecl(decl *ast.InterfaceDecl) {
+	g.writeLine(fmt.Sprintf("type %s interface {", decl.Name))
+	g.indent++
+	for _, parent := range decl.Parents {
+		g.writeLine(parent)
+	}
+	for _, method := range decl.Methods {
+		g.write(method.Name)
+		g.generateFunctionSignature(method)
+		g.write("\n")
+	}
+	g.indent--
+	g.writeLine("}")
+	g.writeLine("")
+}
+
+// generateVariantType emits a discriminated union as a Go interface + concrete types.
+// variant T = A: TypeA | B: TypeB end
+// → type T interface { isT() }
+// → type T_A struct { Value TypeA }; func (s *T_A) isT() {}
+func (g *Generator) generateVariantType(name string, variant *ast.VariantType) {
+	g.writeLine(fmt.Sprintf("type %s interface {", name))
+	g.indent++
+	g.writeLine(fmt.Sprintf("is%s()", name))
+	g.indent--
+	g.writeLine("}")
+	g.writeLine("")
+
+	for _, c := range variant.Cases {
+		structName := fmt.Sprintf("%s_%s", name, c.Name)
+		g.writeLine(fmt.Sprintf("type %s struct {", structName))
+		g.indent++
+		if c.Type != nil {
+			g.write("Value ")
+			g.generateTypeExpression(c.Type)
+			g.write("\n")
+		}
+		g.indent--
+		g.writeLine("}")
+		g.writeLine("")
+		g.writeLine(fmt.Sprintf("func (s *%s) is%s() {}", structName, name))
+		g.writeLine("")
+	}
+}
+
+// generateEnumType emits Go const + iota for Pascal enum types.
+func (g *Generator) generateEnumType(name string, enum *ast.EnumType) {
+	if len(enum.Names) == 0 {
+		return
+	}
+	g.writeLine("const (")
+	g.indent++
+	for i, n := range enum.Names {
+		if i == 0 {
+			g.writeLine(fmt.Sprintf("%s %s = iota", n, name))
+		} else {
+			g.writeLine(n)
+		}
+	}
+	g.indent--
+	g.writeLine(")")
+	g.writeLine("")
+	g.writeLine(fmt.Sprintf("type %s int", name))
+	g.writeLine("")
+}
+
+func (g *Generator) generateGlobalVarDecl(decl *ast.VarDecl) {
+	g.write("var ")
+	for i, name := range decl.Names {
+		if i > 0 {
+			g.write(", ")
+		}
+		g.write(name)
+	}
+	if decl.Type != nil {
+		g.write(" ")
+		g.generateTypeExpression(decl.Type)
+	}
+	if decl.Value != nil {
+		g.write(" = ")
+		g.generateExpression(decl.Value)
+	} else if _, isMap := decl.Type.(*ast.MapType); isMap {
+		// Map vars must be initialized to avoid nil map panics.
+		g.write(" = ")
+		g.generateTypeExpression(decl.Type)
+		g.write("{}")
+	}
+	g.write("\n")
+}
+
+func (g *Generator) generateConstDecl(decl *ast.ConstDecl) {
+	g.write(fmt.Sprintf("const %s", decl.Name))
+	if decl.Type != nil {
+		g.write(" ")
+		g.generateTypeExpression(decl.Type)
+	}
+	if decl.Value != nil {
+		g.write(" = ")
+		g.generateExpression(decl.Value)
+	}
+	g.write("\n")
+}
+
+func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
+	hasReturnType := decl.ReturnType != nil || len(decl.ReturnTypes) > 0
+	hasMultiReturn := len(decl.ReturnTypes) > 1
+	g.multiReturn = hasMultiReturn
+	g.multiReturnN = len(decl.ReturnTypes)
+
+	if decl.IsAsync {
+		g.generateAsyncFunctionDecl(decl)
+		return
+	}
+
+	// Method definition: ClassName.MethodName
+	if idx := strings.Index(decl.Name, "."); idx >= 0 {
+		className := decl.Name[:idx]
+		methodName := decl.Name[idx+1:]
+		g.write(fmt.Sprintf("func (self *%s) %s", className, methodName))
+	} else {
+		g.write(fmt.Sprintf("func %s", decl.Name))
+	}
+	g.generateTypeParams(decl.TypeParams)
+	g.generateFunctionSignature(decl)
+	g.writeLine(" {")
+	g.indent++
+
+	if hasReturnType && !hasMultiReturn {
+		if decl.ReturnType != nil {
+			g.write("var result ")
+			g.generateTypeExpression(decl.ReturnType)
+			g.write("\n")
+		} else {
+			g.write("var result ")
+			g.generateTypeExpression(decl.ReturnTypes[0])
+			g.write("\n")
+		}
+	}
+
+	for _, local := range decl.LocalDecls {
+		switch d := local.(type) {
+		case *ast.VarDecl:
+			g.generateLocalVarDecl(d)
+		case *ast.ConstDecl:
+			g.generateLocalConstDecl(d)
+		}
+	}
+
+	if decl.Body != nil {
+		g.inFunction = true
+		g.inReturnFunc = hasReturnType
+		for _, stmt := range decl.Body.Statements {
+			g.generateStatement(stmt)
+		}
+		g.inFunction = false
+		g.inReturnFunc = false
+	}
+
+	for _, local := range decl.LocalDecls {
+		if vd, ok := local.(*ast.VarDecl); ok && len(vd.Names) == 1 {
+			g.write(fmt.Sprintf("_ = %s\n", vd.Names[0]))
+		}
+	}
+
+	if hasReturnType && !hasMultiReturn {
+		g.write("return result\n")
+	}
+	g.multiReturn = false
+	g.multiReturnN = 0
+
+	g.indent--
+	g.writeLine("}")
+	g.writeLine("")
+}
+
+// generateAsyncFunctionDecl emits an async function as func(...) <-chan RetType.
+func (g *Generator) generateAsyncFunctionDecl(decl *ast.FunctionDecl) {
+	hasReturnType := decl.ReturnType != nil
+
+	g.write(fmt.Sprintf("func %s", decl.Name))
+	g.generateTypeParams(decl.TypeParams)
+	g.generateAsyncSignature(decl)
+	g.writeLine(" {")
+	g.indent++
+
+	if hasReturnType {
+		g.write("ch := make(chan ")
+		g.generateTypeExpression(decl.ReturnType)
+		g.writeLine(", 1)")
+	} else {
+		g.writeLine("ch := make(chan bool, 1)")
+	}
+
+	g.writeLine("go func() {")
+	g.indent++
+
+	if hasReturnType {
+		g.write("var result ")
+		g.generateTypeExpression(decl.ReturnType)
+		g.write("\n")
+	}
+
+	if decl.Body != nil {
+		g.inFunction = true
+		for _, stmt := range decl.Body.Statements {
+			g.generateStatement(stmt)
+		}
+		g.inFunction = false
+	}
+
+	if hasReturnType {
+		g.writeLine("ch <- result")
+	} else {
+		g.writeLine("ch <- true")
+	}
+
+	g.indent--
+	g.writeLine("}()")
+	g.writeLine("return ch")
+	g.indent--
+	g.writeLine("}")
+	g.writeLine("")
+}
+
+func (g *Generator) generateAsyncSignature(decl *ast.FunctionDecl) {
+	g.write("(")
+	for i, param := range decl.Parameters {
+		if i > 0 {
+			g.write(", ")
+		}
+		g.write(param.Name)
+		if param.Type != nil {
+			g.write(" ")
+			g.generateTypeExpression(param.Type)
+		}
+	}
+	g.write(")")
+	if decl.ReturnType != nil {
+		g.write(" <-chan ")
+		g.generateTypeExpression(decl.ReturnType)
+	}
+}
+
+func (g *Generator) generateTypeParams(params []*ast.TypeParameter) {
+	if len(params) == 0 {
+		return
+	}
+	g.write("[")
+	for i, tp := range params {
+		if i > 0 {
+			g.write(", ")
+		}
+		g.write(tp.Name + " ")
+		if tp.Constraint != nil {
+			g.generateTypeExpression(tp.Constraint)
+		} else {
+			g.write("interface{}")
+		}
+	}
+	g.write("]")
+}
+
+func (g *Generator) generateFunctionSignature(decl *ast.FunctionDecl) {
+	g.write("(")
+	for i, param := range decl.Parameters {
+		if i > 0 {
+			g.write(", ")
+		}
+		g.write(param.Name)
+		if param.Type != nil {
+			g.write(" ")
+			g.generateTypeExpression(param.Type)
+		}
+	}
+	g.write(")")
+
+	if len(decl.ReturnTypes) > 1 {
+		g.write(" ")
+		g.generateMultiReturnType(decl.ReturnTypes)
+	} else if decl.ReturnType != nil {
+		g.write(" ")
+		g.generateTypeExpression(decl.ReturnType)
+	}
+}
+
+func (g *Generator) generateMultiReturnType(types []ast.Expression) {
+	g.write("(")
+	for i, t := range types {
+		if i > 0 {
+			g.write(", ")
+		}
+		g.generateTypeExpression(t)
+	}
+	g.write(")")
+}
+
+// generateTypeExpression emits a Go type for a Kylix type AST node.
+// Base class types become interface{} (for polymorphism); concrete class types
+// become *ClassName (pointer to struct).
+func (g *Generator) generateTypeExpression(expr ast.Expression) {
+	switch t := expr.(type) {
+	case *ast.Identifier:
+		typeName := t.Value
+		if g.classTypes[typeName] {
+			if g.classIsBase[typeName] {
+				g.write("interface{}")
+			} else {
+				g.write("*" + typeName)
+			}
+		} else {
+			g.write(g.mapType(typeName))
+		}
+	case *ast.ArrayType:
+		if t.Dynamic {
+			g.write("[]")
+		} else {
+			g.write("[")
+			if t.Size != nil {
+				g.generateExpression(t.Size)
+			}
+			g.write("]")
+		}
+		if t.ElementType != nil {
+			g.generateTypeExpression(t.ElementType)
+		} else {
+			g.write("interface{}")
+		}
+	case *ast.MapType:
+		g.write("map[")
+		if t.KeyType != nil {
+			g.generateTypeExpression(t.KeyType)
+		} else {
+			g.write("string")
+		}
+		g.write("]")
+		if t.ValueType != nil {
+			g.generateTypeExpression(t.ValueType)
+		} else {
+			g.write("interface{}")
+		}
+	case *ast.GenericType:
+		g.write(g.mapType(t.Base))
+		if len(t.TypeParams) > 0 {
+			g.write("[")
+			for i, param := range t.TypeParams {
+				if i > 0 {
+					g.write(", ")
+				}
+				g.generateTypeExpression(param)
+			}
+			g.write("]")
+		}
+	case *ast.RecordType:
+		g.write("struct {\n")
+		g.indent++
+		for _, field := range t.Fields {
+			for _, name := range field.Names {
+				g.write(name + " ")
+				if field.Type != nil {
+					g.generateTypeExpression(field.Type)
+				}
+				g.write("\n")
+			}
+		}
+		g.indent--
+		g.write("}")
+	default:
+		g.write("interface{}")
+	}
+}
+
+// generateTypeExpressionForCast emits a concrete type for use in a Go type assertion.
+// Unlike generateTypeExpression, base class types → *ClassName (not interface{}).
+func (g *Generator) generateTypeExpressionForCast(expr ast.Expression) {
+	if ident, ok := expr.(*ast.Identifier); ok {
+		if g.classTypes[ident.Value] {
+			g.write("*" + ident.Value)
+			return
+		}
+	}
+	g.generateTypeExpression(expr)
+}
+
+// mapType converts Kylix primitive type names to their Go equivalents.
+func (g *Generator) mapType(kylixType string) string {
+	typeMap := map[string]string{
+		"Integer":  "int64",
+		"Real":     "float64",
+		"Boolean":  "bool",
+		"String":   "string",
+		"Char":     "byte",
+		"Byte":     "byte",
+		"Word":     "uint16",
+		"Cardinal": "uint32",
+		"LongInt":  "int64",
+		"Double":   "float64",
+		"Extended": "float64",
+	}
+	if goType, ok := typeMap[kylixType]; ok {
+		return goType
+	}
+	return kylixType
+}
+
+// mapBuiltinFunction maps Kylix built-in names to Go equivalents and records
+// which import packages are needed.
+func (g *Generator) mapBuiltinFunction(name string) string {
+	builtinMap := map[string]string{
+		"WriteLn":   "fmt.Println",
+		"Write":     "fmt.Print",
+		"ReadLn":    "fmt.Scanln",
+		"Read":      "fmt.Scan",
+		"IntToStr":  "fmt.Sprintf",
+		"StrToInt":  "strconv.ParseInt",
+		"Length":    "len",
+		"Copy":      "copy",
+		"Concat":    "fmt.Sprintf",
+		"Pos":       "strings.Index",
+		"Delete":    "delete",
+		"Insert":    "insert",
+		"UpperCase": "strings.ToUpper",
+		"LowerCase": "strings.ToLower",
+		"Trim":      "strings.TrimSpace",
+		"Inc":       "++",
+		"Dec":       "--",
+		"Succ":      "++",
+		"Pred":      "--",
+		"Ord":       "int",
+		"Chr":       "string",
+		"Sqr":       "math.Pow",
+		"Sqrt":      "math.Sqrt",
+		"Abs":       "math.Abs",
+		"Sin":       "math.Sin",
+		"Cos":       "math.Cos",
+		"Tan":       "math.Tan",
+		"Ln":        "math.Log",
+		"Exp":       "math.Exp",
+		"Round":     "math.Round",
+		"Trunc":     "math.Trunc",
+		"Frac":      "math.Mod",
+		"Random":    "rand.Float64",
+		"Randomize": "rand.Seed",
+		"Halt":      "os.Exit",
+		"Exit":      "return",
+		"append":    "append",
+		"SetLength": "SetLength",
+	}
+
+	goFunc, ok := builtinMap[name]
+	if !ok {
+		return name
+	}
+	// Track the import package needed for this builtin.
+	switch {
+	case strings.HasPrefix(goFunc, "fmt."):
+		g.imports["fmt"] = true
+	case strings.HasPrefix(goFunc, "strings."):
+		g.imports["strings"] = true
+	case strings.HasPrefix(goFunc, "math."):
+		g.imports["math"] = true
+	case strings.HasPrefix(goFunc, "strconv."):
+		g.imports["strconv"] = true
+	case strings.HasPrefix(goFunc, "os."):
+		g.imports["os"] = true
+	case strings.HasPrefix(goFunc, "rand."):
+		g.imports["math/rand"] = true
+	}
+	return goFunc
+}

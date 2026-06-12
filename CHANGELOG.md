@@ -4,6 +4,61 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v1.2.3 (2026-06-12)
+
+### Code refactoring — all source files under 1000 lines
+
+Enforced a hard 1000-line limit per source file to improve readability and
+maintainability. No behavior changes; all 40 tests still pass.
+
+#### Files split
+
+| Before | Lines | After | Max lines |
+|--------|-------|-------|-----------|
+| `parser/parser.go` | 2271 | `parser.go` + `parser_decl.go` + `parser_stmt.go` + `parser_expr.go` | 685 |
+| `generator/generator.go` | 1979 | `generator.go` + `generator_types.go` + `generator_stmt.go` + `generator_expr.go` | 631 |
+| `pkg/lsp/server.go` | 1238 | `server.go` + `handler_completion.go` + `handler_navigation.go` | 523 |
+| `stdlib/orm.go` | 964 | `orm.go` + `orm_query.go` + `orm_migrate.go` | 410 |
+| `pkg/formatter/formatter.go` | 897 | `formatter.go` + `formatter_stmt.go` + `formatter_expr.go` | 396 |
+
+#### New file layout
+
+```
+parser/
+  parser.go          core: Parser struct, New, ParseProgram, token helpers
+  parser_decl.go     declarations: var, const, type, function, class, interface
+  parser_stmt.go     statements: if, while, for, repeat, case, match, try, raise
+  parser_expr.go     expressions: literals, operators, calls, lambdas, types
+
+generator/
+  generator.go       core: Generator struct, Generate/GenerateMulti, pre-scan
+  generator_types.go type/function codegen: class, interface, variant, enum
+  generator_stmt.go  statement codegen: if, for, while, try, match, raise
+  generator_expr.go  expression codegen: calls, operators, lambdas, type mapping
+
+pkg/lsp/
+  server.go              JSON-RPC transport, message dispatch, document sync
+  handler_completion.go  completion + hover handlers
+  handler_navigation.go  definition, references, rename, formatting, signature
+
+stdlib/
+  orm.go         database connection + transaction
+  orm_query.go   QueryBuilder fluent API
+  orm_migrate.go ORM CRUD + MigrationManager + scan helpers
+
+pkg/formatter/
+  formatter.go       core + declaration formatting
+  formatter_stmt.go  statement formatting
+  formatter_expr.go  expression + type formatting
+```
+
+#### Key Constraint added to CLAUDE.md
+
+> Every source file must not exceed 1000 lines. Split large files by logical
+> responsibility (e.g. parser_decl.go / parser_stmt.go / parser_expr.go).
+
+---
+
 ## v1.2.2 (2026-06-12)
 
 ### Tests + inherited keyword fix — 15/15 examples pass on both compilers

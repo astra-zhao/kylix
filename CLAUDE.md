@@ -2,11 +2,12 @@
 
 Kylix is a modern Pascal-to-Go transpiler. The compiler is written in Go and targets Go output.
 
-## Current State: v1.0.3 (2026-06-05)
+## Current State: v1.2.3 (2026-06-12)
 
-- Phase 6 & 7 complete: bug fixes + language capabilities (map, variant, dynamic arrays)
-- 15/15 example files pass (100%)
-- All Go tests pass
+- Phase 6–9 complete: bootstrap verified, self-hosted compiler passes 15/15 examples
+- 15/15 example files pass on both Go reference compiler and Kylix self-hosted compiler
+- All Go tests pass (parser: 25 tests, generator: 15 tests)
+- All source files ≤ 1000 lines (refactored in v1.2.3)
 
 ## Key Documents
 
@@ -19,8 +20,8 @@ Kylix is a modern Pascal-to-Go transpiler. The compiler is written in Go and tar
 - `token/token.go` — Token type definitions and keyword map
 - `lexer/lexer.go` — Lexical analyzer (character → token stream)
 - `ast/ast.go` — AST node definitions (interfaces + concrete types)
-- `parser/parser.go` — Pratt parser (token stream → AST)
-- `generator/generator.go` — Go code generator (AST → Go source)
+- `parser/parser.go` — Pratt parser core; `parser_decl.go` declarations; `parser_stmt.go` statements; `parser_expr.go` expressions
+- `generator/generator.go` — Generator core + pre-scan; `generator_types.go` type/func codegen; `generator_stmt.go` statement codegen; `generator_expr.go` expression codegen
 - `cmd/kylix/main.go` — CLI entry point
 - `pkg/compiler/` — Compilation API
 - `pkg/repl/` — Interactive REPL
@@ -39,12 +40,18 @@ Kylix is a modern Pascal-to-Go transpiler. The compiler is written in Go and tar
 - Dynamic arrays: `append(arr, elem)`, `SetLength(arr, n)`
 - web_fullstack.klx rewritten in proper Kylix syntax
 
-## Next: Phase 8 → v2.0.0
+## Next: v2.0.0 — Production-grade self-hosted compiler
 
-编写 compiler.klx — 用 Kylix 写 Kylix 编译器
+- `kylix build --target=<os>/<arch>` 跨平台交叉编译
+- 基础类型错误诊断（Kylix 层报错，不依赖 Go 编译器错误信息）
+- 泛型代码生成真实实现（当前为空壳）
+- 接口实现编译时验证（`implements` 子句）
+- stdlib 逐步迁移为 Kylix 源码
 
 ## Key Constraints
 
 - Go backend stays the same (Kylix → Go → binary)
 - AST nodes use classes (not variant records)
 - Never commit/push without explicit user permission
+- **每个源文件不超过 1000 行**：大文件按功能拆分（例如 parser_decl.go / parser_stmt.go / parser_expr.go）
+- build=go build -o /tmp/kylix_bin ./cmd/kylix/ && /tmp/kylix_bin build src/token.klx src/ast.klx src/error.klx src/lexer.klx src/parser.klx src/generator.klx src/main.klx && go build -o /tmp/kylix_self . && echo "Self-hosted compiler rebuilt OK"

@@ -2,15 +2,15 @@
 
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
-[![版本](https://img.shields.io/badge/version-1.1.5-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-1.2.3-blue.svg)](CHANGELOG.md)
 [![许可证](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![自举进度](https://img.shields.io/badge/self--hosting-90%25-brightgreen.svg)](ROADMAP.md)
+[![自举完成](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix 是 Pascal 语言的现代化重制版，编译目标为 Go。它将 Pascal 的清晰简洁与现代化语言特性相结合，并配备完整的 IDE 工具链和编辑器集成。
 
 > 🌐 **官方网站**: [https://kylix.top](https://kylix.top) — 交互式文档、在线示例和完整功能展示。
 >
-> 🔥 **重大里程碑 (v1.1.5)**: 自举编译器生成的多文件 Go 代码（136KB）编译零错误通过——Kylix 编译器可以编译自身！详见 [ROADMAP.md](ROADMAP.md)。
+> 🔥 **重大里程碑 (v1.2.2)**: 自举完成——Go 参考编译器和 Kylix 自举编译器均通过 15/15 示例。详见 [ROADMAP.md](ROADMAP.md)。
 
 ## 特性
 
@@ -202,34 +202,42 @@ kylix/
 ├── pkg/
 │   ├── compiler/       # 编译 API
 │   ├── project/        # 项目管理 (kylix.toml)
-│   ├── lsp/            # Language Server Protocol 服务器
+│   ├── formatter/      # 代码格式化
+│   │   ├── formatter.go       # 核心 + 声明格式化
+│   │   ├── formatter_stmt.go  # 语句格式化
+│   │   └── formatter_expr.go  # 表达式 + 类型格式化
+│   ├── lsp/            # Language Server Protocol
+│   │   ├── server.go              # JSON-RPC 传输 + 消息分发
+│   │   ├── handler_completion.go  # 补全 + 悬停
+│   │   └── handler_navigation.go  # 跳转定义、引用、重命名、格式化
 │   └── repl/           # 交互式 REPL
 ├── stdlib/             # 标准库
 │   ├── web.go          # Web 框架
-│   ├── container.go    # 依赖注入
-│   ├── config.go       # 配置管理
-│   ├── middleware.go   # 中间件
-│   ├── validation.go   # 请求验证
-│   ├── orm.go          # ORM
-│   ├── template.go     # 模板引擎
-│   ├── autoconfig.go   # 自动配置
-│   ├── sysutil.go      # 文件 I/O 和系统工具
-│   ├── jsonutil.go     # JSON 编解码
-│   ├── datetime.go     # 日期时间操作
-│   └── regex.go        # 正则表达式
+│   ├── orm.go          # 数据库连接 + 事务
+│   ├── orm_query.go    # QueryBuilder 流式 API
+│   ├── orm_migrate.go  # ORM CRUD + 数据库迁移管理
+│   └── ...             # container, config, middleware, template 等
 ├── token/              # Token 定义
 ├── lexer/              # 词法分析器
-├── ast/                # 抽象语法树
-├── parser/             # 解析器 (Pratt 解析)
-├── generator/          # Go 代码生成器
-├── src/                # 自举编译器源码 (.klx 文件)
-│   ├── token.klx       # Token 类型 (209 行)
-│   ├── ast.klx         # AST 节点层次, 54 个类 (374 行)
-│   ├── lexer.klx       # 词法分析器 (366 行)
-│   ├── parser.klx      # Pratt 解析器 (2338 行)
-│   ├── error.klx       # 错误/诊断类型 (91 行)
-│   ├── generator.klx   # Go 代码生成器 (~1500 行)
-│   └── main.klx        # 入口点, 支持多文件编译
+├── ast/                # AST 节点定义
+├── parser/             # Pratt 解析器（按职责拆分）
+│   ├── parser.go       # 核心：Parser struct、ParseProgram
+│   ├── parser_decl.go  # var/const/type/function/class 声明解析
+│   ├── parser_stmt.go  # if/for/while/try/match/raise 语句解析
+│   └── parser_expr.go  # 表达式、字面量、类型解析
+├── generator/          # Go 代码生成器（按职责拆分）
+│   ├── generator.go        # 核心：Generate/GenerateMulti、预扫描
+│   ├── generator_types.go  # 类、接口、变体、枚举、函数代码生成
+│   ├── generator_stmt.go   # 语句代码生成
+│   └── generator_expr.go   # 表达式代码生成
+├── src/                # 自举编译器源码（.klx 文件）
+│   ├── token.klx
+│   ├── ast.klx
+│   ├── lexer.klx
+│   ├── parser.klx      # TParser 全部方法（2423 行，暂未拆分）
+│   ├── generator.klx   # TGenerator 全部方法（1702 行，class body）
+│   ├── error.klx
+│   └── main.klx
 ├── examples/           # 示例程序
 ├── vscode-ext/         # VS Code 扩展
 └── docs/               # 文档
@@ -310,10 +318,58 @@ sysutil、jsonutil、datetime、regex、REPL 改进、格式化器
 ### 第八阶段：自举编译器 ✅
 7 个 Kylix 源文件、类代码生成、软关键字、is/as 类型分发
 
-### 第九阶段：自举验证 🚧 90%
+### 第九阶段：自举验证 ✅ 完成
 - ✅ 多文件自举联编
-- ✅ 自举 Go 输出编译零错误
-- 🟡 Diff 验证进行中
+- ✅ 自举 Go 输出编译零错误，binary 正常运行
+- ✅ Diff 验证：Go 参考版 vs Kylix 自举版——语义等价
+- ✅ 两个编译器均通过 15/15 示例
+
+## 跨平台编译
+
+Kylix 先将 `.klx` 源码转译为 Go，再通过 Go 内置的交叉编译能力生成各平台原生二进制。目标机器无需安装 Go 或 Kylix，直接运行即可。
+
+### 编译流程
+
+```
+你的 .klx 文件
+    ↓  kylix build  （Pascal → Go 转译）
+生成的 .go 文件
+    ↓  go build     （Go → 原生二进制）
+可执行文件
+```
+
+### 编译到不同平台
+
+```bash
+# Linux（Intel/AMD）
+kylix build --target=linux/amd64 main.klx
+
+# Windows（Intel/AMD）
+kylix build --target=windows/amd64 main.klx
+
+# macOS Apple Silicon（M1/M2/M3）
+kylix build --target=darwin/arm64 main.klx
+
+# macOS Intel
+kylix build --target=darwin/amd64 main.klx
+
+# Linux ARM（树莓派、云端 ARM）
+kylix build --target=linux/arm64 main.klx
+```
+
+所有交叉编译都在本机执行，无需远程构建服务器。最终二进制静态链接，无外部依赖。
+
+### 支持的目标平台
+
+| 操作系统 | 架构 | `--target` 值 |
+|---------|------|--------------|
+| Linux | x86-64 | `linux/amd64` |
+| Linux | ARM64 | `linux/arm64` |
+| Windows | x86-64 | `windows/amd64` |
+| macOS | x86-64 | `darwin/amd64` |
+| macOS | Apple Silicon | `darwin/arm64` |
+
+---
 
 ## 更新日志
 

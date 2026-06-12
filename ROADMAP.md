@@ -1,7 +1,7 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-06-08
-> 当前版本: v1.2.0
+> 最后更新: 2026-06-12
+> 当前版本: v1.2.3
 > 官网: [kylix.top](https://kylix.top)
 > 目标: Kylix 语言自举（用 Kylix 写 Kylix 编译器）
 
@@ -158,13 +158,71 @@ Go版 vs Kylix版             ✅ 语义等价！
 
 ---
 
-## 长期愿景（Phase 10+）
+## v1.2.3 (2026-06-12) — 代码重构：每文件不超过 1000 行 ✅
 
-- LSP 增强（代码补全、诊断、重构）
-- REPL 改进（支持 uses/class 声明）
-- 标准库扩展
-- 性能优化
-- 包管理器
+### 目标
+强制执行每个源文件最多 1000 行的限制，提升可读性和可维护性。无行为变更。
+
+### 拆分结果
+
+| 文件 | 原始行数 | 拆分后文件 | 最大行数 |
+|------|---------|-----------|---------|
+| `parser/parser.go` | 2271 | `parser.go` + `parser_decl.go` + `parser_stmt.go` + `parser_expr.go` | 685 |
+| `generator/generator.go` | 1979 | `generator.go` + `generator_types.go` + `generator_stmt.go` + `generator_expr.go` | 631 |
+| `pkg/lsp/server.go` | 1238 | `server.go` + `handler_completion.go` + `handler_navigation.go` | 523 |
+| `stdlib/orm.go` | 964 | `orm.go` + `orm_query.go` + `orm_migrate.go` | 410 |
+| `pkg/formatter/formatter.go` | 897 | `formatter.go` + `formatter_stmt.go` + `formatter_expr.go` | 396 |
+
+### 规则落地
+CLAUDE.md 新增约束：**每个源文件不超过 1000 行，按功能职责拆分**。
+
+---
+
+## v2.0.0 规划 — 生产级自举编译器
+
+> 当前状态：自举完成（v1.2.x），代码库整洁（v1.2.3）。v2.0 聚焦让 Kylix 从"能用"走向"好用"。
+
+### 优先级功能清单
+
+#### P0 — 编译器诊断质量（影响每次开发体验）
+
+| 特性 | 描述 |
+|------|------|
+| **Kylix 层错误报告** | 目前错误来自 Go 编译器，用户看到 Go 语法报错。需在 Kylix 层捕获并报告行列号、友好信息 |
+| **未使用变量检测** | 目前靠 Go 的 `_ = varName` hack 抑制，应在 Kylix 层实现 |
+| **类型不匹配提示** | 赋值/调用时类型不兼容给出明确提示，而非 Go 类型断言 panic |
+
+#### P1 — 语言完整性（影响能写什么程序）
+
+| 特性 | 描述 |
+|------|------|
+| **接口实现编译时验证** | `class Foo implements IBar` 时检查 Foo 是否实现了 IBar 的所有方法 |
+| **泛型代码生成实现** | 当前泛型是空壳，生成 `interface{}`；需生成真实 Go 泛型 `[T any]` |
+| **多返回值完整支持** | 目前 `result := (a, b)` 有场景不覆盖；统一为 Go 标准多返回值模式 |
+| **字符串内置方法** | `s.Length`、`s.ToUpper()`、`s.Contains(sub)` 等方法语法 |
+
+#### P2 — 工具链（影响日常工作流）
+
+| 特性 | 描述 |
+|------|------|
+| **`kylix build --target=<os>/<arch>`** | 跨平台交叉编译，调用 Go 的 `GOOS/GOARCH` |
+| **增量编译** | 仅重新编译变更的 unit，加速大项目构建 |
+| **LSP 诊断增强** | 实时在编辑器内显示 Kylix 层错误（目前 LSP 只做语法分析） |
+| **REPL 支持 class/uses** | 当前 REPL 不支持类和跨文件声明 |
+
+#### P3 — stdlib 迁移（长期目标）
+
+| 特性 | 描述 |
+|------|------|
+| **stdlib 逐步 Kylix 化** | 将 `web.go`、`orm.go` 等逐步用 Kylix 重写，成为语言自举的一部分 |
+| **包管理器** | `kylix add <package>` 命令，管理第三方依赖 |
+
+### 建议启动顺序
+
+1. **P0: Kylix 层错误报告** — 最高价值，直接改善每次编写代码的体验
+2. **P1: 接口实现验证** — 语法已支持，只差语义检查，工作量小收益高
+3. **P1: 泛型真实实现** — 让现有泛型语法真正可用
+4. **P2: 跨平台编译** — 一行 Go 调用，实现成本极低
 
 ---
 

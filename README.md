@@ -2,15 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-1.1.5-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.3-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Self-Hosting](https://img.shields.io/badge/self--hosting-90%25-brightgreen.svg)](ROADMAP.md)
+[![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 > 
-> 🔥 **Major Milestone (v1.1.5)**: Self-hosted multi-file Go output compiles and runs with zero errors — the Kylix compiler can now compile itself! See [ROADMAP.md](ROADMAP.md) for details.
+> 🔥 **Major Milestone (v1.2.2)**: Self-hosting complete — 15/15 examples pass on both Go reference compiler and Kylix self-hosted compiler. See [ROADMAP.md](ROADMAP.md) for details.
 
 ## Features
 
@@ -592,43 +592,45 @@ kylix/
 ├── pkg/
 │   ├── compiler/       # Compilation API
 │   ├── project/        # Project management (kylix.toml)
-│   ├── lsp/            # Language Server Protocol server
+│   ├── formatter/      # Source formatter
+│   │   ├── formatter.go       # core + declaration formatting
+│   │   ├── formatter_stmt.go  # statement formatting
+│   │   └── formatter_expr.go  # expression + type formatting
+│   ├── lsp/            # Language Server Protocol
+│   │   ├── server.go              # JSON-RPC transport + dispatch
+│   │   ├── handler_completion.go  # completion + hover
+│   │   └── handler_navigation.go  # definition, refs, rename, formatting
 │   └── repl/           # Interactive REPL
 ├── stdlib/             # Standard library
 │   ├── web.go          # Web framework
-│   ├── container.go    # Dependency injection
-│   ├── config.go       # Configuration management
-│   ├── middleware.go   # Middleware (CORS, auth, rate limit)
-│   ├── validation.go   # Request validation
-│   ├── orm.go          # ORM (MySQL, PostgreSQL, SQLite)
-│   ├── template.go     # Template engine
-│   ├── autoconfig.go   # Auto-configuration
-│   ├── sysutil.go      # File I/O and system utilities
-│   ├── jsonutil.go     # JSON encoding/decoding
-│   ├── datetime.go     # Date and time operations
-│   └── regex.go        # Regular expressions
+│   ├── orm.go          # Database connection + transaction
+│   ├── orm_query.go    # QueryBuilder fluent API
+│   ├── orm_migrate.go  # ORM CRUD + MigrationManager
+│   └── ...             # container, config, middleware, template, etc.
 ├── token/              # Token definitions
 ├── lexer/              # Lexical analyzer
-├── ast/                # Abstract Syntax Tree
-├── parser/             # Parser (Pratt parsing)
-├── generator/          # Go code generator
-├── src/                # Self-hosting compiler source (.klx files)
-│   ├── token.klx       # Token types (209 lines)
-│   ├── ast.klx         # AST node hierarchy, 54 classes (374 lines)
-│   ├── lexer.klx       # Lexical analyzer (366 lines)
-│   ├── parser.klx      # Pratt parser (2338 lines)
-│   ├── error.klx       # Error/diagnostic types (91 lines)
-│   ├── generator.klx   # Go code generator (~1500 lines)
-│   └── main.klx        # Entry point with multi-file support
+├── ast/                # AST node definitions
+├── parser/             # Pratt parser (split by concern)
+│   ├── parser.go       # core: Parser struct, ParseProgram
+│   ├── parser_decl.go  # var, const, type, function, class declarations
+│   ├── parser_stmt.go  # if, for, while, try, match, raise, ...
+│   └── parser_expr.go  # expressions, literals, types
+├── generator/          # Go code generator (split by concern)
+│   ├── generator.go        # core: Generate/GenerateMulti, pre-scan
+│   ├── generator_types.go  # class, interface, variant, enum, function codegen
+│   ├── generator_stmt.go   # statement codegen
+│   └── generator_expr.go   # expression codegen
+├── src/                # Self-hosting compiler source (.klx)
+│   ├── token.klx
+│   ├── ast.klx
+│   ├── lexer.klx
+│   ├── parser.klx      # TParser — all methods (2423 lines, not yet split)
+│   ├── generator.klx   # TGenerator — all methods (1702 lines, class body)
+│   ├── error.klx
+│   └── main.klx
 ├── examples/           # Example programs
 ├── vscode-ext/         # VS Code extension
 └── docs/               # Documentation
-    ├── KYLIX_IDE_USER_MANUAL.md
-    ├── KYLIX_DEV_GUIDE.md
-    ├── KYLIX_TOOLS_EXPLAINED.md
-    ├── WEB_FRAMEWORK.md
-    ├── ORM_GUIDE.md
-    └── TEMPLATE_GUIDE.md
 ```
 
 ## Editor Integration
@@ -731,14 +733,64 @@ Kylix LSP supports any editor with LSP client:
 - ✅ is/as type dispatch for expressions and statements
 - ✅ Local variable declarations, constructor, builtins
 
-### Phase 9: Bootstrap Verification 🚧 90%
+### Phase 9: Bootstrap Verification ✅ Complete
 - ✅ Multi-file bootstrap compilation
 - ✅ Self-hosted Go output compiles and runs with zero errors
-- 🟡 Diff verification in progress
+- ✅ Diff verification: Go reference vs Kylix self-hosted — semantically equivalent
+- ✅ 15/15 examples pass on both compilers
+
+## Cross-Platform Compilation
+
+Kylix compiles to Go source, then uses Go's built-in cross-compilation to produce native binaries for any platform — no virtual machine, no runtime installation required on the target machine.
+
+### How it works
+
+```
+your .klx file
+    ↓  kylix build  (transpile Pascal → Go)
+generated .go file
+    ↓  go build     (compile Go → native binary)
+native executable
+```
+
+### Build for different platforms
+
+```bash
+# Linux (Intel/AMD)
+kylix build --target=linux/amd64 main.klx
+
+# Windows (Intel/AMD)
+kylix build --target=windows/amd64 main.klx
+
+# macOS Apple Silicon (M1/M2/M3)
+kylix build --target=darwin/arm64 main.klx
+
+# macOS Intel
+kylix build --target=darwin/amd64 main.klx
+
+# Linux ARM (Raspberry Pi, cloud ARM)
+kylix build --target=linux/arm64 main.klx
+```
+
+All cross-compilation runs on your local machine — no remote build servers needed.
+
+The final binary has no external dependencies. End users do not need Go or Kylix installed to run it.
+
+### Supported targets
+
+| OS | Architecture | `--target` value |
+|----|-------------|-----------------|
+| Linux | x86-64 | `linux/amd64` |
+| Linux | ARM64 | `linux/arm64` |
+| Windows | x86-64 | `windows/amd64` |
+| macOS | x86-64 | `darwin/amd64` |
+| macOS | Apple Silicon | `darwin/arm64` |
+
+---
 
 ## Changelog
 
-### v1.1.5 (2026-06-08) — Multi-File Go Compile Passes 🎉
+### v1.2.2 (2026-06-12) — 15/15 Examples Pass, Tests Added 🎉
 
 Self-hosted multi-file Go output (136KB) now compiles and runs with zero errors. Major fixes: string escaping, base class type mapping, enum type declarations, builtin functions (StrToInt64, StrToFloat, append, Create), multi-name parameter parsing.
 
