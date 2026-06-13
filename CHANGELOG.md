@@ -4,6 +4,45 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v1.3.2 (2026-06-13)
+
+### LSP real-time diagnostics
+
+The Language Server now pushes Kylix-layer diagnostics on every `didOpen`
+and `didChange` event, so editors show squiggly lines without running a build.
+
+**What's reported in-editor:**
+- Parse errors (was already working)
+- Interface implementation violations (`class Foo implements IBar` missing methods)
+
+`Diagnostic.source` field added — editors display `"kylix"` as the diagnostic source tag.
+
+**Implementation:**
+- `pkg/lsp/document.go` — calls `compiler.CheckInterfaces()` after parse
+- `pkg/compiler/compiler.go` — `CheckInterfaces()` exported for LSP use
+- `pkg/lsp/server.go` — `Diagnostic` struct gains `Source` field
+
+---
+
+## v1.3.1 (2026-06-13)
+
+### Multi-return value full scenario coverage
+
+Fixed three parser bugs that blocked multi-return value patterns:
+
+| Syntax | Was | Now |
+|--------|-----|-----|
+| `return (b, a)` | parse error: `)` unexpected | ✅ |
+| `x, y := Swap(3, 7)` | parse error: `,` unexpected | ✅ |
+| `var a, b := Pair()` | parse error: `,` unexpected | ✅ |
+
+**Root causes fixed:**
+1. `parseReturnStatement` — after parsing a tuple expression, `curToken` landed on the closing `)` instead of advancing to `;`, causing the block loop to try parsing `)` as a new statement
+2. `parseExpressionOrAssignment` — added `tryParseMultiAssign()` to handle `ident, ident, ... :=` patterns  
+3. `parseLTExpression` — left identifier must start uppercase to be treated as generic (prevents `a < b` from being misread as generic instantiation)
+
+---
+
 ## v1.3.0 (2026-06-13)
 
 ### v2.0 Phase 1 — Interface validation, Kylix-layer errors, Real generics
