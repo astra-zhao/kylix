@@ -4,9 +4,14 @@ package generator
 import (
 	"fmt"
 	"kylix/ast"
+	"kylix/token"
 )
 
 func (g *Generator) generateStatement(stmt ast.Statement) {
+	// Emit a //line directive so Go compiler errors point to the Kylix source.
+	if tok := stmtToken(stmt); tok.Line > 0 {
+		g.writeLineDirective(tok.Line)
+	}
 	switch s := stmt.(type) {
 	case *ast.VarDecl:
 		g.generateVarDecl(s)
@@ -503,4 +508,47 @@ func (g *Generator) generateInheritedStatement(stmt *ast.InheritedStatement) {
 		// Bare inherited; → no-op, rely on Go struct embedding.
 		g.writeLine("// inherited")
 	}
+}
+
+// stmtToken extracts the leading token from a statement for //line directives.
+func stmtToken(stmt ast.Statement) token.Token {
+	switch s := stmt.(type) {
+	case *ast.VarDecl:
+		return s.Token
+	case *ast.ConstDecl:
+		return s.Token
+	case *ast.AssignmentStatement:
+		return s.Token
+	case *ast.ExpressionStatement:
+		return s.Token
+	case *ast.IfStatement:
+		return s.Token
+	case *ast.WhileStatement:
+		return s.Token
+	case *ast.ForStatement:
+		return s.Token
+	case *ast.ForEachStatement:
+		return s.Token
+	case *ast.RepeatStatement:
+		return s.Token
+	case *ast.CaseStatement:
+		return s.Token
+	case *ast.MatchStatement:
+		return s.Token
+	case *ast.TryStatement:
+		return s.Token
+	case *ast.ReturnStatement:
+		return s.Token
+	case *ast.RaiseStatement:
+		return s.Token
+	case *ast.BreakStatement:
+		return s.Token
+	case *ast.ContinueStatement:
+		return s.Token
+	case *ast.InheritedStatement:
+		return s.Token
+	case *ast.BlockStatement:
+		return s.Token
+	}
+	return token.Token{}
 }

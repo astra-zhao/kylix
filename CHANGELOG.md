@@ -4,6 +4,86 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v1.3.0 (2026-06-13)
+
+### v2.0 Phase 1 — Interface validation, Kylix-layer errors, Real generics
+
+Three foundational improvements that make Kylix viable for production code.
+
+#### Interface implementation validation (compile-time)
+
+Classes that declare `implements IFoo` are now checked at compile time.
+Missing methods produce Kylix-layer errors (not Go errors) with the correct
+source file and line number.
+
+```pascal
+type
+  IAnimal = interface
+    procedure Speak();
+    function Name(): String;
+  end;
+
+  TDog = class implements IAnimal
+    procedure Speak(); begin end;
+    // Error: class "TDog" implements "IAnimal" but is missing method "Name"
+  end;
+```
+
+#### Kylix-layer error reporting via `//line` directives
+
+Previously, type errors and other Go-level issues reported Go file paths
+(e.g. `./main.go:9:5`). Now the generator emits `//line` directives before
+every function declaration, class declaration, and statement, so the Go
+compiler maps all errors back to the original Kylix source:
+
+```
+Before:  ./main.go:9: cannot use "hello" as int64 value in assignment
+After:   /path/to/main.klx:4: cannot use "hello" as int64 value in assignment
+```
+
+#### Real generic code generation
+
+Generic classes and functions now generate proper Go 1.18+ generics instead
+of falling back to `interface{}`. Generic type instantiation in expressions
+(`TBox<Integer>.Create()`) is fully parsed and code-generated.
+
+```pascal
+type TBox<T> = class
+  Value: T;
+end;
+
+function BoxInt(n: Integer): TBox<Integer>;
+begin
+  result := TBox<Integer>.Create();
+  result.Value := n;
+end;
+```
+
+Generates:
+```go
+type TBox[T interface{}] struct { Value T }
+
+func BoxInt(n int64) *TBox[int64] {
+    result := &TBox[int64]{}
+    result.Value = n
+    return result
+}
+```
+
+#### New tests
+
+- `pkg/compiler/compiler_test.go` — 5 interface validation tests
+  (fully implemented, missing one method, missing all methods,
+   cross-unit interface skipped, no implements no error)
+
+#### Version bump
+
+| Component | Old | New |
+|-----------|-----|-----|
+| Compiler, REPL, LSP | 1.2.3 | **1.3.0** |
+
+---
+
 ## v1.2.3 (2026-06-12)
 
 ### Code refactoring — all source files under 1000 lines

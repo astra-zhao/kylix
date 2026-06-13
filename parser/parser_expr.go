@@ -683,3 +683,48 @@ func (p *Parser) tryParseEnumType() *ast.EnumType {
 	}
 	return enum
 }
+
+// parseLTExpression handles the < token, which is ambiguous:
+//   - TBox<Integer>  → generic type instantiation (left must be Identifier starting with uppercase)
+//   - a < b          → comparison expression
+//
+// Heuristic: if left is a plain identifier and peekToken looks like a type
+// argument list (ident or keyword type followed eventually by >), treat as generic.
+func (p *Parser) parseLTExpression(left ast.Expression) ast.Expression {
+	ident, ok := left.(*ast.Identifier)
+	if ok && p.looksLikeGenericArgs() {
+		return p.parseGenericInstantiation(ident)
+	}
+	return p.parseInfixExpression(left)
+}
+
+// looksLikeGenericArgs does a lookahead scan to decide if the token stream
+// after the current < is a type argument list. It checks that we can reach a
+// matching > without hitting =, ;, begin, end, or an operator that can't
+// appear in a type list.
+func (p *Parser) looksLikeGenericArgs() bool {
+	// Use the lexer snapshot trick: save/restore is not available, so we do a
+	// conservative syntactic check on the PEEK token only.
+	// A type argument always starts with an identifier or a keyword type name.
+	tt := p.peekToken.Type
+	return tt == token.IDENT ||
+		tt == token.ARRAY ||
+		tt == token.MAP ||
+		tt == token.RECORD
+}
+
+// parseGenericInstantiation parses  Foo<T1, T2, ...> as a GenericType node.
+// curToken is < on entry; returns with curToken on > (not consumed).
+func (p *Parser) parseGenericInstantiation(base *ast.Identifier) ast.Expression {
+	p.nextToken() // skip <
+
+	gen := &ast.GenericType{Base: base.Value}
+	for !p.curTokenIs(token.GT) && !p.curTokenIs(token.EOF) {
+		gen.TypeParams = append(gen.TypeParams, p.parseTypeExpression())
+		if p.curTokenIs(token.COMMA) {
+			p.nextToken()
+		}
+	}
+	// Leave curToken on >; Pratt loop will see peekToken (e.g. DOT) and continue.
+	return gen
+}

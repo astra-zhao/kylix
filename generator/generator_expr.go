@@ -62,10 +62,21 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 	case *ast.CallExpression:
 		g.generateCallExpression(e)
 	case *ast.MemberExpression:
-		// ClassName.Create without args → &ClassName{}
+		// ClassName.Create / GenericType<T>.Create without args → &ClassName{}
 		if e.Member == "Create" {
 			if ident, ok := e.Object.(*ast.Identifier); ok {
 				g.write("&" + ident.Value + "{}")
+				return
+			}
+			if gen, ok := e.Object.(*ast.GenericType); ok {
+				g.write("&" + gen.Base + "[")
+				for i, tp := range gen.TypeParams {
+					if i > 0 {
+						g.write(", ")
+					}
+					g.generateTypeExpression(tp)
+				}
+				g.write("]{}")
 				return
 			}
 		}
@@ -125,6 +136,19 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 		} else {
 			g.write("interface{}")
 		}
+	case *ast.GenericType:
+		// Generic type used as an expression: Foo<T> → Foo[T]
+		g.write(e.Base)
+		if len(e.TypeParams) > 0 {
+			g.write("[")
+			for i, tp := range e.TypeParams {
+				if i > 0 {
+					g.write(", ")
+				}
+				g.generateTypeExpression(tp)
+			}
+			g.write("]")
+		}
 		g.write("{}")
 	}
 }
@@ -132,10 +156,30 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 // generateCallExpression handles special built-in function call rewrites.
 func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 	// ClassName.Create(args) → &ClassName{Field: arg, ...}
+	// GenericName<T>.Create(args) → &GenericName[T]{Field: arg, ...}
 	if member, ok := e.Function.(*ast.MemberExpression); ok && member.Member == "Create" {
+		var typeName string
+		var typeArgs []ast.Expression
 		if ident, ok := member.Object.(*ast.Identifier); ok {
-			g.write("&" + ident.Value + "{")
-			fields := g.classFields[ident.Value]
+			typeName = ident.Value
+		} else if gen, ok := member.Object.(*ast.GenericType); ok {
+			typeName = gen.Base
+			typeArgs = gen.TypeParams
+		}
+		if typeName != "" {
+			g.write("&" + typeName)
+			if len(typeArgs) > 0 {
+				g.write("[")
+				for i, tp := range typeArgs {
+					if i > 0 {
+						g.write(", ")
+					}
+					g.generateTypeExpression(tp)
+				}
+				g.write("]")
+			}
+			g.write("{")
+			fields := g.classFields[typeName]
 			for i, arg := range e.Arguments {
 				if i > 0 {
 					g.write(", ")

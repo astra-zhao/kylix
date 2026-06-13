@@ -35,6 +35,7 @@ func (g *Generator) generateTypeDecl(decl *ast.TypeDecl) {
 // All classes are plain structs; polymorphism is handled via interface{} at the
 // type-expression level for fields typed as base classes.
 func (g *Generator) generateClassDecl(decl *ast.ClassDecl) {
+	g.writeLineDirective(decl.Token.Line)
 	g.classTypes[decl.Name] = true
 
 	g.write("type ")
@@ -264,6 +265,7 @@ func (g *Generator) generateConstDecl(decl *ast.ConstDecl) {
 }
 
 func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
+	g.writeLineDirective(decl.Token.Line)
 	hasReturnType := decl.ReturnType != nil || len(decl.ReturnTypes) > 0
 	hasMultiReturn := len(decl.ReturnTypes) > 1
 	g.multiReturn = hasMultiReturn
@@ -501,7 +503,8 @@ func (g *Generator) generateTypeExpression(expr ast.Expression) {
 			g.write("interface{}")
 		}
 	case *ast.GenericType:
-		g.write(g.mapType(t.Base))
+		// Generic class type → pointer, e.g. TBox<Integer> → *TBox[int64]
+		g.write("*" + t.Base)
 		if len(t.TypeParams) > 0 {
 			g.write("[")
 			for i, param := range t.TypeParams {

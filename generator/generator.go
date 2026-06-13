@@ -12,6 +12,7 @@ import (
 type Generator struct {
 	output          strings.Builder
 	indent          int
+	sourceFile      string              // current Kylix source file (for //line directives)
 	program         *ast.Program
 	variables       map[string]string   // tracks variable types for codegen hints
 	inFunction      bool
@@ -40,6 +41,9 @@ func New() *Generator {
 		classFields:    make(map[string][]string),
 	}
 }
+
+// SetSourceFile sets the Kylix source filename used in //line directives.
+func (g *Generator) SetSourceFile(f string) { g.sourceFile = f }
 
 // Generate compiles a single Kylix program to Go source.
 func (g *Generator) Generate(program *ast.Program) string {
@@ -216,6 +220,15 @@ func (g *Generator) writeLine(s string) {
 	}
 	g.output.WriteString(s)
 	g.output.WriteString("\n")
+}
+
+// writeLineDirective emits a Go //line directive so the Go compiler maps
+// errors back to the original Kylix source file and line number.
+func (g *Generator) writeLineDirective(line int) {
+	if g.sourceFile == "" || line <= 0 {
+		return
+	}
+	g.output.WriteString(fmt.Sprintf("//line %s:%d\n", g.sourceFile, line))
 }
 
 // writeInterpolation emits a fmt.Sprintf call for string interpolation.

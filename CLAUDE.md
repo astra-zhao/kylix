@@ -2,12 +2,14 @@
 
 Kylix is a modern Pascal-to-Go transpiler. The compiler is written in Go and targets Go output.
 
-## Current State: v1.2.3 (2026-06-12)
+## Current State: v1.3.0 (2026-06-13)
 
 - Phase 6–9 complete: bootstrap verified, self-hosted compiler passes 15/15 examples
-- 15/15 example files pass on both Go reference compiler and Kylix self-hosted compiler
-- All Go tests pass (parser: 25 tests, generator: 15 tests)
+- All Go tests pass (parser: 25, generator: 15, compiler: 5)
 - All source files ≤ 1000 lines (refactored in v1.2.3)
+- Interface implementation validated at compile time (v1.3.0)
+- Kylix-layer error reporting via //line directives (v1.3.0)
+- Real Go 1.18+ generics generated for generic classes/functions (v1.3.0)
 
 ## Key Documents
 

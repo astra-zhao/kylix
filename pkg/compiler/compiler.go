@@ -71,8 +71,16 @@ func CompileFile(sourceFile string, opts Options) (*Result, error) {
 		return result, nil
 	}
 
+	// Semantic check: interface implementation validation
+	if diags := checkInterfaces(program, sourceFile); len(diags) > 0 {
+		result.Diagnostics = append(result.Diagnostics, diags...)
+		result.Success = false
+		return result, nil
+	}
+
 	// Generate Go code
 	gen := generator.New()
+	gen.SetSourceFile(sourceFile)
 	goCode := gen.Generate(program)
 	result.GoCode = goCode
 
@@ -225,6 +233,17 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("dependency error: %v", err)
 	}
 
+	// Semantic check: interface implementation validation across all files
+	for i, prog := range sorted {
+		if diags := checkInterfaces(prog, files[i]); len(diags) > 0 {
+			result.Diagnostics = append(result.Diagnostics, diags...)
+		}
+	}
+	if len(result.Diagnostics) > 0 {
+		result.Success = false
+		return result, nil
+	}
+
 	gen := generator.New()
 	goCode := gen.GenerateMulti(sorted)
 	result.GoCode = goCode
@@ -282,4 +301,78 @@ func topoSort(programs []*ast.Program, fileMap map[string]*ast.Program) ([]*ast.
 	}
 
 	return sorted, nil
+}
+
+// checkInterfaces verifies that every class implementing an interface provides
+// all required methods. Returns Kylix-layer diagnostics (not Go compiler errors).
+func checkInterfaces(program *ast.Program, sourceFile string) []Diagnostic {
+	// Build a map of interface name → required method names from this program.
+	ifaceMap := make(map[string][]string)
+	for _, decl := range program.Declarations {
+		switch d := decl.(type) {
+		case *ast.InterfaceDecl:
+			methods := make([]string, 0, len(d.Methods))
+			for _, m := range d.Methods {
+				methods = append(methods, m.Name)
+			}
+			ifaceMap[d.Name] = methods
+		case *ast.TypeDecl:
+			if iface, ok := d.Type.(*ast.InterfaceDecl); ok {
+				methods := make([]string, 0, len(iface.Methods))
+				for _, m := range iface.Methods {
+					methods = append(methods, m.Name)
+				}
+				ifaceMap[d.Name] = methods
+			}
+		}
+	}
+
+	var diags []Diagnostic
+
+	for _, decl := range program.Declarations {
+		var classDecl *ast.ClassDecl
+		switch d := decl.(type) {
+		case *ast.ClassDecl:
+			classDecl = d
+		case *ast.TypeDecl:
+			if cd, ok := d.Type.(*ast.ClassDecl); ok {
+				classDecl = cd
+			}
+		}
+		if classDecl == nil || len(classDecl.Interfaces) == 0 {
+			continue
+		}
+
+		// Build the set of method names the class provides.
+		implemented := make(map[string]bool)
+		for _, m := range classDecl.Methods {
+			// Strip "ClassName." prefix from top-level method definitions.
+			name := m.Name
+			if idx := strings.LastIndex(name, "."); idx >= 0 {
+				name = name[idx+1:]
+			}
+			implemented[name] = true
+		}
+
+		for _, ifaceName := range classDecl.Interfaces {
+			required, known := ifaceMap[ifaceName]
+			if !known {
+				// Interface defined in another unit — skip (can't validate cross-file yet).
+				continue
+			}
+			for _, method := range required {
+				if !implemented[method] {
+					diags = append(diags, Diagnostic{
+						File:    sourceFile,
+						Line:    classDecl.Token.Line,
+						Column:  classDecl.Token.Column,
+						Level:   "error",
+						Message: fmt.Sprintf("class %q implements %q but is missing method %q", classDecl.Name, ifaceName, method),
+					})
+				}
+			}
+		}
+	}
+
+	return diags
 }
