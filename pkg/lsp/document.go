@@ -4,6 +4,7 @@ import (
 	"kylix/ast"
 	"kylix/lexer"
 	"kylix/parser"
+	"kylix/pkg/compiler"
 	"strings"
 	"sync"
 )
@@ -48,6 +49,30 @@ func NewDocument(uri, text string) *Document {
 		})
 	}
 
+	// Semantic diagnostics: interface implementation validation
+	if len(doc.ParseErrors) == 0 && doc.AST != nil {
+		sourcePath := uriToPath(uri)
+		for _, cd := range compiler.CheckInterfaces(doc.AST, sourcePath) {
+			line := cd.Line - 1   // LSP is 0-based
+			col := cd.Column - 1
+			if line < 0 {
+				line = 0
+			}
+			if col < 0 {
+				col = 0
+			}
+			doc.Diagnostics = append(doc.Diagnostics, Diagnostic{
+				Range: Range{
+					Start: Position{Line: line, Character: col},
+					End:   Position{Line: line, Character: col + 1},
+				},
+				Severity: 1, // Error
+				Message:  cd.Message,
+				Source:   "kylix",
+			})
+		}
+	}
+
 	// Collect symbols if parsing succeeded
 	if len(doc.ParseErrors) == 0 && doc.AST != nil {
 		doc.Symbols = CollectSymbols(doc.AST)
@@ -56,6 +81,14 @@ func NewDocument(uri, text string) *Document {
 	}
 
 	return doc
+}
+
+// uriToPath converts a file:// URI to a local file path.
+func uriToPath(uri string) string {
+	if strings.HasPrefix(uri, "file://") {
+		return uri[7:]
+	}
+	return uri
 }
 
 // GetLine returns the text of a specific line (0-indexed)

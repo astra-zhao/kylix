@@ -113,6 +113,7 @@ type Diagnostic struct {
 	Range    Range  `json:"range"`
 	Severity int    `json:"severity"` // 1=error, 2=warning, 3=info, 4=hint
 	Message  string `json:"message"`
+	Source   string `json:"source,omitempty"`
 }
 
 type PublishDiagnosticsParams struct {

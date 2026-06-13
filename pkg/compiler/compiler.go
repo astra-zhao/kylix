@@ -303,6 +303,11 @@ func topoSort(programs []*ast.Program, fileMap map[string]*ast.Program) ([]*ast.
 	return sorted, nil
 }
 
+// CheckInterfaces is the exported version for use by LSP and other packages.
+func CheckInterfaces(program *ast.Program, sourceFile string) []Diagnostic {
+	return checkInterfaces(program, sourceFile)
+}
+
 // checkInterfaces verifies that every class implementing an interface provides
 // all required methods. Returns Kylix-layer diagnostics (not Go compiler errors).
 func checkInterfaces(program *ast.Program, sourceFile string) []Diagnostic {
