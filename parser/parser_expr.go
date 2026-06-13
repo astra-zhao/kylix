@@ -12,6 +12,15 @@ import (
 
 func (p *Parser) parseExpressionOrAssignment() ast.Statement {
 	firstToken := p.curToken
+
+	// Multi-variable assignment: x, y := expr  or  x, y := f()
+	// Detected when curToken is IDENT and peekToken is COMMA.
+	if p.curTokenIs(token.IDENT) && p.peekTokenIs(token.COMMA) {
+		if stmt := p.tryParseMultiAssign(); stmt != nil {
+			return stmt
+		}
+	}
+
 	expr := p.parseExpression(LOWEST)
 	if expr == nil {
 		return nil
@@ -33,6 +42,47 @@ func (p *Parser) parseExpressionOrAssignment() ast.Statement {
 
 	p.nextToken()
 	return &ast.ExpressionStatement{Token: firstToken, Expression: expr}
+}
+
+// tryParseMultiAssign handles: x, y, z := expr
+// Returns nil if the lookahead does not confirm the pattern.
+func (p *Parser) tryParseMultiAssign() *ast.AssignmentStatement {
+	// Collect identifiers separated by commas.
+	var names []string
+	names = append(names, p.curToken.Literal)
+	firstTok := p.curToken
+
+	// Save position in case we need to back out — use a simple check:
+	// after the first ident+comma, we must see ident followed by := or another comma.
+	p.nextToken() // skip first ident
+	for p.curTokenIs(token.COMMA) {
+		p.nextToken() // skip comma
+		if !p.curTokenIs(token.IDENT) {
+			// Not a multi-assign pattern; can't easily backtrack, so report error.
+			return nil
+		}
+		names = append(names, p.curToken.Literal)
+		p.nextToken() // skip ident
+	}
+
+	if !p.curTokenIs(token.ASSIGN) && !p.curTokenIs(token.ASSIGN_OP) {
+		return nil
+	}
+	assignTok := p.curToken
+	p.nextToken() // skip :=
+
+	value := p.parseExpression(LOWEST)
+	if value == nil {
+		return nil
+	}
+	p.nextToken() // advance past last token of value
+
+	// Build a TupleLiteral of LHS identifiers as the Name of the assignment.
+	lhsTuple := &ast.TupleLiteral{Token: firstTok}
+	for _, n := range names {
+		lhsTuple.Elements = append(lhsTuple.Elements, &ast.Identifier{Token: firstTok, Value: n})
+	}
+	return &ast.AssignmentStatement{Token: assignTok, Name: lhsTuple, Value: value}
 }
 
 func (p *Parser) parseExpression(precedence int) ast.Expression {
@@ -685,32 +735,40 @@ func (p *Parser) tryParseEnumType() *ast.EnumType {
 }
 
 // parseLTExpression handles the < token, which is ambiguous:
-//   - TBox<Integer>  → generic type instantiation (left must be Identifier starting with uppercase)
+//   - TBox<Integer>  → generic type instantiation
 //   - a < b          → comparison expression
 //
-// Heuristic: if left is a plain identifier and peekToken looks like a type
-// argument list (ident or keyword type followed eventually by >), treat as generic.
+// Heuristic: only treat as generic if:
+//   1. left is an Identifier whose name starts with an uppercase letter (Pascal type convention)
+//   2. peekToken is an Identifier starting with uppercase, or a known type keyword
 func (p *Parser) parseLTExpression(left ast.Expression) ast.Expression {
 	ident, ok := left.(*ast.Identifier)
-	if ok && p.looksLikeGenericArgs() {
+	if ok && isTypeIdent(ident.Value) && p.looksLikeGenericArgs() {
 		return p.parseGenericInstantiation(ident)
 	}
 	return p.parseInfixExpression(left)
 }
 
-// looksLikeGenericArgs does a lookahead scan to decide if the token stream
-// after the current < is a type argument list. It checks that we can reach a
-// matching > without hitting =, ;, begin, end, or an operator that can't
-// appear in a type list.
+// isTypeIdent returns true if name follows the Pascal type naming convention
+// (starts with an uppercase letter, e.g. TBox, IAnimal, Integer).
+func isTypeIdent(name string) bool {
+	if name == "" {
+		return false
+	}
+	c := name[0]
+	return c >= 'A' && c <= 'Z'
+}
+
+// looksLikeGenericArgs returns true when the token after < looks like the start
+// of a type argument list (uppercase identifier or a type keyword).
 func (p *Parser) looksLikeGenericArgs() bool {
-	// Use the lexer snapshot trick: save/restore is not available, so we do a
-	// conservative syntactic check on the PEEK token only.
-	// A type argument always starts with an identifier or a keyword type name.
-	tt := p.peekToken.Type
-	return tt == token.IDENT ||
-		tt == token.ARRAY ||
-		tt == token.MAP ||
-		tt == token.RECORD
+	switch p.peekToken.Type {
+	case token.ARRAY, token.MAP, token.RECORD:
+		return true
+	case token.IDENT:
+		return isTypeIdent(p.peekToken.Literal)
+	}
+	return false
 }
 
 // parseGenericInstantiation parses  Foo<T1, T2, ...> as a GenericType node.

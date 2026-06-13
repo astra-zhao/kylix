@@ -487,8 +487,14 @@ func (p *Parser) parseReturnStatement() *ast.ReturnStatement {
 	stmt := &ast.ReturnStatement{Token: p.curToken}
 	p.nextToken() // skip 'return'
 
-	if !p.curTokenIs(token.SEMICOLON) && !p.curTokenIs(token.END) {
+	if !p.curTokenIs(token.SEMICOLON) && !p.curTokenIs(token.END) && !p.curTokenIs(token.EOF) {
 		stmt.Value = p.parseExpression(LOWEST)
+		// After parsing, curToken is the last consumed token of the expression.
+		// If it is not ';' or 'end' (e.g. closing ')' of a tuple), advance once
+		// so the block loop starts on the correct delimiter.
+		if !p.curTokenIs(token.SEMICOLON) && !p.curTokenIs(token.END) && !p.curTokenIs(token.EOF) {
+			p.nextToken()
+		}
 	}
 	return stmt
 }
