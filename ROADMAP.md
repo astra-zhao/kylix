@@ -1,7 +1,7 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-06-12
-> 当前版本: v1.2.3
+> 最后更新: 2026-06-14
+> 当前版本: v1.5.0
 > 官网: [kylix.top](https://kylix.top)
 > 目标: Kylix 语言自举（用 Kylix 写 Kylix 编译器）
 
@@ -9,18 +9,134 @@
 
 ## 总览
 
-本项目目标分四个阶段：
+本项目目标分九个阶段：
 
-| 阶段 | 内容 | 状态 | 预计工期 |
-|------|------|------|----------|
-| Phase 6 | 修复关键 Bug | ✅ 完成 | ~2 周 |
-| Phase 7 | 补齐语言能力 | ✅ 完成 | ~3 周 |
-| Phase 8 | 编写 compiler.klx | ✅ 完成 | ~4 周 |
-| Phase 9 | 自举验证 | ✅ 完成 | — |
+| 阶段 | 内容 | 状态 | 版本 |
+|------|------|------|------|
+| Phase 6 | 修复关键 Bug | ✅ 完成 | v1.0.2 |
+| Phase 7 | 补齐语言能力 | ✅ 完成 | v1.0.3 |
+| Phase 8 | 编写 compiler.klx | ✅ 完成 | v1.1.2 |
+| Phase 9 | 自举验证 | ✅ 完成 | v1.2.0 |
+| **Phase 10 (P0-P2)** | **v2.0 准备：核心特性** | **✅ 完成** | **v1.3.0–v1.5.0** |
+| Phase 11 | v2.0 准备：工程质量 | 🚧 进行中 | v1.6.0 |
+| Phase 12 | v2.0.0 发布：生产级编译器 | 📋 计划中 | v2.0.0 |
 
-**当前进度：Phase 9 完成！自举验证通过——Kylix 编译器可以编译自身，生成的代码与 Go 参考编译器语义等价。**
+**当前进度：Phase 10 完成！v1.5.0 已具备增量编译、LSP 实时诊断、stdlib 声明文件、包管理器。**
 
-**下一步：v2.0.0 生产级自举编译器**
+**Phase 11 目标：修复已知正确性缺陷，补齐测试覆盖，为 v2.0.0 生产级发布铺平道路。**
+
+---
+
+## Phase 10: v2.0 准备 — 核心特性 ✅ 完成
+
+### P0: 接口验证 + Kylix 层错误报告 + 真实泛型 → v1.3.0 ✅
+
+| 特性 | 描述 |
+|------|------|
+| **接口实现验证** | `class Foo implements IBar` 编译时检查，缺失方法报 Kylix 错误 |
+| **Kylix 层错误映射** | `//line` directives 让 Go 编译器错误指向 `.klx` 文件 |
+| **真实泛型代码生成** | `TBox<T>` → Go 1.18+ `type TBox[T any] struct` |
+
+### P1: 多返回值全场景覆盖 → v1.3.1 ✅
+
+| 语法 | 状态 |
+|------|------|
+| `return (b, a)` | ✅ 已修复 |
+| `x, y := Swap(3, 7)` | ✅ 已修复 |
+| `var a, b := Pair()` | ✅ 已修复 |
+
+### P2: LSP 实时诊断 → v1.3.2 ✅
+
+LSP 在 `didOpen`/`didChange` 时推送 Kylix 层诊断（parse 错误 + 接口验证）。
+
+### P2: 增量编译 → v1.4.0 ✅
+
+| 场景 | 时间 | 加速比 |
+|------|------|--------|
+| 冷构建（无缓存） | 444 ms | — |
+| 全缓存 | 8 ms | **55×** |
+| 单文件变更 | 6 ms | **74×** |
+
+**实现：**
+- `.kylix-cache/` — SHA-256 keyed JSON 缓存
+- `CompileProject` 跳过未变更文件的 parse+generate
+- `generator.GenerateBody` / `BuildOutput` 支持独立生成
+
+### P3: stdlib Kylix 化 + 包管理器 → v1.5.0 ✅
+
+**stdlib `.klx` 声明文件：**
+- `stdlib/klx/sysutil.klx` — 文件 I/O、路径操作、环境变量
+- `stdlib/klx/datetime.klx` — TDateTime 30+ 方法
+- `stdlib/klx/regex.klx` — TRegex + IsEmail/IsURL 验证
+- `stdlib/klx/jsonutil.klx` — JSON 编解码、文件 I/O
+
+**包管理器：**
+```bash
+kylix add utils github.com/alice/utils@v1.0.0
+kylix install
+kylix remove utils
+```
+
+---
+
+## Phase 11: v2.0 准备 — 工程质量 🚧 进行中
+
+### 11.1 修复正确性缺陷（P1）
+
+详见 [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) 优先级 1。
+
+| 缺陷 | 影响 | 工作量 |
+|------|------|--------|
+| `CompileFile` 未接入缓存 | 项目模式增量编译无效 | 2h |
+| `topoSortWithFiles` 路径对齐错误 | `//line` 指向错误文件 | 1h |
+| `GenerateBody` exception 输出不稳定 | 多文件编译异常类型重复 | 30min |
+
+### 11.2 补齐功能缺口（P2）
+
+| 功能 | 状态 | 工作量 |
+|------|------|--------|
+| 类型检查层（最小 MVP） | 📋 未开始 | 2 周 |
+| 包管理器集成到编译器 | 📋 未开始 | 3h |
+| `kylix add` git 逻辑修复 | 📋 未开始 | 5min |
+
+### 11.3 测试覆盖（P3）
+
+| 模块 | 当前测试数 | 目标 |
+|------|-----------|------|
+| `pkg/pkgmgr` | 0 | 5+ |
+| `pkg/compiler/cache.go` | 0 | 3+ |
+| `pkg/lsp` stdlib 加载 | 0 | 2+ |
+| `stdlib/klx/*.klx` 可解析性 | 0 | 1 |
+| parser 泛型/多返回值 | 0 | 3+ |
+
+**目标：** 关键路径测试覆盖率达到 60%+
+
+---
+
+## Phase 12: v2.0.0 发布 — 生产级编译器 📋 计划中
+
+### 12.1 类型系统完善
+
+- [ ] 类型推导：`var x := 42` 推导出 `Integer`
+- [ ] 泛型约束：`<T: IComparable>` 约束类型参数
+- [ ] 类型别名：`type UserId = Integer;` 生成真实类型别名
+
+### 12.2 错误体验
+
+- [ ] Kylix 错误代码（`E001: 未声明变量`）
+- [ ] 错误恢复：parse 错误不阻塞后续 semantic 检查
+- [ ] 建议修复：`did you mean 'userName'?`
+
+### 12.3 工具链
+
+- [ ] `kylix fmt --check` CI 模式
+- [ ] `kylix test` 测试运行器
+- [ ] `kylix doc` 文档生成器
+
+### 12.4 stdlib 完全 Kylix 化
+
+- [ ] 用 `.klx` 重写 `web.go`、`orm.go`（保留 Go cgo 桥接层）
+- [ ] stdlib 文档（LSP hover 显示）
 
 ---
 
