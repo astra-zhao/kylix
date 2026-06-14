@@ -63,26 +63,27 @@ func CompileFile(sourceFile string, opts Options) (*Result, error) {
 		d := Diagnostic{
 			File:    sourceFile,
 			Level:   "error",
+			Code:    ErrParseGeneric,
 			Message: errMsg,
 		}
-		// Try to extract line/column from error message
 		parseLocation(&d, errMsg)
 		result.Diagnostics = append(result.Diagnostics, d)
 	}
 
+	// Parser errors are fatal — the AST is incomplete so semantic checks
+	// would produce noisy false positives. Stop here.
 	if len(result.Diagnostics) > 0 {
 		result.Success = false
 		return result, nil
 	}
 
-	// Semantic check: interface implementation validation
-	if diags := checkInterfaces(program, sourceFile); len(diags) > 0 {
-		result.Diagnostics = append(result.Diagnostics, diags...)
-		result.Success = false
-		return result, nil
-	}
+	// Semantic checks — run ALL of them before deciding success/failure so
+	// the user sees as many errors as possible in one compilation.
 
-	// Semantic check: type checker (undeclared vars, arity, obvious type mismatches)
+	// Interface implementation validation
+	result.Diagnostics = append(result.Diagnostics, checkInterfaces(program, sourceFile)...)
+
+	// Type checker: undeclared vars, arity, obvious type mismatches
 	for _, td := range TypeCheck(program, sourceFile) {
 		result.Diagnostics = append(result.Diagnostics, Diagnostic{
 			File:    td.File,
@@ -94,6 +95,8 @@ func CompileFile(sourceFile string, opts Options) (*Result, error) {
 			Hint:    td.Hint,
 		})
 	}
+
+	// If any semantic errors were found, stop before code generation.
 	if len(result.Diagnostics) > 0 {
 		result.Success = false
 		return result, nil
@@ -299,10 +302,19 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("dependency error: %v", err)
 	}
 
-	// Semantic checks on all files.
+	// Semantic checks on all files — run all of them before deciding success.
 	for i, prog := range sorted {
-		if diags := checkInterfaces(prog, sortedFiles[i]); len(diags) > 0 {
-			result.Diagnostics = append(result.Diagnostics, diags...)
+		result.Diagnostics = append(result.Diagnostics, checkInterfaces(prog, sortedFiles[i])...)
+		for _, td := range TypeCheck(prog, sortedFiles[i]) {
+			result.Diagnostics = append(result.Diagnostics, Diagnostic{
+				File:    td.File,
+				Line:    td.Line,
+				Column:  td.Column,
+				Level:   "error",
+				Code:    td.Code,
+				Message: td.Message,
+				Hint:    td.Hint,
+			})
 		}
 	}
 	if len(result.Diagnostics) > 0 {
