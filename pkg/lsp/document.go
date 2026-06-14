@@ -5,6 +5,9 @@ import (
 	"kylix/lexer"
 	"kylix/parser"
 	"kylix/pkg/compiler"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -53,7 +56,7 @@ func NewDocument(uri, text string) *Document {
 	if len(doc.ParseErrors) == 0 && doc.AST != nil {
 		sourcePath := uriToPath(uri)
 		for _, cd := range compiler.CheckInterfaces(doc.AST, sourcePath) {
-			line := cd.Line - 1   // LSP is 0-based
+			line := cd.Line - 1
 			col := cd.Column - 1
 			if line < 0 {
 				line = 0
@@ -66,7 +69,7 @@ func NewDocument(uri, text string) *Document {
 					Start: Position{Line: line, Character: col},
 					End:   Position{Line: line, Character: col + 1},
 				},
-				Severity: 1, // Error
+				Severity: 1,
 				Message:  cd.Message,
 				Source:   "kylix",
 			})
@@ -76,11 +79,79 @@ func NewDocument(uri, text string) *Document {
 	// Collect symbols if parsing succeeded
 	if len(doc.ParseErrors) == 0 && doc.AST != nil {
 		doc.Symbols = CollectSymbols(doc.AST)
+		// Enrich with stdlib declarations for used modules
+		loadStdlibSymbols(doc)
 	} else {
 		doc.Symbols = NewSymbolTable()
 	}
 
 	return doc
+}
+
+// loadStdlibSymbols finds stdlib/klx/<module>.klx files for each uses clause
+// entry and merges their symbols into doc.Symbols.
+func loadStdlibSymbols(doc *Document) {
+	if doc.AST == nil || len(doc.AST.Uses) == 0 {
+		return
+	}
+	klxDir := findStdlibKlxDir()
+	if klxDir == "" {
+		return
+	}
+	for _, mod := range doc.AST.Uses {
+		path := filepath.Join(klxDir, mod+".klx")
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		l := lexer.New(string(src))
+		p := parser.New(l)
+		prog := p.ParseProgram()
+		if len(p.Errors()) > 0 {
+			continue
+		}
+		unitSyms := CollectSymbols(prog)
+		// Merge: add both qualified (mod.Name) and unqualified symbols.
+		for _, sym := range unitSyms.AllSymbols {
+			qualified := &Symbol{
+				Name:     mod + "." + sym.Name,
+				Kind:     sym.Kind,
+				Type:     sym.Type,
+				Location: sym.Location,
+			}
+			doc.Symbols.AllSymbols = append(doc.Symbols.AllSymbols, qualified)
+			doc.Symbols.AllSymbols = append(doc.Symbols.AllSymbols, sym)
+		}
+	}
+}
+
+// findStdlibKlxDir locates the stdlib/klx directory by checking:
+// 1. $KYLIX_HOME/stdlib/klx
+// 2. directory of the running executable ± stdlib/klx
+// 3. well-known development path relative to the executable
+func findStdlibKlxDir() string {
+	if home := os.Getenv("KYLIX_HOME"); home != "" {
+		d := filepath.Join(home, "stdlib", "klx")
+		if _, err := os.Stat(d); err == nil {
+			return d
+		}
+	}
+	exe, err := exec.LookPath(os.Args[0])
+	if err == nil {
+		// Walk up from exe looking for stdlib/klx
+		dir := filepath.Dir(exe)
+		for i := 0; i < 5; i++ {
+			d := filepath.Join(dir, "stdlib", "klx")
+			if _, err := os.Stat(d); err == nil {
+				return d
+			}
+			dir = filepath.Dir(dir)
+		}
+	}
+	return ""
 }
 
 // uriToPath converts a file:// URI to a local file path.

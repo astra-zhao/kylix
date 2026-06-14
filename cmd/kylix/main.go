@@ -8,6 +8,7 @@ import (
 	"kylix/pkg/compiler"
 	"kylix/pkg/formatter"
 	"kylix/pkg/lsp"
+	"kylix/pkg/pkgmgr"
 	"kylix/pkg/project"
 	"kylix/pkg/repl"
 	"os"
@@ -15,7 +16,7 @@ import (
 	"path/filepath"
 )
 
-const Version = "1.4.0"
+const Version = "1.5.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -40,6 +41,12 @@ func main() {
 		cmdRepl(os.Args[2:])
 	case "lsp":
 		cmdLsp(os.Args[2:])
+	case "add":
+		cmdAdd(os.Args[2:])
+	case "install":
+		cmdInstall(os.Args[2:])
+	case "remove", "rm":
+		cmdRemove(os.Args[2:])
 	case "version", "-v", "--version":
 		fmt.Printf("Kylix %s\n", Version)
 	case "help", "-h", "--help":
@@ -663,4 +670,75 @@ func legacyCompile(args []string) {
 		}
 		fmt.Printf("✓ Compiled %s → %s\n", file, result.OutputFile)
 	}
+}
+
+// cmdAdd: kylix add <name> <ref>
+func cmdAdd(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: kylix add <name> [<repo@version>]")
+		os.Exit(1)
+	}
+	name := args[0]
+	ref := name
+	if len(args) >= 2 {
+		ref = args[1]
+	}
+
+	cfg, err := project.Find(".")
+	if err != nil || cfg == nil {
+		fmt.Fprintln(os.Stderr, "Error: no kylix.toml found in current directory tree")
+		os.Exit(1)
+	}
+
+	mgr := pkgmgr.New(cfg)
+	fmt.Printf("Adding %s (%s)…\n", name, ref)
+	if err := mgr.Add(name, ref); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("✓ Added %s\n", name)
+}
+
+// cmdInstall: kylix install  — install all dependencies from kylix.toml
+func cmdInstall(args []string) {
+	cfg, err := project.Find(".")
+	if err != nil || cfg == nil {
+		fmt.Fprintln(os.Stderr, "Error: no kylix.toml found in current directory tree")
+		os.Exit(1)
+	}
+
+	if len(cfg.Dependencies) == 0 {
+		fmt.Println("No dependencies to install.")
+		return
+	}
+
+	mgr := pkgmgr.New(cfg)
+	fmt.Printf("Installing %d package(s)…\n", len(cfg.Dependencies))
+	if err := mgr.InstallAll(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("✓ All packages installed")
+}
+
+// cmdRemove: kylix remove <name>
+func cmdRemove(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: kylix remove <name>")
+		os.Exit(1)
+	}
+	name := args[0]
+
+	cfg, err := project.Find(".")
+	if err != nil || cfg == nil {
+		fmt.Fprintln(os.Stderr, "Error: no kylix.toml found in current directory tree")
+		os.Exit(1)
+	}
+
+	mgr := pkgmgr.New(cfg)
+	if err := mgr.Remove(name); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("✓ Removed %s\n", name)
 }

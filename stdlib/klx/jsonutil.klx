@@ -1,0 +1,26 @@
+unit jsonutil;
+
+// JSON encode / decode
+function JsonEncode(value: Variant): String;
+function JsonEncodePretty(value: Variant): String;
+function JsonDecode(jsonStr: String): Variant;
+function JsonDecodeMap(jsonStr: String): Map<String, Variant>;
+function JsonDecodeArray(jsonStr: String): array of Variant;
+
+// Map field accessors (safe, return default on missing key)
+function JsonGetString(m: Map<String, Variant>; key: String): String;
+function JsonGetInt(m: Map<String, Variant>; key: String): Integer;
+function JsonGetFloat(m: Map<String, Variant>; key: String): Real;
+function JsonGetBool(m: Map<String, Variant>; key: String): Boolean;
+function JsonGetMap(m: Map<String, Variant>; key: String): Map<String, Variant>;
+function JsonGetArray(m: Map<String, Variant>; key: String): array of Variant;
+function JsonHasKey(m: Map<String, Variant>; key: String): Boolean;
+
+// Validation
+function JsonIsValid(jsonStr: String): Boolean;
+
+// File I/O
+function  JsonReadFile(path: String): Variant;
+procedure JsonWriteFile(path: String; value: Variant);
+
+end.

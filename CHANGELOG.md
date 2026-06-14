@@ -4,6 +4,49 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v1.5.0 (2026-06-14)
+
+### P3: stdlib Kylix化 + 包管理器
+
+#### stdlib `.klx` 声明文件 (`stdlib/klx/`)
+
+Four standard-library modules now have `.klx` declaration files that the LSP
+reads to provide completion, hover, and signature help — without rewriting the
+Go implementation.
+
+| File | Coverage |
+|------|----------|
+| `stdlib/klx/sysutil.klx` | file I/O, path ops, env, TTextFile |
+| `stdlib/klx/datetime.klx` | TDateTime with 30+ methods, factory functions |
+| `stdlib/klx/regex.klx` | TRegex, one-shot helpers, IsEmail/IsURL/… |
+| `stdlib/klx/jsonutil.klx` | encode/decode, map accessors, file I/O |
+
+LSP auto-loads the relevant `.klx` file when a document has `uses sysutil;`
+etc., adding both qualified (`sysutil.ReadFile`) and unqualified symbols.
+
+#### Package manager (`pkg/pkgmgr/`)
+
+Minimal but complete package manager for Kylix projects.
+
+```
+kylix add utils github.com/alice/utils@v1.0.0  # add + install
+kylix install                                   # install all deps
+kylix remove utils                              # remove
+```
+
+- Packages installed to `packages/<name>/` (git clone or symlink for locals)
+- `kylix.toml` gains `[dependencies]` section
+- `Config.Dependencies map[string]string` added to project config
+- Local path refs (`"./local_pkg"`) use symlinks for dev convenience
+- `pkgmgr.Manager.PackageDirs()` returns dirs for compiler search path
+
+#### Updated help (`kylix --help`)
+
+Package commands listed in usage output.
+
+---
+
+
 ## v1.4.0 (2026-06-13)
 
 ### P2: Incremental compilation

@@ -1,0 +1,48 @@
+unit sysutil;
+
+// File I/O modes
+const
+  fomRead   = 0;
+  fomWrite  = 1;
+  fomAppend = 2;
+
+// TTextFile — low-level text file handle
+type
+  TTextFile = class
+    procedure FileClose();
+    function  FileReadLine(): String;
+    function  FileReadAll(): String;
+    procedure FileWriteLine(line: String);
+    procedure FileWrite(s: String);
+    function  FileEOF(): Boolean;
+  end;
+
+// File operations
+function FileOpen(path: String; mode: Integer): TTextFile;
+function ReadFile(path: String): String;
+procedure WriteFile(path: String; content: String);
+procedure AppendFile(path: String; content: String);
+function  FileExists(path: String): Boolean;
+function  DirExists(path: String): Boolean;
+procedure CreateDir(path: String);
+procedure DeleteFile(path: String);
+procedure CopyFile(src: String; dst: String);
+function  ListDir(path: String): array of String;
+function  ListFiles(pattern: String): array of String;
+function  GetFileSize(path: String): Integer;
+function  ReadLines(path: String): array of String;
+
+// Path operations
+function PathJoin(a: String; b: String): String;
+function PathDir(path: String): String;
+function PathBase(path: String): String;
+function PathExt(path: String): String;
+
+// Working directory / environment
+function  GetWorkingDir(): String;
+procedure SetWorkingDir(path: String);
+function  GetTempDir(): String;
+function  GetEnv(key: String): String;
+procedure SetEnv(key: String; value: String);
+
+end.

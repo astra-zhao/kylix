@@ -1,0 +1,49 @@
+unit datetime;
+
+// TDateTime — date and time value
+type
+  TDateTime = class
+    function Year(): Integer;
+    function Month(): Integer;
+    function Day(): Integer;
+    function Hour(): Integer;
+    function Minute(): Integer;
+    function Second(): Integer;
+    function DayOfWeek(): Integer;   // 0 = Sunday
+    function DayOfYear(): Integer;
+    function Unix(): Integer;        // Unix timestamp (seconds)
+
+    function Format(layout: String): String;
+    function FormatDate(): String;   // YYYY-MM-DD
+    function FormatTime(): String;   // HH:MM:SS
+    function FormatDateTime(): String;
+
+    function AddDays(n: Integer): TDateTime;
+    function AddMonths(n: Integer): TDateTime;
+    function AddYears(n: Integer): TDateTime;
+    function AddHours(n: Integer): TDateTime;
+    function AddMinutes(n: Integer): TDateTime;
+    function AddSeconds(n: Integer): TDateTime;
+
+    function Before(other: TDateTime): Boolean;
+    function After(other: TDateTime): Boolean;
+    function Equal(other: TDateTime): Boolean;
+    function DiffDays(other: TDateTime): Integer;
+    function DiffHours(other: TDateTime): Integer;
+
+    function IsLeapYear(): Boolean;
+    function DaysInMonth(): Integer;
+    function WeekNumber(): Integer;
+  end;
+
+// Constructors / factory functions
+function Now(): TDateTime;
+function Today(): TDateTime;
+function MakeDate(year: Integer; month: Integer; day: Integer): TDateTime;
+function MakeTime(year: Integer; month: Integer; day: Integer;
+                  hour: Integer; minute: Integer; second: Integer): TDateTime;
+function ParseDate(s: String): TDateTime;
+function ParseDateTime(s: String): TDateTime;
+function FromUnix(ts: Integer): TDateTime;
+
+end.

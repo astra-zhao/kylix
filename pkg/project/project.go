@@ -13,11 +13,12 @@ const ConfigFileName = "kylix.toml"
 
 // Config represents a kylix.toml project configuration
 type Config struct {
-	Name    string
-	Version string
-	Main    string // entry point file, default "main.klx"
-	Output  string // output directory, default "build/"
-	GoMod   string // Go module name for generated code
+	Name         string
+	Version      string
+	Main         string            // entry point file, default "main.klx"
+	Output       string            // output directory, default "build/"
+	GoMod        string            // Go module name for generated code
+	Dependencies map[string]string // name → "repo@version" or "path"
 
 	Path string // path to the kylix.toml file itself (not stored in file)
 }
@@ -25,11 +26,12 @@ type Config struct {
 // Default returns a Config with sensible defaults
 func Default() *Config {
 	return &Config{
-		Name:    "myapp",
-		Version: "1.2.2",
-		Main:    "main.klx",
-		Output:  "build/",
-		GoMod:   "myapp",
+		Name:         "myapp",
+		Version:      "1.0.0",
+		Main:         "main.klx",
+		Output:       "build/",
+		GoMod:        "myapp",
+		Dependencies: make(map[string]string),
 	}
 }
 
@@ -106,6 +108,8 @@ func Load(path string) (*Config, error) {
 			case "go_module":
 				cfg.GoMod = value
 			}
+		case "dependencies":
+			cfg.Dependencies[key] = value
 		}
 	}
 
@@ -123,7 +127,12 @@ func (c *Config) Save(path string) error {
 	b.WriteString("\n[build]\n")
 	b.WriteString(fmt.Sprintf("output = \"%s\"\n", c.Output))
 	b.WriteString(fmt.Sprintf("go_module = \"%s\"\n", c.GoMod))
-
+	if len(c.Dependencies) > 0 {
+		b.WriteString("\n[dependencies]\n")
+		for name, ref := range c.Dependencies {
+			b.WriteString(fmt.Sprintf("%s = \"%s\"\n", name, ref))
+		}
+	}
 	return ioutil.WriteFile(path, []byte(b.String()), 0644)
 }
 
