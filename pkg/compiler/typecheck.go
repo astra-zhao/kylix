@@ -131,8 +131,10 @@ func (c *checker) globalScope() map[string]string {
 		"Ord", "Chr", "Succ", "Pred",
 		"Inc", "Dec", "Abs", "Sqr", "Sqrt",
 		"IntToStr", "StrToInt", "FloatToStr", "StrToFloat",
-		"Trim", "UpperCase", "LowerCase", "Pos", "Copy",
-		"true", "false", "nil", "Self",
+		"Trim", "UpperCase", "LowerCase", "Pos",
+		"true", "false", "nil", "Self", "self",
+		// Pascal implicit return variable — always in scope inside functions
+		"result",
 	} {
 		scope[bi] = "builtin"
 	}

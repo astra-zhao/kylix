@@ -187,6 +187,21 @@ func (g *Generator) generateAssignment(stmt *ast.AssignmentStatement) {
 			return
 		}
 	}
+
+	// Multi-variable LHS: x, y := Pair() → x, y := Pair()
+	if tuple, ok := stmt.Name.(*ast.TupleLiteral); ok {
+		for i, elem := range tuple.Elements {
+			if i > 0 {
+				g.write(", ")
+			}
+			g.generateExpression(elem)
+		}
+		g.write(" := ")
+		g.generateExpression(stmt.Value)
+		g.write("\n")
+		return
+	}
+
 	g.generateExpression(stmt.Name)
 	g.write(" = ")
 	g.generateExpression(stmt.Value)
