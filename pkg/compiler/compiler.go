@@ -2,7 +2,7 @@ package compiler
 
 import (
 	"fmt"
-	"io/ioutil"
+	
 	"kylix/ast"
 	"kylix/generator"
 	"kylix/lexer"
@@ -46,7 +46,7 @@ func CompileFile(sourceFile string, opts Options) (*Result, error) {
 	result := &Result{}
 
 	// Read source
-	source, err := ioutil.ReadFile(sourceFile)
+	source, err := os.ReadFile(sourceFile)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read %s: %v", sourceFile, err)
 	}
@@ -98,7 +98,7 @@ func CompileFile(sourceFile string, opts Options) (*Result, error) {
 	}
 
 	// Write Go file
-	if err := ioutil.WriteFile(outputFile, []byte(goCode), 0644); err != nil {
+	if err := os.WriteFile(outputFile, []byte(goCode), 0644); err != nil {
 		return nil, fmt.Errorf("cannot write %s: %v", outputFile, err)
 	}
 	result.OutputFile = outputFile
@@ -111,7 +111,7 @@ func CompileFile(sourceFile string, opts Options) (*Result, error) {
 func CheckFile(sourceFile string) (*Result, error) {
 	result := &Result{}
 
-	source, err := ioutil.ReadFile(sourceFile)
+	source, err := os.ReadFile(sourceFile)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read %s: %v", sourceFile, err)
 	}
@@ -242,7 +242,7 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 			needsRegen[i] = true
 		}
 
-		source, err := ioutil.ReadFile(file)
+		source, err := os.ReadFile(file)
 		if err != nil {
 			return nil, fmt.Errorf("cannot read %s: %v", file, err)
 		}
@@ -339,7 +339,7 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 		}
 	}
 
-	if err := ioutil.WriteFile(outputFile, []byte(goCode), 0644); err != nil {
+	if err := os.WriteFile(outputFile, []byte(goCode), 0644); err != nil {
 		return nil, fmt.Errorf("cannot write %s: %v", outputFile, err)
 	}
 	result.OutputFile = outputFile

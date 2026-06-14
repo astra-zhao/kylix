@@ -3,7 +3,7 @@ package project
 import (
 	"bufio"
 	"fmt"
-	"io/ioutil"
+	
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,7 +133,7 @@ func (c *Config) Save(path string) error {
 			b.WriteString(fmt.Sprintf("%s = \"%s\"\n", name, ref))
 		}
 	}
-	return ioutil.WriteFile(path, []byte(b.String()), 0644)
+	return os.WriteFile(path, []byte(b.String()), 0644)
 }
 
 // ProjectDir returns the directory containing kylix.toml
@@ -195,7 +195,7 @@ end.
 `, pascalName, name, name)
 
 	mainPath := filepath.Join(dir, "main.klx")
-	if err := ioutil.WriteFile(mainPath, []byte(mainContent), 0644); err != nil {
+	if err := os.WriteFile(mainPath, []byte(mainContent), 0644); err != nil {
 		return nil, err
 	}
 
@@ -206,7 +206,7 @@ end.
 
 	// Write .gitignore
 	gitignore := "build/\n*.go\nkylix\n"
-	if err := ioutil.WriteFile(filepath.Join(dir, ".gitignore"), []byte(gitignore), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(gitignore), 0644); err != nil {
 		return nil, err
 	}
 
