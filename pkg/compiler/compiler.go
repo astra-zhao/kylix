@@ -19,8 +19,10 @@ type Diagnostic struct {
 	Line    int
 	Column  int
 	Level   string // "error" or "warning"
+	Code    string // "KLX001", "KLX002", etc.
 	Message string
 	Source  string // the source line where the issue occurred
+	Hint    string // optional fix suggestion
 }
 
 // Result holds the outcome of a compilation
@@ -87,7 +89,9 @@ func CompileFile(sourceFile string, opts Options) (*Result, error) {
 			Line:    td.Line,
 			Column:  td.Column,
 			Level:   "error",
+			Code:    td.Code,
 			Message: td.Message,
+			Hint:    td.Hint,
 		})
 	}
 	if len(result.Diagnostics) > 0 {
@@ -491,7 +495,9 @@ func checkInterfaces(program *ast.Program, sourceFile string) []Diagnostic {
 						Line:    classDecl.Token.Line,
 						Column:  classDecl.Token.Column,
 						Level:   "error",
+						Code:    ErrMissingMethod,
 						Message: fmt.Sprintf("class %q implements %q but is missing method %q", classDecl.Name, ifaceName, method),
+						Hint:    fmt.Sprintf("add 'procedure/function %s' to class %s", method, classDecl.Name),
 					})
 				}
 			}

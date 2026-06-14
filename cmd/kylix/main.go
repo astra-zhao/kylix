@@ -82,27 +82,39 @@ For more information on a command, run:
 }
 func printDiagnostics(diags []compiler.Diagnostic) {
 	for _, d := range diags {
-		loc := ""
-		if d.Line > 0 {
-			loc = fmt.Sprintf(":%d", d.Line)
-			if d.Column > 0 {
-				loc += fmt.Sprintf(":%d", d.Column)
-			}
+		// Header: error[KLX201]: message
+		codeStr := ""
+		if d.Code != "" {
+			codeStr = fmt.Sprintf("[%s]", d.Code)
 		}
-
-		symbol := "✗"
+		icon := "error"
 		if d.Level == "warning" {
-			symbol = "⚠"
+			icon = "warning"
+		}
+		fmt.Fprintf(os.Stderr, "%s%s: %s\n", icon, codeStr, d.Message)
+
+		// Location arrow
+		if d.File != "" {
+			fmt.Fprintf(os.Stderr, "  --> %s:%d:%d\n", d.File, d.Line, d.Column)
 		}
 
-		fmt.Fprintf(os.Stderr, "%s %s%s: %s\n", symbol, d.File, loc, d.Message)
-
+		// Source context
 		if d.Source != "" {
-			fmt.Fprintf(os.Stderr, "  %s\n", d.Source)
+			lineStr := fmt.Sprintf("%d", d.Line)
+			fmt.Fprintf(os.Stderr, "   |\n")
+			fmt.Fprintf(os.Stderr, "%s | %s\n", lineStr, d.Source)
 			if d.Column > 0 {
-				fmt.Fprintf(os.Stderr, "  %s^\n", repeatSpace(d.Column-1))
+				fmt.Fprintf(os.Stderr, "%s^ here\n", repeatSpace(len(lineStr)+3+d.Column-1))
 			}
+			fmt.Fprintf(os.Stderr, "   |\n")
 		}
+
+		// Hint
+		if d.Hint != "" {
+			fmt.Fprintf(os.Stderr, "   = help: %s\n", d.Hint)
+		}
+
+		fmt.Fprintln(os.Stderr)
 	}
 }
 
