@@ -129,9 +129,10 @@ OPTIONS:
 	if fs.NArg() > 0 {
 		wd, _ := os.Getwd()
 		opts := compiler.Options{
-			OutputFile: *output,
-			Verbose:    *verbose,
-			CacheDir:   wd,
+			OutputFile:        *output,
+			Verbose:           *verbose,
+			CacheDir:          wd,
+			PackageSearchDirs: packageDirsFromWd(wd),
 		}
 
 		if fs.NArg() == 1 {
@@ -207,9 +208,10 @@ OPTIONS:
 	// Compile
 	outFile := filepath.Join(outDir, cfg.Name+".go")
 	opts := compiler.Options{
-		OutputFile: outFile,
-		Verbose:    *verbose,
-		CacheDir:   cfg.ProjectDir(), // incremental build cache
+		OutputFile:        outFile,
+		Verbose:           *verbose,
+		CacheDir:          cfg.ProjectDir(),
+		PackageSearchDirs: packageDirsFromWd(cfg.ProjectDir()),
 	}
 
 	result, err := compiler.CompileFile(mainFile, opts)
@@ -741,4 +743,21 @@ func cmdRemove(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("✓ Removed %s\n", name)
+}
+
+// packageDirsFromWd returns all subdirectory paths under <wd>/packages/
+// for use as PackageSearchDirs in compiler.Options.
+func packageDirsFromWd(wd string) []string {
+	pkgsDir := filepath.Join(wd, "packages")
+	entries, err := os.ReadDir(pkgsDir)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, filepath.Join(pkgsDir, e.Name()))
+		}
+	}
+	return dirs
 }

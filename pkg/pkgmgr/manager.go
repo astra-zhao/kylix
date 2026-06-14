@@ -120,8 +120,11 @@ func (m *Manager) PackageDirs() []string {
 		return nil
 	}
 	for _, e := range entries {
-		if e.IsDir() {
-			dirs = append(dirs, filepath.Join(m.pkgsDir, e.Name()))
+		p := filepath.Join(m.pkgsDir, e.Name())
+		// Follow symlinks: os.ReadDir DirEntry.IsDir() is false for symlinks.
+		info, err := os.Stat(p)
+		if err == nil && info.IsDir() {
+			dirs = append(dirs, p)
 		}
 	}
 	return dirs
@@ -130,14 +133,16 @@ func (m *Manager) PackageDirs() []string {
 // ── internal helpers ──────────────────────────────────────────────────────────
 
 func (m *Manager) installLocal(name, ref, destDir string) error {
-	abs, err := filepath.Abs(filepath.Join(m.cfg.ProjectDir(), ref))
-	if err != nil {
-		return err
+	var abs string
+	if filepath.IsAbs(ref) {
+		abs = ref
+	} else {
+		abs, _ = filepath.Abs(filepath.Join(m.cfg.ProjectDir(), ref))
 	}
 	if _, err := os.Stat(abs); err != nil {
 		return fmt.Errorf("local package path %q not found", abs)
 	}
-	// Symlink or copy — use symlink for local dev convenience.
+	// Symlink for local dev convenience.
 	os.Remove(destDir)
 	return os.Symlink(abs, destDir)
 }
@@ -149,8 +154,9 @@ func (m *Manager) installGit(name, ref, destDir string) error {
 		url = "https://" + url
 	}
 
-	// If already installed and no version pinned, skip.
-	if _, err := os.Stat(destDir); err == nil && tag == "" {
+	// If already installed and version is pinned, skip (idempotent).
+	// Without a tag we always pull to get the latest.
+	if _, err := os.Stat(destDir); err == nil && tag != "" {
 		return nil
 	}
 

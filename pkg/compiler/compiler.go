@@ -33,11 +33,12 @@ type Result struct {
 
 // Options controls compilation behavior
 type Options struct {
-	OutputFile  string
-	Verbose     bool
-	KeepGoFile  bool   // don't delete the intermediate .go file after running
-	WorkingDir  string
-	CacheDir    string // directory for incremental build cache; "" disables caching
+	OutputFile        string
+	Verbose           bool
+	KeepGoFile        bool     // don't delete the intermediate .go file after running
+	WorkingDir        string
+	CacheDir          string   // directory for incremental build cache; "" disables caching
+	PackageSearchDirs []string // extra directories containing .klx unit files (from packages/)
 }
 
 // CompileFile compiles a single .klx file to Go
@@ -186,11 +187,26 @@ func parseLocation(d *Diagnostic, msg string) {
 // CompileProject compiles multiple .klx files as a single project.
 // When opts.CacheDir is non-empty, unchanged files reuse their cached Go body
 // (incremental compilation).
+// When opts.PackageSearchDirs is non-empty, .klx unit files found in those
+// directories are automatically added to the compilation (packages/).
 func CompileProject(files []string, opts Options) (*Result, error) {
 	result := &Result{}
 
 	if len(files) == 0 {
 		return nil, fmt.Errorf("no source files provided")
+	}
+
+	// Append .klx unit files from package search directories.
+	for _, dir := range opts.PackageSearchDirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".klx") {
+				files = append(files, filepath.Join(dir, e.Name()))
+			}
+		}
 	}
 
 	// Optional build cache.
