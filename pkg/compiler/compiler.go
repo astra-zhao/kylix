@@ -35,8 +35,9 @@ type Result struct {
 type Options struct {
 	OutputFile  string
 	Verbose     bool
-	KeepGoFile  bool // don't delete the intermediate .go file after running
+	KeepGoFile  bool   // don't delete the intermediate .go file after running
 	WorkingDir  string
+	CacheDir    string // directory for incremental build cache; "" disables caching
 }
 
 // CompileFile compiles a single .klx file to Go
@@ -183,6 +184,8 @@ func parseLocation(d *Diagnostic, msg string) {
 }
 
 // CompileProject compiles multiple .klx files as a single project.
+// When opts.CacheDir is non-empty, unchanged files reuse their cached Go body
+// (incremental compilation).
 func CompileProject(files []string, opts Options) (*Result, error) {
 	result := &Result{}
 
@@ -190,10 +193,39 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("no source files provided")
 	}
 
+	// Optional build cache.
+	var cache *BuildCache
+	if opts.CacheDir != "" {
+		cache = NewBuildCache(opts.CacheDir)
+	}
+
 	programs := make([]*ast.Program, 0, len(files))
 	fileMap := make(map[string]*ast.Program)
+	// Track which files need fresh codegen vs cached body.
+	cachedBodies := make(map[string]string) // absPath → cached Go body
+	needsRegen := make([]bool, len(files))
 
-	for _, file := range files {
+	for i, file := range files {
+		absFile, _ := filepath.Abs(file)
+
+		// Try cache first.
+		if cache != nil {
+			if entry := cache.Load(absFile); entry != nil {
+				// File unchanged — reuse cached body but still need AST for
+				// semantic checks and cross-unit type resolution.
+				// Parse is fast; we skip only the expensive Generate step.
+				cachedBodies[absFile] = entry.GoCode
+				needsRegen[i] = false
+				if opts.Verbose {
+					fmt.Printf("  cached: %s\n", file)
+				}
+			} else {
+				needsRegen[i] = true
+			}
+		} else {
+			needsRegen[i] = true
+		}
+
 		source, err := ioutil.ReadFile(file)
 		if err != nil {
 			return nil, fmt.Errorf("cannot read %s: %v", file, err)
@@ -204,17 +236,16 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 		program := p.ParseProgram()
 
 		for _, errMsg := range p.Errors() {
-			d := Diagnostic{
-				File:    file,
-				Level:   "error",
-				Message: errMsg,
-			}
+			d := Diagnostic{File: file, Level: "error", Message: errMsg}
 			parseLocation(&d, errMsg)
 			result.Diagnostics = append(result.Diagnostics, d)
 		}
 
 		if len(p.Errors()) > 0 {
 			result.Success = false
+			if cache != nil {
+				cache.Invalidate(absFile)
+			}
 			return result, nil
 		}
 
@@ -228,14 +259,14 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 		programs = append(programs, program)
 	}
 
-	sorted, err := topoSort(programs, fileMap)
+	sorted, sortedFiles, err := topoSortWithFiles(programs, fileMap, files)
 	if err != nil {
 		return nil, fmt.Errorf("dependency error: %v", err)
 	}
 
-	// Semantic check: interface implementation validation across all files
+	// Semantic checks on all files.
 	for i, prog := range sorted {
-		if diags := checkInterfaces(prog, files[i]); len(diags) > 0 {
+		if diags := checkInterfaces(prog, sortedFiles[i]); len(diags) > 0 {
 			result.Diagnostics = append(result.Diagnostics, diags...)
 		}
 	}
@@ -244,8 +275,44 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 		return result, nil
 	}
 
+	// Code generation — incremental where possible.
 	gen := generator.New()
-	goCode := gen.GenerateMulti(sorted)
+
+	// Global pre-scan must see all programs for correct cross-unit type refs.
+	for _, prog := range sorted {
+		gen.CollectClassTypes(prog)
+		gen.ScanImports(prog)
+		gen.ScanForException(prog)
+	}
+	// (exception types are emitted inside BuildOutput)
+
+	var bodies []string
+	for i, prog := range sorted {
+		absFile, _ := filepath.Abs(sortedFiles[i])
+		gen.SetSourceFile(sortedFiles[i])
+
+		var body string
+		if !needsRegen[absFile2index(files, sortedFiles[i])] {
+			if cached, ok := cachedBodies[absFile]; ok {
+				body = cached
+				if opts.Verbose {
+					fmt.Printf("  reuse:  %s\n", sortedFiles[i])
+				}
+			}
+		}
+		if body == "" {
+			body = gen.GenerateBody(prog)
+			if cache != nil {
+				cache.Store(absFile, body)
+			}
+			if opts.Verbose {
+				fmt.Printf("  compile: %s\n", sortedFiles[i])
+			}
+		}
+		bodies = append(bodies, body)
+	}
+
+	goCode := gen.BuildOutput(bodies)
 	result.GoCode = goCode
 
 	outputFile := opts.OutputFile
@@ -265,10 +332,32 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 	return result, nil
 }
 
-func topoSort(programs []*ast.Program, fileMap map[string]*ast.Program) ([]*ast.Program, error) {
+// absFile2index returns the index of file in files slice (-1 if not found).
+func absFile2index(files []string, target string) int {
+	for i, f := range files {
+		if f == target {
+			return i
+		}
+		if abs, _ := filepath.Abs(f); abs == target {
+			return i
+		}
+	}
+	return 0
+}
+
+func topoSortWithFiles(programs []*ast.Program, fileMap map[string]*ast.Program, files []string) ([]*ast.Program, []string, error) {
+	// Build reverse map: program pointer → original file path
+	progFile := make(map[*ast.Program]string)
+	for i, prog := range programs {
+		if i < len(files) {
+			progFile[prog] = files[i]
+		}
+	}
+
 	visited := make(map[*ast.Program]bool)
 	inStack := make(map[*ast.Program]bool)
 	var sorted []*ast.Program
+	var sortedFiles []string
 
 	var visit func(prog *ast.Program) error
 	visit = func(prog *ast.Program) error {
@@ -279,7 +368,6 @@ func topoSort(programs []*ast.Program, fileMap map[string]*ast.Program) ([]*ast.
 			return fmt.Errorf("circular dependency detected")
 		}
 		inStack[prog] = true
-
 		for _, use := range prog.Uses {
 			if dep, ok := fileMap[use]; ok {
 				if err := visit(dep); err != nil {
@@ -287,20 +375,20 @@ func topoSort(programs []*ast.Program, fileMap map[string]*ast.Program) ([]*ast.
 				}
 			}
 		}
-
 		inStack[prog] = false
 		visited[prog] = true
 		sorted = append(sorted, prog)
+		sortedFiles = append(sortedFiles, progFile[prog])
 		return nil
 	}
 
 	for _, prog := range programs {
 		if err := visit(prog); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	return sorted, nil
+	return sorted, sortedFiles, nil
 }
 
 // CheckInterfaces is the exported version for use by LSP and other packages.

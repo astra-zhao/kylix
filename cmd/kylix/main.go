@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 )
 
-const Version = "1.3.2"
+const Version = "1.4.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -120,9 +120,11 @@ OPTIONS:
 
 	// Single file or multi-file mode
 	if fs.NArg() > 0 {
+		wd, _ := os.Getwd()
 		opts := compiler.Options{
 			OutputFile: *output,
 			Verbose:    *verbose,
+			CacheDir:   wd,
 		}
 
 		if fs.NArg() == 1 {
@@ -200,6 +202,7 @@ OPTIONS:
 	opts := compiler.Options{
 		OutputFile: outFile,
 		Verbose:    *verbose,
+		CacheDir:   cfg.ProjectDir(), // incremental build cache
 	}
 
 	result, err := compiler.CompileFile(mainFile, opts)

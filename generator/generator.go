@@ -45,6 +45,44 @@ func New() *Generator {
 // SetSourceFile sets the Kylix source filename used in //line directives.
 func (g *Generator) SetSourceFile(f string) { g.sourceFile = f }
 
+// CollectClassTypes is the exported pre-scan pass for cross-package use.
+func (g *Generator) CollectClassTypes(p *ast.Program) { g.collectClassTypes(p) }
+
+// ScanImports is the exported pre-scan pass for cross-package use.
+func (g *Generator) ScanImports(p *ast.Program) { g.scanImports(p) }
+
+// ScanForException is the exported pre-scan pass for cross-package use.
+func (g *Generator) ScanForException(p *ast.Program) { g.scanForException(p) }
+
+// WriteExceptionTypes emits the shared exception type declarations.
+func (g *Generator) WriteExceptionTypes() { g.writeExceptionTypes() }
+
+// BuildOutput assembles the final Go source from pre-scanned import state and
+// a slice of body fragments (one per source file, from GenerateBody).
+// Exception types (if needed) are inserted before the body fragments.
+func (g *Generator) BuildOutput(bodies []string) string {
+	var out strings.Builder
+	out.WriteString("package main\n\n")
+	if len(g.imports) > 0 {
+		out.WriteString("import (\n")
+		for imp := range g.imports {
+			out.WriteString(fmt.Sprintf("\t%q\n", imp))
+		}
+		out.WriteString(")\n\n")
+	}
+	// Exception runtime types (captured by a temporary output snapshot).
+	if g.needsException {
+		snap := g.output.Len()
+		g.writeExceptionTypes()
+		full := g.output.String()
+		out.WriteString(full[snap:])
+	}
+	for _, b := range bodies {
+		out.WriteString(b)
+	}
+	return out.String()
+}
+
 // Generate compiles a single Kylix program to Go source.
 func (g *Generator) Generate(program *ast.Program) string {
 	g.program = program
@@ -164,6 +202,58 @@ func (g *Generator) GenerateMulti(programs []*ast.Program) string {
 	}
 
 	return g.output.String()
+}
+
+// GenerateBody generates only the declarations and statements for one program
+// (no "package main", no "import" block). Used by incremental compilation:
+// each unit is generated independently, then the results are assembled by
+// CompileProjectIncremental which adds the shared header once.
+//
+// The caller must have already run the global pre-scan passes
+// (collectClassTypes / scanImports / scanForException) on ALL programs so
+// cross-unit type references resolve correctly.
+func (g *Generator) GenerateBody(program *ast.Program) string {
+	// Snapshot current output length so we can extract only what we add.
+	start := g.output.Len()
+
+	for _, decl := range program.Declarations {
+		switch d := decl.(type) {
+		case *ast.TypeDecl:
+			g.generateTypeDecl(d)
+		case *ast.ClassDecl:
+			g.generateClassDecl(d)
+		case *ast.InterfaceDecl:
+			g.generateInterfaceDecl(d)
+		}
+	}
+
+	for _, decl := range program.Declarations {
+		switch d := decl.(type) {
+		case *ast.VarDecl:
+			g.generateGlobalVarDecl(d)
+		case *ast.ConstDecl:
+			g.generateConstDecl(d)
+		}
+	}
+
+	for _, decl := range program.Declarations {
+		if d, ok := decl.(*ast.FunctionDecl); ok {
+			g.generateFunctionDecl(d)
+		}
+	}
+
+	if !program.IsUnit && len(program.Statements) > 0 {
+		g.writeLine("func main() {")
+		g.indent++
+		for _, stmt := range program.Statements {
+			g.generateStatement(stmt)
+		}
+		g.indent--
+		g.writeLine("}")
+	}
+
+	full := g.output.String()
+	return full[start:]
 }
 
 // writeImports emits the import block if any imports are needed.

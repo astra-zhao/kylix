@@ -4,6 +4,33 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v1.4.0 (2026-06-13)
+
+### P2: Incremental compilation
+
+Unchanged `.klx` files now skip the parse+generate step on repeated builds.
+A file-fingerprint cache (mtime + size) lives in `.kylix-cache/` and survives
+across processes.
+
+**Results on a 2-unit project:**
+| Build | Time | Notes |
+|-------|------|-------|
+| Cold (no cache) | 444 ms | full compile |
+| All cached | 8 ms | **55× faster** |
+| One file changed | 6 ms | only changed unit recompiled |
+
+**How it works:**
+- `pkg/compiler/cache.go` — `BuildCache`: SHA-256 keyed JSON entries per file
+- `CompileProject` uses cache when `opts.CacheDir != ""`
+- Global pre-scan (class types, imports, exceptions) still runs over all ASTs
+- Only the `GenerateBody` step is skipped for cached units
+- `generator.GenerateBody` / `BuildOutput` / exported pre-scan methods added
+- `kylix build` and `kylix build <files...>` both enable the cache automatically
+- `.kylix-cache/` added to `.gitignore`
+
+---
+
+
 ## v1.3.2 (2026-06-13)
 
 ### LSP real-time diagnostics

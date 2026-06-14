@@ -35,3 +35,12 @@ vscode-ext/*.vsix
 kylix_bin
 *.txt
 .omc/
+
+# Incremental build cache
+.kylix-cache/
+
+# Generated Go output at project root
+main.go
+
+# Code graph index
+.codegraph/
