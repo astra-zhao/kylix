@@ -80,6 +80,21 @@ func CompileFile(sourceFile string, opts Options) (*Result, error) {
 		return result, nil
 	}
 
+	// Semantic check: type checker (undeclared vars, arity, obvious type mismatches)
+	for _, td := range TypeCheck(program, sourceFile) {
+		result.Diagnostics = append(result.Diagnostics, Diagnostic{
+			File:    td.File,
+			Line:    td.Line,
+			Column:  td.Column,
+			Level:   "error",
+			Message: td.Message,
+		})
+	}
+	if len(result.Diagnostics) > 0 {
+		result.Success = false
+		return result, nil
+	}
+
 	// Generate Go code
 	gen := generator.New()
 	gen.SetSourceFile(sourceFile)
