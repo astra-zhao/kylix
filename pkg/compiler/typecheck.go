@@ -172,7 +172,19 @@ func (c *checker) checkStatement(stmt ast.Statement, scope map[string]string) {
 		// Check undeclared LHS (only for plain identifiers, not qualified names)
 		if ident, ok := s.Name.(*ast.Identifier); ok {
 			if !c.isDeclared(ident.Value, scope) {
-				c.diag(s.Token, ErrUndeclared, "undeclared variable or function '%s'", ident.Value)
+				hint := ""
+				if near := NearestName(ident.Value, scopeKeys(scope), 2); near != "" {
+					hint = fmt.Sprintf("did you mean '%s'?", near)
+				}
+				d := TypeDiagnostic{
+					File:    c.file,
+					Line:    s.Token.Line,
+					Column:  s.Token.Column,
+					Code:    ErrUndeclared,
+					Message: fmt.Sprintf("undeclared variable or function '%s'", ident.Value),
+					Hint:    hint,
+				}
+				c.diags = append(c.diags, d)
 			} else if declType, known := scope[ident.Value]; known && declType != "?" && declType != "builtin" {
 				c.checkAssignCompat(s.Token, declType, s.Value)
 			}
@@ -313,12 +325,30 @@ func (c *checker) checkAssignCompat(tok token.Token, declaredType string, value 
 	switch v := value.(type) {
 	case *ast.StringLiteral:
 		if norm == "integer" || norm == "int64" || norm == "real" || norm == "double" || norm == "boolean" {
-			c.diag(tok, ErrTypeMismatch, "cannot assign String literal to variable of type '%s'", declaredType)
+			hint := typeConversionHint(declaredType, "string")
+			d := TypeDiagnostic{
+				File:    c.file,
+				Line:    tok.Line,
+				Column:  tok.Column,
+				Code:    ErrTypeMismatch,
+				Message: fmt.Sprintf("cannot assign String literal to variable of type '%s'", declaredType),
+				Hint:    hint,
+			}
+			c.diags = append(c.diags, d)
 		}
 		_ = v
 	case *ast.IntegerLiteral:
 		if norm == "string" {
-			c.diag(tok, ErrTypeMismatch, "cannot assign Integer literal to variable of type 'String'")
+			hint := typeConversionHint(declaredType, "integer")
+			d := TypeDiagnostic{
+				File:    c.file,
+				Line:    tok.Line,
+				Column:  tok.Column,
+				Code:    ErrTypeMismatch,
+				Message: "cannot assign Integer literal to variable of type 'String'",
+				Hint:    hint,
+			}
+			c.diags = append(c.diags, d)
 		}
 	case *ast.BooleanLiteral:
 		if norm == "integer" || norm == "int64" || norm == "real" || norm == "double" || norm == "string" {
@@ -337,6 +367,16 @@ func (c *checker) isDeclared(name string, scope map[string]string) bool {
 		return true
 	}
 	return false
+}
+
+func scopeKeys(scope map[string]string) []string {
+	keys := make([]string, 0, len(scope))
+	for k := range scope {
+		if k != "builtin" {
+			keys = append(keys, k)
+		}
+	}
+	return keys
 }
 
 // typeString converts a type expression to a normalized string.
