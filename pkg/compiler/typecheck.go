@@ -216,14 +216,21 @@ func (c *checker) checkStatement(stmt ast.Statement, scope map[string]string) {
 	}
 	switch s := stmt.(type) {
 	case *ast.VarDecl:
+		// Determine declared type: explicit annotation or inferred from initializer.
+		declType := ""
+		if s.Type != nil {
+			declType = typeString(s.Type)
+		} else if s.Value != nil {
+			declType = c.inferExprType(s.Value, scope)
+		}
 		for _, name := range s.Names {
-			if s.Type != nil {
-				scope[name] = typeString(s.Type)
+			if declType != "" {
+				scope[name] = declType
 			} else {
 				scope[name] = "?"
 			}
 		}
-		// Check obvious type mismatch for initializer
+		// Check obvious type mismatch for explicitly typed initializer.
 		if s.Value != nil && s.Type != nil {
 			c.checkAssignCompat(s.Token, typeString(s.Type), s.Value)
 		}
@@ -411,12 +418,64 @@ func (c *checker) checkAssignCompat(tok token.Token, declaredType string, value 
 				Hint:    hint,
 			}
 			c.diags = append(c.diags, d)
+		} else if norm == "boolean" {
+			c.diag(tok, ErrTypeMismatch, "cannot assign Integer literal to variable of type 'Boolean'")
 		}
 	case *ast.BooleanLiteral:
 		if norm == "integer" || norm == "int64" || norm == "real" || norm == "double" || norm == "string" {
 			c.diag(tok, ErrTypeMismatch, "cannot assign Boolean literal to variable of type '%s'", declaredType)
 		}
 	}
+}
+
+// inferExprType returns the Kylix type name for an expression, or "" if unknown.
+// Only handles the literal and simple-call cases we can prove without a full
+// type-inference engine.
+func (c *checker) inferExprType(expr ast.Expression, scope map[string]string) string {
+	if expr == nil {
+		return ""
+	}
+	switch e := expr.(type) {
+	case *ast.IntegerLiteral:
+		return "Integer"
+	case *ast.FloatLiteral:
+		return "Real"
+	case *ast.StringLiteral:
+		return "String"
+	case *ast.BooleanLiteral:
+		return "Boolean"
+	case *ast.Identifier:
+		if t, ok := scope[e.Value]; ok && t != "?" && t != "builtin" {
+			return t
+		}
+	case *ast.CallExpression:
+		if ident, ok := e.Function.(*ast.Identifier); ok {
+			if fd, ok := c.funcs[ident.Value]; ok {
+				if fd.ReturnType != nil {
+					return typeString(fd.ReturnType)
+				}
+				if len(fd.ReturnTypes) == 1 {
+					return typeString(fd.ReturnTypes[0])
+				}
+			}
+		}
+	case *ast.InfixExpression:
+		// Arithmetic on Integer operands stays Integer; on Real stays Real
+		left := c.inferExprType(e.Left, scope)
+		right := c.inferExprType(e.Right, scope)
+		if left == "Real" || right == "Real" {
+			return "Real"
+		}
+		if left == "Integer" && right == "Integer" {
+			return "Integer"
+		}
+		if left == "String" && e.Operator == "+" {
+			return "String"
+		}
+	case *ast.PrefixExpression:
+		return c.inferExprType(e.Right, scope)
+	}
+	return ""
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
