@@ -22,6 +22,8 @@ func main() {
 		cmdRun(os.Args[2:])
 	case "check":
 		cmdCheck(os.Args[2:])
+	case "test":
+		cmdTest(os.Args[2:])
 	case "new":
 		cmdNew(os.Args[2:])
 	case "fmt":
