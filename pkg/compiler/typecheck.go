@@ -30,10 +30,12 @@ type TypeDiagnostic struct {
 // findings. sourceFile is used for diagnostic messages only.
 func TypeCheck(program *ast.Program, sourceFile string) []TypeDiagnostic {
 	c := &checker{
-		file:    sourceFile,
-		funcs:   make(map[string]*ast.FunctionDecl),
-		types:   make(map[string]string), // name → declared type string
-		aliases: make(map[string]string), // type alias name → underlying type
+		file:               sourceFile,
+		funcs:              make(map[string]*ast.FunctionDecl),
+		types:              make(map[string]string), // name → declared type string
+		aliases:            make(map[string]string), // type alias name → underlying type
+		genericConstraints: make(map[string]map[string]string),
+		interfaces:         make(map[string][]string),
 	}
 	c.collectDeclarations(program)
 	c.validateAliases(program, sourceFile)
@@ -49,6 +51,10 @@ type checker struct {
 	funcs   map[string]*ast.FunctionDecl // globally declared functions
 	types   map[string]string            // globally declared variable types
 	aliases map[string]string            // type alias name → underlying type name
+	// Generic type constraints: "TBox<T>" → {"T": "IComparable"}
+	genericConstraints map[string]map[string]string // typeName → {paramName: constraintName}
+	// Interface method signatures: "IComparable" → ["CompareTo"]
+	interfaces map[string][]string
 }
 
 func (c *checker) diag(tok token.Token, code string, format string, args ...interface{}) {
@@ -78,6 +84,28 @@ func (c *checker) collectDeclarations(prog *ast.Program) {
 			// Simple type alias: type UserId = Integer (not class/interface/etc.)
 			if ident, ok := d.Type.(*ast.Identifier); ok {
 				c.aliases[d.Name] = ident.Value
+			}
+			// Generic type with constraints: type TBox<T: IComparable> = class
+			if classDecl, ok := d.Type.(*ast.ClassDecl); ok && len(classDecl.TypeParams) > 0 {
+				constraints := make(map[string]string)
+				for _, tp := range classDecl.TypeParams {
+					if tp.Constraint != nil {
+						if ident, ok := tp.Constraint.(*ast.Identifier); ok {
+							constraints[tp.Name] = ident.Value
+						}
+					}
+				}
+				if len(constraints) > 0 {
+					c.genericConstraints[d.Name] = constraints
+				}
+			}
+			// Interface declaration: collect method names
+			if iface, ok := d.Type.(*ast.InterfaceDecl); ok {
+				methods := make([]string, 0, len(iface.Methods))
+				for _, m := range iface.Methods {
+					methods = append(methods, m.Name)
+				}
+				c.interfaces[d.Name] = methods
 			}
 		}
 	}
@@ -138,6 +166,14 @@ func (c *checker) resolveAlias(typeName string) string {
 // ── pass 2: check ─────────────────────────────────────────────────────────────
 
 func (c *checker) checkProgram(prog *ast.Program) {
+	// Check global variable declarations (including generic constraints)
+	for _, decl := range prog.Declarations {
+		if vd, ok := decl.(*ast.VarDecl); ok {
+			if vd.Type != nil {
+				c.checkGenericConstraints(vd.Token, vd.Type)
+			}
+		}
+	}
 	// Check top-level function bodies
 	for _, decl := range prog.Declarations {
 		if fd, ok := decl.(*ast.FunctionDecl); ok {
@@ -233,6 +269,10 @@ func (c *checker) checkStatement(stmt ast.Statement, scope map[string]string) {
 		// Check obvious type mismatch for explicitly typed initializer.
 		if s.Value != nil && s.Type != nil {
 			c.checkAssignCompat(s.Token, typeString(s.Type), s.Value)
+		}
+		// Generic constraint validation: var box: TBox<Integer>
+		if s.Type != nil {
+			c.checkGenericConstraints(s.Token, s.Type)
 		}
 
 	case *ast.AssignmentStatement:
@@ -476,6 +516,67 @@ func (c *checker) inferExprType(expr ast.Expression, scope map[string]string) st
 		return c.inferExprType(e.Right, scope)
 	}
 	return ""
+}
+
+// checkGenericConstraints validates that type arguments in a generic instantiation
+// satisfy the declared constraints. E.g., var box: TBox<Integer> where TBox<T: IComparable>.
+func (c *checker) checkGenericConstraints(tok token.Token, typeExpr ast.Expression) {
+	// Only handle GenericType: TBox<Integer>
+	gt, ok := typeExpr.(*ast.GenericType)
+	if !ok {
+		return
+	}
+	baseName := gt.Base
+
+	// Lookup constraints for this generic type
+	constraints, hasConstraints := c.genericConstraints[baseName]
+	if !hasConstraints {
+		return
+	}
+
+	// Match type arguments to constraints by position
+	// For MVP: assume single type parameter (common case: TBox<T>)
+	if len(constraints) != 1 || len(gt.TypeParams) != 1 {
+		// Multi-param generics need parameter ordering info — skip for now
+		return
+	}
+
+	var constraintName string
+	for _, cn := range constraints {
+		constraintName = cn
+		break
+	}
+
+	arg := gt.TypeParams[0]
+	argIdent, ok := arg.(*ast.Identifier)
+	if !ok {
+		return
+	}
+	argName := argIdent.Value
+
+	// Check if argName implements the constraint interface
+	if !c.typeImplementsInterface(argName, constraintName) {
+		c.diag(tok, ErrGenericConstraint,
+			"type '%s' does not satisfy constraint '%s' for generic type '%s'",
+			argName, constraintName, baseName)
+	}
+}
+
+// typeImplementsInterface checks if a type implements an interface.
+// For MVP: only checks class types via checkInterfaces result (not available here).
+// Simplified: assume built-in types don't implement interfaces.
+func (c *checker) typeImplementsInterface(typeName, ifaceName string) bool {
+	// Built-in types like Integer, String don't implement user interfaces (MVP)
+	builtins := map[string]bool{
+		"Integer": true, "Int64": true, "Real": true, "Double": true,
+		"String": true, "Boolean": true, "Char": true,
+	}
+	if builtins[typeName] {
+		return false
+	}
+	// For custom types: would need class→interface mapping from checkInterfaces.
+	// MVP: assume custom types implement if they exist (no false positive)
+	return true
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
