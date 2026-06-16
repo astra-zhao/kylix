@@ -30,11 +30,13 @@ type TypeDiagnostic struct {
 // findings. sourceFile is used for diagnostic messages only.
 func TypeCheck(program *ast.Program, sourceFile string) []TypeDiagnostic {
 	c := &checker{
-		file:  sourceFile,
-		funcs: make(map[string]*ast.FunctionDecl),
-		types: make(map[string]string), // name → declared type string
+		file:    sourceFile,
+		funcs:   make(map[string]*ast.FunctionDecl),
+		types:   make(map[string]string), // name → declared type string
+		aliases: make(map[string]string), // type alias name → underlying type
 	}
 	c.collectDeclarations(program)
+	c.validateAliases(program, sourceFile)
 	c.checkProgram(program)
 	return c.diags
 }
@@ -42,10 +44,11 @@ func TypeCheck(program *ast.Program, sourceFile string) []TypeDiagnostic {
 // ── checker ───────────────────────────────────────────────────────────────────
 
 type checker struct {
-	file  string
-	diags []TypeDiagnostic
-	funcs map[string]*ast.FunctionDecl // globally declared functions
-	types map[string]string            // globally declared variable types
+	file    string
+	diags   []TypeDiagnostic
+	funcs   map[string]*ast.FunctionDecl // globally declared functions
+	types   map[string]string            // globally declared variable types
+	aliases map[string]string            // type alias name → underlying type name
 }
 
 func (c *checker) diag(tok token.Token, code string, format string, args ...interface{}) {
@@ -71,7 +74,64 @@ func (c *checker) collectDeclarations(prog *ast.Program) {
 					c.types[name] = typeString(d.Type)
 				}
 			}
+		case *ast.TypeDecl:
+			// Simple type alias: type UserId = Integer (not class/interface/etc.)
+			if ident, ok := d.Type.(*ast.Identifier); ok {
+				c.aliases[d.Name] = ident.Value
+			}
 		}
+	}
+}
+
+// validateAliases detects recursive/circular type aliases.
+func (c *checker) validateAliases(prog *ast.Program, sourceFile string) {
+	for _, decl := range prog.Declarations {
+		td, ok := decl.(*ast.TypeDecl)
+		if !ok {
+			continue
+		}
+		if _, isAlias := c.aliases[td.Name]; !isAlias {
+			continue
+		}
+		// Walk the alias chain; detect cycle
+		seen := make(map[string]bool)
+		current := td.Name
+		for {
+			seen[current] = true
+			next, ok := c.aliases[current]
+			if !ok {
+				break // resolved to a non-alias type
+			}
+			if seen[next] {
+				c.diags = append(c.diags, TypeDiagnostic{
+					File:    sourceFile,
+					Line:    td.Token.Line,
+					Column:  td.Token.Column,
+					Code:    ErrTypeAliasLoop,
+					Message: fmt.Sprintf("type alias '%s' is recursive (cycle detected)", td.Name),
+					Hint:    "type aliases cannot reference themselves directly or indirectly",
+				})
+				break
+			}
+			current = next
+		}
+	}
+}
+
+// resolveAlias follows the alias chain to find the underlying type name.
+// Returns the input unchanged if it is not an alias.
+func (c *checker) resolveAlias(typeName string) string {
+	seen := make(map[string]bool)
+	for {
+		seen[typeName] = true
+		underlying, ok := c.aliases[typeName]
+		if !ok {
+			return typeName
+		}
+		if seen[underlying] {
+			return typeName // cycle guard
+		}
+		typeName = underlying
 	}
 }
 
@@ -320,7 +380,9 @@ func (c *checker) checkAssignCompat(tok token.Token, declaredType string, value 
 	if value == nil {
 		return
 	}
-	norm := strings.ToLower(declaredType)
+	// Resolve alias to underlying type before comparing
+	resolved := c.resolveAlias(declaredType)
+	norm := strings.ToLower(resolved)
 
 	switch v := value.(type) {
 	case *ast.StringLiteral:
