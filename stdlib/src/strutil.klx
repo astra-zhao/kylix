@@ -1,0 +1,138 @@
+// strutil — String manipulation utilities, implemented in pure Kylix.
+//
+// Part of the v2.1.0 stdlib Kylix-ification effort. This module demonstrates
+// that core utilities can be self-hosted using slice-based string operations.
+unit strutil;
+
+// Reverse returns the input string with characters in reverse order.
+function Reverse(s: String): String;
+var
+  i: Integer;
+  r: String;
+begin
+  r := '';
+  i := Length(s);
+  while i > 0 do
+  begin
+    r := r + s[i-1:i];
+    i := i - 1;
+  end;
+  result := r;
+end;
+
+// IsEmpty reports whether s contains no characters.
+function IsEmpty(s: String): Boolean;
+begin
+  result := Length(s) = 0;
+end;
+
+// StartsWith reports whether s begins with prefix.
+function StartsWith(s: String; prefix: String): Boolean;
+var
+  pl: Integer;
+begin
+  pl := Length(prefix);
+  if pl > Length(s) then
+  begin
+    result := false;
+    exit;
+  end;
+  result := s[0:pl] = prefix;
+end;
+
+// EndsWith reports whether s ends with suffix.
+function EndsWith(s: String; suffix: String): Boolean;
+var
+  sl: Integer;
+  el: Integer;
+begin
+  sl := Length(s);
+  el := Length(suffix);
+  if el > sl then
+  begin
+    result := false;
+    exit;
+  end;
+  result := s[sl-el:sl] = suffix;
+end;
+
+// RepeatStr returns s concatenated n times.
+function RepeatStr(s: String; n: Integer): String;
+var
+  r: String;
+  i: Integer;
+begin
+  r := '';
+  for i := 1 to n do
+    r := r + s;
+  result := r;
+end;
+
+// PadLeft returns s padded on the left with padChar to width characters.
+// If Length(s) >= width, s is returned unchanged.
+function PadLeft(s: String; width: Integer; padChar: String): String;
+var
+  pad: String;
+  needed: Integer;
+  i: Integer;
+begin
+  needed := width - Length(s);
+  if needed <= 0 then
+  begin
+    result := s;
+    exit;
+  end;
+  pad := '';
+  for i := 1 to needed do
+    pad := pad + padChar;
+  result := pad + s;
+end;
+
+// PadRight returns s padded on the right with padChar to width characters.
+function PadRight(s: String; width: Integer; padChar: String): String;
+var
+  pad: String;
+  needed: Integer;
+  i: Integer;
+begin
+  needed := width - Length(s);
+  if needed <= 0 then
+  begin
+    result := s;
+    exit;
+  end;
+  pad := '';
+  for i := 1 to needed do
+    pad := pad + padChar;
+  result := s + pad;
+end;
+
+// Contains reports whether substr is anywhere within s.
+function Contains(s: String; substr: String): Boolean;
+var
+  sl: Integer;
+  el: Integer;
+  i: Integer;
+begin
+  sl := Length(s);
+  el := Length(substr);
+  if el = 0 then
+  begin
+    result := true;
+    exit;
+  end;
+  if el > sl then
+  begin
+    result := false;
+    exit;
+  end;
+  for i := 0 to sl - el do
+  begin
+    if s[i:i+el] = substr then
+    begin
+      result := true;
+      exit;
+    end;
+  end;
+  result := false;
+end;

@@ -157,6 +157,8 @@ func (r *Runner) runFile(file string, names []string) []TestResult {
 }
 
 // buildHarness compiles klxFile to Go, injects Assert() and a dispatch main().
+// When the test file has 'uses' clauses, dependent .klx files in the same
+// directory are also compiled and merged into the harness.
 func buildHarness(klxFile string, names []string, tmpDir string) (string, error) {
 	src, err := os.ReadFile(klxFile)
 	if err != nil {
@@ -170,8 +172,34 @@ func buildHarness(klxFile string, names []string, tmpDir string) (string, error)
 		return "", fmt.Errorf("parse error in %s: %s", klxFile, errs[0])
 	}
 
-	// Generate Go body (unit mode — no main function)
+	// Resolve `uses X` to <dir>/X.klx in the same directory as the test file.
+	// This lets `kylix test math_test.klx` find math.klx automatically.
+	dir := filepath.Dir(klxFile)
 	g := generator.New()
+
+	var depBodies []string
+	for _, used := range prog.Uses {
+		depPath := filepath.Join(dir, used+".klx")
+		if _, err := os.Stat(depPath); err != nil {
+			continue // unit not in same dir — skip silently (could be stdlib)
+		}
+		depSrc, err := os.ReadFile(depPath)
+		if err != nil {
+			continue
+		}
+		dl := lexer.New(string(depSrc))
+		dp := parser.New(dl)
+		depProg := dp.ParseProgram()
+		if len(dp.Errors()) > 0 {
+			return "", fmt.Errorf("parse error in dependency %s: %s", depPath, dp.Errors()[0])
+		}
+		// Pre-scan the dependency so the generator collects its imports/types.
+		g.CollectClassTypes(depProg)
+		g.ScanImports(depProg)
+		depBodies = append(depBodies, g.GenerateBody(depProg))
+	}
+
+	// Generate Go body for the test file itself.
 	goBody := g.GenerateBody(prog)
 
 	var sb strings.Builder
@@ -187,7 +215,11 @@ func buildHarness(klxFile string, names []string, tmpDir string) (string, error)
 	// Suppress unused import warnings from generated code
 	sb.WriteString("var _ = fmt.Sprintf\n\n")
 
-	// Insert generated procedure bodies
+	// Insert generated procedure bodies (deps first, then test file)
+	for _, body := range depBodies {
+		sb.WriteString(body)
+		sb.WriteString("\n")
+	}
 	sb.WriteString(goBody)
 	sb.WriteString("\n")
 

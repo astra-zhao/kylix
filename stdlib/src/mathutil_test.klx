@@ -1,0 +1,73 @@
+// mathutil_test — Tests for stdlib/src/mathutil.klx
+unit mathutil_test;
+uses mathutil;
+
+procedure TestAbs;
+begin
+  Assert(Abs(-5) = 5, 'abs of -5');
+  Assert(Abs(0) = 0, 'abs of 0');
+  Assert(Abs(7) = 7, 'abs of 7');
+end;
+
+procedure TestMin;
+begin
+  Assert(Min(3, 7) = 3, 'min 3 7');
+  Assert(Min(7, 3) = 3, 'min 7 3');
+  Assert(Min(-1, -5) = -5, 'min negatives');
+end;
+
+procedure TestMax;
+begin
+  Assert(Max(3, 7) = 7, 'max 3 7');
+  Assert(Max(-1, 0) = 0, 'max -1 0');
+end;
+
+procedure TestClamp;
+begin
+  Assert(Clamp(5, 0, 10) = 5, 'clamp in range');
+  Assert(Clamp(-3, 0, 10) = 0, 'clamp below');
+  Assert(Clamp(15, 0, 10) = 10, 'clamp above');
+end;
+
+procedure TestSign;
+begin
+  Assert(Sign(-7) = -1, 'sign of negative');
+  Assert(Sign(0) = 0, 'sign of zero');
+  Assert(Sign(42) = 1, 'sign of positive');
+end;
+
+procedure TestPow;
+begin
+  Assert(Pow(2, 10) = 1024, '2^10');
+  Assert(Pow(3, 0) = 1, '3^0');
+  Assert(Pow(5, 2) = 25, '5^2');
+end;
+
+procedure TestFactorial;
+begin
+  Assert(Factorial(0) = 1, '0!');
+  Assert(Factorial(1) = 1, '1!');
+  Assert(Factorial(5) = 120, '5!');
+end;
+
+procedure TestGcd;
+begin
+  Assert(Gcd(12, 18) = 6, 'gcd 12 18');
+  Assert(Gcd(7, 13) = 1, 'gcd coprime');
+  Assert(Gcd(100, 75) = 25, 'gcd 100 75');
+end;
+
+procedure TestLcm;
+begin
+  Assert(Lcm(4, 6) = 12, 'lcm 4 6');
+  Assert(Lcm(0, 5) = 0, 'lcm 0 5');
+end;
+
+procedure TestIsPrime;
+begin
+  Assert(IsPrime(2), '2 is prime');
+  Assert(IsPrime(17), '17 is prime');
+  Assert(IsPrime(15) = false, '15 is not prime');
+  Assert(IsPrime(1) = false, '1 is not prime');
+  Assert(IsPrime(97), '97 is prime');
+end;

@@ -1,0 +1,54 @@
+// strutil_test — Tests for stdlib/src/strutil.klx
+unit strutil_test;
+uses strutil;
+
+procedure TestReverse;
+begin
+  Assert(Reverse('hello') = 'olleh', 'reverse hello');
+  Assert(Reverse('') = '', 'reverse empty');
+  Assert(Reverse('a') = 'a', 'reverse single char');
+end;
+
+procedure TestStartsWith;
+begin
+  Assert(StartsWith('hello world', 'hello'), 'starts with hello');
+  Assert(StartsWith('foo', '') = true, 'starts with empty');
+  Assert(StartsWith('foo', 'foobar') = false, 'prefix longer than s');
+end;
+
+procedure TestEndsWith;
+begin
+  Assert(EndsWith('hello.txt', '.txt'), 'ends with .txt');
+  Assert(EndsWith('foo', '') = true, 'ends with empty');
+  Assert(EndsWith('foo', 'foobar') = false, 'suffix longer than s');
+end;
+
+procedure TestContains;
+begin
+  Assert(Contains('hello world', 'world'), 'contains world');
+  Assert(Contains('hello world', 'xyz') = false, 'does not contain xyz');
+  Assert(Contains('abc', '') = true, 'contains empty');
+end;
+
+procedure TestRepeatStr;
+begin
+  Assert(RepeatStr('ab', 3) = 'ababab', 'repeat ab 3 times');
+  Assert(RepeatStr('x', 0) = '', 'repeat 0 times');
+end;
+
+procedure TestPadLeft;
+begin
+  Assert(PadLeft('42', 5, '0') = '00042', 'pad 42 to width 5');
+  Assert(PadLeft('hello', 3, '0') = 'hello', 'no pad if longer');
+end;
+
+procedure TestPadRight;
+begin
+  Assert(PadRight('hi', 5, '.') = 'hi...', 'pad hi to width 5');
+end;
+
+procedure TestIsEmpty;
+begin
+  Assert(IsEmpty(''), 'empty string is empty');
+  Assert(IsEmpty('a') = false, 'non-empty is not empty');
+end;

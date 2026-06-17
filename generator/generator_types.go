@@ -615,6 +615,11 @@ func (g *Generator) mapBuiltinFunction(name string) string {
 	if !ok {
 		return name
 	}
+	// User-defined function takes precedence over built-in mapping.
+	// E.g., user defines `function Abs(x: Integer): Integer` → don't rewrite to math.Abs.
+	if g.userFuncs[name] {
+		return name
+	}
 	// Track the import package needed for this builtin.
 	switch {
 	case strings.HasPrefix(goFunc, "fmt."):

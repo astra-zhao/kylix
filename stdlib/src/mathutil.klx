@@ -1,0 +1,150 @@
+// mathutil — Common math utilities, implemented in pure Kylix.
+//
+// Part of the v2.1.0 stdlib Kylix-ification effort.
+unit mathutil;
+
+// Abs returns the absolute value of x.
+function Abs(x: Integer): Integer;
+begin
+  if x < 0 then
+    result := -x
+  else
+    result := x;
+end;
+
+// AbsReal returns the absolute value of x as Real.
+function AbsReal(x: Real): Real;
+begin
+  if x < 0 then
+    result := -x
+  else
+    result := x;
+end;
+
+// Min returns the smaller of a and b.
+function Min(a: Integer; b: Integer): Integer;
+begin
+  if a < b then
+    result := a
+  else
+    result := b;
+end;
+
+// Max returns the larger of a and b.
+function Max(a: Integer; b: Integer): Integer;
+begin
+  if a > b then
+    result := a
+  else
+    result := b;
+end;
+
+// Clamp returns x bounded to the [lo, hi] range.
+function Clamp(x: Integer; lo: Integer; hi: Integer): Integer;
+begin
+  if x < lo then
+    result := lo
+  else if x > hi then
+    result := hi
+  else
+    result := x;
+end;
+
+// Sign returns -1 if x < 0, 0 if x == 0, +1 if x > 0.
+function Sign(x: Integer): Integer;
+begin
+  if x < 0 then
+    result := -1
+  else if x > 0 then
+    result := 1
+  else
+    result := 0;
+end;
+
+// Pow computes base raised to the integer exponent exp.
+// Returns 1 for exp = 0; negative exp produces 0 (integer truncation).
+function Pow(base: Integer; exp: Integer): Integer;
+var
+  r: Integer;
+  i: Integer;
+begin
+  if exp < 0 then
+  begin
+    result := 0;
+    exit;
+  end;
+  r := 1;
+  for i := 1 to exp do
+    r := r * base;
+  result := r;
+end;
+
+// Factorial computes n!. Returns 1 for n <= 0.
+function Factorial(n: Integer): Integer;
+var
+  r: Integer;
+  i: Integer;
+begin
+  r := 1;
+  for i := 2 to n do
+    r := r * i;
+  result := r;
+end;
+
+// Gcd returns the greatest common divisor of a and b (Euclidean algorithm).
+function Gcd(a: Integer; b: Integer): Integer;
+var
+  t: Integer;
+begin
+  if a < 0 then a := -a;
+  if b < 0 then b := -b;
+  while b <> 0 do
+  begin
+    t := b;
+    b := a mod b;
+    a := t;
+  end;
+  result := a;
+end;
+
+// Lcm returns the least common multiple of a and b.
+function Lcm(a: Integer; b: Integer): Integer;
+begin
+  if (a = 0) or (b = 0) then
+    result := 0
+  else
+    result := (a div Gcd(a, b)) * b;
+end;
+
+// IsPrime reports whether n is a prime number (n >= 2).
+function IsPrime(n: Integer): Boolean;
+var
+  i: Integer;
+begin
+  if n < 2 then
+  begin
+    result := false;
+    exit;
+  end;
+  if n < 4 then
+  begin
+    result := true;
+    exit;
+  end;
+  if (n mod 2) = 0 then
+  begin
+    result := false;
+    exit;
+  end;
+  i := 3;
+  while i * i <= n do
+  begin
+    if (n mod i) = 0 then
+    begin
+      result := false;
+      exit;
+    end;
+    i := i + 2;
+  end;
+  result := true;
+end;

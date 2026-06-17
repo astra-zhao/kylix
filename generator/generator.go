@@ -28,6 +28,7 @@ type Generator struct {
 	classTypes      map[string]bool     // user-defined class type names
 	classIsBase     map[string]bool     // true if class is a parent (→ interface{} in type exprs)
 	classFields     map[string][]string // class name → ordered field names (for constructor mapping)
+	userFuncs       map[string]bool     // user-defined function names (override built-in mapping)
 }
 
 func New() *Generator {
@@ -39,6 +40,7 @@ func New() *Generator {
 		classTypes:     make(map[string]bool),
 		classIsBase:    make(map[string]bool),
 		classFields:    make(map[string][]string),
+		userFuncs:      make(map[string]bool),
 	}
 }
 
@@ -361,6 +363,10 @@ func (g *Generator) writeInterpolation(interp *ast.StringInterpolation) {
 func (g *Generator) collectClassTypes(program *ast.Program) {
 	for _, decl := range program.Declarations {
 		switch d := decl.(type) {
+		case *ast.FunctionDecl:
+			// Track user-defined functions so mapBuiltinFunction doesn't
+			// rewrite calls to them as Go built-ins (e.g. Abs → math.Abs).
+			g.userFuncs[d.Name] = true
 		case *ast.ClassDecl:
 			g.classTypes[d.Name] = true
 			if d.Parent != "" {
