@@ -36,6 +36,9 @@ func TypeCheck(program *ast.Program, sourceFile string) []TypeDiagnostic {
 		aliases:            make(map[string]string), // type alias name → underlying type
 		genericConstraints: make(map[string]*GenericTypeInfo),
 		interfaces:         make(map[string][]string),
+		classImpls:         make(map[string][]string),
+		classParent:        make(map[string]string),
+		classMethods:       make(map[string][]string),
 	}
 	c.collectDeclarations(program)
 	c.validateAliases(program, sourceFile)
@@ -56,6 +59,12 @@ type checker struct {
 	genericConstraints map[string]*GenericTypeInfo
 	// Interface method signatures: "IComparable" → ["CompareTo"]
 	interfaces map[string][]string
+	// Class implementations: "TMyClass" → ["IComparable", "IFoo"]
+	classImpls map[string][]string
+	// Class parent chain: "TChild" → "TParent" (for inherited interface satisfaction)
+	classParent map[string]string
+	// Class methods (name → declared methods): "TMyClass" → ["CompareTo", "ToString"]
+	classMethods map[string][]string
 }
 
 // GenericTypeInfo holds parameter ordering and constraints for a generic type.
@@ -108,6 +117,22 @@ func (c *checker) collectDeclarations(prog *ast.Program) {
 					}
 				}
 				c.genericConstraints[d.Name] = info
+			}
+			// Class declaration: collect implemented interfaces, parent, methods
+			if classDecl, ok := d.Type.(*ast.ClassDecl); ok {
+				if len(classDecl.Interfaces) > 0 {
+					c.classImpls[d.Name] = append([]string{}, classDecl.Interfaces...)
+				}
+				if classDecl.Parent != "" {
+					c.classParent[d.Name] = classDecl.Parent
+				}
+				if len(classDecl.Methods) > 0 {
+					methods := make([]string, 0, len(classDecl.Methods))
+					for _, m := range classDecl.Methods {
+						methods = append(methods, m.Name)
+					}
+					c.classMethods[d.Name] = methods
+				}
 			}
 			// Interface declaration: collect method names
 			if iface, ok := d.Type.(*ast.InterfaceDecl); ok {
@@ -567,20 +592,80 @@ func (c *checker) checkGenericConstraints(tok token.Token, typeExpr ast.Expressi
 	}
 }
 
-// typeImplementsInterface checks if a type implements an interface.
-// For MVP: only checks class types via checkInterfaces result (not available here).
-// Simplified: assume built-in types don't implement interfaces.
+// typeImplementsInterface checks if a type implements an interface, either:
+//  1. Built-in types (Integer, String, ...) — never implement user interfaces
+//  2. Custom class — directly via 'implements' clause + verifying method signatures
+//  3. Custom class — via parent class chain (inherited implementation)
+//  4. Aliases — resolve to underlying type and recurse
+//
+// Returns true when the type is recognized as satisfying the interface.
 func (c *checker) typeImplementsInterface(typeName, ifaceName string) bool {
-	// Built-in types like Integer, String don't implement user interfaces (MVP)
+	// Built-in types never implement user interfaces.
 	builtins := map[string]bool{
 		"Integer": true, "Int64": true, "Real": true, "Double": true,
-		"String": true, "Boolean": true, "Char": true,
+		"String": true, "Boolean": true, "Char": true, "Byte": true,
+		"Word": true, "Cardinal": true, "LongInt": true, "Extended": true,
 	}
 	if builtins[typeName] {
 		return false
 	}
-	// For custom types: would need class→interface mapping from checkInterfaces.
-	// MVP: assume custom types implement if they exist (no false positive)
+
+	// Resolve type alias chain.
+	if underlying, ok := c.aliases[typeName]; ok && underlying != typeName {
+		return c.typeImplementsInterface(underlying, ifaceName)
+	}
+
+	// Direct implementation: class declared `implements ifaceName`.
+	if c.classImplementsDirectly(typeName, ifaceName) {
+		return true
+	}
+
+	// Inherited implementation: parent class implements it.
+	if parent, ok := c.classParent[typeName]; ok && parent != "" {
+		return c.typeImplementsInterface(parent, ifaceName)
+	}
+
+	return false
+}
+
+// classImplementsDirectly checks if typeName has 'implements ifaceName' AND
+// declares all methods required by the interface. Does NOT walk parent chain.
+func (c *checker) classImplementsDirectly(typeName, ifaceName string) bool {
+	impls, ok := c.classImpls[typeName]
+	if !ok {
+		return false
+	}
+	listed := false
+	for _, i := range impls {
+		if i == ifaceName {
+			listed = true
+			break
+		}
+	}
+	if !listed {
+		return false
+	}
+	// Class lists the interface — verify it actually has all required methods.
+	required, hasIface := c.interfaces[ifaceName]
+	if !hasIface {
+		// Unknown interface (declared elsewhere) — be lenient.
+		return true
+	}
+	classMethodSet := make(map[string]bool)
+	for _, m := range c.classMethods[typeName] {
+		classMethodSet[m] = true
+	}
+	// Walk parent chain to include inherited methods.
+	for parent := c.classParent[typeName]; parent != ""; parent = c.classParent[parent] {
+		for _, m := range c.classMethods[parent] {
+			classMethodSet[m] = true
+		}
+	}
+	for _, req := range required {
+		if !classMethodSet[req] {
+			return false
+		}
+	}
 	return true
 }
 
