@@ -519,6 +519,8 @@ func (c *checker) inferExprType(expr ast.Expression, scope map[string]string) st
 		return "String"
 	case *ast.BooleanLiteral:
 		return "Boolean"
+	case *ast.NilLiteral:
+		return "nil"
 	case *ast.Identifier:
 		if t, ok := scope[e.Value]; ok && t != "?" && t != "builtin" {
 			return t
@@ -538,6 +540,11 @@ func (c *checker) inferExprType(expr ast.Expression, scope map[string]string) st
 		// Arithmetic on Integer operands stays Integer; on Real stays Real
 		left := c.inferExprType(e.Left, scope)
 		right := c.inferExprType(e.Right, scope)
+		// Comparison operators always return Boolean
+		switch e.Operator {
+		case "=", "<>", "<", ">", "<=", ">=", "and", "or", "xor":
+			return "Boolean"
+		}
 		if left == "Real" || right == "Real" {
 			return "Real"
 		}
@@ -548,7 +555,31 @@ func (c *checker) inferExprType(expr ast.Expression, scope map[string]string) st
 			return "String"
 		}
 	case *ast.PrefixExpression:
+		// 'not' returns Boolean; '-' preserves operand type
+		if e.Operator == "not" {
+			return "Boolean"
+		}
 		return c.inferExprType(e.Right, scope)
+	case *ast.ArrayLiteral:
+		// var nums := [1, 2, 3] → array of Integer
+		if len(e.Elements) == 0 {
+			return "array of any"
+		}
+		elemType := c.inferExprType(e.Elements[0], scope)
+		if elemType != "" {
+			return "array of " + elemType
+		}
+		return "array of any"
+	case *ast.LambdaExpression:
+		// Lambdas have a function type; for inference just mark as "function"
+		// to enable scope tracking. Detailed signature is left to the call site.
+		return "function"
+	case *ast.IndexExpression:
+		// arr[i] → element type if we know arr is "array of T"
+		baseType := c.inferExprType(e.Left, scope)
+		if len(baseType) > 9 && baseType[:9] == "array of " {
+			return baseType[9:]
+		}
 	}
 	return ""
 }
