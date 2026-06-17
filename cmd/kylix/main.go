@@ -26,6 +26,8 @@ func main() {
 		cmdTest(os.Args[2:])
 	case "doc":
 		cmdDoc(os.Args[2:])
+	case "bench":
+		cmdBench(os.Args[2:])
 	case "new":
 		cmdNew(os.Args[2:])
 	case "fmt":

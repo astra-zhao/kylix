@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"kylix/ast"
 	"kylix/generator"
@@ -35,8 +36,9 @@ type TestCase struct {
 // TestResult holds the outcome of one test.
 type TestResult struct {
 	TestCase
-	Passed  bool
-	Message string
+	Passed      bool
+	Message     string
+	BenchResult string // non-empty for benchmark results
 }
 
 // Runner discovers and runs Kylix tests.
@@ -261,4 +263,102 @@ func failAll(file string, names []string, msg string) []TestResult {
 		}
 	}
 	return results
+}
+
+// ── Benchmark support ─────────────────────────────────────────────────────────
+
+// DiscoverBenches returns all Bench* procedures in a _bench.klx file.
+func (r *Runner) DiscoverBenches(path string) ([]TestCase, error) {
+	if !strings.HasSuffix(path, "_bench.klx") {
+		return nil, nil
+	}
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	l := lexer.New(string(src))
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	var cases []TestCase
+	for _, decl := range prog.Declarations {
+		fd, ok := decl.(*ast.FunctionDecl)
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(fd.Name, "Bench") && len(fd.Parameters) == 0 {
+			cases = append(cases, TestCase{Name: fd.Name, File: path})
+		}
+	}
+	return cases, nil
+}
+
+// RunBench runs each benchmark case count times and returns timing results.
+func (r *Runner) RunBench(cases []TestCase, count int) []TestResult {
+	byFile := make(map[string][]string)
+	var fileOrder []string
+	for _, tc := range cases {
+		if _, seen := byFile[tc.File]; !seen {
+			fileOrder = append(fileOrder, tc.File)
+		}
+		byFile[tc.File] = append(byFile[tc.File], tc.Name)
+	}
+
+	var results []TestResult
+	for _, file := range fileOrder {
+		results = append(results, r.runBenchFile(file, byFile[file], count)...)
+	}
+	return results
+}
+
+func (r *Runner) runBenchFile(file string, names []string, count int) []TestResult {
+	tmpDir, err := os.MkdirTemp("", "kylix-bench-*")
+	if err != nil {
+		return failAll(file, names, err.Error())
+	}
+	defer os.RemoveAll(tmpDir)
+
+	harnessPath, err := buildHarness(file, names, tmpDir)
+	if err != nil {
+		return failAll(file, names, fmt.Sprintf("compile: %v", err))
+	}
+
+	var results []TestResult
+	for _, name := range names {
+		tc := TestCase{Name: name, File: file}
+		result := r.runOneBench(harnessPath, name, count)
+		result.TestCase = tc
+		results = append(results, result)
+	}
+	return results
+}
+
+func (r *Runner) runOneBench(harnessPath, name string, count int) TestResult {
+	// Run the benchmark count times and measure wall-clock time
+	start := time.Now()
+	for i := 0; i < count; i++ {
+		cmd := exec.Command("go", "run", harnessPath, name)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return TestResult{
+				Passed:  false,
+				Message: strings.TrimSpace(string(out)),
+			}
+		}
+	}
+	elapsed := time.Since(start)
+	avgNs := elapsed.Nanoseconds() / int64(count)
+
+	var bench string
+	switch {
+	case avgNs < 1000:
+		bench = fmt.Sprintf("%d ns/op", avgNs)
+	case avgNs < 1_000_000:
+		bench = fmt.Sprintf("%.2f µs/op", float64(avgNs)/1000)
+	case avgNs < 1_000_000_000:
+		bench = fmt.Sprintf("%.2f ms/op", float64(avgNs)/1_000_000)
+	default:
+		bench = fmt.Sprintf("%.2f s/op", float64(avgNs)/1_000_000_000)
+	}
+
+	return TestResult{Passed: true, BenchResult: bench}
 }
