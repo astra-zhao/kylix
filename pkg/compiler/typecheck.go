@@ -34,7 +34,7 @@ func TypeCheck(program *ast.Program, sourceFile string) []TypeDiagnostic {
 		funcs:              make(map[string]*ast.FunctionDecl),
 		types:              make(map[string]string), // name → declared type string
 		aliases:            make(map[string]string), // type alias name → underlying type
-		genericConstraints: make(map[string]map[string]string),
+		genericConstraints: make(map[string]*GenericTypeInfo),
 		interfaces:         make(map[string][]string),
 	}
 	c.collectDeclarations(program)
@@ -51,10 +51,18 @@ type checker struct {
 	funcs   map[string]*ast.FunctionDecl // globally declared functions
 	types   map[string]string            // globally declared variable types
 	aliases map[string]string            // type alias name → underlying type name
-	// Generic type constraints: "TBox<T>" → {"T": "IComparable"}
-	genericConstraints map[string]map[string]string // typeName → {paramName: constraintName}
+	// Generic type info (preserves parameter order for multi-param generics):
+	//   "TMap" → {ParamOrder: ["K","V"], Constraints: {"K":"IComparable"}}
+	genericConstraints map[string]*GenericTypeInfo
 	// Interface method signatures: "IComparable" → ["CompareTo"]
 	interfaces map[string][]string
+}
+
+// GenericTypeInfo holds parameter ordering and constraints for a generic type.
+// Used to validate multi-parameter generics like TMap<K: IComparable, V>.
+type GenericTypeInfo struct {
+	ParamOrder  []string          // e.g., ["K", "V"]
+	Constraints map[string]string // paramName → constraint interface name
 }
 
 func (c *checker) diag(tok token.Token, code string, format string, args ...interface{}) {
@@ -87,17 +95,19 @@ func (c *checker) collectDeclarations(prog *ast.Program) {
 			}
 			// Generic type with constraints: type TBox<T: IComparable> = class
 			if classDecl, ok := d.Type.(*ast.ClassDecl); ok && len(classDecl.TypeParams) > 0 {
-				constraints := make(map[string]string)
+				info := &GenericTypeInfo{
+					ParamOrder:  make([]string, 0, len(classDecl.TypeParams)),
+					Constraints: make(map[string]string),
+				}
 				for _, tp := range classDecl.TypeParams {
+					info.ParamOrder = append(info.ParamOrder, tp.Name)
 					if tp.Constraint != nil {
 						if ident, ok := tp.Constraint.(*ast.Identifier); ok {
-							constraints[tp.Name] = ident.Value
+							info.Constraints[tp.Name] = ident.Value
 						}
 					}
 				}
-				if len(constraints) > 0 {
-					c.genericConstraints[d.Name] = constraints
-				}
+				c.genericConstraints[d.Name] = info
 			}
 			// Interface declaration: collect method names
 			if iface, ok := d.Type.(*ast.InterfaceDecl); ok {
@@ -519,46 +529,41 @@ func (c *checker) inferExprType(expr ast.Expression, scope map[string]string) st
 }
 
 // checkGenericConstraints validates that type arguments in a generic instantiation
-// satisfy the declared constraints. E.g., var box: TBox<Integer> where TBox<T: IComparable>.
+// satisfy the declared constraints. Supports multi-parameter generics:
+//   TMap<K: IComparable, V> → must check K satisfies IComparable
 func (c *checker) checkGenericConstraints(tok token.Token, typeExpr ast.Expression) {
-	// Only handle GenericType: TBox<Integer>
 	gt, ok := typeExpr.(*ast.GenericType)
 	if !ok {
 		return
 	}
 	baseName := gt.Base
 
-	// Lookup constraints for this generic type
-	constraints, hasConstraints := c.genericConstraints[baseName]
-	if !hasConstraints {
+	info, hasInfo := c.genericConstraints[baseName]
+	if !hasInfo {
 		return
 	}
 
-	// Match type arguments to constraints by position
-	// For MVP: assume single type parameter (common case: TBox<T>)
-	if len(constraints) != 1 || len(gt.TypeParams) != 1 {
-		// Multi-param generics need parameter ordering info — skip for now
-		return
-	}
+	// Match each type argument against its constraint by position.
+	for i, paramName := range info.ParamOrder {
+		if i >= len(gt.TypeParams) {
+			break // fewer args than params (caller error, separate check)
+		}
+		constraintName, hasConstraint := info.Constraints[paramName]
+		if !hasConstraint {
+			continue // unconstrained parameter (e.g., V in TMap<K: IComparable, V>)
+		}
 
-	var constraintName string
-	for _, cn := range constraints {
-		constraintName = cn
-		break
-	}
+		argIdent, ok := gt.TypeParams[i].(*ast.Identifier)
+		if !ok {
+			continue
+		}
+		argName := argIdent.Value
 
-	arg := gt.TypeParams[0]
-	argIdent, ok := arg.(*ast.Identifier)
-	if !ok {
-		return
-	}
-	argName := argIdent.Value
-
-	// Check if argName implements the constraint interface
-	if !c.typeImplementsInterface(argName, constraintName) {
-		c.diag(tok, ErrGenericConstraint,
-			"type '%s' does not satisfy constraint '%s' for generic type '%s'",
-			argName, constraintName, baseName)
+		if !c.typeImplementsInterface(argName, constraintName) {
+			c.diag(tok, ErrGenericConstraint,
+				"type '%s' does not satisfy constraint '%s' for parameter '%s' of generic type '%s'",
+				argName, constraintName, paramName, baseName)
+		}
 	}
 }
 
