@@ -4,6 +4,172 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v2.1.0 (2026-06-19)
+
+### 🎉 Enhanced Type System & stdlib Kylix-ification
+
+v2.1.0 strengthens the type system with multi-parameter generic constraints,
+real interface implementation verification, expanded type inference, and
+introduces the first pure-Kylix stdlib modules.
+
+---
+
+### M2.1.1: Multi-Parameter Generic Constraints
+
+```pascal
+type
+  IComparable = interface
+    function CompareTo(): Integer;
+  end;
+  IHashable = interface
+    function HashCode(): Integer;
+  end;
+  TMap<K: IComparable, V: IHashable> = class
+  end;
+
+var m: TMap<Integer, String>;
+// error[KLX104]: type 'Integer' does not satisfy constraint 'IComparable'
+//                for parameter 'K' of generic type 'TMap'
+// error[KLX104]: type 'String' does not satisfy constraint 'IHashable'
+//                for parameter 'V' of generic type 'TMap'
+```
+
+**Changes:**
+- New `GenericTypeInfo` struct preserves parameter declaration order
+- `genericConstraints` now tracks both ordered names and constraints
+- Each type argument validated independently against its constraint
+- Error messages include the specific parameter name
+
+**Tests**: `pkg/compiler/generics_multi_test.go` (4 tests)
+
+---
+
+### M2.1.2: Class → Interface Implementation Mapping
+
+Previously, custom types were assumed to satisfy any constraint (false positive).
+Now we verify actual `implements` declarations and method existence.
+
+```pascal
+type
+  IComparable = interface
+    function CompareTo(): Integer;
+  end;
+  TBox<T: IComparable> = class end;
+
+  TBadType = class implements IComparable
+    // Missing CompareTo
+  end;
+
+var b: TBox<TBadType>;
+// error[KLX104]: TBadType claims IComparable but lacks CompareTo
+```
+
+**Changes:**
+- New `classImpls` / `classParent` / `classMethods` tracking
+- `typeImplementsInterface` now verifies:
+  1. Built-in types never implement user interfaces
+  2. Type alias chain resolution
+  3. Direct `implements` declaration + method signature presence
+  4. Inherited implementation via parent class chain
+
+**Tests**: `pkg/compiler/impl_test.go` (5 tests)
+
+---
+
+### M2.1.3: Enhanced Type Inference
+
+Expanded `inferExprType` to handle more expression forms:
+
+```pascal
+var b := 1 < 2;            // → Boolean (comparison)
+var ok := true and false;  // → Boolean (logical)
+var n := not true;         // → Boolean (prefix not)
+var arr := [1, 2, 3];      // → array of Integer
+var p := nil;              // → nil
+```
+
+**Changes:**
+- `NilLiteral` → `nil`
+- `ArrayLiteral` → `array of <element type>`
+- `LambdaExpression` → `function`
+- `IndexExpression` → element type from `array of T`
+- Comparison operators (`=`, `<>`, `<`, `>`, `<=`, `>=`) → `Boolean`
+- Logical operators (`and`, `or`, `xor`) → `Boolean`
+- Prefix `not` → `Boolean`
+
+**Tests**: `pkg/compiler/typeinfer_v2_test.go` (6 tests)
+
+---
+
+### M2.1.4: stdlib Kylix-ification Phase 1
+
+Two stdlib modules now have **pure-Kylix implementations** demonstrating that
+core utilities can be self-hosted without performance loss.
+
+#### `stdlib/src/strutil.klx` (8 functions)
+
+| Function | Purpose |
+|----------|---------|
+| `Reverse(s)` | Reverse character order |
+| `IsEmpty(s)` | Check empty string |
+| `StartsWith(s, prefix)` | Prefix check |
+| `EndsWith(s, suffix)` | Suffix check |
+| `Contains(s, substr)` | Substring search |
+| `RepeatStr(s, n)` | Repeat string n times |
+| `PadLeft(s, w, c)` | Left-pad to width |
+| `PadRight(s, w, c)` | Right-pad to width |
+
+#### `stdlib/src/mathutil.klx` (12 functions)
+
+| Function | Purpose |
+|----------|---------|
+| `Abs(x)`, `AbsReal(x)` | Absolute value |
+| `Min(a, b)`, `Max(a, b)` | Extrema |
+| `Clamp(x, lo, hi)` | Bound to range |
+| `Sign(x)` | Sign function |
+| `Pow(base, exp)` | Integer exponentiation |
+| `Factorial(n)` | n! |
+| `Gcd(a, b)`, `Lcm(a, b)` | GCD / LCM |
+| `IsPrime(n)` | Primality test |
+
+**Tests**: 18 tests in `*_test.klx`, all passing via `kylix test`
+
+#### Supporting Infrastructure
+
+**`pkg/testrunner/runner.go`** — Test runner now resolves `uses` clauses:
+- Parses dependent `.klx` files in same directory
+- Compiles them together with the test file
+- No more "undefined symbol" errors when testing modules
+
+**`generator/`** — Critical bug fix:
+- New `userFuncs map[string]bool` tracks user-defined function names
+- `mapBuiltinFunction` skips rewriting when user defines a function
+- Previously `function Abs(x: Integer): Integer` was incorrectly rewritten
+  as `math.Abs` calls. Now user definitions take precedence.
+
+---
+
+### Summary
+
+| Feature | Tests | LOC |
+|---------|-------|-----|
+| Multi-param generic constraints | 4 | ~80 |
+| Class→Interface mapping | 5 | ~120 |
+| Enhanced type inference | 6 | ~50 |
+| strutil + mathutil + tests | 18 | ~300 |
+| **Total v2.1.0 additions** | **33** | **~550** |
+
+### Breaking Changes
+- `function Abs(x)` user definition now correctly takes precedence over `math.Abs`
+- Custom types must explicitly declare `implements IFoo` AND have all methods to satisfy generic constraints (previously always passed)
+
+### Known Limitations
+- Generic constraint verification doesn't check method signatures (only names)
+- Parameter ordering for nested generics may need refinement
+- stdlib Kylix-ification is Phase 1 (more modules in v2.2+)
+
+---
+
 ## v2.0.0 (2026-06-17)
 
 ### 🎉 Production-Ready Release

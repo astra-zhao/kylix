@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 > 
-> 🎉 **v2.0.0 Release**: Production-ready with complete toolchain — testing, documentation, benchmarking, enhanced type checking, and generic constraints. See [CHANGELOG.md](CHANGELOG.md) for details.
+> 🎉 **v2.1.0 Release**: Enhanced type system (multi-parameter generic constraints, class→interface verification, expanded type inference) + first pure-Kylix stdlib modules (`strutil`, `mathutil`). See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ## Features
 
