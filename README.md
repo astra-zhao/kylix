@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-1.3.2-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 > 
-> 🔥 **Major Milestone (v1.2.2)**: Self-hosting complete — 15/15 examples pass on both Go reference compiler and Kylix self-hosted compiler. See [ROADMAP.md](ROADMAP.md) for details.
+> 🎉 **v2.0.0 Release**: Production-ready with complete toolchain — testing, documentation, benchmarking, enhanced type checking, and generic constraints. See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ## Features
 
@@ -22,7 +22,8 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 - Exception handling
 
 ### Modern Additions
-- **Type Inference**: `var x := 42;`
+- **Type Inference**: `var x := 42;` — infers Integer from literal
+- **Generic Constraints**: `TBox<T: IComparable>` — validate type parameters
 - **Lambda Expressions**: `var square = (x: Integer) -> x * x;`
 - **Generics**: Declare type parameters: `TList<T>`, `function Foo<T>(x: T): T`
 - **Generic Type References**: `TList<Integer>`, `TPair<String, Integer>`
@@ -33,6 +34,14 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 - **ForEach Loops**: `for item in collection do`
 - **String Interpolation**: `'Hello, ${name}!'`
 - **Modern Exception Handling**: try/except/finally, `on E: Type do` clauses
+
+### Complete Toolchain (v2.0.0)
+- **Testing**: `kylix test` — discover and run `Test*` procedures in `*_test.klx` files
+- **Benchmarking**: `kylix bench` — measure performance of `Bench*` procedures
+- **Documentation**: `kylix doc` — generate Markdown from `//` doc comments
+- **Type Checking**: Enhanced with error codes (KLX001–499), recovery, and "did you mean?" suggestions
+- **LSP Server**: Full IDE support with completion, hover, diagnostics, and signature help
+- **Package Manager**: `kylix add`, `kylix remove` for dependency management
 
 ## Installation
 

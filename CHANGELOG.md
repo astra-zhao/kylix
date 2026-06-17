@@ -4,6 +4,156 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v2.0.0 (2026-06-17)
+
+### 🎉 Production-Ready Release
+
+Kylix v2.0.0 completes the compiler toolchain with enhanced type checking, testing, documentation generation, and performance benchmarking capabilities.
+
+---
+
+### M1: Error Experience Overhaul
+
+**Error Codes & Recovery** (`pkg/compiler/errors.go`, `typecheck.go`)
+- Structured error codes (KLX001–KLX499) with ranges:
+  - KLX001–099: Syntax errors
+  - KLX100–199: Type errors
+  - KLX200–299: Semantic errors (undeclared, arity)
+  - KLX300–399: Interface/contract errors
+- Context-aware error messages with file/line/column
+- Type mismatch recovery: infer expected type and continue checking
+
+**Intelligent Suggestions** (`pkg/compiler/suggestions.go`)
+- Levenshtein distance ≤2 for typo correction
+- "did you mean X?" hints for undeclared identifiers
+- Type conversion suggestions (e.g., `IntToStr`, `StrToInt`)
+
+---
+
+### M2: Type System Enhancements
+
+**M2.1: Type Inference** (`pkg/compiler/typecheck.go`)
+- `var x := 42` → infer `Integer`
+- `var s := 'hello'` → infer `String`
+- `var age := GetAge()` → infer function return type
+- Arithmetic type propagation (`Integer` + `Integer` → `Integer`)
+- **Tests:** `pkg/compiler/typeinfer_test.go` (6 tests)
+
+**M2.2: Generic Constraint Validation** (`pkg/compiler/typecheck.go`)
+```pascal
+type
+  IComparable = interface
+    function CompareTo(other: IComparable): Integer;
+  end;
+  TBox<T: IComparable> = class end;
+
+var box: TBox<Integer>;  // error[KLX104]: Integer does not satisfy IComparable
+```
+- Collects constraints from `<T: IComparable>` syntax
+- Validates type arguments at instantiation time
+- Built-in types (Integer, String, Boolean) don't implement user interfaces
+- **Tests:** `pkg/compiler/generics_test.go` (3 tests)
+
+**M2.3: Type Alias Enhancement** (v1.4.0 foundation)
+- Circular dependency detection
+- Alias chain resolution with cycle guards
+
+---
+
+### M3: Toolchain Expansion
+
+**M3.1: Test Runner** (`pkg/testrunner/`, `cmd/kylix/cmd_testcmd.go`)
+```pascal
+unit math_test;
+procedure TestAdd;
+begin
+  Assert(2 + 3 = 5, 'expected 2+3=5');
+end;
+```
+```bash
+$ kylix test
+  ok  TestAdd
+  ok  TestSubtract
+  FAIL TestDivideByZero
+       FAIL: expected division by zero error
+
+2 passed, 1 failed
+```
+- Discovers `*_test.klx` files and `Test*` procedures
+- Built-in `Assert(condition, message)` for test assertions
+- TAP version 14 output format (`--tap` flag)
+- Compiles tests with isolated Go harness per test
+- **Tests:** `pkg/testrunner/runner_test.go` (4 tests)
+
+**M3.2: Documentation Generator** (`pkg/docgen/`, `cmd/kylix/cmd_doc.go`)
+```pascal
+// StringUtils provides string manipulation utilities.
+unit stringutils;
+
+// Reverse returns the string s reversed character by character.
+function Reverse(s: String): String;
+```
+Generates:
+```markdown
+# stringutils
+StringUtils provides string manipulation utilities.
+
+## Functions
+### Reverse
+```pascal
+function Reverse(s: String): String
+```
+Reverse returns the string s reversed character by character.
+```
+- Extracts `//` doc comments immediately preceding declarations
+- Generates Markdown grouped by kind (Functions, Classes, Types, etc.)
+- `kylix doc` → outputs to `docs/api/*.md`
+- `kylix doc --stdout` → prints to console
+- **Tests:** `pkg/docgen/docgen_test.go` (5 tests)
+
+**M3.3: Benchmark Runner** (`pkg/testrunner/`, `cmd/kylix/cmd_bench.go`)
+```pascal
+unit fib_bench;
+procedure BenchFib15;
+var x: Integer;
+begin
+  x := Fib(15);
+end;
+```
+```bash
+$ kylix bench --count 5
+Running 1 benchmark(s), 5 iteration(s) each...
+ok    BenchFib15    39.34 ms/op
+```
+- Discovers `*_bench.klx` files and `Bench*` procedures
+- Measures wall-clock time over N iterations (default 5)
+- Reports average time per operation (ns/µs/ms/s per op)
+- Compatible output format with Go benchmarks
+
+---
+
+### Summary
+
+| Feature | Status | LOC | Tests |
+|---------|--------|-----|-------|
+| **Error codes & recovery** | ✅ | ~400 | 8 |
+| **Type inference** | ✅ | ~100 | 6 |
+| **Generic constraints** | ✅ | ~120 | 3 |
+| **Test runner** | ✅ | ~280 | 4 |
+| **Doc generator** | ✅ | ~340 | 5 |
+| **Benchmark runner** | ✅ | ~120 | – |
+| **Total** | ✅ | **~1360** | **26** |
+
+### Breaking Changes
+None — all additions are backward compatible.
+
+### Known Limitations
+- Generic constraint validation only supports single type parameter (`TBox<T>`)
+- Multi-parameter generics (`TMap<K, V>`) require parameter ordering info (future work)
+- Custom types assumed to satisfy constraints (no full class→interface mapping yet)
+
+---
+
 ## v1.5.0 (2026-06-14)
 
 ### P3: stdlib Kylix化 + 包管理器
