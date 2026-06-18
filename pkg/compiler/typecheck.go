@@ -54,6 +54,11 @@ type checker struct {
 	funcs   map[string]*ast.FunctionDecl // globally declared functions
 	types   map[string]string            // globally declared variable types
 	aliases map[string]string            // type alias name → underlying type name
+	// strictFunctionCalls reports calls to undeclared functions. Enabled in
+	// project-level (CheckProject) mode where all cross-unit symbols are merged
+	// up-front. Disabled in single-file (CompileFile) mode to avoid false
+	// positives for cross-unit calls that the single-file pass cannot resolve.
+	strictFunctionCalls bool
 	// Generic type info (preserves parameter order for multi-param generics):
 	//   "TMap" → {ParamOrder: ["K","V"], Constraints: {"K":"IComparable"}}
 	genericConstraints map[string]*GenericTypeInfo
@@ -437,6 +442,32 @@ func (c *checker) checkCall(call *ast.CallExpression, scope map[string]string) {
 	// Check arguments
 	for _, arg := range call.Arguments {
 		c.checkExpression(arg, scope)
+	}
+
+	// Undeclared function check (project mode only — too noisy in single-file mode).
+	// Built-in functions are pre-seeded into scope, so they pass through.
+	if c.strictFunctionCalls {
+		if _, known := c.funcs[name]; !known {
+			if _, inScope := scope[name]; !inScope {
+				hint := ""
+				candidates := scopeKeys(scope)
+				for fn := range c.funcs {
+					candidates = append(candidates, fn)
+				}
+				if near := NearestName(name, candidates, 2); near != "" {
+					hint = fmt.Sprintf("did you mean '%s'?", near)
+				}
+				c.diags = append(c.diags, TypeDiagnostic{
+					File:    c.file,
+					Line:    call.Token.Line,
+					Column:  call.Token.Column,
+					Code:    ErrUndeclared,
+					Message: fmt.Sprintf("call to undeclared function '%s'", name),
+					Hint:    hint,
+				})
+				return
+			}
+		}
 	}
 
 	// Arity check against known local functions only

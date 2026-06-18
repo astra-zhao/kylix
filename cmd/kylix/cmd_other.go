@@ -15,12 +15,22 @@ import (
 
 func cmdCheck(args []string) {
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
+	syntaxOnly := fs.Bool("syntax", false, "Only check syntax (skip type/interface checks)")
 	fs.Usage = func() {
-		fmt.Printf(`USAGE: kylix check [files...]
+		fmt.Printf(`USAGE: kylix check [options] [files...]
 
-Check Kylix files for syntax errors without generating code.
+Check Kylix files for errors without generating code. Performs:
+  - Syntax check (parse errors)
+  - Cross-file dependency resolution (uses clauses)
+  - Interface implementation verification
+  - Type checking (assignments, function calls, generic constraints)
+
 If no files are specified, checks all .klx files in the project.
+
+OPTIONS:
 `)
+		fs.PrintDefaults()
+		fmt.Println()
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -48,26 +58,56 @@ If no files are specified, checks all .klx files in the project.
 		}
 	}
 
-	hasErrors := false
-	for _, file := range files {
-		result, err := compiler.CheckFile(file)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			hasErrors = true
-			continue
-		}
-		if len(result.Diagnostics) > 0 {
-			hasErrors = true
-			printDiagnostics(result.Diagnostics)
-		} else {
-			fmt.Printf("✓ %s\n", file)
-		}
+	if len(files) == 0 {
+		fmt.Println("No .klx files to check.")
+		return
 	}
 
-	if hasErrors {
+	// --syntax: legacy per-file check (parse only)
+	if *syntaxOnly {
+		hasErrors := false
+		for _, file := range files {
+			result, err := compiler.CheckFile(file)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				hasErrors = true
+				continue
+			}
+			if len(result.Diagnostics) > 0 {
+				hasErrors = true
+				printDiagnostics(result.Diagnostics)
+			} else {
+				fmt.Printf("✓ %s\n", file)
+			}
+		}
+		if hasErrors {
+			os.Exit(1)
+		}
+		fmt.Printf("\nAll files OK\n")
+		return
+	}
+
+	// Default: full project-level check
+	result, err := compiler.CheckProject(files)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("\nAll files OK\n")
+
+	if len(result.Diagnostics) > 0 {
+		printDiagnostics(result.Diagnostics)
+		// Show summary
+		errorCount := 0
+		for _, d := range result.Diagnostics {
+			if d.Level == "error" {
+				errorCount++
+			}
+		}
+		fmt.Fprintf(os.Stderr, "\n%d error(s) across %d file(s)\n", errorCount, len(files))
+		os.Exit(1)
+	}
+
+	fmt.Printf("✓ %d file(s) checked, no errors\n", len(files))
 }
 
 func cmdNew(args []string) {

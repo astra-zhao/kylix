@@ -162,6 +162,178 @@ func CheckFile(sourceFile string) (*Result, error) {
 	return result, nil
 }
 
+// CheckProject performs a full project-level check across multiple .klx files.
+// It runs:
+//  1. Per-file syntax check
+//  2. Cross-file dependency resolution (uses clauses)
+//  3. Interface implementation validation
+//  4. Type checking with cross-unit symbol visibility
+//
+// Errors are collected from ALL files and returned together. Code is NOT generated.
+func CheckProject(files []string) (*Result, error) {
+	result := &Result{}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no source files provided")
+	}
+
+	type parsed struct {
+		file    string
+		program *ast.Program
+		lines   []string
+	}
+
+	programs := make([]parsed, 0, len(files))
+	fileMap := make(map[string]*ast.Program) // unitName → program	// Pass 1: parse all files and collect syntax diagnostics.
+	for _, file := range files {
+		source, err := os.ReadFile(file)
+		if err != nil {
+			result.Diagnostics = append(result.Diagnostics, Diagnostic{
+				File:    file,
+				Level:   "error",
+				Code:    ErrCannotRead,
+				Message: fmt.Sprintf("cannot read: %v", err),
+			})
+			continue
+		}
+		lines := strings.Split(string(source), "\n")
+		l := lexer.New(string(source))
+		p := parser.New(l)
+		program := p.ParseProgram()
+
+		for _, errMsg := range p.Errors() {
+			d := Diagnostic{File: file, Level: "error", Code: ErrParseGeneric, Message: errMsg}
+			parseLocation(&d, errMsg)
+			if d.Line > 0 && d.Line <= len(lines) {
+				d.Source = lines[d.Line-1]
+			}
+			result.Diagnostics = append(result.Diagnostics, d)
+		}
+
+		// Even with parse errors keep the (partial) AST so later checks can run.
+		programs = append(programs, parsed{file: file, program: program, lines: lines})
+
+		name := program.UnitName
+		if name == "" {
+			name = program.Name
+		}
+		if name != "" {
+			fileMap[name] = program
+		}
+	}
+
+	// If parser found no usable programs, stop here.
+	if len(programs) == 0 {
+		result.Success = false
+		return result, nil
+	}
+
+	// Pass 2: cross-file dependency resolution — verify each `uses X` resolves.
+	for _, p := range programs {
+		for _, used := range p.program.Uses {
+			if _, found := fileMap[used]; !found {
+				// Could be a stdlib unit (sysutil, datetime, etc.) — skip those.
+				if isStdlibUnit(used) {
+					continue
+				}
+				result.Diagnostics = append(result.Diagnostics, Diagnostic{
+					File:    p.file,
+					Level:   "error",
+					Code:    ErrUndeclared,
+					Message: fmt.Sprintf("uses clause references unknown unit '%s'", used),
+					Hint:    fmt.Sprintf("ensure %s.klx is in the project, or it's a stdlib module", used),
+				})
+			}
+		}
+	}
+
+	// Pass 3: per-file semantic checks (interfaces + types).
+	// We pass a merged "visible" symbol set so cross-unit symbols don't trigger
+	// false-positive "undeclared" errors.
+	mergedSyms := make(map[string]bool)
+	for _, p := range programs {
+		for _, decl := range p.program.Declarations {
+			switch d := decl.(type) {
+			case *ast.FunctionDecl:
+				mergedSyms[d.Name] = true
+			case *ast.VarDecl:
+				for _, n := range d.Names {
+					mergedSyms[n] = true
+				}
+			case *ast.ConstDecl:
+				mergedSyms[d.Name] = true
+			case *ast.TypeDecl:
+				mergedSyms[d.Name] = true
+			case *ast.ClassDecl:
+				mergedSyms[d.Name] = true
+			case *ast.InterfaceDecl:
+				mergedSyms[d.Name] = true
+			}
+		}
+	}
+
+	for _, p := range programs {
+		// Interface implementation validation (single-file scope is fine here).
+		result.Diagnostics = append(result.Diagnostics, checkInterfaces(p.program, p.file)...)
+
+		// Type checker with cross-unit symbol context.
+		for _, td := range typeCheckWithExternals(p.program, p.file, mergedSyms) {
+			result.Diagnostics = append(result.Diagnostics, Diagnostic{
+				File:    td.File,
+				Line:    td.Line,
+				Column:  td.Column,
+				Level:   "error",
+				Code:    td.Code,
+				Message: td.Message,
+				Hint:    td.Hint,
+			})
+		}
+	}
+
+	result.Success = len(result.Diagnostics) == 0
+	return result, nil
+}
+
+// isStdlibUnit reports whether a uses-clause name refers to a known stdlib module
+// rather than a project-local unit. Stdlib modules don't need .klx files in the project.
+func isStdlibUnit(name string) bool {
+	stdlib := map[string]bool{
+		"web": true, "container": true, "config": true, "middleware": true,
+		"validation": true, "orm": true, "template": true, "autoconfig": true,
+		"sysutil": true, "jsonutil": true, "datetime": true, "regex": true,
+		"strutil": true, "mathutil": true, // Phase 1 Kylix stdlib
+	}
+	return stdlib[name]
+}
+
+// typeCheckWithExternals runs the type checker but pre-seeds the symbol scope
+// with names from other compilation units, preventing false-positive "undeclared"
+// errors for cross-unit symbols. Strict mode for project-level checking.
+func typeCheckWithExternals(program *ast.Program, sourceFile string, externals map[string]bool) []TypeDiagnostic {
+	c := &checker{
+		file:                sourceFile,
+		strictFunctionCalls: true, // project-mode: report undeclared function calls
+		funcs:               make(map[string]*ast.FunctionDecl),
+		types:               make(map[string]string),
+		aliases:             make(map[string]string),
+		genericConstraints:  make(map[string]*GenericTypeInfo),
+		interfaces:          make(map[string]map[string]*ast.FunctionDecl),
+		classImpls:          make(map[string][]string),
+		classParent:         make(map[string]string),
+		classMethods:        make(map[string]map[string]*ast.FunctionDecl),
+	}
+	c.collectDeclarations(program)
+	// Inject external symbols as "known" so undeclared checks pass for cross-unit refs.
+	for name := range externals {
+		if _, exists := c.types[name]; !exists {
+			c.types[name] = "external"
+		}
+	}
+	c.validateAliases(program, sourceFile)
+	c.checkProgram(program)
+	return c.diags
+}
+
 // RunFile compiles and immediately runs the generated Go code
 func RunFile(sourceFile string, opts Options) (*Result, error) {
 	result, err := CompileFile(sourceFile, opts)
