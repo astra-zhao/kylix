@@ -12,9 +12,9 @@ import (
 type Generator struct {
 	output          strings.Builder
 	indent          int
-	sourceFile      string              // current Kylix source file (for //line directives)
+	sourceFile      string // current Kylix source file (for //line directives)
 	program         *ast.Program
-	variables       map[string]string   // tracks variable types for codegen hints
+	variables       map[string]string // tracks variable types for codegen hints
 	inFunction      bool
 	inReturnFunc    bool                // true when current function has a return value (Exit → return result)
 	inExceptHandler bool                // true when inside a recover() block for bare raise

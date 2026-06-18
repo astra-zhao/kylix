@@ -263,10 +263,10 @@ func defaultFuncMap() template.FuncMap {
 		"trim":  strings.TrimSpace,
 
 		// String manipulation
-		"replace": strings.ReplaceAll,
-		"split":   strings.Split,
-		"join":    strings.Join,
-		"contains": strings.Contains,
+		"replace":   strings.ReplaceAll,
+		"split":     strings.Split,
+		"join":      strings.Join,
+		"contains":  strings.Contains,
 		"hasPrefix": strings.HasPrefix,
 		"hasSuffix": strings.HasSuffix,
 

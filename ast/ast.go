@@ -74,7 +74,7 @@ type FunctionDecl struct {
 	ReturnType  Expression   // single return type (traditional)
 	ReturnTypes []Expression // multiple return types (modern: (Type1, Type2))
 	Body        *BlockStatement
-	LocalDecls  []Node      // local var/const declarations before begin block
+	LocalDecls  []Node // local var/const declarations before begin block
 	IsAsync     bool
 	IsExport    bool
 }
@@ -235,7 +235,7 @@ func (o *OnClause) TokenLiteral() string { return o.Token.Literal }
 type TryStatement struct {
 	Token        token.Token // NEW: the 'try' keyword
 	Body         *BlockStatement
-	OnClauses    []*OnClause  // on E: Type do clauses (Modern Pascal)
+	OnClauses    []*OnClause // on E: Type do clauses (Modern Pascal)
 	ExceptBlock  *BlockStatement
 	FinallyBlock *BlockStatement
 }
@@ -324,7 +324,7 @@ type RecordType struct {
 	Fields []*VarDecl
 }
 
-func (r *RecordType) expressionNode()       {}
+func (r *RecordType) expressionNode()      {}
 func (r *RecordType) TokenLiteral() string { return "record" }
 
 // Array Type
@@ -334,7 +334,7 @@ type ArrayType struct {
 	Dynamic     bool
 }
 
-func (a *ArrayType) expressionNode()       {}
+func (a *ArrayType) expressionNode()      {}
 func (a *ArrayType) TokenLiteral() string { return "array" }
 
 // Map Type (modern feature) — e.g., map[String]Integer
@@ -343,19 +343,20 @@ type MapType struct {
 	ValueType Expression
 }
 
-func (m *MapType) expressionNode()       {}
+func (m *MapType) expressionNode()      {}
 func (m *MapType) TokenLiteral() string { return "map" }
 
 // Variant Type (discriminated union) — e.g.,
-//   type TExpr = variant
-//     IntLiteral: Integer;
-//     StrLiteral: String;
-//   end;
+//
+//	type TExpr = variant
+//	  IntLiteral: Integer;
+//	  StrLiteral: String;
+//	end;
 type VariantType struct {
 	Cases []*VariantCase
 }
 
-func (v *VariantType) expressionNode()       {}
+func (v *VariantType) expressionNode()      {}
 func (v *VariantType) TokenLiteral() string { return "variant" }
 
 type VariantCase struct {
@@ -368,7 +369,7 @@ type EnumType struct {
 	Names []string
 }
 
-func (e *EnumType) expressionNode()       {}
+func (e *EnumType) expressionNode()      {}
 func (e *EnumType) TokenLiteral() string { return "enum" }
 
 // Generic Type (modern feature)
@@ -377,7 +378,7 @@ type GenericType struct {
 	TypeParams []Expression
 }
 
-func (g *GenericType) expressionNode()       {}
+func (g *GenericType) expressionNode()      {}
 func (g *GenericType) TokenLiteral() string { return g.Base }
 
 // Expressions
@@ -388,7 +389,7 @@ type Identifier struct {
 	Value string
 }
 
-func (i *Identifier) expressionNode()       {}
+func (i *Identifier) expressionNode()      {}
 func (i *Identifier) TokenLiteral() string { return i.Token.Literal }
 
 // Integer Literal
@@ -397,7 +398,7 @@ type IntegerLiteral struct {
 	Value int64
 }
 
-func (i *IntegerLiteral) expressionNode()       {}
+func (i *IntegerLiteral) expressionNode()      {}
 func (i *IntegerLiteral) TokenLiteral() string { return i.Token.Literal }
 
 // Float Literal
@@ -406,7 +407,7 @@ type FloatLiteral struct {
 	Value float64
 }
 
-func (f *FloatLiteral) expressionNode()       {}
+func (f *FloatLiteral) expressionNode()      {}
 func (f *FloatLiteral) TokenLiteral() string { return f.Token.Literal }
 
 // String Literal
@@ -415,7 +416,7 @@ type StringLiteral struct {
 	Value string
 }
 
-func (s *StringLiteral) expressionNode()       {}
+func (s *StringLiteral) expressionNode()      {}
 func (s *StringLiteral) TokenLiteral() string { return s.Token.Literal }
 
 // String Interpolation (modern feature)
@@ -423,7 +424,7 @@ type StringInterpolation struct {
 	Parts []Expression
 }
 
-func (s *StringInterpolation) expressionNode()       {}
+func (s *StringInterpolation) expressionNode()      {}
 func (s *StringInterpolation) TokenLiteral() string { return "interpolation" }
 
 // Boolean Literal
@@ -432,7 +433,7 @@ type BooleanLiteral struct {
 	Value bool
 }
 
-func (b *BooleanLiteral) expressionNode()       {}
+func (b *BooleanLiteral) expressionNode()      {}
 func (b *BooleanLiteral) TokenLiteral() string { return b.Token.Literal }
 
 // Nil Literal
@@ -440,7 +441,7 @@ type NilLiteral struct {
 	Token token.Token
 }
 
-func (n *NilLiteral) expressionNode()       {}
+func (n *NilLiteral) expressionNode()      {}
 func (n *NilLiteral) TokenLiteral() string { return n.Token.Literal }
 
 // Array Literal
@@ -449,7 +450,7 @@ type ArrayLiteral struct {
 	Elements []Expression
 }
 
-func (a *ArrayLiteral) expressionNode()       {}
+func (a *ArrayLiteral) expressionNode()      {}
 func (a *ArrayLiteral) TokenLiteral() string { return a.Token.Literal }
 
 // Tuple Literal (modern feature) — e.g., (expr1, expr2)
@@ -458,7 +459,7 @@ type TupleLiteral struct {
 	Elements []Expression
 }
 
-func (t *TupleLiteral) expressionNode()       {}
+func (t *TupleLiteral) expressionNode()      {}
 func (t *TupleLiteral) TokenLiteral() string { return "tuple" }
 
 // Lambda Expression (modern feature)
@@ -468,7 +469,7 @@ type LambdaExpression struct {
 	Body       Node // can be BlockStatement or Expression
 }
 
-func (l *LambdaExpression) expressionNode()       {}
+func (l *LambdaExpression) expressionNode()      {}
 func (l *LambdaExpression) TokenLiteral() string { return l.Token.Literal }
 
 // Prefix Expression
@@ -478,7 +479,7 @@ type PrefixExpression struct {
 	Right    Expression
 }
 
-func (p *PrefixExpression) expressionNode()       {}
+func (p *PrefixExpression) expressionNode()      {}
 func (p *PrefixExpression) TokenLiteral() string { return p.Token.Literal }
 
 // Infix Expression
@@ -489,7 +490,7 @@ type InfixExpression struct {
 	Right    Expression
 }
 
-func (i *InfixExpression) expressionNode()       {}
+func (i *InfixExpression) expressionNode()      {}
 func (i *InfixExpression) TokenLiteral() string { return i.Token.Literal }
 
 // Call Expression
@@ -499,7 +500,7 @@ type CallExpression struct {
 	Arguments []Expression
 }
 
-func (c *CallExpression) expressionNode()       {}
+func (c *CallExpression) expressionNode()      {}
 func (c *CallExpression) TokenLiteral() string { return c.Token.Literal }
 
 // Member Expression
@@ -509,7 +510,7 @@ type MemberExpression struct {
 	Member string
 }
 
-func (m *MemberExpression) expressionNode()       {}
+func (m *MemberExpression) expressionNode()      {}
 func (m *MemberExpression) TokenLiteral() string { return m.Token.Literal }
 
 // Index Expression
@@ -519,7 +520,7 @@ type IndexExpression struct {
 	Index Expression
 }
 
-func (i *IndexExpression) expressionNode()       {}
+func (i *IndexExpression) expressionNode()      {}
 func (i *IndexExpression) TokenLiteral() string { return i.Token.Literal }
 
 // Slice Expression — e.g., s[a:b]
@@ -530,7 +531,7 @@ type SliceExpression struct {
 	High  Expression
 }
 
-func (s *SliceExpression) expressionNode()       {}
+func (s *SliceExpression) expressionNode()      {}
 func (s *SliceExpression) TokenLiteral() string { return s.Token.Literal }
 
 // Await Expression (modern feature)
@@ -539,7 +540,7 @@ type AwaitExpression struct {
 	Expression Expression
 }
 
-func (a *AwaitExpression) expressionNode()       {}
+func (a *AwaitExpression) expressionNode()      {}
 func (a *AwaitExpression) TokenLiteral() string { return a.Token.Literal }
 
 // Type Cast Expression
@@ -549,7 +550,7 @@ type TypeCastExpression struct {
 	TargetType Expression
 }
 
-func (t *TypeCastExpression) expressionNode()       {}
+func (t *TypeCastExpression) expressionNode()      {}
 func (t *TypeCastExpression) TokenLiteral() string { return t.Token.Literal }
 
 // Is Expression (type check)
@@ -559,5 +560,5 @@ type IsExpression struct {
 	TargetType Expression
 }
 
-func (i *IsExpression) expressionNode()       {}
+func (i *IsExpression) expressionNode()      {}
 func (i *IsExpression) TokenLiteral() string { return i.Token.Literal }

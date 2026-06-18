@@ -75,10 +75,10 @@ func TestSuggestions_Levenshtein(t *testing.T) {
 		want      string
 		wantFound bool
 	}{
-		{"userName", []string{"userName"}[0], true},   // exact
-		{"userNaem", "userName", true},                 // 2 transpositions
-		{"usr", "userName", false},                     // too different
-		{"WritLn", "WriteLn", true},                    // 1 edit
+		{"userName", []string{"userName"}[0], true}, // exact
+		{"userNaem", "userName", true},              // 2 transpositions
+		{"usr", "userName", false},                  // too different
+		{"WritLn", "WriteLn", true},                 // 1 edit
 	}
 	for _, tc := range cases {
 		got := compiler.NearestName(tc.target, []string{"userName", "WriteLn", "ReadLn"}, 2)

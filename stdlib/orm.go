@@ -97,9 +97,9 @@ func (d *Database) SetConnMaxLifetime(dur time.Duration) {
 	d.db.SetConnMaxLifetime(dur)
 }
 
-func (d *Database) Close() error        { return d.db.Close() }
-func (d *Database) Ping() error         { return d.db.Ping() }
-func (d *Database) GetSQLDB() *sql.DB   { return d.db }
+func (d *Database) Close() error      { return d.db.Close() }
+func (d *Database) Ping() error       { return d.db.Ping() }
+func (d *Database) GetSQLDB() *sql.DB { return d.db }
 
 func (d *Database) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	return d.db.Query(query, args...)

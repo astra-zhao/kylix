@@ -4,9 +4,10 @@
 // They are installed into <projectDir>/packages/<name>/.
 //
 // kylix.toml [dependencies] format:
-//   http    = "github.com/kylix-lang/http@v0.1.0"
-//   myutils = "github.com/alice/myutils"          (latest)
-//   local   = "./local_pkg"                        (local path)
+//
+//	http    = "github.com/kylix-lang/http@v0.1.0"
+//	myutils = "github.com/alice/myutils"          (latest)
+//	local   = "./local_pkg"                        (local path)
 package pkgmgr
 
 import (
@@ -23,10 +24,10 @@ const PackagesDir = "packages"
 
 // Package describes an installed package.
 type Package struct {
-	Name    string
-	Ref     string // original ref from kylix.toml
-	Dir     string // local install directory
-	Units   []string // .klx unit file paths
+	Name  string
+	Ref   string   // original ref from kylix.toml
+	Dir   string   // local install directory
+	Units []string // .klx unit file paths
 }
 
 // Manager handles package installation for a project.
@@ -44,7 +45,8 @@ func New(cfg *project.Config) *Manager {
 }
 
 // Add adds a package to kylix.toml and installs it.
-//   ref examples: "github.com/kylix-lang/http@v0.1.0"  "./local/path"
+//
+//	ref examples: "github.com/kylix-lang/http@v0.1.0"  "./local/path"
 func (m *Manager) Add(name, ref string) error {
 	if m.cfg.Dependencies == nil {
 		m.cfg.Dependencies = make(map[string]string)

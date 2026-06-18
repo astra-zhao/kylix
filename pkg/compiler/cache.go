@@ -22,9 +22,9 @@ import (
 // CacheEntry holds the cached output for a single .klx file.
 type CacheEntry struct {
 	// Fingerprint fields — used to decide whether the cache is still valid.
-	ModTime  time.Time `json:"mod_time"`
-	Size     int64     `json:"size"`
-	SrcPath  string    `json:"src_path"`
+	ModTime time.Time `json:"mod_time"`
+	Size    int64     `json:"size"`
+	SrcPath string    `json:"src_path"`
 
 	// Cached output
 	GoCode string `json:"go_code"`

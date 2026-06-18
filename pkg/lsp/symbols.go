@@ -117,7 +117,7 @@ func (t *SymbolTable) FindSymbol(name string) *Symbol {
 func CollectSymbols(program *ast.Program) *SymbolTable {
 	table := NewSymbolTable()
 	collector := &symbolCollector{
-		table:       table,
+		table:        table,
 		currentScope: table.Root,
 	}
 

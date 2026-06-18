@@ -2,7 +2,7 @@ package compiler
 
 import (
 	"fmt"
-	
+
 	"kylix/ast"
 	"kylix/generator"
 	"kylix/lexer"
@@ -37,7 +37,7 @@ type Result struct {
 type Options struct {
 	OutputFile        string
 	Verbose           bool
-	KeepGoFile        bool     // don't delete the intermediate .go file after running
+	KeepGoFile        bool // don't delete the intermediate .go file after running
 	WorkingDir        string
 	CacheDir          string   // directory for incremental build cache; "" disables caching
 	PackageSearchDirs []string // extra directories containing .klx unit files (from packages/)

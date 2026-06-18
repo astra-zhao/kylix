@@ -586,7 +586,8 @@ func (c *checker) inferExprType(expr ast.Expression, scope map[string]string) st
 
 // checkGenericConstraints validates that type arguments in a generic instantiation
 // satisfy the declared constraints. Supports multi-parameter generics:
-//   TMap<K: IComparable, V> → must check K satisfies IComparable
+//
+//	TMap<K: IComparable, V> → must check K satisfies IComparable
 func (c *checker) checkGenericConstraints(tok token.Token, typeExpr ast.Expression) {
 	gt, ok := typeExpr.(*ast.GenericType)
 	if !ok {

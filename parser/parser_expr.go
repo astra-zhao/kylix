@@ -739,8 +739,8 @@ func (p *Parser) tryParseEnumType() *ast.EnumType {
 //   - a < b          → comparison expression
 //
 // Heuristic: only treat as generic if:
-//   1. left is an Identifier whose name starts with an uppercase letter (Pascal type convention)
-//   2. peekToken is an Identifier starting with uppercase, or a known type keyword
+//  1. left is an Identifier whose name starts with an uppercase letter (Pascal type convention)
+//  2. peekToken is an Identifier starting with uppercase, or a known type keyword
 func (p *Parser) parseLTExpression(left ast.Expression) ast.Expression {
 	ident, ok := left.(*ast.Identifier)
 	if ok && isTypeIdent(ident.Value) && p.looksLikeGenericArgs() {

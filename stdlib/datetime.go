@@ -71,15 +71,15 @@ func ParseDateTime(s string) (*TDateTime, error) {
 
 // Accessor methods
 
-func (dt *TDateTime) Year() int       { return dt.t.Year() }
-func (dt *TDateTime) Month() int      { return int(dt.t.Month()) }
-func (dt *TDateTime) Day() int        { return dt.t.Day() }
-func (dt *TDateTime) Hour() int       { return dt.t.Hour() }
-func (dt *TDateTime) Minute() int     { return dt.t.Minute() }
-func (dt *TDateTime) Second() int     { return dt.t.Second() }
-func (dt *TDateTime) DayOfWeek() int  { return int(dt.t.Weekday()) } // 0=Sunday
-func (dt *TDateTime) DayOfYear() int  { return dt.t.YearDay() }
-func (dt *TDateTime) Unix() int64     { return dt.t.Unix() }
+func (dt *TDateTime) Year() int      { return dt.t.Year() }
+func (dt *TDateTime) Month() int     { return int(dt.t.Month()) }
+func (dt *TDateTime) Day() int       { return dt.t.Day() }
+func (dt *TDateTime) Hour() int      { return dt.t.Hour() }
+func (dt *TDateTime) Minute() int    { return dt.t.Minute() }
+func (dt *TDateTime) Second() int    { return dt.t.Second() }
+func (dt *TDateTime) DayOfWeek() int { return int(dt.t.Weekday()) } // 0=Sunday
+func (dt *TDateTime) DayOfYear() int { return dt.t.YearDay() }
+func (dt *TDateTime) Unix() int64    { return dt.t.Unix() }
 
 // Formatting methods
 

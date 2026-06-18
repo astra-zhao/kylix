@@ -104,15 +104,15 @@ func TestTokenTypes(t *testing.T) {
 func TestOperators(t *testing.T) {
 	// Verify operator token values
 	ops := map[TokenType]string{
-		ASSIGN:   "=",
-		PLUS:     "+",
-		MINUS:    "-",
-		EQ:       "==",
-		NOT_EQ:   "!=",
-		LT:       "<",
-		GT:       ">",
-		LT_EQ:    "<=",
-		GT_EQ:    ">=",
+		ASSIGN:    "=",
+		PLUS:      "+",
+		MINUS:     "-",
+		EQ:        "==",
+		NOT_EQ:    "!=",
+		LT:        "<",
+		GT:        ">",
+		LT_EQ:     "<=",
+		GT_EQ:     ">=",
 		ASSIGN_OP: ":=",
 	}
 	for tok, expected := range ops {

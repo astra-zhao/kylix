@@ -98,18 +98,18 @@ end.
 // Test expression precedence - should not add unnecessary parentheses
 func TestExpressionPrecedence(t *testing.T) {
 	tests := []struct {
-		input    string
-		contains string
+		input       string
+		contains    string
 		notContains []string
 	}{
 		{
-			input:    "result := a + b;",
-			contains: "a + b",
+			input:       "result := a + b;",
+			contains:    "a + b",
 			notContains: []string{"(a + b)"},
 		},
 		{
-			input:    "result := a * b + c;",
-			contains: "a * b + c",
+			input:       "result := a * b + c;",
+			contains:    "a * b + c",
 			notContains: []string{"(a * b)", "(a * b + c)"},
 		},
 		{
@@ -117,13 +117,13 @@ func TestExpressionPrecedence(t *testing.T) {
 			contains: "(a + b) * c",
 		},
 		{
-			input:    "if x > 0 then",
-			contains: "x > 0",
+			input:       "if x > 0 then",
+			contains:    "x > 0",
 			notContains: []string{"(x > 0)"},
 		},
 		{
-			input:    "result := not x;",
-			contains: "not x",
+			input:       "result := not x;",
+			contains:    "not x",
 			notContains: []string{"(not x)"},
 		},
 	}

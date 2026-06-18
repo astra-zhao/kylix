@@ -206,7 +206,7 @@ func (r *TResponse) Header(name, value string) *TResponse {
 // LoggerMiddleware creates a logging middleware
 func LoggerMiddleware() TMiddleware {
 	return func(req *TRequest, res *TResponse) {
-		log.Printf("[%s] %s %s", 
+		log.Printf("[%s] %s %s",
 			"2024-01-01 00:00:00", // TODO: use actual time
 			req.Method(),
 			req.Path())
@@ -235,7 +235,7 @@ func matchPath(pattern, path string, params map[string]string) bool {
 
 func serveStaticFile(w http.ResponseWriter, r *http.Request, pathPrefix, rootDir string) {
 	filePath := filepath.Join(rootDir, strings.TrimPrefix(r.URL.Path, pathPrefix))
-	
+
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		w.WriteHeader(404)
 		fmt.Fprint(w, "File Not Found")

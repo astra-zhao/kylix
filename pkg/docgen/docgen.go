@@ -1,8 +1,9 @@
 // docgen.go — Extract doc comments from Kylix source files and generate Markdown.
 //
 // Doc comment convention:
-//   // Any comment immediately preceding a declaration is its documentation.
-//   // Multi-line comments are concatenated.
+//
+//	// Any comment immediately preceding a declaration is its documentation.
+//	// Multi-line comments are concatenated.
 //
 // Output format: one Markdown file per unit.
 package docgen
