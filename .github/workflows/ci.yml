@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }} / Go ${{ matrix.go }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go: ['1.21', '1.22', '1.23']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -timeout 60s ./...
+
+      - name: Build CLI
+        run: go build -o kylix ./cmd/kylix/
+
+      - name: Test stdlib (Kylix-level)
+        run: |
+          ./kylix test stdlib/src/strutil_test.klx
+          ./kylix test stdlib/src/mathutil_test.klx
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: gofmt
+        run: |
+          fmt_files=$(gofmt -l . 2>&1)
+          if [ -n "$fmt_files" ]; then
+            echo "Files not formatted:"
+            echo "$fmt_files"
+            exit 1
+          fi
