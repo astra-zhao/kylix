@@ -1,0 +1,112 @@
+// arrayutil — Generic array operations, implemented in pure Kylix.
+//
+// Part of v2.2.0 stdlib Kylix-ification Phase 2.
+// All functions are non-mutating: they return new arrays rather than modifying input.
+unit arrayutil;
+
+// Length returns the number of elements in arr.
+// (kept here as a Kylix-level wrapper for completeness — built-in Length works too)
+function ArrayLength(arr: array of Integer): Integer;
+begin
+  result := Length(arr);
+end;
+
+// Sum returns the sum of all elements.
+function Sum(arr: array of Integer): Integer;
+var
+  i: Integer;
+  total: Integer;
+begin
+  total := 0;
+  for i := 0 to Length(arr) - 1 do
+    total := total + arr[i];
+  result := total;
+end;
+
+// Product returns the product of all elements (1 for empty array).
+function Product(arr: array of Integer): Integer;
+var
+  i: Integer;
+  p: Integer;
+begin
+  p := 1;
+  for i := 0 to Length(arr) - 1 do
+    p := p * arr[i];
+  result := p;
+end;
+
+// MinValue returns the smallest element. Returns 0 for empty arrays.
+function MinValue(arr: array of Integer): Integer;
+var
+  i: Integer;
+  m: Integer;
+begin
+  if Length(arr) = 0 then
+  begin
+    result := 0;
+    exit;
+  end;
+  m := arr[0];
+  for i := 1 to Length(arr) - 1 do
+    if arr[i] < m then m := arr[i];
+  result := m;
+end;
+
+// MaxValue returns the largest element. Returns 0 for empty arrays.
+function MaxValue(arr: array of Integer): Integer;
+var
+  i: Integer;
+  m: Integer;
+begin
+  if Length(arr) = 0 then
+  begin
+    result := 0;
+    exit;
+  end;
+  m := arr[0];
+  for i := 1 to Length(arr) - 1 do
+    if arr[i] > m then m := arr[i];
+  result := m;
+end;
+
+// Contains reports whether arr contains the value v.
+function ArrayContains(arr: array of Integer; v: Integer): Boolean;
+var
+  i: Integer;
+begin
+  for i := 0 to Length(arr) - 1 do
+    if arr[i] = v then
+    begin
+      result := true;
+      exit;
+    end;
+  result := false;
+end;
+
+// IndexOf returns the first index of v in arr, or -1 if not found.
+function IndexOf(arr: array of Integer; v: Integer): Integer;
+var
+  i: Integer;
+begin
+  for i := 0 to Length(arr) - 1 do
+    if arr[i] = v then
+    begin
+      result := i;
+      exit;
+    end;
+  result := -1;
+end;
+
+// Reverse returns a new array with elements in reverse order.
+function ArrayReverse(arr: array of Integer): array of Integer;
+var
+  i: Integer;
+  n: Integer;
+  out: array of Integer;
+begin
+  n := Length(arr);
+  out := nil;
+  for i := 0 to n - 1 do
+    append(out, arr[n - 1 - i]);
+  result := out;
+end;

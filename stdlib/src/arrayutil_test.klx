@@ -1,0 +1,75 @@
+// arrayutil_test — Tests for stdlib/src/arrayutil.klx
+unit arrayutil_test;
+uses arrayutil;
+
+procedure TestSum;
+var arr: array of Integer;
+begin
+  arr := nil;
+  append(arr, 1); append(arr, 2); append(arr, 3); append(arr, 4);
+  Assert(Sum(arr) = 10, 'sum 1..4');
+end;
+
+procedure TestProduct;
+var arr: array of Integer;
+begin
+  arr := nil;
+  append(arr, 2); append(arr, 3); append(arr, 4);
+  Assert(Product(arr) = 24, 'product 2*3*4');
+end;
+
+procedure TestMinValue;
+var arr: array of Integer;
+begin
+  arr := nil;
+  append(arr, 5); append(arr, -3); append(arr, 7); append(arr, 0); append(arr, -10);
+  Assert(MinValue(arr) = -10, 'min -10');
+end;
+
+procedure TestMaxValue;
+var arr: array of Integer;
+begin
+  arr := nil;
+  append(arr, 1); append(arr, 99); append(arr, 50); append(arr, 99);
+  Assert(MaxValue(arr) = 99, 'max 99');
+end;
+
+procedure TestArrayContains;
+var arr: array of Integer;
+begin
+  arr := nil;
+  append(arr, 10); append(arr, 20); append(arr, 30);
+  Assert(ArrayContains(arr, 20), 'contains 20');
+  Assert(ArrayContains(arr, 99) = false, 'no 99');
+end;
+
+procedure TestIndexOf;
+var arr: array of Integer;
+begin
+  arr := nil;
+  append(arr, 5); append(arr, 10); append(arr, 15); append(arr, 20);
+  Assert(IndexOf(arr, 15) = 2, 'index of 15');
+  Assert(IndexOf(arr, 99) = -1, 'not found returns -1');
+end;
+
+procedure TestArrayReverse;
+var arr: array of Integer;
+var rev: array of Integer;
+begin
+  arr := nil;
+  append(arr, 1); append(arr, 2); append(arr, 3);
+  rev := ArrayReverse(arr);
+  Assert(rev[0] = 3, 'rev[0]=3');
+  Assert(rev[1] = 2, 'rev[1]=2');
+  Assert(rev[2] = 1, 'rev[2]=1');
+end;
+
+procedure TestEmpty;
+var arr: array of Integer;
+begin
+  arr := nil;
+  Assert(Sum(arr) = 0, 'empty sum = 0');
+  Assert(Product(arr) = 1, 'empty product = 1');
+  Assert(MinValue(arr) = 0, 'empty min = 0');
+  Assert(MaxValue(arr) = 0, 'empty max = 0');
+end;

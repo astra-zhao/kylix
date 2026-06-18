@@ -4,6 +4,190 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v2.2.0 (2026-06-19)
+
+### 🎉 Engineering Quality & stdlib Phase 2
+
+v2.2.0 focuses on production-readiness: continuous integration, deeper type
+checking, project-level diagnostics, and incremental builds. Plus two new
+pure-Kylix stdlib modules.
+
+---
+
+### Task 1: GitHub Actions CI/CD
+
+`.github/workflows/`:
+- **ci.yml** — Multi-platform testing (Linux + macOS × Go 1.21/1.22/1.23)
+  - `go build`, `go vet`, `go test -race -timeout 60s ./...`
+  - Kylix-level integration: `kylix test stdlib/src/*_test.klx`
+  - Independent `lint` job runs `gofmt` check
+- **release.yml** — Cross-platform binary release on `git tag v*`
+  - Builds: linux/amd64+arm64, darwin/amd64+arm64, windows/amd64
+  - Auto-extracts release notes from CHANGELOG.md
+  - Creates GitHub Release with binaries attached
+
+`gofmt -w` applied to entire codebase (19 files reformatted, no logic changes).
+
+---
+
+### Task 2: Generic Constraint Method Signature Verification
+
+Previously v2.1.2 only checked method **names** existed. Now signatures match.
+
+```pascal
+type
+  IFoo = interface
+    function Bar(x: Integer): String;
+  end;
+  TBox<T: IFoo> = class end;
+
+  TBad = class implements IFoo
+    function Bar(): Integer;  // ❌ wrong params + wrong return type
+  end;
+
+var b: TBox<TBad>;
+// error[KLX104]: TBad does not satisfy IFoo (signature mismatch on Bar)
+```
+
+**Changes:**
+- `interfaces` / `classMethods` upgraded: `[]string` → `map[name]*FunctionDecl`
+- New `signaturesMatch(impl, want)` — compares param count, types, return types
+- New `typesEqual(a, b)` — type expression equality with alias resolution
+- Type aliases are transparent (`UserId = Integer` → matches `Integer`)
+
+**Tests**: `pkg/compiler/signature_test.go` (6 tests)
+
+---
+
+### Task 3: Project-Level Type Checking
+
+`kylix check` now does **full cross-file analysis**, not just per-file syntax.
+
+```bash
+$ kylix check
+error[KLX201]: call to undeclared function 'Cube'
+  --> main.klx:4:15
+
+1 error(s) across 2 file(s)
+```
+
+**Changes:**
+- New `compiler.CheckProject(files)` — runs syntax + interface + type checks across all files
+- Cross-file symbol merging prevents false-positive "undeclared" for cross-unit calls
+- New `isStdlibUnit()` whitelist — `uses sysutil` doesn't require local `.klx`
+- New `checker.strictFunctionCalls` flag distinguishes single-file vs project mode
+- `cmdCheck` now defaults to project mode; `--syntax` retains parser-only behaviour
+
+**Tests**: `pkg/compiler/checkproject_test.go` (6 tests)
+
+---
+
+### Task 4: Incremental Compilation Activated
+
+`BuildCache` infrastructure existed since v1.4.0 but was never wired into the
+project-mode build path.
+
+**Fix**: `cmd/kylix/cmd_build.go` project mode now calls `CompileProject`
+(which uses cache) for multi-file projects. Single-file projects retain
+`CompileFile` for compatibility.
+
+**Effect on a 2-file project:**
+```
+$ rm -rf .kylix-cache build
+$ kylix build -v          # cold
+  compile: math.klx
+  compile: main.klx
+
+$ kylix build -v          # warm cache
+  cached: main.klx
+  cached: math.klx
+  reuse:  math.klx
+  reuse:  main.klx
+
+$ touch math.klx
+$ kylix build -v          # partial rebuild
+  cached: main.klx
+  compile: math.klx       # ← only changed file
+  reuse:  main.klx
+```
+
+**Tests**: `pkg/compiler/incremental_test.go` (4 tests)
+
+---
+
+### Task 5: stdlib Kylix-ification Phase 2
+
+Two new pure-Kylix modules joining v2.1.0's `strutil`/`mathutil`.
+
+#### `stdlib/src/arrayutil.klx` (8 functions)
+
+| Function | Purpose |
+|----------|---------|
+| `Sum(arr)` | Sum of integers |
+| `Product(arr)` | Product of integers (1 for empty) |
+| `MinValue(arr)` | Smallest element |
+| `MaxValue(arr)` | Largest element |
+| `ArrayContains(arr, v)` | Linear search |
+| `IndexOf(arr, v)` | Position of v, or -1 |
+| `ArrayReverse(arr)` | New reversed array |
+| `ArrayLength(arr)` | Wrapper for built-in `Length` |
+
+#### `stdlib/src/collections.klx` — `TIntList`
+
+```pascal
+var list: TIntList;
+list := TIntList.Create();
+list.Add(10);
+list.Add(20);
+list.Add(30);
+WriteLn(list.Sum());     // 60
+WriteLn(list.Count());   // 3
+list.Clear();
+WriteLn(list.IsEmpty()); // true
+```
+
+Methods: `Count()`, `Get(i)`, `Add(v)`, `Clear()`, `IsEmpty()`, `Sum()`.
+
+**Tests**:
+- `arrayutil_test.klx`: 8 tests
+- `collections_test.klx`: 5 tests
+
+#### Cumulative stdlib Kylix coverage
+
+| Module | Functions | Tests |
+|--------|-----------|-------|
+| `strutil` (v2.1.0) | 8 | 8 |
+| `mathutil` (v2.1.0) | 12 | 10 |
+| `arrayutil` (v2.2.0) | 8 | 8 |
+| `collections` (v2.2.0) | 6 (methods) | 5 |
+| **Total** | **34** | **31** |
+
+---
+
+### Summary
+
+| Task | Tests | Type |
+|------|-------|------|
+| CI/CD pipelines | – | Infrastructure |
+| Generic signature verification | 6 | Type system |
+| Project-level checking | 6 | Type system |
+| Incremental compilation | 4 | Performance |
+| stdlib Phase 2 | 13 | Standard library |
+| **Total v2.2.0** | **29** | |
+
+### Breaking Changes
+- `kylix check` now performs full type checking by default (use `--syntax` for
+  parse-only behaviour)
+- Class implementing an interface must have **matching method signatures**
+  (parameter types and return type), not just method names
+
+### Known Limitations
+- `SetLength` builtin only grows existing slices (workaround: use `append` with `nil` initial value)
+- Method declarations split across class body and outside (Pascal-style) generate duplicate Go methods (workaround: define methods inline in class body)
+- Multi-parameter generic constraints validated by parameter position, not name
+
+---
+
 ## v2.1.0 (2026-06-19)
 
 ### 🎉 Enhanced Type System & stdlib Kylix-ification

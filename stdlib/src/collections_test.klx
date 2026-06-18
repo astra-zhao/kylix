@@ -1,0 +1,57 @@
+// collections_test — Tests for stdlib/src/collections.klx
+unit collections_test;
+uses collections;
+
+procedure TestEmpty;
+var list: TIntList;
+begin
+  list := TIntList.Create();
+  Assert(list.Count() = 0, 'empty count = 0');
+  Assert(list.IsEmpty(), 'IsEmpty true');
+end;
+
+procedure TestAddAndCount;
+var list: TIntList;
+begin
+  list := TIntList.Create();
+  list.Add(10);
+  list.Add(20);
+  list.Add(30);
+  Assert(list.Count() = 3, 'count = 3 after 3 adds');
+  Assert(list.IsEmpty() = false, 'not empty');
+end;
+
+procedure TestGet;
+var list: TIntList;
+begin
+  list := TIntList.Create();
+  list.Add(100);
+  list.Add(200);
+  list.Add(300);
+  Assert(list.Get(0) = 100, 'get(0) = 100');
+  Assert(list.Get(1) = 200, 'get(1) = 200');
+  Assert(list.Get(2) = 300, 'get(2) = 300');
+end;
+
+procedure TestSum;
+var list: TIntList;
+begin
+  list := TIntList.Create();
+  list.Add(1);
+  list.Add(2);
+  list.Add(3);
+  list.Add(4);
+  list.Add(5);
+  Assert(list.Sum() = 15, 'sum 1..5 = 15');
+end;
+
+procedure TestClear;
+var list: TIntList;
+begin
+  list := TIntList.Create();
+  list.Add(1);
+  list.Add(2);
+  list.Clear();
+  Assert(list.Count() = 0, 'count = 0 after clear');
+  Assert(list.IsEmpty(), 'empty after clear');
+end;

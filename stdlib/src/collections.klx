@@ -1,0 +1,48 @@
+// collections — Generic-style collection types, implemented in pure Kylix.
+//
+// Part of v2.2.0 stdlib Kylix-ification Phase 2.
+// Provides TIntList (list of integers) as a foundational collection;
+// future versions will add TStringList, TStack, TQueue with full generics.
+unit collections;
+
+// TIntList is a dynamic list of integers with common operations.
+type
+  TIntList = class
+    Items: array of Integer;
+
+    function Count(): Integer;
+    begin
+      result := Length(self.Items);
+    end;
+
+    function Get(index: Integer): Integer;
+    begin
+      result := self.Items[index];
+    end;
+
+    procedure Add(value: Integer);
+    begin
+      append(self.Items, value);
+    end;
+
+    procedure Clear();
+    begin
+      self.Items := nil;
+    end;
+
+    function IsEmpty(): Boolean;
+    begin
+      result := Length(self.Items) = 0;
+    end;
+
+    function Sum(): Integer;
+    var
+      i: Integer;
+      total: Integer;
+    begin
+      total := 0;
+      for i := 0 to Length(self.Items) - 1 do
+        total := total + self.Items[i];
+      result := total;
+    end;
+  end;

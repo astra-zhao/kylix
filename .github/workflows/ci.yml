@@ -45,6 +45,8 @@ jobs:
         run: |
           ./kylix test stdlib/src/strutil_test.klx
           ./kylix test stdlib/src/mathutil_test.klx
+          ./kylix test stdlib/src/arrayutil_test.klx
+          ./kylix test stdlib/src/collections_test.klx
 
   lint:
     name: Lint
