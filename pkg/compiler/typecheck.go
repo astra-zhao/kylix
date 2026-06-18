@@ -35,10 +35,10 @@ func TypeCheck(program *ast.Program, sourceFile string) []TypeDiagnostic {
 		types:              make(map[string]string), // name → declared type string
 		aliases:            make(map[string]string), // type alias name → underlying type
 		genericConstraints: make(map[string]*GenericTypeInfo),
-		interfaces:         make(map[string][]string),
+		interfaces:         make(map[string]map[string]*ast.FunctionDecl),
 		classImpls:         make(map[string][]string),
 		classParent:        make(map[string]string),
-		classMethods:       make(map[string][]string),
+		classMethods:       make(map[string]map[string]*ast.FunctionDecl),
 	}
 	c.collectDeclarations(program)
 	c.validateAliases(program, sourceFile)
@@ -57,14 +57,14 @@ type checker struct {
 	// Generic type info (preserves parameter order for multi-param generics):
 	//   "TMap" → {ParamOrder: ["K","V"], Constraints: {"K":"IComparable"}}
 	genericConstraints map[string]*GenericTypeInfo
-	// Interface method signatures: "IComparable" → ["CompareTo"]
-	interfaces map[string][]string
+	// Interface method signatures: "IComparable" → [methodName → *FunctionDecl]
+	interfaces map[string]map[string]*ast.FunctionDecl
 	// Class implementations: "TMyClass" → ["IComparable", "IFoo"]
 	classImpls map[string][]string
 	// Class parent chain: "TChild" → "TParent" (for inherited interface satisfaction)
 	classParent map[string]string
-	// Class methods (name → declared methods): "TMyClass" → ["CompareTo", "ToString"]
-	classMethods map[string][]string
+	// Class methods: "TMyClass" → [methodName → *FunctionDecl]
+	classMethods map[string]map[string]*ast.FunctionDecl
 }
 
 // GenericTypeInfo holds parameter ordering and constraints for a generic type.
@@ -127,18 +127,18 @@ func (c *checker) collectDeclarations(prog *ast.Program) {
 					c.classParent[d.Name] = classDecl.Parent
 				}
 				if len(classDecl.Methods) > 0 {
-					methods := make([]string, 0, len(classDecl.Methods))
+					methods := make(map[string]*ast.FunctionDecl, len(classDecl.Methods))
 					for _, m := range classDecl.Methods {
-						methods = append(methods, m.Name)
+						methods[m.Name] = m
 					}
 					c.classMethods[d.Name] = methods
 				}
 			}
-			// Interface declaration: collect method names
+			// Interface declaration: collect method signatures
 			if iface, ok := d.Type.(*ast.InterfaceDecl); ok {
-				methods := make([]string, 0, len(iface.Methods))
+				methods := make(map[string]*ast.FunctionDecl, len(iface.Methods))
 				for _, m := range iface.Methods {
-					methods = append(methods, m.Name)
+					methods[m.Name] = m
 				}
 				c.interfaces[d.Name] = methods
 			}
@@ -661,7 +661,8 @@ func (c *checker) typeImplementsInterface(typeName, ifaceName string) bool {
 }
 
 // classImplementsDirectly checks if typeName has 'implements ifaceName' AND
-// declares all methods required by the interface. Does NOT walk parent chain.
+// all required methods are present with matching signatures (parameter count,
+// parameter types, return type). Does NOT walk parent chain.
 func (c *checker) classImplementsDirectly(typeName, ifaceName string) bool {
 	impls, ok := c.classImpls[typeName]
 	if !ok {
@@ -677,28 +678,84 @@ func (c *checker) classImplementsDirectly(typeName, ifaceName string) bool {
 	if !listed {
 		return false
 	}
-	// Class lists the interface — verify it actually has all required methods.
+	// Class lists the interface — verify it actually has all required methods
+	// with matching signatures.
 	required, hasIface := c.interfaces[ifaceName]
 	if !hasIface {
 		// Unknown interface (declared elsewhere) — be lenient.
 		return true
 	}
-	classMethodSet := make(map[string]bool)
-	for _, m := range c.classMethods[typeName] {
-		classMethodSet[m] = true
+	// Combine declared methods with inherited methods from parent chain.
+	classMethodSet := make(map[string]*ast.FunctionDecl)
+	for name, m := range c.classMethods[typeName] {
+		classMethodSet[name] = m
 	}
-	// Walk parent chain to include inherited methods.
 	for parent := c.classParent[typeName]; parent != ""; parent = c.classParent[parent] {
-		for _, m := range c.classMethods[parent] {
-			classMethodSet[m] = true
+		for name, m := range c.classMethods[parent] {
+			if _, exists := classMethodSet[name]; !exists {
+				classMethodSet[name] = m
+			}
 		}
 	}
-	for _, req := range required {
-		if !classMethodSet[req] {
+	for reqName, reqMethod := range required {
+		impl, ok := classMethodSet[reqName]
+		if !ok {
+			return false
+		}
+		if !c.signaturesMatch(impl, reqMethod) {
 			return false
 		}
 	}
 	return true
+}
+
+// signaturesMatch compares an implementation method's signature against an
+// interface method's signature. Compatible if:
+//   - Parameter count is equal
+//   - Each parameter's type-string matches (after alias resolution)
+//   - Return type matches
+//
+// Comparison is type-string based — sufficient for the common case where
+// method signatures are written with concrete types or named generics.
+func (c *checker) signaturesMatch(impl, want *ast.FunctionDecl) bool {
+	if len(impl.Parameters) != len(want.Parameters) {
+		return false
+	}
+	for i, w := range want.Parameters {
+		ip := impl.Parameters[i]
+		if !c.typesEqual(ip.Type, w.Type) {
+			return false
+		}
+	}
+	// Return type: both nil OK, both non-nil must match
+	if (impl.ReturnType == nil) != (want.ReturnType == nil) {
+		return false
+	}
+	if impl.ReturnType != nil && !c.typesEqual(impl.ReturnType, want.ReturnType) {
+		return false
+	}
+	// Multi-return types
+	if len(impl.ReturnTypes) != len(want.ReturnTypes) {
+		return false
+	}
+	for i, w := range want.ReturnTypes {
+		if !c.typesEqual(impl.ReturnTypes[i], w) {
+			return false
+		}
+	}
+	return true
+}
+
+// typesEqual compares two type expressions after alias resolution.
+// nil == nil, non-nil with matching resolved type-strings.
+func (c *checker) typesEqual(a, b ast.Expression) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return c.resolveAlias(typeString(a)) == c.resolveAlias(typeString(b))
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
