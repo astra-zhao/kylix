@@ -130,7 +130,15 @@ OPTIONS:
 		PackageSearchDirs: packageDirsFromWd(cfg.ProjectDir()),
 	}
 
-	result, err := compiler.CompileFile(mainFile, opts)
+	// If the project has multiple .klx files, use CompileProject (incremental cache).
+	// Otherwise fall back to CompileFile for single-file projects.
+	allFiles, _ := cfg.FindAllKlxFiles()
+	var result *compiler.Result
+	if len(allFiles) > 1 {
+		result, err = compiler.CompileProject(allFiles, opts)
+	} else {
+		result, err = compiler.CompileFile(mainFile, opts)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
