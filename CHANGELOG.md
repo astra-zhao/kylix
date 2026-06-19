@@ -4,6 +4,188 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v2.3.0 (2026-06-19)
+
+### 🎉 Developer Experience: Editor, REPL, Test, Debug, WASM
+
+v2.3.0 polishes the developer-facing surface — IDE responsiveness, interactive
+REPL, test runner ergonomics, language localization, debugger integration,
+and a WebAssembly target.
+
+---
+
+### Task 1: LSP Incremental Synchronization
+
+Editors no longer lose sync on rapid typing.
+
+**Before**: every `didChange` parsed the full document N times (one per change).
+**After**: changes batched, applied incrementally, parsed once.
+
+**Changes:**
+- `Document.Version` tracks LSP version for each document
+- `DocumentStore.Update(uri, text, version)` rejects stale versions
+- New `ApplyChanges(uri, version, []TextDocumentContentChange)` —
+  incremental range edits
+- New `applyRangeEdit(text, range, newText)` + `positionToOffset` helpers
+- Server capability: `textDocumentSync` 1 (Full) → 2 (Incremental)
+- Single `publishDiagnostics` per `didChange` (was N)
+
+**Tests**: `pkg/lsp/sync_test.go` (8 tests)
+
+---
+
+### Task 2: REPL Enhancements
+
+```
+kylix> writ<Tab>           → completes to 'WriteLn'
+kylix> :ty 42               → :type 42  →  Integer
+kylix> :load mylib.klx      → loads declarations from file
+```
+
+**Changes:**
+- `liner` Tab completion enabled (was unused dependency)
+- `buildCompleter()` combines:
+  - Pascal/Kylix keywords
+  - Built-in functions
+  - Meta-commands (`:help`, `:load`, `:type`, ...)
+  - User-declared identifiers
+- New `:load <file>` — read .klx file, strip program shell, execute declarations
+- New `:type <expr>` / `:t <expr>` — show inferred literal type
+- `extractDeclaredNames()` mines scope from accumulated declarations
+
+**Tests**: `pkg/repl/repl_test.go` (8 tests)
+
+---
+
+### Task 3: kylix test Advanced Features
+
+```pascal
+unit fixture_test;
+var counter: Integer;
+
+procedure Setup;
+begin
+  counter := 100;  // runs before each test
+end;
+
+procedure Teardown;
+begin
+  WriteLn('cleaning up');  // runs after each test (deferred)
+end;
+
+procedure TestAdd;
+begin
+  Assert(counter + 1 = 101, 'incremented');
+end;
+```
+
+```bash
+$ kylix test --filter Add fixture_test.klx
+  ok  TestAdd
+1 passed, 0 failed (filter: "Add")
+```
+
+**Changes:**
+- `Runner.Filter` field + `SetFilter` / `FilterCases` methods
+- New `--filter <substr>` CLI flag
+- `detectFixtures()` finds `Setup` / `Teardown` procedures per file
+- `buildHarness` injects `Setup()` at start and `defer Teardown()` after
+- `Teardown` runs even when test panics (defer semantics)
+
+**Tests**: `pkg/testrunner/filter_test.go` (3 tests)
+
+---
+
+### Task 4: i18n — Error Message Internationalization
+
+```bash
+$ KYLIX_LANG=zh kylix check broken.klx
+错误[KLX201]: 未声明的变量或函数 'unknownVar'
+```
+
+`pkg/i18n/` package (new):
+- 21 error code translations × 2 languages (English + Chinese)
+- 6 fix-hint translations
+- `T(code, args...)` — template lookup with English fallback
+- `Hint(hintKey, args...)` — localized fix suggestion
+- `KYLIX_LANG` env var: `en` (default) / `zh` (`zh-cn`, `chinese` aliases)
+
+Note: i18n package is independent and ready; full integration with
+`typecheck.diag` and `printDiagnostics` will land in v2.4 to avoid
+disruption to existing tests.
+
+**Tests**: `pkg/i18n/i18n_test.go` (9 tests)
+
+---
+
+### Task 5: Delve Debugger Integration
+
+```bash
+$ kylix debug main.klx
+(dlv) break main.klx:5
+Breakpoint 1 set at 0x... for main main.go:5
+(dlv) continue
+```
+
+`cmd/kylix/cmd_debug.go` (new):
+- Compiles `.klx` → `.go` (preserves `//line` directives)
+- `go build -gcflags='all=-N -l'` — disables optimization for debugging
+- Spawns `dlv exec <binary>` — interactive or `--headless --port=N` for IDE
+- `--keep` retains intermediate Go file
+- Detects missing `dlv` and shows install command
+
+Source-line mapping: generator's existing `//line file.klx:N` directives carry
+into DWARF debug info, so `break main.klx:42` works directly.
+
+---
+
+### Task 6: WebAssembly Backend (MVP)
+
+```bash
+$ kylix build --wasm hello.klx
+✓ Built hello.klx → hello.wasm [wasm via Go]   (2.5 MB)
+
+$ kylix build --wasm --tinygo hello.klx
+✓ Built hello.klx → hello.wasm [wasm via TinyGo]  (~30 KB)
+```
+
+**Changes:**
+- `--wasm` flag in `cmd build`
+- `--tinygo` for size-optimized output (requires tinygo installed)
+- `--wasm` and `--target` mutually exclusive; `--tinygo` requires `--wasm`
+- New `goBuildWasm(goFile, outBin, useTinyGo)` function
+- Both single-file and project mode supported
+
+Implementation strategy: leverages Go's existing wasm backend (`GOOS=js GOARCH=wasm`)
+rather than a custom IR. TinyGo path produces ~80× smaller binaries suitable
+for browser deployment.
+
+---
+
+### Summary
+
+| Task | Tests | Type |
+|------|-------|------|
+| LSP incremental sync | 8 | Editor performance |
+| REPL Tab/load/type | 8 | Interactive experience |
+| Test fixtures + filter | 3 | Testing ergonomics |
+| i18n framework | 9 | Internationalization |
+| Delve debug command | – | Tooling |
+| WASM target | – | Deployment |
+| **Total v2.3.0** | **28** | |
+
+### Breaking Changes
+- `DocumentStore.Update` signature: now `(uri, text, version int)` — callers must add `0` for legacy version
+- LSP `textDocumentSync` capability advertises Incremental (2) instead of Full (1)
+
+### Known Limitations
+- i18n integration not yet wired into all error paths (deferred to v2.4)
+- Debug command requires `dlv` installed separately
+- WASM with TinyGo requires `tinygo` installed; standard Go path always works
+- `:type` REPL command does literal-only inference (not full expression types)
+
+---
+
 ## v2.2.0 (2026-06-19)
 
 ### 🎉 Engineering Quality & stdlib Phase 2
