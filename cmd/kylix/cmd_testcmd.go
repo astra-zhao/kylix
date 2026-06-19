@@ -12,12 +12,17 @@ func cmdTest(args []string) {
 	verbose := fs.Bool("v", false, "Verbose output")
 	tap := fs.Bool("tap", false, "Output TAP format")
 	dir := fs.String("dir", ".", "Directory to search for *_test.klx files")
+	filter := fs.String("filter", "", "Run only tests whose name contains this substring")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix test [options] [file_test.klx...]
 
 Discover and run Kylix tests in *_test.klx files.
 Test procedures must be named Test<Something>() with no parameters.
 Use Assert(condition, message) to check expectations.
+
+Optional fixtures (per file):
+  procedure Setup;     — runs before each test
+  procedure Teardown;  — runs after each test (deferred)
 
 OPTIONS:
 `)
@@ -29,6 +34,9 @@ OPTIONS:
 	}
 
 	runner := testrunner.New(*verbose)
+	if *filter != "" {
+		runner.SetFilter(*filter)
+	}
 
 	var cases []testrunner.TestCase
 
@@ -52,8 +60,17 @@ OPTIONS:
 		}
 	}
 
+	// Apply filter (if set).
+	if *filter != "" {
+		cases = runner.FilterCases(cases)
+	}
+
 	if len(cases) == 0 {
-		fmt.Println("no tests found")
+		if *filter != "" {
+			fmt.Printf("no tests matching filter %q\n", *filter)
+		} else {
+			fmt.Println("no tests found")
+		}
 		return
 	}
 
@@ -73,7 +90,11 @@ OPTIONS:
 				}
 			}
 		}
-		fmt.Printf("\n%d passed, %d failed\n", passed, failed)
+		fmt.Printf("\n%d passed, %d failed", passed, failed)
+		if *filter != "" {
+			fmt.Printf(" (filter: %q)", *filter)
+		}
+		fmt.Println()
 		if failed > 0 {
 			os.Exit(1)
 		}

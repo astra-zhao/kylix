@@ -41,14 +41,26 @@ type TestResult struct {
 	BenchResult string // non-empty for benchmark results
 }
 
+// FileFixtures holds optional Setup/Teardown procedures for a file.
+type FileFixtures struct {
+	HasSetup    bool
+	HasTeardown bool
+}
+
 // Runner discovers and runs Kylix tests.
 type Runner struct {
 	Verbose bool
+	Filter  string // optional substring filter on test names
 }
 
 // New returns a Runner.
 func New(verbose bool) *Runner {
 	return &Runner{Verbose: verbose}
+}
+
+// SetFilter restricts execution to test names containing the given substring.
+func (r *Runner) SetFilter(pattern string) {
+	r.Filter = pattern
 }
 
 // DiscoverFile returns Test* procedures found in a single _test.klx file.
@@ -83,6 +95,7 @@ func (r *Runner) Discover(dir string) ([]TestCase, error) {
 }
 
 // discoverInFile parses a .klx file and extracts Test* procedure names.
+// Procedures named exactly 'Setup' / 'Teardown' are recognized as fixtures.
 func discoverInFile(path string) ([]TestCase, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
@@ -103,6 +116,47 @@ func discoverInFile(path string) ([]TestCase, error) {
 		}
 	}
 	return cases, nil
+}
+
+// detectFixtures parses a file and reports whether Setup/Teardown procedures exist.
+func detectFixtures(path string) FileFixtures {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return FileFixtures{}
+	}
+	l := lexer.New(string(src))
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fx := FileFixtures{}
+	for _, decl := range prog.Declarations {
+		fd, ok := decl.(*ast.FunctionDecl)
+		if !ok {
+			continue
+		}
+		if fd.Name == "Setup" && len(fd.Parameters) == 0 {
+			fx.HasSetup = true
+		}
+		if fd.Name == "Teardown" && len(fd.Parameters) == 0 {
+			fx.HasTeardown = true
+		}
+	}
+	return fx
+}
+
+// FilterCases returns only cases whose Name contains the runner's filter substring.
+// When Filter is empty, all cases are returned.
+func (r *Runner) FilterCases(cases []TestCase) []TestCase {
+	if r.Filter == "" {
+		return cases
+	}
+	out := make([]TestCase, 0, len(cases))
+	for _, c := range cases {
+		if strings.Contains(c.Name, r.Filter) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // Run executes each test case and returns results.
@@ -223,7 +277,11 @@ func buildHarness(klxFile string, names []string, tmpDir string) (string, error)
 	sb.WriteString(goBody)
 	sb.WriteString("\n")
 
-	// Dispatch main: run one test by name, panic on failure
+	// Detect Setup/Teardown fixtures in the test file.
+	fixtures := detectFixtures(klxFile)
+
+	// Dispatch main: run one test by name, panic on failure.
+	// Calls Setup() before the test and Teardown() after (when present).
 	sb.WriteString("func main() {\n")
 	sb.WriteString("\tif len(os.Args) < 2 {\n")
 	sb.WriteString("\t\tfmt.Fprintln(os.Stderr, \"usage: harness <TestName>\")\n")
@@ -237,6 +295,12 @@ func buildHarness(klxFile string, names []string, tmpDir string) (string, error)
 	sb.WriteString("\t\t\tos.Exit(1)\n")
 	sb.WriteString("\t\t}\n")
 	sb.WriteString("\t}()\n")
+	if fixtures.HasSetup {
+		sb.WriteString("\tSetup()\n")
+	}
+	if fixtures.HasTeardown {
+		sb.WriteString("\tdefer Teardown()\n")
+	}
 	sb.WriteString("\tswitch name {\n")
 	for _, n := range names {
 		sb.WriteString(fmt.Sprintf("\tcase %q:\n\t\t%s()\n", n, n))
