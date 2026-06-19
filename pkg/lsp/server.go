@@ -87,7 +87,9 @@ type DidChangeParams struct {
 }
 
 type TextDocumentContentChange struct {
-	Text string `json:"text"`
+	Range       *Range `json:"range,omitempty"`       // optional: nil means full-document replace
+	RangeLength int    `json:"rangeLength,omitempty"` // optional: deprecated by LSP but still seen
+	Text        string `json:"text"`
 }
 
 type DidCloseParams struct {
@@ -245,7 +247,7 @@ func (s *Server) handleInitialize(msg *Message) *Message {
 		ID: msg.ID,
 		Result: map[string]interface{}{
 			"capabilities": map[string]interface{}{
-				"textDocumentSync": 1,
+				"textDocumentSync": 2, // 2 = Incremental sync (was 1 = Full)
 				"completionProvider": map[string]interface{}{
 					"triggerCharacters": []string{".", ":"},
 					"resolveProvider":   false,
@@ -275,15 +277,17 @@ func (s *Server) handleInitialize(msg *Message) *Message {
 func (s *Server) handleDidOpen(msg *Message) {
 	var params DidOpenParams
 	json.Unmarshal(msg.Params, &params)
-	doc := s.docs.Update(params.TextDocument.URI, params.TextDocument.Text)
+	doc := s.docs.Update(params.TextDocument.URI, params.TextDocument.Text, params.TextDocument.Version)
 	s.publishDiagnostics(doc)
 }
 
 func (s *Server) handleDidChange(msg *Message) {
 	var params DidChangeParams
 	json.Unmarshal(msg.Params, &params)
-	for _, change := range params.ContentChanges {
-		doc := s.docs.Update(params.TextDocument.URI, change.Text)
+	// Apply all changes incrementally in a single pass — avoids multiple parses
+	// per didChange and ensures atomic version bookkeeping.
+	doc := s.docs.ApplyChanges(params.TextDocument.URI, params.TextDocument.Version, params.ContentChanges)
+	if doc != nil {
 		s.publishDiagnostics(doc)
 	}
 }

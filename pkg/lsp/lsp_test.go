@@ -258,7 +258,7 @@ end.`
 	server := &Server{
 		docs: NewDocumentStore(),
 	}
-	server.docs.Update(doc.URI, code)
+	server.docs.Update(doc.URI, code, 0)
 
 	formatMsg := Message{
 		JSONRPC: "2.0",
@@ -306,7 +306,7 @@ end.`
 	server := &Server{
 		docs: NewDocumentStore(),
 	}
-	server.docs.Update(doc.URI, code)
+	server.docs.Update(doc.URI, code, 0)
 
 	symbolMsg := Message{
 		JSONRPC: "2.0",
@@ -380,7 +380,7 @@ end.`
 	}
 
 	// 3. 打开文档
-	server.docs.Update(doc.URI, code)
+	server.docs.Update(doc.URI, code, 0)
 
 	// 4. 测试各种操作
 

@@ -16,6 +16,7 @@ import (
 type Document struct {
 	URI         string
 	Text        string
+	Version     int // Latest LSP version applied; -1 for unset
 	Lines       []string
 	AST         *ast.Program
 	Symbols     *SymbolTable
@@ -211,14 +212,95 @@ func NewDocumentStore() *DocumentStore {
 	}
 }
 
-// Update updates a document and re-parses it
-func (ds *DocumentStore) Update(uri, text string) *Document {
+// Update replaces a document's text and re-parses it. Returns the new Document.
+// If version is provided (>= 0) and is older than the existing version, the
+// update is rejected and the existing document is returned unchanged.
+func (ds *DocumentStore) Update(uri, text string, version int) *Document {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
+	if existing, ok := ds.docs[uri]; ok && version >= 0 && existing.Version > version {
+		// Stale update — keep what we have.
+		return existing
+	}
+
 	doc := NewDocument(uri, text)
+	if version >= 0 {
+		doc.Version = version
+	}
 	ds.docs[uri] = doc
 	return doc
+}
+
+// ApplyChanges applies a sequence of LSP content changes incrementally.
+// Each change may be a full-document replace (Range == nil) or a range edit.
+// Returns the new Document. Older-version updates are rejected.
+func (ds *DocumentStore) ApplyChanges(uri string, version int, changes []TextDocumentContentChange) *Document {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	existing, ok := ds.docs[uri]
+	text := ""
+	if ok {
+		if version >= 0 && existing.Version > version {
+			return existing // stale
+		}
+		text = existing.Text
+	}
+
+	for _, ch := range changes {
+		if ch.Range == nil {
+			// Full-document replace.
+			text = ch.Text
+		} else {
+			text = applyRangeEdit(text, *ch.Range, ch.Text)
+		}
+	}
+
+	doc := NewDocument(uri, text)
+	if version >= 0 {
+		doc.Version = version
+	}
+	ds.docs[uri] = doc
+	return doc
+}
+
+// applyRangeEdit replaces the substring of `text` covered by `r` with `newText`.
+// LSP positions are 0-based (line, character). Out-of-range edits clamp to bounds.
+func applyRangeEdit(text string, r Range, newText string) string {
+	startOff := positionToOffset(text, r.Start)
+	endOff := positionToOffset(text, r.End)
+	if startOff > endOff {
+		startOff, endOff = endOff, startOff
+	}
+	if startOff < 0 {
+		startOff = 0
+	}
+	if endOff > len(text) {
+		endOff = len(text)
+	}
+	return text[:startOff] + newText + text[endOff:]
+}
+
+// positionToOffset converts an LSP {line, character} pair to a byte offset
+// within text. Lines are separated by '\n'.
+func positionToOffset(text string, pos Position) int {
+	line, col := 0, 0
+	for i := 0; i < len(text); i++ {
+		if line == pos.Line && col == pos.Character {
+			return i
+		}
+		if text[i] == '\n' {
+			line++
+			col = 0
+			if line > pos.Line {
+				return i // ran past target line — clamp
+			}
+		} else {
+			col++
+		}
+	}
+	return len(text)
 }
 
 // Get retrieves a document
