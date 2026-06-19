@@ -15,10 +15,16 @@ func cmdBuild(args []string) {
 	output := fs.String("o", "", "Output file (for single file compilation)")
 	verbose := fs.Bool("v", false, "Verbose output")
 	target := fs.String("target", "", "Cross-compile target: os/arch (e.g. linux/amd64, windows/amd64, darwin/arm64)")
+	wasm := fs.Bool("wasm", false, "Compile to WebAssembly (.wasm) — uses GOOS=js GOARCH=wasm")
+	tinygo := fs.Bool("tinygo", false, "Use TinyGo for WASM build (smaller output, requires tinygo installed)")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix build [options] [file.klx]
 
 Build the current project or a single Kylix file.
+
+WASM EXAMPLES:
+  kylix build --wasm main.klx           # Standard Go WASM (~3 MB)
+  kylix build --wasm --tinygo main.klx  # TinyGo WASM (~30 KB, requires tinygo)
 
 OPTIONS:
 `)
@@ -27,6 +33,16 @@ OPTIONS:
 	}
 
 	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	// --wasm overrides --target
+	if *wasm && *target != "" {
+		fmt.Fprintln(os.Stderr, "Error: --wasm and --target are mutually exclusive")
+		os.Exit(1)
+	}
+	if *tinygo && !*wasm {
+		fmt.Fprintln(os.Stderr, "Error: --tinygo requires --wasm")
 		os.Exit(1)
 	}
 
@@ -62,7 +78,21 @@ OPTIONS:
 			if !result.Success {
 				os.Exit(1)
 			}
-			if targetGOOS != "" {
+			if *wasm {
+				binOut := *output
+				if binOut == "" {
+					binOut = stripExt(file) + ".wasm"
+				}
+				if err := goBuildWasm(result.OutputFile, binOut, *tinygo); err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					os.Exit(1)
+				}
+				flavor := "Go"
+				if *tinygo {
+					flavor = "TinyGo"
+				}
+				fmt.Printf("✓ Built %s → %s [wasm via %s]\n", file, binOut, flavor)
+			} else if targetGOOS != "" {
 				binOut := *output
 				if binOut == "" {
 					binOut = stripExt(file)
@@ -157,7 +187,18 @@ OPTIONS:
 		}
 	}
 
-	if targetGOOS != "" {
+	if *wasm {
+		binOut := filepath.Join(outDir, cfg.Name+".wasm")
+		if err := goBuildWasm(outFile, binOut, *tinygo); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		flavor := "Go"
+		if *tinygo {
+			flavor = "TinyGo"
+		}
+		fmt.Printf("✓ Built %s → %s [wasm via %s]\n", cfg.Name, binOut, flavor)
+	} else if targetGOOS != "" {
 		binOut := filepath.Join(outDir, cfg.Name)
 		if targetGOOS == "windows" {
 			binOut += ".exe"
@@ -186,6 +227,32 @@ func splitTarget(t string) []string {
 func goBuild(goFile, outBin, goos, goarch string) error {
 	cmd := exec.Command("go", "build", "-o", outBin, goFile)
 	cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// goBuildWasm compiles the generated Go file to WebAssembly using either
+// the standard go toolchain (GOOS=js GOARCH=wasm) or TinyGo (smaller binary).
+// useTinyGo controls which compiler is used.
+func goBuildWasm(goFile, outBin string, useTinyGo bool) error {
+	if useTinyGo {
+		// Verify tinygo is installed
+		if _, err := exec.LookPath("tinygo"); err != nil {
+			return fmt.Errorf("tinygo not found in PATH; install from https://tinygo.org/getting-started/install/")
+		}
+		cmd := exec.Command("tinygo", "build",
+			"-o", outBin,
+			"-target=wasm",
+			goFile,
+		)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	// Standard Go: GOOS=js GOARCH=wasm
+	cmd := exec.Command("go", "build", "-o", outBin, goFile)
+	cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
