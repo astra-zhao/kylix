@@ -1,38 +1,51 @@
-# Kylix - 现代化 Pascal 语言
+# Kylix - 现代 Pascal 语言
 
-[![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
-[![版本](https://img.shields.io/badge/version-1.3.2-blue.svg)](CHANGELOG.md)
-[![许可证](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![自举完成](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
+[![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
+[![版本](https://img.shields.io/badge/version-2.3.0-blue.svg)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
-Kylix 是 Pascal 语言的现代化重制版，编译目标为 Go。它将 Pascal 的清晰简洁与现代化语言特性相结合，并配备完整的 IDE 工具链和编辑器集成。
+Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
 
-> 🌐 **官方网站**: [https://kylix.top](https://kylix.top) — 交互式文档、在线示例和完整功能展示。
+> 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🔥 **重大里程碑 (v1.2.2)**: 自举完成——Go 参考编译器和 Kylix 自举编译器均通过 15/15 示例。详见 [ROADMAP.md](ROADMAP.md)。
+> 🎉 **v2.3.0 发布**: 开发体验大幅提升 — LSP 增量同步、REPL Tab 补全、测试 fixtures + `--filter`、i18n 框架、Delve 调试器、WebAssembly 目标。详情见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 特性
 
-### Pascal 核心特性
-- 强类型与类型推导
+### 核心 Pascal 特性
+- 强类型并支持类型推导
 - 过程和函数
-- 控制结构（if, while, for, case, repeat）
+- 控制结构 (if、while、for、case、repeat)
 - 记录和数组
 - 异常处理
 
-### 现代语言特性
-- **类型推导**: `var x := 42;`
+### 现代化扩展
+- **类型推导**: `var x := 42;` — 从字面量推导出 Integer
+- **泛型约束**: `TBox<T: IComparable>` — 验证类型参数
 - **Lambda 表达式**: `var square = (x: Integer) -> x * x;`
-- **泛型**: 声明类型参数: `TList<T>`, `function Foo<T>(x: T): T`
-- **泛型类型引用**: `TList<Integer>`, `TPair<String, Integer>`
+- **泛型**: 声明类型参数: `TList<T>`、`function Foo<T>(x: T): T`
+- **泛型类型引用**: `TList<Integer>`、`TPair<String, Integer>`
 - **Async/Await**: `async function FetchData(): String;`
 - **模式匹配**: `match value { 0 => 'zero', _ => 'other' }`
-- **类和接口**: 面向对象编程支持
-- **属性**: 带 getter/setter
+- **类与接口**: 面向对象编程支持
+- **属性**: 带有 getter 和 setter
 - **ForEach 循环**: `for item in collection do`
 - **字符串插值**: `'Hello, ${name}!'`
-- **现代化异常处理**: try/except/finally, `on E: Type do` 子句
+- **现代异常处理**: try/except/finally,`on E: Type do` 子句
+
+### 完整工具链 (v2.0.0+)
+- **测试**: `kylix test` — 发现并运行 `*_test.klx` 中的 `Test*` 过程
+- **基准测试**: `kylix bench` — 衡量 `Bench*` 过程的性能
+- **文档生成**: `kylix doc` — 从 `//` 文档注释生成 Markdown
+- **类型检查**: 含错误代码 (KLX001–499)、错误恢复、"你是否想用?" 建议
+- **LSP 服务器**: 完整 IDE 支持 — 补全、悬停、诊断、签名帮助、增量同步 (v2.3.0)
+- **包管理器**: `kylix add`、`kylix remove` 管理依赖
+- **REPL**: 多行输入、Tab 补全、`:load`/`:type` 元命令 (v2.3.0)
+- **调试器**: `kylix debug` 集成 Delve (v2.3.0)
+- **WebAssembly**: `kylix build --wasm` 编译为 .wasm (v2.3.0)
+- **国际化**: 通过 `KYLIX_LANG=zh` 切换中文错误消息 (v2.3.0)
 
 ## 安装
 
@@ -41,14 +54,14 @@ Kylix 是 Pascal 语言的现代化重制版，编译目标为 Go。它将 Pasca
 git clone https://github.com/astra-zhao/kylix.git
 cd kylix
 
-# 编译
+# 编译编译器
 go build -o kylix cmd/kylix/main.go
 
-# 添加到 PATH（可选）
+# 加入 PATH (可选)
 export PATH=$PATH:$(pwd)
 ```
 
-## 快速上手
+## 快速开始
 
 ```bash
 # 创建新项目
@@ -58,7 +71,7 @@ cd myapp
 # 编译并运行
 ./kylix run
 
-# 语法检查
+# 检查语法
 ./kylix check
 
 # 格式化代码
@@ -70,11 +83,18 @@ cd myapp
 ```bash
 kylix new <name>       # 创建新项目
 kylix build            # 编译项目或文件
+kylix build --wasm     # 编译为 WebAssembly
 kylix run              # 编译并运行
-kylix check            # 语法检查（不生成代码）
-kylix fmt              # 格式化源代码
+kylix check            # 项目级类型检查 (跨文件)
+kylix fmt              # 格式化源文件
+kylix test             # 运行测试 (*_test.klx)
+kylix bench            # 运行基准测试 (*_bench.klx)
+kylix doc              # 从注释生成 Markdown 文档
+kylix debug            # 启动 Delve 调试器 (需安装 dlv)
 kylix repl             # 交互式 REPL
-kylix lsp              # 启动 LSP 服务器（用于编辑器）
+kylix lsp              # 启动 LSP 服务 (供编辑器)
+kylix add <pkg>        # 添加依赖包
+kylix remove <pkg>     # 删除依赖包
 kylix version          # 显示版本
 kylix help             # 显示帮助
 ```
@@ -92,7 +112,7 @@ end.
 ### 类型推导
 ```pascal
 var count := 42;
-var message := '推断为字符串';
+var message := 'Inferred as string';
 var ratio := 3.14;
 ```
 
@@ -117,10 +137,10 @@ public
   begin
     Name := name;
   end;
-  
+
   procedure Speak; virtual;
   begin
-    WriteLn(Name, ' 发出声音');
+    WriteLn(Name, ' makes a sound');
   end;
 end;
 
@@ -128,7 +148,7 @@ class Dog inherits Animal
 public
   procedure Speak; override;
   begin
-    WriteLn(Name, ' 汪汪叫！');
+    WriteLn(Name, ' barks!');
   end;
 end;
 ```
@@ -143,7 +163,30 @@ match value {
 };
 ```
 
-### 泛型类和函数
+### Async/Await
+```pascal
+async function FetchData(url: String): String;
+begin
+  // 异步操作
+  result := 'Data from ' + url;
+end;
+
+var data := await FetchData('http://example.com');
+```
+
+### 异常处理 (ON 子句)
+```pascal
+try
+  raise Exception.Create('test');
+except
+  on E: Exception do
+    WriteLn('Caught: ' + E.Message);
+  else
+    WriteLn('Unknown exception');
+end;
+```
+
+### 泛型类与泛型函数
 ```pascal
 type
   TPair<T1, T2> = class
@@ -155,139 +198,530 @@ function CreatePair<T>(x: T; y: T): TPair<T, T>;
 begin
   Result := TPair<T, T>.Create;
 end;
+
+var
+  pair: TPair<Integer, String>;
+begin
+  pair := CreatePair<Integer>(42, 'hello');
+end.
 ```
 
-### 异常处理
+### 匿名过程与匿名函数
 ```pascal
-try
-  raise Exception.Create('test');
-except
-  on E: Exception do
-    WriteLn('捕获: ' + E.Message);
-  else
-    WriteLn('未知异常');
+// 匿名过程
+var greet := procedure()
+begin
+  WriteLn('Hello!');
 end;
+greet();
+
+// 带参数的匿名函数
+var add := function(a: Integer; b: Integer): Integer
+begin
+  result := a + b;
+end;
+WriteLn(add(10, 20));  // 30
+```
+
+### Web 服务器
+```pascal
+program WebApp;
+uses web;
+var
+  app: TServer;
+begin
+  app := web.createServer(8080);
+
+  // GET 路由
+  app.get('/', procedure(req: TRequest; res: TResponse)
+  begin
+    res.send('Hello, Kylix Web!');
+  end);
+
+  // 带路径参数的 JSON API
+  app.get('/api/users/:id', procedure(req: TRequest; res: TResponse)
+  var
+    userId: String;
+  begin
+    userId := req.param('id');
+    res.json(record id := userId; name := 'User ' + userId; end);
+  end);
+
+  // 处理 JSON body 的 POST 路由
+  app.post('/api/users', procedure(req: TRequest; res: TResponse)
+  var
+    body: record name: String; email: String; end;
+  begin
+    req.json(body);
+    res.status(201).json(body);
+  end);
+
+  // 中间件
+  app.use(web.loggerMiddleware());
+
+  // 静态文件
+  app.static('/public', './static');
+
+  app.listen();
+end.
+```
+
+### 测试 (v2.0.0+)
+```pascal
+// math_test.klx
+unit math_test;
+uses math;
+
+procedure Setup;
+begin
+  // 每个测试前运行
+end;
+
+procedure Teardown;
+begin
+  // 每个测试后运行 (defer)
+end;
+
+procedure TestAdd;
+begin
+  Assert(Add(2, 3) = 5, 'expected 2+3=5');
+end;
+```
+
+```bash
+$ kylix test --filter Add math_test.klx
+  ok  TestAdd
+1 passed, 0 failed (filter: "Add")
+```
+
+## 标准库
+
+### Web 框架 (`web`)
+HTTP 服务器,支持路由、中间件、请求/响应处理。
+
+```pascal
+uses web;
+
+app := web.createServer(8080);
+app.get('/api/users', procedure(req: TRequest; res: TResponse)
+begin
+  res.json(users);
+end);
+app.listen();
+```
+
+### 依赖注入 (`container`)
+IoC 容器,支持 singleton、transient、scoped 生命周期。
+
+```pascal
+uses container;
+
+di := NewContainer;
+di.RegisterSingleton('UserService', function: TUserService
+begin
+  result := TUserService.Create;
+end);
+
+service := di.Resolve('UserService').(TUserService);
+```
+
+### 配置 (`config`)
+从环境变量加载配置,提供类型安全的访问器。
+
+```pascal
+uses config;
+
+cfg := NewConfig;
+cfg.SetPrefix('APP');
+cfg.LoadFromEnv;
+
+port := cfg.GetIntDefault('PORT', 8080);
+debug := cfg.GetBoolDefault('DEBUG', false);
+```
+
+### 中间件 (`middleware`)
+为常见 Web 应用预置的中间件。
+
+```pascal
+uses middleware;
+
+app.use(NewRequestIDMiddleware.Handle);
+app.use(NewLoggingMiddleware.Handle);
+app.use(NewCORSMiddleware.Handle);
+app.use(NewAuthMiddleware(ValidateToken).Handle);
+app.use(NewRateLimitMiddleware(100, 60).Handle);
+```
+
+### 验证 (`validation`)
+请求验证,提供流式 API 和常用验证器。
+
+```pascal
+uses validation;
+
+validator := NewRequestValidator(req);
+validator.Required(['name', 'email']);
+validator.Email('email');
+validator.MinLength('password', 8);
+
+if not validator.IsValid then
+  res.status(400).json(validator.Errors);
+```
+
+### ORM (`orm`)
+数据库 ORM,支持 MySQL、PostgreSQL、SQLite,提供查询构造器和迁移工具。
+
+```pascal
+uses orm;
+
+// 连接数据库
+dbConfig := TConnectionConfig{
+  Type: DBSQLite,
+  Database: './app.db'
+};
+db := NewDatabase(dbConfig);
+orm := NewORM(db);
+
+// 插入
+data := map[string]interface{}{
+  'name': 'John',
+  'email': 'john@example.com'
+};
+id := orm.Insert('users', data);
+
+// 用查询构造器查询
+qb := orm.QueryBuilder('users');
+qb.Where('age', '>', 18);
+qb.OrderBy('name', 'ASC');
+qb.Limit(10);
+users := orm.Execute(qb);
+
+// 按 ID 查找
+user := orm.Find('users', 1);
+
+// 更新
+orm.Update('users',
+  map[string]interface{}{'id': 1},  // 条件
+  map[string]interface{}{'name': 'Jane'}  // 数据
+);
+
+// 删除
+orm.Delete('users', map[string]interface{}{'id': 1});
+```
+
+### 模板引擎 (`template`)
+HTML 模板渲染,支持 layout、partial、自定义函数。
+
+```pascal
+uses template;
+
+engine := NewTemplateEngine;
+engine.SetTemplateDir('./templates');
+
+// 注册 layout
+engine.RegisterLayout('main',
+  '<html><body>{{.Content}}</body></html>');
+
+// 注册 partial
+engine.RegisterPartial('header', '<h1>My App</h1>');
+
+// 渲染
+view := NewView(engine);
+view.With('Title', 'Home');
+view.With('Message', 'Welcome!');
+view.WithLayout('main');
+html := view.Render('home.html');
+res.HTML(html);
+```
+
+### 自动配置 (`autoconfig`)
+从多个源加载配置,带环境检测。
+
+```pascal
+uses autoconfig;
+
+config := NewAutoConfig('myapp');
+config.DetectEnvironment;       // 从 APP_ENV 检测
+config.SetConfigDir('./config');
+config.AddDefaultSources;       // config.json、config.{env}.json、env vars
+config.Load;
+
+// 访问配置
+port := config.GetInt('server.port');
+dbHost := config.GetString('database.host');
+debug := config.GetBool('app.debug');
+
+// 环境检查
+if config.IsProduction then
+  // 生产环境特定逻辑
+```
+
+### 文件 I/O (`sysutil`)
+文件和目录操作,提供 Pascal 风格的 API。
+
+```pascal
+uses sysutil;
+
+// 读/写文件
+content := sysutil.ReadFile('data.txt');
+sysutil.WriteFile('output.txt', 'Hello, World!');
+sysutil.AppendFile('log.txt', 'New line');
+
+// 文件操作
+if sysutil.FileExists('config.json') then
+  WriteLn('Config found');
+
+sysutil.CreateDir('new_folder');
+sysutil.CopyFile('src.txt', 'dst.txt');
+sysutil.DeleteFile('temp.txt');
+
+// 列文件
+files := sysutil.ListDir('./');
+matches := sysutil.ListFiles('*.klx');
+
+// 路径工具
+fullPath := sysutil.PathJoin('dir', 'sub', 'file.txt');
+dir := sysutil.PathDir('/home/user/doc.txt');
+ext := sysutil.PathExt('photo.jpg');
+
+// 行级 I/O
+lines := sysutil.ReadLines('data.csv');
+sysutil.WriteLines('output.csv', lines);
+```
+
+### JSON (`jsonutil`)
+JSON 编解码与操作。
+
+```pascal
+uses jsonutil;
+
+// 编码为 JSON
+jsonStr := jsonutil.JsonEncode(data);
+pretty := jsonutil.JsonEncodePretty(data);
+
+// 解析 JSON
+obj := jsonutil.JsonDecodeMap('{"name": "Kylix", "version": 1}');
+name := jsonutil.JsonGetString(obj, 'name');
+ver := jsonutil.JsonGetInt(obj, 'version');
+
+// 类型安全访问器
+flag := jsonutil.JsonGetBool(obj, 'active');
+pi := jsonutil.JsonGetFloat(obj, 'pi');
+child := jsonutil.JsonGetMap(obj, 'nested');
+items := jsonutil.JsonGetArray(obj, 'list');
+
+// 验证
+if jsonutil.JsonIsValid(input) then
+  WriteLn('Valid JSON');
+
+// 文件 I/O
+data := jsonutil.JsonReadFile('config.json');
+jsonutil.JsonWriteFile('output.json', data);
+```
+
+### 日期时间 (`datetime`)
+日期与时间操作,支持算术和格式化。
+
+```pascal
+uses datetime;
+
+// 当前时间
+now := datetime.Now();
+WriteLn(now.FormatDateTime());  // 2024-06-15 10:30:00
+WriteLn(now.FormatDate());      // 2024-06-15
+
+// 创建日期
+birthday := datetime.MakeDate(1990, 5, 15);
+meeting := datetime.MakeTime(2024, 12, 25, 14, 30, 0);
+
+// 日期算术
+nextWeek := now.AddDays(7);
+nextMonth := now.AddMonths(1);
+tomorrow := now.AddDays(1);
+
+// 比较
+days := now.DiffDays(birthday);
+if now.After(deadline) then
+  WriteLn('Overdue!');
+
+// 工具方法
+if now.IsWeekend() then
+  WriteLn('Weekend!');
+if now.IsLeapYear() then
+  WriteLn('Leap year');
+WriteLn('Day: ' + now.DayName());
+WriteLn('Month: ' + now.MonthName());
+
+// 解析
+dt := datetime.ParseDate('2024-06-15');
+dt2 := datetime.ParseDateTime('2024-06-15 10:30:00');
+
+// 时间戳
+ts := datetime.GetTimestamp();    // Unix 秒
+tsMs := datetime.GetTimestampMs(); // Unix 毫秒
+```
+
+### 正则表达式 (`regex`)
+模式匹配、查找、文本替换。
+
+```pascal
+uses regex;
+
+// 快速模式检查
+if regex.IsEmail('user@example.com') then
+  WriteLn('Valid email');
+
+if regex.IsNumeric('12345') then
+  WriteLn('All digits');
+
+if regex.IsURL('https://example.com') then
+  WriteLn('Valid URL');
+
+// 查找与替换
+match := regex.RegexFind('[0-9]+', 'Order #12345');
+// match = '12345'
+
+result := regex.RegexReplace('\s+', 'a  b  c', ' ');
+// result = 'a b c'
+
+// 编译后的 regex (可重用)
+re := regex.RegexMustCompile('(\w+)@(\w+)');
+if re.Match('user@host') then
+  groups := re.Groups('user@host');
+  // groups[1] = 'user', groups[2] = 'host'
+
+// 分割
+parts := regex.RegexSplit(',', 'a,b,c,d');
+// parts = ['a', 'b', 'c', 'd']
+
+// 提取所有数字
+nums := regex.ExtractNumbers('Room 42, Floor 3, Building 7');
+// nums = ['42', '3', '7']
+```
+
+### 纯 Kylix stdlib (v2.1+)
+
+四个模块完全用 Kylix 自身实现:
+
+| 模块 | 函数数 | 内容 |
+|------|--------|------|
+| `strutil` | 8 | Reverse、StartsWith、EndsWith、Contains、PadLeft、PadRight... |
+| `mathutil` | 12 | Abs、Min、Max、Pow、Gcd、Lcm、Factorial、IsPrime... |
+| `arrayutil` | 8 | Sum、Product、MinValue、MaxValue、Contains、IndexOf、Reverse... |
+| `collections` | TIntList 类 | Count、Get、Add、Clear、IsEmpty、Sum |
+
+```pascal
+uses strutil, mathutil;
+
+WriteLn(Reverse('hello'));      // olleh
+WriteLn(IsPrime(17));            // true
+WriteLn(Pow(2, 10));             // 1024
+WriteLn(PadLeft('42', 5, '0'));  // 00042
 ```
 
 ## 语言参考
 
 ### 类型
-- `Integer` — 64位整数（映射到 Go 的 `int64`）
-- `Real` — 64位浮点数（映射到 Go 的 `float64`）
-- `Boolean` — 布尔值
-- `String` — 字符串
-- `Char` — 单字符（映射到 Go 的 `byte`）
+- `Integer` - 64 位整数 (映射到 Go 的 `int64`)
+- `Real` - 64 位浮点 (映射到 Go 的 `float64`)
+- `Boolean` - 布尔值
+- `String` - 字符串
+- `Char` - 单字符 (映射到 Go 的 `byte`)
 
-### 运算符
-- 算术: `+`, `-`, `*`, `/`, `div`, `mod`
-- 比较: `=`, `<>`, `<`, `>`, `<=`, `>=`
-- 逻辑: `and`, `or`, `not`, `xor`
-- 赋值: `:=`, `=`
+### 操作符
+- 算术: `+`、`-`、`*`、`/`、`div`、`mod`
+- 比较: `=`、`<>`、`<`、`>`、`<=`、`>=`
+- 逻辑: `and`、`or`、`not`、`xor`
+- 赋值: `:=`、`=`
 
 ### 控制结构
 - `if/then/else`
 - `while/do`
 - `for/to/downto`
-- `for/in`（foreach）
+- `for/in` (foreach)
 - `repeat/until`
 - `case/of`
-- `match`（模式匹配）
+- `match` (模式匹配)
 - `try/except/finally`
+
+### 声明
+- `var` - 变量声明
+- `const` - 常量声明
+- `type` - 类型声明
+- `function` - 带返回值的函数
+- `procedure` - 不带返回值的过程
+- `class` - 类声明
+- `interface` - 接口声明
 
 ## 项目结构
 
 ```
 kylix/
 ├── cmd/kylix/          # CLI 入口
+│   ├── main.go             # 命令分发
+│   ├── cmd_build.go        # build / WASM
+│   ├── cmd_run.go          # run
+│   ├── cmd_other.go        # check / fmt / new
+│   ├── cmd_package.go      # add / install / remove
+│   ├── cmd_testcmd.go      # test (Setup/Teardown/--filter)
+│   ├── cmd_bench.go        # bench
+│   ├── cmd_doc.go          # doc
+│   └── cmd_debug.go        # debug (Delve)
 ├── pkg/
-│   ├── compiler/       # 编译 API
+│   ├── compiler/       # 编译 API + 增量缓存
 │   ├── project/        # 项目管理 (kylix.toml)
-│   ├── formatter/      # 代码格式化
-│   │   ├── formatter.go       # 核心 + 声明格式化
-│   │   ├── formatter_stmt.go  # 语句格式化
-│   │   └── formatter_expr.go  # 表达式 + 类型格式化
-│   ├── lsp/            # Language Server Protocol
-│   │   ├── server.go              # JSON-RPC 传输 + 消息分发
-│   │   ├── handler_completion.go  # 补全 + 悬停
-│   │   └── handler_navigation.go  # 跳转定义、引用、重命名、格式化
-│   └── repl/           # 交互式 REPL
+│   ├── pkgmgr/         # 包管理器
+│   ├── formatter/      # 源代码格式化
+│   ├── lsp/            # Language Server Protocol (含增量同步)
+│   ├── repl/           # 交互式 REPL (Tab 补全)
+│   ├── testrunner/     # 测试与基准测试
+│   ├── docgen/         # 文档生成器
+│   └── i18n/           # 错误信息国际化 (中文/英文)
 ├── stdlib/             # 标准库
-│   ├── web.go          # Web 框架
-│   ├── orm.go          # 数据库连接 + 事务
-│   ├── orm_query.go    # QueryBuilder 流式 API
-│   ├── orm_migrate.go  # ORM CRUD + 数据库迁移管理
-│   └── ...             # container, config, middleware, template 等
-├── token/              # Token 定义
-├── lexer/              # 词法分析器
-├── ast/                # AST 节点定义
-├── parser/             # Pratt 解析器（按职责拆分）
-│   ├── parser.go       # 核心：Parser struct、ParseProgram
-│   ├── parser_decl.go  # var/const/type/function/class 声明解析
-│   ├── parser_stmt.go  # if/for/while/try/match/raise 语句解析
-│   └── parser_expr.go  # 表达式、字面量、类型解析
-├── generator/          # Go 代码生成器（按职责拆分）
-│   ├── generator.go        # 核心：Generate/GenerateMulti、预扫描
-│   ├── generator_types.go  # 类、接口、变体、枚举、函数代码生成
-│   ├── generator_stmt.go   # 语句代码生成
-│   └── generator_expr.go   # 表达式代码生成
-├── src/                # 自举编译器源码（.klx 文件）
-│   ├── token.klx
-│   ├── ast.klx
-│   ├── lexer.klx
-│   ├── parser.klx      # TParser 全部方法（2423 行，暂未拆分）
-│   ├── generator.klx   # TGenerator 全部方法（1702 行，class body）
-│   ├── error.klx
-│   └── main.klx
+│   ├── web.go              # Web 框架
+│   ├── orm.go              # 数据库连接 + 事务
+│   ├── orm_query.go        # QueryBuilder 流式 API
+│   ├── orm_migrate.go      # ORM CRUD + 迁移
+│   ├── klx/                # LSP 自动补全声明文件
+│   └── src/                # 纯 Kylix stdlib 实现
+│       ├── strutil.klx
+│       ├── mathutil.klx
+│       ├── arrayutil.klx
+│       └── collections.klx
+├── token/              # token 定义
+├── lexer/              # 词法分析
+├── ast/                # AST 节点
+├── parser/             # Pratt parser (按职责拆分)
+│   ├── parser.go           # 核心
+│   ├── parser_decl.go      # 声明
+│   ├── parser_stmt.go      # 语句
+│   └── parser_expr.go      # 表达式
+├── generator/          # Go 代码生成器
+│   ├── generator.go        # 核心 + pre-scan
+│   ├── generator_types.go  # 类/接口/泛型
+│   ├── generator_stmt.go   # 语句
+│   └── generator_expr.go   # 表达式
+├── src/                # 自举编译器源码 (.klx)
 ├── examples/           # 示例程序
 ├── vscode-ext/         # VS Code 扩展
 └── docs/               # 文档
 ```
 
-## 标准库
-
-### Web 框架 (`web`)
-HTTP 服务器，支持路由、中间件和请求/响应处理。
-
-### 依赖注入 (`container`)
-IoC 容器，支持 singleton、transient 和 scoped 生命周期。
-
-### 配置 (`config`)
-从环境变量加载配置，带类型安全访问器。
-
-### 中间件 (`middleware`)
-预置中间件：CORS、Auth、Rate Limit、Request ID、Logging。
-
-### 验证 (`validation`)
-请求验证，支持 fluent API 和常用验证器。
-
-### ORM (`orm`)
-数据库 ORM，支持 MySQL、PostgreSQL、SQLite。
-
-### 模板引擎 (`template`)
-HTML 模板渲染，支持布局、局部模板和自定义函数。
-
-### 文件 I/O (`sysutil`)
-文件和目录操作，Pascal 风格 API。
-
-### JSON (`jsonutil`)
-JSON 编解码和操作。
-
-### 日期时间 (`datetime`)
-日期时间操作，支持算术运算和格式化。
-
-### 正则表达式 (`regex`)
-模式匹配、搜索和文本操作。
-
 ## 编辑器集成
 
 ### VS Code
-`vscode-ext/` 目录包含完整的 VS Code 扩展：
+`vscode-ext/` 目录包含完整的 VS Code 扩展:
 - 语法高亮
-- 语言配置（括号、注释、折叠）
+- 语言配置 (括号、注释、折叠)
 - LSP 客户端集成
 
+```bash
+cd vscode-ext
+npm install
+# 在 VS Code 按 F5 启动扩展
+```
+
 ### 其他编辑器
-Kylix LSP 支持任何带 LSP 客户端的编辑器：
+Kylix LSP 支持任何带 LSP 客户端的编辑器:
 ```json
 {
   "command": ["kylix", "lsp"],
@@ -295,107 +729,189 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器：
 }
 ```
 
+## 文档
+
+- [IDE 用户手册](docs/KYLIX_IDE_USER_MANUAL.md) - 完整的 CLI 与编辑器指南
+- [开发者指南](docs/KYLIX_DEV_GUIDE.md) - 架构、内部机制、贡献指南
+- [工具说明](docs/KYLIX_TOOLS_EXPLAINED.md) - 适合新手的工具说明
+- [Web 框架指南](docs/WEB_FRAMEWORK.md) - Web 服务器与 REST API 开发
+- [ORM 指南](docs/ORM_GUIDE.md) - 数据库 ORM 与查询构造器
+- [模板引擎指南](docs/TEMPLATE_GUIDE.md) - HTML 模板渲染
+
 ## 路线图
 
-### 第一阶段：编译器核心 ✅
-词法分析器、解析器、AST、Go 代码生成、基本语言特性、现代特性
+### Phase 1: 转译器 ✅
+- ✅ 词法分析与语法分析
+- ✅ AST 生成
+- ✅ Go 代码生成
+- ✅ 基础语言特性
+- ✅ 现代特性 (lambda、async、模式匹配)
 
-### 第二阶段：IDE 工具 ✅
-CLI、项目管理、LSP、VS Code 扩展、REPL、文档
+### Phase 2: IDE 工具 ✅
+- ✅ CLI 工具链 (new、build、run、check、fmt、repl、lsp)
+- ✅ 项目管理 (kylix.toml)
+- ✅ LSP 服务,支持补全和悬停
+- ✅ VS Code 扩展(语法高亮)
+- ✅ 交互式 REPL
+- ✅ 完整文档
 
-### 第三阶段：Web 框架 ✅
-HTTP 服务器、路由、中间件、JSON、DI、配置、ORM、模板引擎
+### Phase 3: 框架 ✅
+- ✅ Web 服务器 (基于 Go net/http)
+- ✅ 路由系统 (GET、POST、PUT、DELETE)
+- ✅ 路径参数 (`/users/:id`)
+- ✅ 中间件支持
+- ✅ JSON 请求/响应
+- ✅ 静态文件服务
+- ✅ 匿名过程与匿名函数
+- ✅ 增强的 VS Code 扩展
+- ✅ 依赖注入容器
+- ✅ 配置系统
+- ✅ 中间件套件 (CORS、Auth、Rate Limit、Request ID、Logging)
+- ✅ 请求验证
+- ✅ ORM (MySQL、PostgreSQL、SQLite)
+- ✅ 模板引擎
+- ✅ 自动配置
 
-### 第四阶段：语言增强 ✅
-泛型、异常 ON 子句、构造器/析构器、Lambda、Async/Await
+### Phase 4: 语言增强 ✅
+- ✅ 泛型类型参数声明 (类与函数)
+- ✅ 异常处理 ON 子句 (`on E: ExceptionType do`)
+- ✅ Constructor/destructor/inherited 关键字
+- ✅ Lambda 表达式参数解析
+- ✅ Async/await 代码生成改进
 
-### 第五阶段：标准库与工具 ✅
-sysutil、jsonutil、datetime、regex、REPL 改进、格式化器
+### Phase 5: 标准库与工具链 ✅
+- ✅ 文件 I/O (`sysutil`)
+- ✅ JSON (`jsonutil`)
+- ✅ 日期时间 (`datetime`)
+- ✅ 正则表达式 (`regex`)
+- ✅ REPL 改进 (readline 历史)
+- ✅ Formatter 修复
+- ✅ Generator stdlib 串接
 
-### 第六-七阶段：Bug 修复与语言能力 ✅
-字符串插值、异常类型、多返回值、Properties、Map、Variant、动态数组、枚举、多文件模块
+### Phase 6-7: Bug 修复与语言能力 ✅
+- ✅ 字符串插值
+- ✅ 异常类型 (ON 子句)
+- ✅ 多返回值 (`function Div(a,b: Integer): (Integer, Integer)`)
+- ✅ 属性代码生成 (getter/setter)
+- ✅ Map 类型、Variant 类型、动态数组
+- ✅ 枚举类型
+- ✅ 多文件模块系统 (`unit X;`、`uses X;`)
 
-### 第八阶段：自举编译器 ✅
-7 个 Kylix 源文件、类代码生成、软关键字、is/as 类型分发
+### Phase 8: 自举编译器 ✅
+- ✅ 7 个 Kylix 源文件 (token、ast、lexer、parser、error、generator、main)
+- ✅ 类代码生成
+- ✅ 软关键字 (25+ 关键字可作标识符)
+- ✅ is/as 类型分发
+- ✅ 局部变量声明、构造器、内置函数
 
-### 第九阶段：自举验证 ✅ 完成
-- ✅ 多文件自举联编
-- ✅ 自举 Go 输出编译零错误，binary 正常运行
-- ✅ Diff 验证：Go 参考版 vs Kylix 自举版——语义等价
-- ✅ 两个编译器均通过 15/15 示例
+### Phase 9: 自举验证 ✅
+- ✅ 多文件自举编译
+- ✅ 自举生成的 Go 输出零错误编译运行
+- ✅ Diff 验证: Go 参考实现 vs Kylix 自举 — 语义等价
+- ✅ 15/15 示例在两种编译器上通过
+
+### Phase 10-12 (v2.0.0+) — 生产级编译器 ✅
+- ✅ 错误代码体系 (KLX001–499) + 智能建议
+- ✅ 类型推导 (`var x := 42`)
+- ✅ 泛型约束验证 (`T: IComparable`)
+- ✅ 完整测试框架 (`kylix test`)
+- ✅ 文档生成器 (`kylix doc`)
+- ✅ 性能基准 (`kylix bench`)
+
+### v2.1.0 — 增强类型系统 ✅
+- ✅ 多参数泛型约束 (`TMap<K: IComparable, V: IHashable>`)
+- ✅ 类→接口实现映射验证 (含方法签名)
+- ✅ 增强类型推导 (Boolean、array of T、nil、not 等)
+- ✅ stdlib Phase 1 (`strutil`、`mathutil`)
+
+### v2.2.0 — 工程质量 ✅
+- ✅ GitHub Actions CI/CD
+- ✅ 泛型约束方法签名验证
+- ✅ 包级类型检查 (`CheckProject`)
+- ✅ 增量编译启用 (BuildCache)
+- ✅ stdlib Phase 2 (`arrayutil`、`collections`)
+
+### v2.3.0 — 开发者体验 ✅
+- ✅ LSP 增量同步 (textDocumentSync 升级到 Incremental)
+- ✅ REPL Tab 补全 + `:load` + `:type`
+- ✅ kylix test 高级功能 (Setup/Teardown/--filter)
+- ✅ 错误信息国际化 i18n (中英双语)
+- ✅ Delve 调试器集成 (`kylix debug`)
+- ✅ WebAssembly 后端 (`--wasm`、`--tinygo`)
 
 ## 跨平台编译
 
-Kylix 先将 `.klx` 源码转译为 Go，再通过 Go 内置的交叉编译能力生成各平台原生二进制。目标机器无需安装 Go 或 Kylix，直接运行即可。
+Kylix 编译为 Go 源码,然后利用 Go 内置的交叉编译产生原生二进制 — 无虚拟机,目标机器无需安装运行时。
 
-### 编译流程
+### 工作原理
 
 ```
 你的 .klx 文件
-    ↓  kylix build  （Pascal → Go 转译）
+    ↓  kylix build  (Pascal → Go 转译)
 生成的 .go 文件
-    ↓  go build     （Go → 原生二进制）
-可执行文件
+    ↓  go build     (Go → 原生二进制)
+原生可执行文件
 ```
 
-### 编译到不同平台
+### 不同平台构建
 
 ```bash
-# Linux（Intel/AMD）
+# Linux (Intel/AMD)
 kylix build --target=linux/amd64 main.klx
 
-# Windows（Intel/AMD）
+# Windows (Intel/AMD)
 kylix build --target=windows/amd64 main.klx
 
-# macOS Apple Silicon（M1/M2/M3）
+# macOS Apple Silicon (M1/M2/M3)
 kylix build --target=darwin/arm64 main.klx
 
 # macOS Intel
 kylix build --target=darwin/amd64 main.klx
 
-# Linux ARM（树莓派、云端 ARM）
+# Linux ARM (树莓派、ARM 云)
 kylix build --target=linux/arm64 main.klx
+
+# WebAssembly (浏览器/Node.js)
+kylix build --wasm main.klx           # 标准 Go (~3 MB)
+kylix build --wasm --tinygo main.klx  # TinyGo (~30 KB)
 ```
 
-所有交叉编译都在本机执行，无需远程构建服务器。最终二进制静态链接，无外部依赖。
+所有交叉编译都在本地完成 — 无需远程构建服务器。
 
-### 支持的目标平台
+最终二进制无外部依赖,终端用户无需安装 Go 或 Kylix 即可运行。
 
-| 操作系统 | 架构 | `--target` 值 |
-|---------|------|--------------|
+### 支持的目标
+
+| 系统 | 架构 | `--target` 值 |
+|----|-------------|-----------------|
 | Linux | x86-64 | `linux/amd64` |
 | Linux | ARM64 | `linux/arm64` |
 | Windows | x86-64 | `windows/amd64` |
 | macOS | x86-64 | `darwin/amd64` |
 | macOS | Apple Silicon | `darwin/arm64` |
+| WebAssembly | wasm | `--wasm` (含可选 `--tinygo`) |
 
 ---
 
 ## 更新日志
 
-### v1.1.5 (2026-06-08) — 多文件 Go 编译通过 🎉
+完整版本历史请见 [CHANGELOG.md](CHANGELOG.md)。最近更新:
 
-自举多文件 Go 输出（136KB）编译零错误，运行正常。主要修复：字符串转义、基类类型映射、枚举类型声明、内置函数、多参数解析。
+### v2.3.0 (2026-06-19)
+开发者体验全面提升 — LSP 增量同步、REPL Tab 补全、测试 fixtures + filter、i18n 框架、Delve 调试器、WebAssembly 后端。
 
-### v1.1.0-v1.1.4 (2026-06-06~08) — 自举引导
+### v2.2.0 (2026-06-19)
+工程质量与 stdlib Phase 2 — GitHub Actions CI、泛型签名验证、包级类型检查、增量编译启用、`arrayutil` + `collections`。
 
-Lexer bug 修复、generator 骨架完善、parser result 覆盖修复、代码生成改进（Record 类型、Map 初始化、局部变量）、软关键字扩展、多文件自举、类方法 receiver 生成。
+### v2.1.0 (2026-06-19)
+增强类型系统 + stdlib Phase 1 — 多参数泛型约束、类→接口映射、增强类型推导、`strutil` + `mathutil`。
 
-详见 [CHANGELOG.md](CHANGELOG.md)。
-
-## 文档
-
-- [IDE 用户手册](docs/KYLIX_IDE_USER_MANUAL.md)
-- [开发者指南](docs/KYLIX_DEV_GUIDE.md)
-- [工具详解](docs/KYLIX_TOOLS_EXPLAINED.md)
-- [Web 框架指南](docs/WEB_FRAMEWORK.md)
-- [ORM 指南](docs/ORM_GUIDE.md)
-- [模板引擎指南](docs/TEMPLATE_GUIDE.md)
-- [项目总结 (中文)](SUMMARY.md)
+### v2.0.0 (2026-06-17)
+🎉 生产级首发 — 错误代码体系、类型推导、泛型约束、`kylix test/doc/bench` 完整工具链。
 
 ## 贡献
 
-欢迎贡献代码！请提交 Issue 和 Pull Request。
+欢迎贡献!请随时提交 issue 和 pull request。
 
 ## 许可证
 
