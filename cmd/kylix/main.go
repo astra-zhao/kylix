@@ -28,6 +28,8 @@ func main() {
 		cmdDoc(os.Args[2:])
 	case "bench":
 		cmdBench(os.Args[2:])
+	case "debug":
+		cmdDebug(os.Args[2:])
 	case "new":
 		cmdNew(os.Args[2:])
 	case "fmt":
