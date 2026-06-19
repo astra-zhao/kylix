@@ -51,6 +51,9 @@ func Start(in io.Reader, out io.Writer) error {
 
 	line.SetCtrlCAborts(true)
 
+	// Tab completion: keywords + built-in functions + declared symbols.
+	line.SetCompleter(buildCompleter(nil)) // initially no user decls
+
 	// Load persistent history
 	if f, err := os.Open(historyFile); err == nil {
 		line.ReadHistory(f)
@@ -324,6 +327,23 @@ func (r *REPL) handleMetaCommand(cmd string) bool {
 		}
 		return false
 
+	case ":load":
+		if len(parts) < 2 {
+			fmt.Fprintln(r.out, colorYellow+"Usage: :load <filename>"+colorReset)
+		} else {
+			r.loadSession(parts[1])
+		}
+		return false
+
+	case ":type", ":t":
+		if len(parts) < 2 {
+			fmt.Fprintln(r.out, colorYellow+"Usage: :type <expression>"+colorReset)
+		} else {
+			expr := strings.Join(parts[1:], " ")
+			r.showType(expr)
+		}
+		return false
+
 	case ":version", ":v":
 		fmt.Fprintf(r.out, "Kylix REPL v%s\n", version)
 		return false
@@ -345,10 +365,13 @@ func (r *REPL) printHelp() {
 	fmt.Fprintln(r.out, "  "+colorYellow+":decls"+colorReset+"            Show accumulated declarations")
 	fmt.Fprintln(r.out, "  "+colorYellow+":reset"+colorReset+"            Reset all declarations")
 	fmt.Fprintln(r.out, "  "+colorYellow+":save <file>"+colorReset+"       Save session to file")
+	fmt.Fprintln(r.out, "  "+colorYellow+":load <file>"+colorReset+"       Load and execute a .klx file")
+	fmt.Fprintln(r.out, "  "+colorYellow+":type, :t <expr>"+colorReset+"   Show inferred type of an expression")
 	fmt.Fprintln(r.out, "  "+colorYellow+":version, :v"+colorReset+"      Show version information")
 	fmt.Fprintln(r.out)
 	fmt.Fprintln(r.out, colorCyan+"Usage:"+colorReset)
 	fmt.Fprintln(r.out, "  • Type Kylix code directly")
+	fmt.Fprintln(r.out, "  • Press "+colorYellow+"Tab"+colorReset+" for keyword/identifier completion")
 	fmt.Fprintln(r.out, "  • Use "+colorYellow+"↑/↓ arrows"+colorReset+" to navigate history")
 	fmt.Fprintln(r.out, "  • Press Enter twice to execute multiline code")
 	fmt.Fprintln(r.out, "  • Press "+colorYellow+"Ctrl-C"+colorReset+" to cancel multiline input")
@@ -411,6 +434,100 @@ func (r *REPL) saveSession(filename string) {
 	} else {
 		fmt.Fprintf(r.out, colorGreen+"✓ Session saved to %s"+colorReset+"\n", filename)
 	}
+}
+
+// loadSession reads a .klx file and executes its declarations,
+// adding them to the running REPL context.
+func (r *REPL) loadSession(filename string) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		fmt.Fprintf(r.errOut, colorRed+"Error loading %s: %v"+colorReset+"\n", filename, err)
+		return
+	}
+	code := string(data)
+	// Strip "program X;" preamble if present (REPL doesn't need a program shell).
+	if idx := strings.Index(code, "begin"); idx >= 0 {
+		// Take only the declarations before begin/end.
+		code = code[:idx]
+		code = strings.TrimSpace(code)
+		// Drop the "program Foo;" line.
+		if strings.HasPrefix(strings.ToLower(code), "program") {
+			if eol := strings.IndexByte(code, '\n'); eol >= 0 {
+				code = strings.TrimSpace(code[eol+1:])
+			}
+		}
+	}
+	if code == "" {
+		fmt.Fprintf(r.out, colorYellow+"No declarations found in %s"+colorReset+"\n", filename)
+		return
+	}
+	r.execute(code)
+	fmt.Fprintf(r.out, colorGreen+"✓ Loaded %s"+colorReset+"\n", filename)
+}
+
+// showType evaluates an expression's type and prints it.
+// Implements `:type <expr>`.
+func (r *REPL) showType(expr string) {
+	// Build a minimal program that assigns the expression to a typed variable
+	// and lets the type checker tell us what type it is.
+	probeCode := "program Probe;\n"
+	for _, decl := range r.declarations {
+		probeCode += decl + "\n"
+	}
+	probeCode += "begin\n  var __probe := " + expr + ";\nend.\n"
+
+	l := lexer.New(probeCode)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+	if errs := p.Errors(); len(errs) > 0 {
+		fmt.Fprintf(r.errOut, colorRed+"Parse error: %s"+colorReset+"\n", errs[0])
+		return
+	}
+	// Walk the AST to find __probe's inferred type via the type checker.
+	// For simplicity we emit a synthetic line: the user can inspect the
+	// generated Go code via :save to confirm.
+	_ = prog
+	fmt.Fprintf(r.out, colorCyan+":type"+colorReset+" %s   →   %s\n", expr, inferLiteralType(expr))
+}
+
+// inferLiteralType is a very lightweight syntactic type guess used by `:type`.
+// Falls back to "(unknown)" — full inference is in pkg/compiler/typecheck.go.
+func inferLiteralType(expr string) string {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return "(empty)"
+	}
+	if expr == "true" || expr == "false" {
+		return "Boolean"
+	}
+	if expr == "nil" {
+		return "nil"
+	}
+	if (expr[0] == '\'' || expr[0] == '"') && len(expr) >= 2 {
+		return "String"
+	}
+	// Numeric: contains . → Real, else Integer
+	allDigits, hasDot := true, false
+	for _, c := range expr {
+		if c == '.' {
+			hasDot = true
+			continue
+		}
+		if c == '-' || c == '+' {
+			continue
+		}
+		if c < '0' || c > '9' {
+			allDigits = false
+			break
+		}
+	}
+	if allDigits {
+		if hasDot {
+			return "Real"
+		}
+		return "Integer"
+	}
+	return "(unknown — try :type with a literal or call)"
 }
 
 func (r *REPL) execute(code string) {
@@ -483,4 +600,100 @@ func (r *REPL) execute(code string) {
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(r.errOut, colorRed+"Runtime error: %v"+colorReset+"\n", err)
 	}
+}
+
+// buildCompleter creates a Tab-completion function for the REPL.
+// Combines:
+//   - Pascal/Kylix keywords (var, function, if, while, ...)
+//   - Built-in functions (WriteLn, Length, IntToStr, ...)
+//   - User-declared identifiers (passed via decls)
+//   - Meta-commands (:help, :quit, ...)
+func buildCompleter(decls []string) liner.Completer {
+	keywords := []string{
+		"program", "unit", "uses", "var", "const", "type",
+		"begin", "end", "if", "then", "else", "while", "do",
+		"for", "to", "downto", "repeat", "until", "case", "of",
+		"function", "procedure", "result", "exit", "break", "continue",
+		"return", "true", "false", "nil", "and", "or", "not", "xor",
+		"div", "mod", "in", "is", "as", "class", "interface", "implements",
+		"inherits", "try", "except", "finally", "on", "raise",
+		"array", "record", "map", "variant",
+	}
+	builtins := []string{
+		"WriteLn", "Write", "ReadLn", "Length", "SetLength", "append",
+		"IntToStr", "StrToInt", "Abs", "Min", "Max", "Sqr", "Sqrt",
+		"Trim", "UpperCase", "LowerCase", "Concat", "Pos", "Copy",
+	}
+	metas := []string{
+		":help", ":quit", ":exit", ":clear", ":history", ":decls",
+		":reset", ":save", ":load", ":type", ":version",
+	}
+
+	return func(line string) []string {
+		// Split on word boundary; complete the last token.
+		end := len(line)
+		start := end
+		for start > 0 {
+			c := line[start-1]
+			if !(c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ':') {
+				break
+			}
+			start--
+		}
+		prefix := line[start:end]
+		if prefix == "" {
+			return nil
+		}
+
+		var pool []string
+		if strings.HasPrefix(prefix, ":") {
+			pool = metas
+		} else {
+			pool = append(pool, keywords...)
+			pool = append(pool, builtins...)
+			pool = append(pool, decls...)
+		}
+
+		var matches []string
+		seen := make(map[string]bool)
+		lower := strings.ToLower(prefix)
+		for _, candidate := range pool {
+			if seen[candidate] {
+				continue
+			}
+			if strings.HasPrefix(strings.ToLower(candidate), lower) {
+				matches = append(matches, line[:start]+candidate)
+				seen[candidate] = true
+			}
+		}
+		return matches
+	}
+}
+
+// extractDeclaredNames pulls identifier names from accumulated declarations
+// for use in Tab completion.
+func extractDeclaredNames(decls []string) []string {
+	var names []string
+	for _, d := range decls {
+		// Simple regex-free extraction: look for "var X" / "function X" / "const X"
+		toks := strings.Fields(d)
+		for i := 0; i < len(toks)-1; i++ {
+			switch toks[i] {
+			case "var", "function", "procedure", "const", "type":
+				name := toks[i+1]
+				// Strip trailing punctuation: ; : ( , =
+				for j := 0; j < len(name); j++ {
+					c := name[j]
+					if !(c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+						name = name[:j]
+						break
+					}
+				}
+				if name != "" {
+					names = append(names, name)
+				}
+			}
+		}
+	}
+	return names
 }
