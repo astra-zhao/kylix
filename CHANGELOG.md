@@ -4,6 +4,160 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v2.4.0 (2026-06-20)
+
+### 🎉 Polish & Ecosystem
+
+v2.4.0 completes the v2.3 infrastructure: i18n fully wired, REPL `:type` uses
+real inference, SetLength fixed, package manager gains nested deps + lockfile,
+and stdlib Phase 3 adds `stringbuilder` + `resulttype`.
+
+---
+
+### Task 1: i18n Fully Integrated
+
+Error messages now respect `KYLIX_LANG`:
+
+```bash
+$ KYLIX_LANG=zh kylix check broken.klx
+error[KLX101]: 无法将 String 字面量赋给类型为 'Integer' 的变量
+  = help: 使用 StrToInt(s) 或 StrToInt64(s) 把 String 转为 Integer
+```
+
+**Changes:**
+- `typecheck.go`: `c.diag` / `c.diagHint` now use `i18n.T(code, args...)`
+- `suggestions.go`: `typeConversionHint` uses `i18n.Hint()`
+- All KLX101 (type mismatch) + KLX201 (undeclared) + KLX104 (generic constraint) localized
+- Error codes (KLX101) stay constant across languages — only messages change
+- `i18n.HasCode()` added for fallback detection
+
+**Tests**: `pkg/compiler/i18n_integration_test.go` (4 tests)
+
+---
+
+### Task 2: REPL `:type` Real Inference
+
+```
+kylix> :type 1 < 2       → Boolean
+kylix> :type 3.0 + 4     → Real
+kylix> :type GetAge()    → Integer  (from function return type)
+```
+
+**Changes:**
+- New exported `compiler.InferType(program, expr)` — full inference engine
+- REPL `showType()` rewritten to parse `__probe := <expr>` and call `InferType`
+- Falls back to literal guess on parse failure
+
+**Tests**: `pkg/compiler/infertype_export_test.go` (6 tests)
+
+---
+
+### Task 3: SetLength Fixed
+
+```pascal
+var arr: array of Integer;
+arr := nil;
+SetLength(arr, 3);  // ← was panic, now works
+arr[0] := 10;
+SetLength(arr, 1);  // truncate works
+SetLength(arr, 0);  // zero-length works
+```
+
+**Changes:**
+- `generator.go`: new `needsSetLength` flag + `setLengthHelperSource` (Go generic `__kylixSetLength[T any]`)
+- `generator_stmt.go`: `SetLength(arr, n)` → `arr = __kylixSetLength(arr, int(n))`
+- Helper grows (append zeros) or truncates as needed
+- `writeRuntimeHelpers()` emits the helper at end of output (Go allows any order)
+
+---
+
+### Task 5: Package Manager — Nested Deps + Lockfile
+
+```bash
+$ kylix add mylib github.com/user/mylib@v1.0.0
+  installing mylib (github.com/user/mylib@v1.0.0)…
+  resolving 2 nested dependenc(ies) for mylib…
+✓ Added mylib
+
+$ cat kylix.lock
+[dependency "mylib"]
+ref = "github.com/user/mylib@v1.0.0"
+sha = "abc123def456..."
+```
+
+**Changes:**
+- `installGit()`: after clone, reads package's `kylix.toml` for nested `[dependencies]`
+- Recursively installs nested deps (skips already-installed)
+- `writeLock()`: generates `kylix.lock` with ref + git SHA per dependency
+- `Add()` / `InstallAll()` / `Remove()` all update lockfile
+
+---
+
+### Task 6: stdlib Phase 3
+
+Two new pure-Kylix modules:
+
+#### `stdlib/src/stringbuilder.klx` — TStringBuilder (5 methods)
+
+| Method | Purpose |
+|--------|---------|
+| `Append(s)` | Add string |
+| `AppendLine(s)` | Add string + newline |
+| `Clear()` | Reset to empty |
+| `Length()` | Total character count |
+| `ToString()` | Get combined string |
+
+#### `stdlib/src/resulttype.klx` — TResult (3 methods + 3 functions)
+
+| Member | Purpose |
+|--------|---------|
+| `TResult.Unwrap()` | Get value or panic |
+| `TResult.UnwrapOr(fallback)` | Get value or default |
+| `TResult.ErrorMsg()` | Get error string |
+| `Ok(value)` | Create success result |
+| `Err(msg)` | Create error result |
+| `SafeDiv(a, b)` | Example: divide returning Result |
+
+**Tests**: 8 new Kylix-level tests (4 + 4)
+
+#### Cumulative stdlib Kylix coverage
+
+| Module | Phase | Functions | Tests |
+|--------|-------|-----------|-------|
+| `strutil` | v2.1 | 8 | 8 |
+| `mathutil` | v2.1 | 12 | 10 |
+| `arrayutil` | v2.2 | 8 | 8 |
+| `collections` | v2.2 | 6 | 5 |
+| `stringbuilder` | v2.4 | 5 | 4 |
+| `resulttype` | v2.4 | 6 | 4 |
+| **Total** | | **45** | **39** |
+
+#### Bug fixes discovered during Phase 3
+
+- `result` is a Kylix keyword (RESULT token) → unit renamed to `resulttype`
+- `default` is a keyword → parameter renamed to `fallback`
+- testrunner harness missing Exception type → injected in buildHarness
+
+---
+
+### Summary
+
+| Task | Tests | Type |
+|------|-------|------|
+| i18n integration | 4 | Internationalization |
+| REPL :type inference | 6 | Developer experience |
+| SetLength fix | – | Correctness |
+| Package manager nested deps + lockfile | – | Ecosystem |
+| stdlib Phase 3 | 8 (Kylix) | Standard library |
+| **Total v2.4.0** | **18** | |
+
+### Known Limitations
+- `iter` module deferred to v2.5 (needs generator-level iterator protocol)
+- LSP refactor actions (rename, extract) deferred to v2.5
+- i18n covers typecheck errors; parser/Go-compiler errors still English-only
+
+---
+
 ## v2.3.0 (2026-06-19)
 
 ### 🎉 Developer Experience: Editor, REPL, Test, Debug, WASM
