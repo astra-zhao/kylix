@@ -4,6 +4,120 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v2.5.0 (2026-06-20)
+
+### 🎉 Toolchain Deepening
+
+v2.5.0 completes the "infrastructure ready but not fully wired" items from v2.3-v2.4: LSP refactoring, doc code examples, bench memory, iter module, and the long-standing class method external definition bug.
+
+---
+
+### Task 1: LSP Refactoring Actions
+
+- **Cross-file rename**: `textDocument/rename` now walks all open documents via `ReferenceWalker`, returning `WorkspaceEdit` with edits for every file containing the symbol
+- **Context-aware code actions**: `textDocument/codeAction` now offers "Rename Symbol: \<name\>" when cursor is on an identifier, and "Extract Function" when there's a selection
+- `ReferenceWalker` API exported: `NewReferenceWalker(name, uri)` + `References()`
+
+**Tests**: `pkg/lsp/rename_test.go` (5 tests)
+
+---
+
+### Task 2: `kylix doc` Code Example Extraction
+
+Doc comments now preserve multi-line structure and fenced code blocks (` ```pascal ... ``` `).
+
+```pascal
+// Reverse returns the reversed string.
+//
+// ```pascal
+// WriteLn(Reverse('abc'));  // cba
+// ```
+function Reverse(s: String): String;
+```
+
+Generates Markdown with the code block preserved.
+
+**Tests**: `pkg/docgen/examples_test.go` (4 tests)
+
+---
+
+### Task 3: `kylix bench --mem` Memory Allocation Report
+
+```bash
+$ kylix bench --count 2 --mem fib_bench.klx
+ok  BenchFib10  321.05 ms/op  0 B/op  0 allocs/op
+```
+
+Uses `runtime.ReadMemStats` before/after benchmark execution, reports `TotalAlloc` delta and `Mallocs` delta.
+
+---
+
+### Task 4: `iter` Iterator Module
+
+9 array utility functions in pure Kylix:
+
+| Function | Purpose |
+|----------|---------|
+| `Contains(arr, v)` | Linear search |
+| `Count(arr, v)` | Count occurrences |
+| `Unique(arr)` | Remove duplicates |
+| `Reverse(arr)` | New reversed array |
+| `Concat(a, b)` | Merge two arrays |
+| `Slice(arr, start, end)` | Subarray extraction |
+| `Sum(arr)` | Element sum |
+| `Min(arr)` / `Max(arr)` | Extrema |
+
+Note: Map/Filter/Reduce deferred — Kylix doesn't yet support function-type parameters.
+
+**Tests**: `stdlib/src/iter_test.klx` (9 Kylix-level tests)
+
+---
+
+### Task 5: Class Method External Definition Fix
+
+Fixed long-standing bug where Pascal-style external method definitions generated duplicate Go methods.
+
+```pascal
+type
+  TFoo = class
+    function Bar(): Integer;  // forward declaration (no body)
+  end;
+
+function TFoo.Bar(): Integer;  // external definition
+begin result := 42; end;
+```
+
+`generateClassDecl` now skips methods with `Body == nil` (forward declarations), letting `generateFunctionDecl` handle the external definition.
+
+**Tests**: `generator/extmethod_test.go` (4 tests)
+
+---
+
+### Summary
+
+| Task | Tests | Type |
+|------|-------|------|
+| LSP refactoring (rename + codeAction) | 5 | IDE |
+| doc code examples | 4 | Documentation |
+| bench --mem | – | Benchmarking |
+| iter module | 9 (Kylix) | Standard library |
+| External method fix | 4 | Compiler |
+| **Total v2.5.0** | **22** | |
+
+### stdlib Cumulative (7 modules, 54 functions, 48 tests)
+
+| Module | Phase | Functions | Tests |
+|--------|-------|-----------|-------|
+| `strutil` | v2.1 | 8 | 8 |
+| `mathutil` | v2.1 | 12 | 10 |
+| `arrayutil` | v2.2 | 8 | 8 |
+| `collections` | v2.2 | 6 | 5 |
+| `stringbuilder` | v2.4 | 5 | 4 |
+| `resulttype` | v2.4 | 6 | 4 |
+| `iter` | v2.5 | 9 | 9 |
+
+---
+
 ## v2.4.0 (2026-06-20)
 
 ### 🎉 Polish & Ecosystem

@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 > 
-> 🎉 **v2.4.0 Release**: Polish & ecosystem — i18n fully integrated, REPL `:type` real inference, SetLength fixed, package manager nested deps + lockfile, stdlib Phase 3 (`stringbuilder` + `resulttype`). See [CHANGELOG.md](CHANGELOG.md) for details.
+> 🎉 **v2.5.0 Release**: Polish & ecosystem — i18n fully integrated, REPL `:type` real inference, SetLength fixed, package manager nested deps + lockfile, stdlib Phase 3 (`stringbuilder` + `resulttype`). See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ## Features
 

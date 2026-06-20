@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-2.4.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-2.5.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🎉 **v2.4.0 发布**: 完善与生态 — i18n 全面接入、REPL `:type` 真正类型推导、SetLength 修复、包管理器嵌套依赖 + lockfile、stdlib Phase 3 (`stringbuilder` + `resulttype`)。详情见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v2.5.0 发布**: 工具链深化 — i18n 全面接入、REPL `:type` 真正类型推导、SetLength 修复、包管理器嵌套依赖 + lockfile、stdlib Phase 3 (`stringbuilder` + `resulttype`)。详情见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 特性
 
