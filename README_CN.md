@@ -10,7 +10,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🎉 **v2.5.0 发布**: 工具链深化 — i18n 全面接入、REPL `:type` 真正类型推导、SetLength 修复、包管理器嵌套依赖 + lockfile、stdlib Phase 3 (`stringbuilder` + `resulttype`)。详情见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v2.5.0 发布**: 工具链深化 — LSP 跨文件重命名 + 代码动作、`kylix doc` 代码示例提取、`kylix bench --mem` 内存报告、`iter` 迭代器模块、类方法外部定义修复。详情见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 特性
 
