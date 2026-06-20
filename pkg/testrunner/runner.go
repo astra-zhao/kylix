@@ -49,8 +49,9 @@ type FileFixtures struct {
 
 // Runner discovers and runs Kylix tests.
 type Runner struct {
-	Verbose bool
-	Filter  string // optional substring filter on test names
+	Verbose   bool
+	Filter    string // optional substring filter on test names
+	ReportMem bool   // report B/op and allocs/op in benchmarks
 }
 
 // New returns a Runner.
@@ -259,7 +260,7 @@ func buildHarness(klxFile string, names []string, tmpDir string) (string, error)
 	var sb strings.Builder
 
 	sb.WriteString("package main\n\n")
-	sb.WriteString("import (\n\t\"fmt\"\n\t\"os\"\n\t\"runtime/debug\"\n)\n\n")
+	sb.WriteString("import (\n\t\"fmt\"\n\t\"os\"\n\t\"runtime\"\n\t\"runtime/debug\"\n)\n\n")
 
 	// Inject Assert as a Go panic-based function
 	sb.WriteString("// Assert is the Kylix test assertion built-in.\n")
@@ -288,10 +289,22 @@ func buildHarness(klxFile string, names []string, tmpDir string) (string, error)
 	// Calls Setup() before the test and Teardown() after (when present).
 	sb.WriteString("func main() {\n")
 	sb.WriteString("\tif len(os.Args) < 2 {\n")
-	sb.WriteString("\t\tfmt.Fprintln(os.Stderr, \"usage: harness <TestName>\")\n")
+	sb.WriteString("\t\tfmt.Fprintln(os.Stderr, \"usage: harness <TestName> [--memstats]\")\n")
 	sb.WriteString("\t\tos.Exit(1)\n")
 	sb.WriteString("\t}\n")
 	sb.WriteString("\tname := os.Args[1]\n")
+	sb.WriteString("\tmemstats := false\n")
+	sb.WriteString("\tif len(os.Args) > 2 && os.Args[2] == \"--memstats\" {\n")
+	sb.WriteString("\t\tmemstats = true\n")
+	sb.WriteString("\t\tvar ms0, ms1 runtime.MemStats\n")
+	sb.WriteString("\t\truntime.GC()\n")
+	sb.WriteString("\t\truntime.ReadMemStats(&ms0)\n")
+	sb.WriteString("\t\tdefer func() {\n")
+	sb.WriteString("\t\t\truntime.ReadMemStats(&ms1)\n")
+	sb.WriteString("\t\t\tfmt.Printf(\"MEMSTATS:%d:%d\\n\", ms1.TotalAlloc-ms0.TotalAlloc, ms1.Mallocs-ms0.Mallocs)\n")
+	sb.WriteString("\t\t}()\n")
+	sb.WriteString("\t}\n")
+	sb.WriteString("\t_ = memstats\n")
 	sb.WriteString("\tdefer func() {\n")
 	sb.WriteString("\t\tif rec := recover(); rec != nil {\n")
 	sb.WriteString("\t\t\tfmt.Fprintln(os.Stderr, rec)\n")
@@ -426,22 +439,39 @@ func (r *Runner) runBenchFile(file string, names []string, count int) []TestResu
 	var results []TestResult
 	for _, name := range names {
 		tc := TestCase{Name: name, File: file}
-		result := r.runOneBench(harnessPath, name, count)
+		result := r.runOneBench(harnessPath, name, count, r.ReportMem)
 		result.TestCase = tc
 		results = append(results, result)
 	}
 	return results
 }
 
-func (r *Runner) runOneBench(harnessPath, name string, count int) TestResult {
-	// Run the benchmark count times and measure wall-clock time
+func (r *Runner) runOneBench(harnessPath, name string, count int, reportMem bool) TestResult {
+	// Run the benchmark count times and measure wall-clock time.
+	// When reportMem is true, the harness prints "MEMSTATS:<bytes>:<allocs>"
+	// which we parse to show B/op and allocs/op.
 	start := time.Now()
+	var memOutput string
 	for i := 0; i < count; i++ {
-		cmd := exec.Command("go", "run", harnessPath, name)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		args := []string{"run", harnessPath, name}
+		if reportMem {
+			args = append(args, "--memstats")
+		}
+		cmd := exec.Command("go", args...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
 			return TestResult{
 				Passed:  false,
 				Message: strings.TrimSpace(string(out)),
+			}
+		}
+		if reportMem && memOutput == "" {
+			// Parse MEMSTATS line from first iteration.
+			for _, line := range strings.Split(string(out), "\n") {
+				if strings.HasPrefix(line, "MEMSTATS:") {
+					memOutput = strings.TrimPrefix(line, "MEMSTATS:")
+					break
+				}
 			}
 		}
 	}
@@ -458,6 +488,14 @@ func (r *Runner) runOneBench(harnessPath, name string, count int) TestResult {
 		bench = fmt.Sprintf("%.2f ms/op", float64(avgNs)/1_000_000)
 	default:
 		bench = fmt.Sprintf("%.2f s/op", float64(avgNs)/1_000_000_000)
+	}
+
+	// Append memory stats if available.
+	if reportMem && memOutput != "" {
+		parts := strings.Split(memOutput, ":")
+		if len(parts) == 2 {
+			bench += fmt.Sprintf("  %s B/op  %s allocs/op", parts[0], parts[1])
+		}
 	}
 
 	return TestResult{Passed: true, BenchResult: bench}
