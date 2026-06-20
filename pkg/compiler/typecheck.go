@@ -834,3 +834,28 @@ func copyScope(s map[string]string) map[string]string {
 	}
 	return out
 }
+
+// InferType infers the Kylix type of a single expression, evaluated in the
+// context of an existing program (for access to declared functions/variables).
+// Used by the REPL ':type' command. Returns "" when the type cannot be inferred.
+//
+// program provides declaration context (may be nil for a bare expression);
+// expr is the already-parsed expression node to analyze.
+func InferType(program *ast.Program, expr ast.Expression) string {
+	c := &checker{
+		file:               "<repl>",
+		funcs:              make(map[string]*ast.FunctionDecl),
+		types:              make(map[string]string),
+		aliases:            make(map[string]string),
+		genericConstraints: make(map[string]*GenericTypeInfo),
+		interfaces:         make(map[string]map[string]*ast.FunctionDecl),
+		classImpls:         make(map[string][]string),
+		classParent:        make(map[string]string),
+		classMethods:       make(map[string]map[string]*ast.FunctionDecl),
+	}
+	if program != nil {
+		c.collectDeclarations(program)
+	}
+	scope := c.globalScope()
+	return c.inferExprType(expr, scope)
+}

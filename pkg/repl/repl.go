@@ -3,9 +3,11 @@ package repl
 import (
 	"fmt"
 	"io"
+	"kylix/ast"
 	"kylix/generator"
 	"kylix/lexer"
 	"kylix/parser"
+	"kylix/pkg/compiler"
 	"kylix/token"
 	"os"
 	"os/exec"
@@ -466,28 +468,49 @@ func (r *REPL) loadSession(filename string) {
 }
 
 // showType evaluates an expression's type and prints it.
-// Implements `:type <expr>`.
+// Implements `:type <expr>`. Uses the compiler's real type inference engine,
+// with the literal-only guess as a fallback.
 func (r *REPL) showType(expr string) {
-	// Build a minimal program that assigns the expression to a typed variable
-	// and lets the type checker tell us what type it is.
-	probeCode := "program Probe;\n"
+	// Build a program with accumulated declarations + a probe statement,
+	// so the inference engine sees declared functions/variables in scope.
+	var sb strings.Builder
+	sb.WriteString("program Probe;\n")
 	for _, decl := range r.declarations {
-		probeCode += decl + "\n"
+		sb.WriteString(decl)
+		sb.WriteString("\n")
 	}
-	probeCode += "begin\n  var __probe := " + expr + ";\nend.\n"
+	sb.WriteString("begin\n  __probe := ")
+	sb.WriteString(expr)
+	sb.WriteString(";\nend.\n")
 
-	l := lexer.New(probeCode)
+	l := lexer.New(sb.String())
 	p := parser.New(l)
 	prog := p.ParseProgram()
 	if errs := p.Errors(); len(errs) > 0 {
-		fmt.Fprintf(r.errOut, colorRed+"Parse error: %s"+colorReset+"\n", errs[0])
+		// Fall back to literal guess on parse error.
+		fmt.Fprintf(r.out, colorCyan+":type"+colorReset+" %s   →   %s\n", expr, inferLiteralType(expr))
 		return
 	}
-	// Walk the AST to find __probe's inferred type via the type checker.
-	// For simplicity we emit a synthetic line: the user can inspect the
-	// generated Go code via :save to confirm.
-	_ = prog
-	fmt.Fprintf(r.out, colorCyan+":type"+colorReset+" %s   →   %s\n", expr, inferLiteralType(expr))
+
+	// Find the probe assignment's RHS expression in the program statements.
+	var probeExpr ast.Expression
+	for _, stmt := range prog.Statements {
+		if asgn, ok := stmt.(*ast.AssignmentStatement); ok {
+			if id, ok := asgn.Name.(*ast.Identifier); ok && id.Value == "__probe" {
+				probeExpr = asgn.Value
+				break
+			}
+		}
+	}
+
+	typeName := ""
+	if probeExpr != nil {
+		typeName = compiler.InferType(prog, probeExpr)
+	}
+	if typeName == "" {
+		typeName = inferLiteralType(expr) // fallback
+	}
+	fmt.Fprintf(r.out, colorCyan+":type"+colorReset+" %s   →   %s\n", expr, typeName)
 }
 
 // inferLiteralType is a very lightweight syntactic type guess used by `:type`.
