@@ -115,6 +115,7 @@ func extractComments(src string) map[int]string {
 }
 
 // commentBefore returns the block of comment lines immediately preceding line.
+// Lines are joined with newlines (not spaces) so fenced code blocks are preserved.
 func commentBefore(comments map[int]string, line int) string {
 	var parts []string
 	for l := line - 1; l >= 1; l-- {
@@ -124,7 +125,7 @@ func commentBefore(comments map[int]string, line int) string {
 			break
 		}
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, "\n")
 }
 
 // unitName returns the name of the unit or the file basename.
@@ -140,6 +141,7 @@ func unitName(prog *ast.Program, path string) string {
 }
 
 // unitComment extracts the file-level comment (lines 1–N before the first token).
+// Lines are joined with newlines to preserve fenced code blocks.
 func unitComment(comments map[int]string) string {
 	var parts []string
 	for l := 1; l <= 10; l++ {
@@ -149,7 +151,7 @@ func unitComment(comments map[int]string) string {
 			break
 		}
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, "\n")
 }
 
 // extractEntries walks the AST and generates DocEntry for each declaration.
