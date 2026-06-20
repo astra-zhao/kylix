@@ -12,6 +12,7 @@ package compiler
 import (
 	"fmt"
 	"kylix/ast"
+	"kylix/pkg/i18n"
 	"kylix/token"
 	"strings"
 )
@@ -79,13 +80,38 @@ type GenericTypeInfo struct {
 	Constraints map[string]string // paramName → constraint interface name
 }
 
-func (c *checker) diag(tok token.Token, code string, format string, args ...interface{}) {
+// diagHint is like diag but also attaches a fix-suggestion hint.
+// Message is i18n-localized via the error code; hint is passed through as-is
+// (callers should localize via i18n.Hint when appropriate).
+func (c *checker) diagHint(tok token.Token, code, hint, format string, args ...interface{}) {
+	msg := i18n.T(code, args...)
+	if msg == "" || !i18n.HasCode(code) {
+		msg = fmt.Sprintf(format, args...)
+	}
 	c.diags = append(c.diags, TypeDiagnostic{
 		File:    c.file,
 		Line:    tok.Line,
 		Column:  tok.Column,
 		Code:    code,
-		Message: fmt.Sprintf(format, args...),
+		Message: msg,
+		Hint:    hint,
+	})
+}
+
+// diag appends a diagnostic. The message is i18n-localized via the error code
+// when a translation exists; otherwise it falls back to the provided format
+// string. This lets KYLIX_LANG control the output language with a safe English default.
+func (c *checker) diag(tok token.Token, code string, format string, args ...interface{}) {
+	msg := i18n.T(code, args...)
+	if msg == "" || !i18n.HasCode(code) {
+		msg = fmt.Sprintf(format, args...)
+	}
+	c.diags = append(c.diags, TypeDiagnostic{
+		File:    c.file,
+		Line:    tok.Line,
+		Column:  tok.Column,
+		Code:    code,
+		Message: msg,
 	})
 }
 
@@ -321,17 +347,10 @@ func (c *checker) checkStatement(stmt ast.Statement, scope map[string]string) {
 			if !c.isDeclared(ident.Value, scope) {
 				hint := ""
 				if near := NearestName(ident.Value, scopeKeys(scope), 2); near != "" {
-					hint = fmt.Sprintf("did you mean '%s'?", near)
+					hint = i18n.Hint("KLX201_did_you_mean", near)
 				}
-				d := TypeDiagnostic{
-					File:    c.file,
-					Line:    s.Token.Line,
-					Column:  s.Token.Column,
-					Code:    ErrUndeclared,
-					Message: fmt.Sprintf("undeclared variable or function '%s'", ident.Value),
-					Hint:    hint,
-				}
-				c.diags = append(c.diags, d)
+				c.diagHint(s.Token, ErrUndeclared, hint,
+					"undeclared variable or function '%s'", ident.Value)
 			} else if declType, known := scope[ident.Value]; known && declType != "?" && declType != "builtin" {
 				c.checkAssignCompat(s.Token, declType, s.Value)
 			}
@@ -455,16 +474,10 @@ func (c *checker) checkCall(call *ast.CallExpression, scope map[string]string) {
 					candidates = append(candidates, fn)
 				}
 				if near := NearestName(name, candidates, 2); near != "" {
-					hint = fmt.Sprintf("did you mean '%s'?", near)
+					hint = i18n.Hint("KLX201_did_you_mean", near)
 				}
-				c.diags = append(c.diags, TypeDiagnostic{
-					File:    c.file,
-					Line:    call.Token.Line,
-					Column:  call.Token.Column,
-					Code:    ErrUndeclared,
-					Message: fmt.Sprintf("call to undeclared function '%s'", name),
-					Hint:    hint,
-				})
+				c.diagHint(call.Token, ErrUndeclared, hint,
+					"call to undeclared function '%s'", name)
 				return
 			}
 		}
@@ -500,36 +513,22 @@ func (c *checker) checkAssignCompat(tok token.Token, declaredType string, value 
 	switch v := value.(type) {
 	case *ast.StringLiteral:
 		if norm == "integer" || norm == "int64" || norm == "real" || norm == "double" || norm == "boolean" {
-			hint := typeConversionHint(declaredType, "string")
-			d := TypeDiagnostic{
-				File:    c.file,
-				Line:    tok.Line,
-				Column:  tok.Column,
-				Code:    ErrTypeMismatch,
-				Message: fmt.Sprintf("cannot assign String literal to variable of type '%s'", declaredType),
-				Hint:    hint,
-			}
-			c.diags = append(c.diags, d)
+			c.diagHint(tok, ErrTypeMismatch, typeConversionHint(declaredType, "string"),
+				"cannot assign %s literal to variable of type '%s'", "String", declaredType)
 		}
 		_ = v
 	case *ast.IntegerLiteral:
 		if norm == "string" {
-			hint := typeConversionHint(declaredType, "integer")
-			d := TypeDiagnostic{
-				File:    c.file,
-				Line:    tok.Line,
-				Column:  tok.Column,
-				Code:    ErrTypeMismatch,
-				Message: "cannot assign Integer literal to variable of type 'String'",
-				Hint:    hint,
-			}
-			c.diags = append(c.diags, d)
+			c.diagHint(tok, ErrTypeMismatch, typeConversionHint(declaredType, "integer"),
+				"cannot assign %s literal to variable of type '%s'", "Integer", declaredType)
 		} else if norm == "boolean" {
-			c.diag(tok, ErrTypeMismatch, "cannot assign Integer literal to variable of type 'Boolean'")
+			c.diag(tok, ErrTypeMismatch,
+				"cannot assign %s literal to variable of type '%s'", "Integer", declaredType)
 		}
 	case *ast.BooleanLiteral:
 		if norm == "integer" || norm == "int64" || norm == "real" || norm == "double" || norm == "string" {
-			c.diag(tok, ErrTypeMismatch, "cannot assign Boolean literal to variable of type '%s'", declaredType)
+			c.diag(tok, ErrTypeMismatch,
+				"cannot assign %s literal to variable of type '%s'", "Boolean", declaredType)
 		}
 	}
 }

@@ -1,7 +1,10 @@
 // suggestions.go — Levenshtein-based spell correction and fix hints.
 package compiler
 
-import "strings"
+import (
+	"kylix/pkg/i18n"
+	"strings"
+)
 
 // NearestName returns the closest name in candidates to target
 // if the edit distance is <= maxDist. Returns "" if nothing is close enough.
@@ -82,15 +85,15 @@ func typeConversionHint(declaredType, valueLiteralType string) string {
 	case "string":
 		switch norm {
 		case "integer", "int64":
-			return "use StrToInt(s) or StrToInt64(s) to convert a String to Integer"
+			return i18n.Hint("KLX101_str_to_int")
 		case "real", "double", "float64":
-			return "use StrToFloat(s) to convert a String to Real"
+			return i18n.Hint("KLX101_str_to_float")
 		case "boolean":
-			return "use (s = 'true') to convert a String to Boolean"
+			return i18n.Hint("KLX101_str_to_bool")
 		}
 	case "integer":
 		if norm == "string" {
-			return "use IntToStr(n) to convert an Integer to String"
+			return i18n.Hint("KLX101_int_to_str")
 		}
 	}
 	return ""

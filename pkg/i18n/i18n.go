@@ -89,7 +89,7 @@ var translations = map[string]map[Lang]string{
 	},
 	"KLX104": {
 		LangEn: "type '%s' does not satisfy constraint '%s' for parameter '%s' of generic type '%s'",
-		LangZh: "类型 '%s' 不满足泛型 '%s' 的参数 '%s' 的约束 '%s'",
+		LangZh: "类型 '%s' 不满足约束 '%s'(用于泛型 '%[4]s' 的参数 '%[3]s')",
 	},
 	"KLX105": {
 		LangEn: "type alias '%s' is recursive (cycle detected)",
@@ -175,6 +175,12 @@ var hints = map[string]map[Lang]string{
 		LangEn: "type aliases cannot reference themselves directly or indirectly",
 		LangZh: "类型别名不能直接或间接引用自身",
 	},
+}
+
+// HasCode reports whether a translation table exists for the given error code.
+func HasCode(code string) bool {
+	_, ok := translations[code]
+	return ok
 }
 
 // T translates an error code template with arguments. Falls back to the English
