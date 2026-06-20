@@ -1,12 +1,12 @@
 # Kylix Development Roadmap
 
 > 最后更新: 2026-06-20  
-> 当前版本: v2.4.0 🎉  
+> 当前版本: v2.5.0 🎉  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 语言自举（用 Kylix 写 Kylix 编译器）
 
-**🎉 v2.4.0 已发布！** 完善与生态 — i18n 全面接入、REPL `:type` 真正推导、SetLength 修复、包管理器嵌套依赖 + lockfile、stdlib Phase 3。  
-**📍 下一步：** v2.5.0 — 工具链深化（LSP 重构动作、iter 模块、方法定义修复）。
+**🎉 v2.5.0 已发布！** 工具链深化 — LSP 跨文件 rename + codeAction、kylix doc 代码示例、kylix bench --mem、iter 模块、类方法外部定义修复。  
+**📍 下一步：** v2.6.0 — 性能与优化（并行编译、常量传播、LSP 性能基准）。
 
 ---
 
@@ -25,20 +25,20 @@
 | **v2.2.0** | **工程质量 + stdlib Phase 2** | **✅ 完成** | **v2.2.0** |
 | **v2.3.0** | **开发者体验 (LSP/REPL/Debug/WASM)** | **✅ 完成** | **v2.3.0** |
 | **v2.4.0** | **完善与生态 (i18n/推导/SetLength/包管理)** | **✅ 完成** | **v2.4.0** |
-| **v2.5.0** | **工具链深化** | 📋 计划中 | 2026-07 |
+| **v2.5.0** | **工具链深化 (LSP/doc/bench/iter/方法修复)** | **✅ 完成** | **v2.5.0** |
 | **v2.6.0** | **性能与优化** | 📋 计划中 | 2026-08 |
 | **v3.0.0** | **LLVM 后端 + 包注册中心** | 📋 长期 | 2026-Q4 |
 
 ---
 
-## 📊 累计统计 (v2.4.0)
+## 📊 累计统计 (v2.5.0)
 
 | 指标 | 数量 |
 |------|------|
 | Go 测试包 | 13 个（全部通过）|
-| Go 级测试 | ~200+ |
-| Kylix 级 stdlib 测试 | 39 个（6 模块）|
-| 纯 Kylix stdlib 函数 | 45 个 |
+| Go 级测试 | ~220+ |
+| Kylix 级 stdlib 测试 | 48 个（7 模块）|
+| 纯 Kylix stdlib 函数 | 54 个 |
 | CLI 命令 | 17 个 |
 | 错误代码 (i18n) | 21 个（中英双语）|
 | 原生构建目标 | 5 (linux/darwin/windows × amd64/arm64) |
@@ -94,37 +94,17 @@
 
 ---
 
-## 🎯 v2.5.0 — 工具链深化 (2026-07)
+## v2.5.0 ✅ (2026-06-20) — 工具链深化
 
-**主题**：完成 v2.3-v2.4 "基础设施已就绪但未全面接入"的收尾。
+| # | 任务 | 状态 |
+|---|------|------|
+| 1 | LSP 跨文件 rename + 上下文 codeAction | ✅ |
+| 2 | `kylix doc` 代码示例提取 (fenced code blocks) | ✅ |
+| 3 | `kylix bench --mem` 内存分配报告 (B/op + allocs/op) | ✅ |
+| 4 | `iter` 迭代器模块 (9 函数: Contains/Count/Unique/Reverse/Concat/Slice/Sum/Min/Max) | ✅ |
+| 5 | 类方法外部定义修复 (forward declaration 不再重复生成) | ✅ |
 
-### 1. LSP 重构动作（1 周）
-- `textDocument/rename` — 跨文件重命名符号
-- `textDocument/codeAction` — 提取函数、内联变量
-- 复用已有 `ReferenceWalker` 做跨文件作用域
-
-### 2. `kylix doc` 代码示例提取（3 天）
-- 从 `//` 注释中提取 ` ```pascal ... ``` ` 代码块
-- 在生成的 Markdown 中作为可运行示例
-- 可选：自动测试提取的示例
-
-### 3. `kylix bench` 内存分配报告（3 天）
-- 新增 `--mem` 标志，报告 B/op + allocs/op
-- 使用 Go `runtime.ReadMemStats`
-- 输出: `BenchmarkFib  1000000  1234 ns/op  240 B/op  3 allocs/op`
-
-### 4. `iter` 迭代器模块（5 天）
-```pascal
-uses iter;
-var nums := [1, 2, 3, 4, 5];
-var doubled := iter.Map(nums, function(x: Integer): Integer begin result := x * 2; end);
-var evens := iter.Filter(doubled, ...);
-var sum := iter.Reduce(evens, 0, ...);
-```
-
-### 5. 类方法外部定义修复（3 天）
-- 当前：类体内声明 + 类外定义 → Go 重复方法
-- 目标：支持 Pascal 风格 `function TClass.Method()` 在类体外定义
+**注**: Map/Filter/Reduce 延后 — Kylix 当前不支持函数类型参数。改为提供不依赖回调的 9 个实用函数。
 
 ---
 
@@ -180,9 +160,9 @@ var sum := iter.Reduce(evens, 0, ...);
 - [ ] 多返回值未完全集成到类型推导 — v2.5
 
 ### 编译器
-- [ ] 错误恢复有时在无效 AST 状态继续 — v2.5
+- [ ] 错误恢复有时在无效 AST 状态继续 — v2.6
 - [ ] 无常量传播或死代码消除 — v2.6
-- [ ] 类方法外部定义生成重复 Go 方法 — v2.5
+- [x] ~~类方法外部定义生成重复 Go 方法~~ → ✅ v2.5
 
 ### 标准库
 - [ ] `TDateTime` 运算符 (+, -) 未实现 — v2.5
@@ -190,10 +170,10 @@ var sum := iter.Reduce(evens, 0, ...);
 - [ ] `jsonutil` 仅支持扁平 JSON — v3.0
 
 ### 工具链
-- [ ] `kylix doc` 不提取代码示例 — v2.5
-- [ ] `kylix bench` 不报告内存分配 — v2.5
-- [ ] LSP rename 重构未实现 — v2.5
-- [ ] LSP code actions (extract/inline) 未实现 — v2.5
+- [x] ~~`kylix doc` 不提取代码示例~~ → ✅ v2.5
+- [x] ~~`kylix bench` 不报告内存分配~~ → ✅ v2.5
+- [x] ~~LSP rename 重构未实现~~ → ✅ v2.5 (跨文件)
+- [x] ~~LSP code actions 未实现~~ → ✅ v2.5 (rename + extract)
 
 ### 基础设施
 - [x] ~~无 CI/CD~~ → ✅ v2.2
@@ -216,7 +196,7 @@ var sum := iter.Reduce(evens, 0, ...);
 ## 🎓 社区与生态
 
 ### 短期 (v2.5)
-- [ ] 发布 v2.4.0 公告
+- [ ] 发布 v2.5.0 公告
 - [ ] 创建 Discord/Slack 社区
 - [ ] 设置 GitHub Discussions
 
