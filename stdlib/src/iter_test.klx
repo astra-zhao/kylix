@@ -1,0 +1,98 @@
+// iter_test — Tests for stdlib/src/iter.klx
+unit iter_test;
+uses iter;
+
+procedure TestContains;
+var arr: array of Integer;
+begin
+  arr := nil;
+  append(arr, 10); append(arr, 20); append(arr, 30);
+  Assert(Contains(arr, 20), 'contains 20');
+  Assert(Contains(arr, 99) = false, 'no 99');
+end;
+
+procedure TestCount;
+var arr: array of Integer;
+begin
+  arr := nil;
+  append(arr, 5); append(arr, 5); append(arr, 3); append(arr, 5);
+  Assert(Count(arr, 5) = 3, 'three 5s');
+  Assert(Count(arr, 3) = 1, 'one 3');
+end;
+
+procedure TestUnique;
+var arr: array of Integer;
+var out: array of Integer;
+begin
+  arr := nil;
+  append(arr, 1); append(arr, 2); append(arr, 1); append(arr, 3); append(arr, 2);
+  out := Unique(arr);
+  Assert(Length(out) = 3, 'unique has 3 elements');
+  Assert(out[0] = 1, 'first is 1');
+  Assert(out[1] = 2, 'second is 2');
+  Assert(out[2] = 3, 'third is 3');
+end;
+
+procedure TestReverse;
+var arr: array of Integer;
+var out: array of Integer;
+begin
+  arr := nil;
+  append(arr, 1); append(arr, 2); append(arr, 3);
+  out := Reverse(arr);
+  Assert(out[0] = 3, 'rev[0]=3');
+  Assert(out[1] = 2, 'rev[1]=2');
+  Assert(out[2] = 1, 'rev[2]=1');
+end;
+
+procedure TestConcat;
+var a: array of Integer;
+var b: array of Integer;
+var out: array of Integer;
+begin
+  a := nil; append(a, 1); append(a, 2);
+  b := nil; append(b, 3); append(b, 4);
+  out := Concat(a, b);
+  Assert(Length(out) = 4, 'concat has 4 elements');
+  Assert(out[0] = 1, 'out[0]=1');
+  Assert(out[3] = 4, 'out[3]=4');
+end;
+
+procedure TestSlice;
+var arr: array of Integer;
+var out: array of Integer;
+begin
+  arr := nil;
+  append(arr, 10); append(arr, 20); append(arr, 30); append(arr, 40); append(arr, 50);
+  out := Slice(arr, 1, 4);
+  Assert(Length(out) = 3, 'slice has 3 elements');
+  Assert(out[0] = 20, 'slice[0]=20');
+  Assert(out[2] = 40, 'slice[2]=40');
+end;
+
+procedure TestSum;
+var arr: array of Integer;
+begin
+  arr := nil;
+  append(arr, 1); append(arr, 2); append(arr, 3); append(arr, 4); append(arr, 5);
+  Assert(Sum(arr) = 15, 'sum 1..5 = 15');
+end;
+
+procedure TestMinMax;
+var arr: array of Integer;
+begin
+  arr := nil;
+  append(arr, 5); append(arr, -3); append(arr, 7); append(arr, 0);
+  Assert(Min(arr) = -3, 'min = -3');
+  Assert(Max(arr) = 7, 'max = 7');
+end;
+
+procedure TestEmpty;
+var arr: array of Integer;
+begin
+  arr := nil;
+  Assert(Contains(arr, 1) = false, 'empty contains false');
+  Assert(Sum(arr) = 0, 'empty sum = 0');
+  Assert(Min(arr) = 0, 'empty min = 0');
+  Assert(Max(arr) = 0, 'empty max = 0');
+end;

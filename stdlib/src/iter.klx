@@ -1,0 +1,135 @@
+// iter — Array iteration utilities, implemented in pure Kylix.
+//
+// Part of v2.5.0 stdlib Phase 3+.
+// Provides common array operations without requiring function-type parameters
+// (Kylix does not yet support function pointers as parameter types).
+// Future versions will add Map/Filter/Reduce when function types are supported.
+unit iter;
+
+// Contains reports whether arr contains the value v.
+function Contains(arr: array of Integer; v: Integer): Boolean;
+var
+  i: Integer;
+begin
+  for i := 0 to Length(arr) - 1 do
+    if arr[i] = v then
+    begin
+      result := true;
+      exit;
+    end;
+  result := false;
+end;
+
+// Count returns the number of elements equal to v.
+function Count(arr: array of Integer; v: Integer): Integer;
+var
+  i: Integer;
+  n: Integer;
+begin
+  n := 0;
+  for i := 0 to Length(arr) - 1 do
+    if arr[i] = v then
+      n := n + 1;
+  result := n;
+end;
+
+// Unique returns a new array with duplicate elements removed.
+function Unique(arr: array of Integer): array of Integer;
+var
+  i: Integer;
+  out: array of Integer;
+begin
+  out := nil;
+  for i := 0 to Length(arr) - 1 do
+    if not Contains(out, arr[i]) then
+      append(out, arr[i]);
+  result := out;
+end;
+
+// Reverse returns a new array with elements in reverse order.
+function Reverse(arr: array of Integer): array of Integer;
+var
+  i: Integer;
+  n: Integer;
+  out: array of Integer;
+begin
+  n := Length(arr);
+  out := nil;
+  for i := 0 to n - 1 do
+    append(out, arr[n - 1 - i]);
+  result := out;
+end;
+
+// Concat returns a new array with all elements from a and b.
+function Concat(a: array of Integer; b: array of Integer): array of Integer;
+var
+  i: Integer;
+  out: array of Integer;
+begin
+  out := nil;
+  for i := 0 to Length(a) - 1 do
+    append(out, a[i]);
+  for i := 0 to Length(b) - 1 do
+    append(out, b[i]);
+  result := out;
+end;
+
+// Slice returns elements from index start to end (exclusive).
+function Slice(arr: array of Integer; start: Integer; endIdx: Integer): array of Integer;
+var
+  i: Integer;
+  out: array of Integer;
+begin
+  out := nil;
+  if start < 0 then start := 0;
+  if endIdx > Length(arr) then endIdx := Length(arr);
+  for i := start to endIdx - 1 do
+    append(out, arr[i]);
+  result := out;
+end;
+
+// Sum returns the sum of all elements.
+function Sum(arr: array of Integer): Integer;
+var
+  i: Integer;
+  total: Integer;
+begin
+  total := 0;
+  for i := 0 to Length(arr) - 1 do
+    total := total + arr[i];
+  result := total;
+end;
+
+// Min returns the smallest element (0 for empty arrays).
+function Min(arr: array of Integer): Integer;
+var
+  i: Integer;
+  m: Integer;
+begin
+  if Length(arr) = 0 then
+  begin
+    result := 0;
+    exit;
+  end;
+  m := arr[0];
+  for i := 1 to Length(arr) - 1 do
+    if arr[i] < m then m := arr[i];
+  result := m;
+end;
+
+// Max returns the largest element (0 for empty arrays).
+function Max(arr: array of Integer): Integer;
+var
+  i: Integer;
+  m: Integer;
+begin
+  if Length(arr) = 0 then
+  begin
+    result := 0;
+    exit;
+  end;
+  m := arr[0];
+  for i := 1 to Length(arr) - 1 do
+    if arr[i] > m then m := arr[i];
+  result := m;
+end;
