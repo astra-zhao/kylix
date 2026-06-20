@@ -266,6 +266,10 @@ func buildHarness(klxFile string, names []string, tmpDir string) (string, error)
 	sb.WriteString("func Assert(cond bool, msg string) {\n")
 	sb.WriteString("\tif !cond {\n\t\tpanic(\"FAIL: \" + msg)\n\t}\n}\n\n")
 
+	// Inject Exception type (needed if test code uses raise/try-except)
+	sb.WriteString("type Exception struct { Message string }\n")
+	sb.WriteString("func (e *Exception) Error() string { return e.Message }\n\n")
+
 	// Suppress unused import warnings from generated code
 	sb.WriteString("var _ = fmt.Sprintf\n\n")
 

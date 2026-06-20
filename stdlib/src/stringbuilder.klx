@@ -1,0 +1,47 @@
+// stringbuilder — Efficient string concatenation, implemented in pure Kylix.
+//
+// Part of v2.4.0 stdlib Phase 3.
+// Provides TStringBuilder for building strings incrementally without
+// the O(n²) cost of repeated string concatenation.
+unit stringbuilder;
+
+// TStringBuilder accumulates string parts efficiently.
+type
+  TStringBuilder = class
+    Parts: array of String;
+    Len: Integer;
+
+    procedure Append(s: String);
+    begin
+      append(self.Parts, s);
+      self.Len := self.Len + Length(s);
+    end;
+
+    procedure AppendLine(s: String);
+    begin
+      self.Append(s);
+      self.Append('\n');
+    end;
+
+    procedure Clear();
+    begin
+      self.Parts := nil;
+      self.Len := 0;
+    end;
+
+    function Length(): Integer;
+    begin
+      result := self.Len;
+    end;
+
+    function ToString(): String;
+    var
+      i: Integer;
+      r: String;
+    begin
+      r := '';
+      for i := 0 to Length(self.Parts) - 1 do
+        r := r + self.Parts[i];
+      result := r;
+    end;
+  end;

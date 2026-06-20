@@ -1,0 +1,38 @@
+// result_test — Tests for stdlib/src/result.klx
+unit result_test;
+uses resulttype;
+
+procedure TestOk;
+var r: TResult;
+begin
+  r := Ok(42);
+  Assert(r.IsOk, 'Ok result IsOk');
+  Assert(r.Unwrap() = 42, 'unwrap returns value');
+  Assert(r.ErrorMsg() = '', 'Ok has no error');
+end;
+
+procedure TestErr;
+var r: TResult;
+begin
+  r := Err('something went wrong');
+  Assert(r.IsOk = false, 'Err result not IsOk');
+  Assert(r.UnwrapOr(99) = 99, 'UnwrapOr returns fallback');
+  Assert(r.ErrorMsg() = 'something went wrong', 'error message preserved');
+end;
+
+procedure TestSafeDiv_Ok;
+var r: TResult;
+begin
+  r := SafeDiv(10, 2);
+  Assert(r.IsOk, '10/2 is Ok');
+  Assert(r.Unwrap() = 5, '10/2 = 5');
+end;
+
+procedure TestSafeDiv_Err;
+var r: TResult;
+begin
+  r := SafeDiv(10, 0);
+  Assert(r.IsOk = false, '10/0 is Err');
+  Assert(r.UnwrapOr(-1) = -1, 'UnwrapOr returns -1');
+  Assert(r.ErrorMsg() = 'division by zero', 'error message');
+end;

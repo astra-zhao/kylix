@@ -1,0 +1,66 @@
+// result — Result type for error handling, implemented in pure Kylix.
+//
+// Part of v2.4.0 stdlib Phase 3.
+// Provides TResult for explicit error handling without exceptions.
+// Inspired by Rust's Result<T, E> and Go's (value, error) pattern.
+unit resulttype;
+
+// TResult holds either a success value or an error message.
+type
+  TResult = class
+    Value: Integer;
+    Err: String;
+    IsOk: Boolean;
+
+    function Unwrap(): Integer;
+    begin
+      if self.IsOk then
+        result := self.Value
+      else
+        raise Exception.Create('unwrap called on error result: ' + self.Err);
+    end;
+
+    function UnwrapOr(fallback: Integer): Integer;
+    begin
+      if self.IsOk then
+        result := self.Value
+      else
+        result := fallback;
+    end;
+
+    function ErrorMsg(): String;
+    begin
+      if self.IsOk then
+        result := ''
+      else
+        result := self.Err;
+    end;
+  end;
+
+// Ok creates a successful result.
+function Ok(value: Integer): TResult;
+begin
+  result := TResult.Create();
+  result.Value := value;
+  result.IsOk := true;
+  result.Err := '';
+end;
+
+// Err creates an error result.
+function Err(msg: String): TResult;
+begin
+  result := TResult.Create();
+  result.Value := 0;
+  result.IsOk := false;
+  result.Err := msg;
+end;
+
+// SafeDiv divides a by b, returning a Result.
+// Returns Err if b is zero.
+function SafeDiv(a: Integer; b: Integer): TResult;
+begin
+  if b = 0 then
+    result := Err('division by zero')
+  else
+    result := Ok(a div b);
+end;

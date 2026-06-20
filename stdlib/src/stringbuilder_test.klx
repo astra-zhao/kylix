@@ -1,0 +1,41 @@
+// stringbuilder_test — Tests for stdlib/src/stringbuilder.klx
+unit stringbuilder_test;
+uses stringbuilder;
+
+procedure TestAppend;
+var sb: TStringBuilder;
+begin
+  sb := TStringBuilder.Create();
+  sb.Append('Hello');
+  sb.Append(', ');
+  sb.Append('World!');
+  Assert(sb.Length() = 13, 'length should be 13');
+  Assert(sb.ToString() = 'Hello, World!', 'combined string');
+end;
+
+procedure TestAppendLine;
+var sb: TStringBuilder;
+begin
+  sb := TStringBuilder.Create();
+  sb.AppendLine('Line 1');
+  sb.AppendLine('Line 2');
+  Assert(sb.Length() = 14, 'length with newlines');
+end;
+
+procedure TestClear;
+var sb: TStringBuilder;
+begin
+  sb := TStringBuilder.Create();
+  sb.Append('data');
+  sb.Clear();
+  Assert(sb.Length() = 0, 'cleared length = 0');
+  Assert(sb.ToString() = '', 'cleared to empty');
+end;
+
+procedure TestEmpty;
+var sb: TStringBuilder;
+begin
+  sb := TStringBuilder.Create();
+  Assert(sb.Length() = 0, 'empty length = 0');
+  Assert(sb.ToString() = '', 'empty string');
+end;
