@@ -8,6 +8,17 @@ import (
 	"strings"
 )
 
+// setLengthHelperSource is the Go source for the __kylixSetLength runtime helper,
+// injected into the output when SetLength() is called by Kylix code.
+var setLengthHelperSource = `
+func __kylixSetLength[T any](s []T, n int) []T {
+	if n <= len(s) {
+		return s[:n]
+	}
+	return append(s, make([]T, n-len(s))...)
+}
+`
+
 // Generator accumulates Go source code from a Kylix AST.
 type Generator struct {
 	output          strings.Builder
@@ -22,6 +33,7 @@ type Generator struct {
 	nameMap         map[string]string   // temporary name substitutions (e.g., E→e in on clause)
 	imports         map[string]bool     // Go imports needed by the output
 	needsException  bool                // whether Exception type must be emitted
+	needsSetLength  bool                // whether the __kylixSetLength helper is needed
 	exceptionTypes  map[string]bool     // exception type names from on clauses
 	multiReturn     bool                // current function has multiple return values
 	multiReturnN    int                 // number of return values in current function
@@ -82,6 +94,10 @@ func (g *Generator) BuildOutput(bodies []string) string {
 	for _, b := range bodies {
 		out.WriteString(b)
 	}
+	// Runtime helpers (e.g. __kylixSetLength) detected during GenerateBody.
+	if g.needsSetLength {
+		out.WriteString(setLengthHelperSource)
+	}
 	return out.String()
 }
 
@@ -140,7 +156,29 @@ func (g *Generator) Generate(program *ast.Program) string {
 		g.writeLine("}")
 	}
 
+	g.writeRuntimeHelpers()
 	return g.output.String()
+}
+
+// writeRuntimeHelpers appends generated runtime helper functions that were
+// found to be needed during code generation (e.g. __kylixSetLength).
+// Go allows top-level functions in any order, so emitting these at the end is safe.
+func (g *Generator) writeRuntimeHelpers() {
+	if g.needsSetLength {
+		g.writeLine("")
+		g.writeLine("// __kylixSetLength resizes a slice to length n, growing with zero values")
+		g.writeLine("// or truncating as needed. Backs the Kylix SetLength built-in.")
+		g.writeLine("func __kylixSetLength[T any](s []T, n int) []T {")
+		g.indent++
+		g.writeLine("if n <= len(s) {")
+		g.indent++
+		g.writeLine("return s[:n]")
+		g.indent--
+		g.writeLine("}")
+		g.writeLine("return append(s, make([]T, n-len(s))...)")
+		g.indent--
+		g.writeLine("}")
+	}
 }
 
 // GenerateMulti compiles multiple Kylix source files into a single Go package.
@@ -203,6 +241,7 @@ func (g *Generator) GenerateMulti(programs []*ast.Program) string {
 		}
 	}
 
+	g.writeRuntimeHelpers()
 	return g.output.String()
 }
 

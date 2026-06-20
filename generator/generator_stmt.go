@@ -71,13 +71,16 @@ func (g *Generator) generateExpressionStatement(s *ast.ExpressionStatement) {
 				return
 			}
 			if ident.Value == "SetLength" && len(call.Arguments) >= 2 {
-				// SetLength(arr, n) → arr = arr[:n]
+				// SetLength(arr, n) → arr = __kylixSetLength(arr, int(n))
+				// The helper grows (append zeros) or truncates as needed,
+				// working correctly for nil/empty/short slices.
+				g.needsSetLength = true
 				g.generateExpression(call.Arguments[0])
-				g.write(" = ")
+				g.write(" = __kylixSetLength(")
 				g.generateExpression(call.Arguments[0])
-				g.write("[:")
+				g.write(", int(")
 				g.generateExpression(call.Arguments[1])
-				g.write("]\n")
+				g.write("))\n")
 				return
 			}
 		}
