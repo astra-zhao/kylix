@@ -45,3 +45,4 @@ main.go
 # Code graph index
 .codegraph/
 wasm_demo.go
+*.go
