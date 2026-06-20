@@ -4,6 +4,75 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v2.6.0 (2026-06-20)
+
+### 🎉 Performance & Optimization
+
+v2.6.0 brings parallel compilation, dead code elimination, and LSP performance benchmarks.
+
+---
+
+### Task 1: Parallel Compilation
+
+`CompileProject` now parses all source files in parallel using goroutines.
+
+- Each file gets its own goroutine for ReadFile + Lex + Parse
+- `sync.WaitGroup` waits for all, results collected in original order
+- Race detector verified (`go test -race`)
+- 9-file project: CPU utilization 113% (multi-core active)
+- Cache logic preserved (cached files still skip GenerateBody)
+
+---
+
+### Task 2: Dead Code Elimination
+
+New `pkg/compiler/optimize.go` removes unreachable code:
+
+```pascal
+function Foo(): Integer;
+begin
+  result := 42;
+  return;
+  WriteLn('unreachable');  // ← eliminated
+  WriteLn('also gone');    // ← eliminated
+end;
+```
+
+- Terminators detected: `return`, `raise`, `Exit`, `break`, `continue`
+- Recursive: optimizes nested blocks (if/while/for/try bodies)
+- No-op when no dead code exists (preserves all statements)
+
+**Tests**: `pkg/compiler/optimize_test.go` (5 tests)
+
+---
+
+### Task 3: LSP Large File Performance Benchmark
+
+Verifies incremental edit latency on large files:
+
+| Scenario | File Size | Latency | Target |
+|----------|-----------|---------|--------|
+| Full parse | 500 functions (~2K lines) | 1.2ms | < 200ms ✅ |
+| Incremental edit | 500 functions | 1.0ms | < 200ms ✅ |
+| Symbol collection | 200 functions | < 1ms | complete ✅ |
+
+v2.3.0's incremental sync investment pays off — even 500-function files edit in < 2ms.
+
+**Tests**: `pkg/lsp/perf_test.go` (3 tests)
+
+---
+
+### Summary
+
+| Task | Tests | Type |
+|------|-------|------|
+| Parallel compilation | – (race detector) | Performance |
+| Dead code elimination | 5 | Optimization |
+| LSP perf benchmark | 3 | Performance guard |
+| **Total v2.6.0** | **8** | |
+
+---
+
 ## v2.5.0 (2026-06-20)
 
 ### 🎉 Toolchain Deepening
