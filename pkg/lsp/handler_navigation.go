@@ -137,6 +137,16 @@ type ReferenceWalker struct {
 	references []Location
 }
 
+// NewReferenceWalker creates a walker that finds all references to targetName.
+func NewReferenceWalker(targetName, uri string) *ReferenceWalker {
+	return &ReferenceWalker{targetName: targetName, uri: uri, references: []Location{}}
+}
+
+// References returns the collected reference locations.
+func (w *ReferenceWalker) References() []Location {
+	return w.references
+}
+
 func (w *ReferenceWalker) Walk(node ast.Node) {
 	if node == nil {
 		return
@@ -298,21 +308,32 @@ func (s *Server) handleRename(msg *Message) *Message {
 		return &Message{ID: msg.ID, Result: nil}
 	}
 
-	walker := &ReferenceWalker{
-		targetName: identifier,
-		uri:        params.TextDocument.URI,
-		references: []Location{},
+	// Cross-file rename: walk all open documents to find references.
+	changes := make(map[string][]TextEdit)
+	for _, d := range s.docs.GetAll() {
+		if d.AST == nil {
+			continue
+		}
+		walker := &ReferenceWalker{
+			targetName: identifier,
+			uri:        d.URI,
+			references: []Location{},
+		}
+		walker.Walk(d.AST)
+		if len(walker.references) == 0 {
+			continue
+		}
+		var edits []TextEdit
+		for _, ref := range walker.references {
+			edits = append(edits, TextEdit{Range: ref.Range, NewText: params.NewName})
+		}
+		changes[d.URI] = edits
 	}
-	walker.Walk(doc.AST)
 
-	edits := []TextEdit{}
-	for _, ref := range walker.references {
-		edits = append(edits, TextEdit{Range: ref.Range, NewText: params.NewName})
+	if len(changes) == 0 {
+		return &Message{ID: msg.ID, Result: nil}
 	}
-	return &Message{
-		ID:     msg.ID,
-		Result: WorkspaceEdit{Changes: map[string][]TextEdit{params.TextDocument.URI: edits}},
-	}
+	return &Message{ID: msg.ID, Result: WorkspaceEdit{Changes: changes}}
 }
 
 // ── Formatting ───────────────────────────────────────────────────────────────
@@ -475,10 +496,35 @@ type CodeAction struct {
 }
 
 func (s *Server) handleCodeAction(msg *Message) *Message {
+	var params CodeActionParams
+	json.Unmarshal(msg.Params, &params)
+
 	actions := []CodeAction{
 		{Title: "Organize Imports", Kind: "source.organizeImports"},
 		{Title: "Format Document", Kind: "source.format"},
 	}
+
+	// Add "Rename Symbol" action if cursor is on an identifier.
+	doc := s.docs.Get(params.TextDocument.URI)
+	if doc != nil {
+		ident := doc.GetIdentifierAt(params.Range.Start.Line, params.Range.Start.Character)
+		if ident != "" {
+			actions = append(actions, CodeAction{
+				Title: "Rename Symbol: " + ident,
+				Kind:  "refactor.rename",
+			})
+		}
+
+		// Add "Extract Function" action if there's a selection (non-empty range).
+		if params.Range.Start.Line != params.Range.End.Line ||
+			params.Range.Start.Character != params.Range.End.Character {
+			actions = append(actions, CodeAction{
+				Title: "Extract Function",
+				Kind:  "refactor.extract.function",
+			})
+		}
+	}
+
 	return &Message{ID: msg.ID, Result: actions}
 }
 

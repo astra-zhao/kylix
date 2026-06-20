@@ -39,10 +39,10 @@ kylix_bin
 # Incremental build cache
 .kylix-cache/
 
-# Generated Go output at project root
-main.go
-
-# Code graph index
-.codegraph/
-wasm_demo.go
-*.go
+# Generated Go output at project root (not source files in subdirs)
+/main.go
+/wasm_demo.go
+/iter.go
+/arrayutil.go
+/extmethod.go
+/extmethod2.go
