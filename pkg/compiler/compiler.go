@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // Diagnostic represents a single error or warning from compilation
@@ -415,17 +416,30 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 	cachedBodies := make(map[string]string) // absPath → cached Go body
 	needsRegen := make([]bool, len(files))
 
+	// Parallel parse: each file is lexed+parsed independently in a goroutine.
+	type parseResult struct {
+		index    int
+		file     string
+		absFile  string
+		program  *ast.Program
+		err      error
+		parseErrs []string
+		cached   bool
+	}
+
+	results := make([]parseResult, len(files))
+	var wg sync.WaitGroup
+
 	for i, file := range files {
 		absFile, _ := filepath.Abs(file)
 
-		// Try cache first.
+		// Check cache before parsing.
+		isCached := false
 		if cache != nil {
 			if entry := cache.Load(absFile); entry != nil {
-				// File unchanged — reuse cached body but still need AST for
-				// semantic checks and cross-unit type resolution.
-				// Parse is fast; we skip only the expensive Generate step.
 				cachedBodies[absFile] = entry.GoCode
 				needsRegen[i] = false
+				isCached = true
 				if opts.Verbose {
 					fmt.Printf("  cached: %s\n", file)
 				}
@@ -436,37 +450,53 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 			needsRegen[i] = true
 		}
 
-		source, err := os.ReadFile(file)
-		if err != nil {
-			return nil, fmt.Errorf("cannot read %s: %v", file, err)
+		wg.Add(1)
+		go func(idx int, f, abs string, cached bool) {
+			defer wg.Done()
+			pr := parseResult{index: idx, file: f, absFile: abs, cached: cached}
+
+			source, err := os.ReadFile(f)
+			if err != nil {
+				pr.err = fmt.Errorf("cannot read %s: %v", f, err)
+				results[idx] = pr
+				return
+			}
+
+			l := lexer.New(string(source))
+			p := parser.New(l)
+			pr.program = p.ParseProgram()
+			pr.parseErrs = p.Errors()
+			results[idx] = pr
+		}(i, file, absFile, isCached)
+	}
+	wg.Wait()
+
+	// Collect results in original order.
+	for _, pr := range results {
+		if pr.err != nil {
+			return nil, pr.err
 		}
-
-		l := lexer.New(string(source))
-		p := parser.New(l)
-		program := p.ParseProgram()
-
-		for _, errMsg := range p.Errors() {
-			d := Diagnostic{File: file, Level: "error", Message: errMsg}
+		for _, errMsg := range pr.parseErrs {
+			d := Diagnostic{File: pr.file, Level: "error", Code: ErrParseGeneric, Message: errMsg}
 			parseLocation(&d, errMsg)
 			result.Diagnostics = append(result.Diagnostics, d)
 		}
-
-		if len(p.Errors()) > 0 {
+		if len(pr.parseErrs) > 0 {
 			result.Success = false
 			if cache != nil {
-				cache.Invalidate(absFile)
+				cache.Invalidate(pr.absFile)
 			}
 			return result, nil
 		}
 
-		name := program.UnitName
+		name := pr.program.UnitName
 		if name == "" {
-			name = program.Name
+			name = pr.program.Name
 		}
 		if name != "" {
-			fileMap[name] = program
+			fileMap[name] = pr.program
 		}
-		programs = append(programs, program)
+		programs = append(programs, pr.program)
 	}
 
 	sorted, sortedFiles, err := topoSortWithFiles(programs, fileMap, files)
