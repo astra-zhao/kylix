@@ -1,0 +1,38 @@
+program CaseStatement;
+
+var
+  day: Integer;
+  grade: String;
+  month: Integer;
+
+begin
+  // Basic case statement
+  day := 3;
+  WriteLn('Day ', day, ' is: ');
+  case day of
+    1: WriteLn('Monday');
+    2: WriteLn('Tuesday');
+    3: WriteLn('Wednesday');
+    4: WriteLn('Thursday');
+    5: WriteLn('Friday');
+    6: WriteLn('Saturday');
+    7: WriteLn('Sunday');
+  end;
+
+  // Case with multiple values
+  WriteLn('Day type: ');
+  case day of
+    1, 2, 3, 4, 5: WriteLn('Weekday');
+    6, 7: WriteLn('Weekend');
+  end;
+
+  // Case with Integer ranges
+  month := 7;
+  WriteLn('Season for month ', month, ': ');
+  case month of
+    12, 1, 2: WriteLn('Winter');
+    3, 4, 5: WriteLn('Spring');
+    6, 7, 8: WriteLn('Summer');
+    9, 10, 11: WriteLn('Fall');
+  end;
+end.

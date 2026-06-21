@@ -1,0 +1,41 @@
+program TryFinally;
+
+procedure ProcessFile(filename: String);
+begin
+  WriteLn('Opening file: ', filename);
+
+  try
+  begin
+    WriteLn('Processing data...');
+    // Simulate work
+    WriteLn('Data processed successfully');
+  end
+  finally
+  begin
+    WriteLn('Closing file: ', filename);
+  end
+  end;
+end;
+
+begin
+  ProcessFile('data.txt');
+  
+  WriteLn('---');
+
+  // Try-except-finally
+  try
+  begin
+    WriteLn('Starting operation...');
+    var x := 10 div 2;
+    WriteLn('Result: ', x);
+  end
+  except
+  begin
+    WriteLn('Error occurred');
+  end
+  finally
+  begin
+    WriteLn('Cleanup complete');
+  end
+  end;
+end.

@@ -1,0 +1,42 @@
+program Recursion;
+
+// Recursive factorial function
+function Factorial(n: Integer): Integer;
+begin
+  if n <= 1 then
+    result := 1
+  else
+    result := n * Factorial(n - 1);
+end;
+
+// Recursive Fibonacci function
+function Fibonacci(n: Integer): Integer;
+begin
+  if n <= 1 then
+    result := n
+  else
+    result := Fibonacci(n - 1) + Fibonacci(n - 2);
+end;
+
+// Recursive power function
+function Power(base: Integer; exp: Integer): Integer;
+begin
+  if exp = 0 then
+    result := 1
+  else
+    result := base * Power(base, exp - 1);
+end;
+
+begin
+  WriteLn('Factorial of 5: ', Factorial(5));
+  WriteLn('Factorial of 10: ', Factorial(10));
+
+  WriteLn('Fibonacci sequence:');
+  WriteLn('F(0) = ', Fibonacci(0));
+  WriteLn('F(1) = ', Fibonacci(1));
+  WriteLn('F(5) = ', Fibonacci(5));
+  WriteLn('F(10) = ', Fibonacci(10));
+
+  WriteLn('2^3 = ', Power(2, 3));
+  WriteLn('5^4 = ', Power(5, 4));
+end.

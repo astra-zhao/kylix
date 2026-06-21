@@ -1,0 +1,10 @@
+program HelloWorld;
+
+// This is a simple Hello World program
+// Comments start with //
+
+begin
+  WriteLn('Hello, Kylix World!');
+  WriteLn('Welcome to modern Pascal programming!');
+  WriteLn('Kylix is a modern Pascal-to-Go transpiler');
+end.

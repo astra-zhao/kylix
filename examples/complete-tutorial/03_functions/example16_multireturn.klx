@@ -1,0 +1,44 @@
+program MultiReturn;
+
+// Function returning multiple values
+function DivMod(dividend: Integer; divisor: Integer): (Integer, Integer);
+begin
+  result := (dividend div divisor, dividend mod divisor);
+end;
+
+// Function returning min and max
+function MinMax(a: Integer; b: Integer; c: Integer): (Integer, Integer);
+var
+  min, max: Integer;
+begin
+  min := a;
+  max := a;
+
+  if b < min then min := b;
+  if c < min then min := c;
+
+  if b > max then max := b;
+  if c > max then max := c;
+
+  result := (min, max);
+end;
+
+var
+  quotient, remainder: Integer;
+  minVal, maxVal: Integer;
+  q2, r2: Integer;
+
+begin
+  // Multi-return assignment
+  (quotient, remainder) := DivMod(17, 5);
+  WriteLn('17 div 5 = ', quotient);
+  WriteLn('17 mod 5 = ', remainder);
+
+  (minVal, maxVal) := MinMax(5, 12, 3);
+  WriteLn('Min of 5,12,3: ', minVal);
+  WriteLn('Max of 5,12,3: ', maxVal);
+
+  // Another example
+  (q2, r2) := DivMod(100, 7);
+  WriteLn('100 div 7 = ', q2, ', remainder = ', r2);
+end.

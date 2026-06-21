@@ -1,0 +1,45 @@
+program Functions;
+
+// Function with return value
+function Add(a: Integer; b: Integer): Integer;
+begin
+  result := a + b;
+end;
+
+// Function with multiple parameters
+function Average(x: Real; y: Real; z: Real): Real;
+begin
+  result := (x + y + z) / 3;
+end;
+
+// Function without parameters
+function GetPI(): Real;
+begin
+  result := 3.14159265359;
+end;
+
+// Procedure (no return value)
+procedure Greet(name: String);
+begin
+  WriteLn('Hello, ', name, '!');
+end;
+
+// Procedure with multiple statements
+procedure PrintInfo(name: String; age: Integer);
+begin
+  WriteLn('Name: ', name);
+  WriteLn('Age: ', age);
+  WriteLn('---');
+end;
+
+begin
+  WriteLn('5 + 3 = ', Add(5, 3));
+  WriteLn('Average of 10, 20, 30 = ', Average(10, 20, 30));
+  WriteLn('PI = ', GetPI());
+
+  Greet('Alice');
+  Greet('Bob');
+
+  PrintInfo('Charlie', 25);
+  PrintInfo('Diana', 30);
+end.

@@ -1,0 +1,31 @@
+program Variables;
+
+// Variable declarations with types
+var
+  age: Integer;
+  name: String;
+  pi: Real;
+  isActive: Boolean;
+
+// Initialized variables
+var
+  count: Integer = 42;
+  greeting: String = 'Hello';
+  ratio: Real = 3.14159;
+  flag: Boolean = true;
+
+begin
+  // Assignment
+  age := 25;
+  name := 'Alice';
+  pi := 3.14159;
+  isActive := false;
+
+  // Output
+  WriteLn('Name: ', name);
+  WriteLn('Age: ', age);
+  WriteLn('Pi: ', pi);
+  WriteLn('Active: ', isActive);
+  WriteLn('Count: ', count);
+  WriteLn('Greeting: ', greeting);
+end.

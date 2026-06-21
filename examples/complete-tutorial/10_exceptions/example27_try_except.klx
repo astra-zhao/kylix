@@ -1,0 +1,39 @@
+program TryExcept;
+
+// Function that may raise an exception
+function SafeDivide(a: Real; b: Real): Real;
+begin
+  if b = 0 then
+  begin
+    raise Exception.Create('Division by zero');
+  end;
+  result := a / b;
+end;
+
+begin
+  // Basic try-except
+  try
+  begin
+    var result := SafeDivide(10, 2);
+    WriteLn('10 / 2 = ', result);
+  end
+  except
+  begin
+    WriteLn('An error occurred');
+  end;
+  end;
+
+  // Try-except with division by zero
+  try
+  begin
+    var result := SafeDivide(10, 0);
+    WriteLn('Result: ', result);
+  end
+  except
+  begin
+    WriteLn('Cannot divide by zero!');
+  end;
+  end;
+
+  WriteLn('Program continues...');
+end.

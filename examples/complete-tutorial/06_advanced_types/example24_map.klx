@@ -1,0 +1,27 @@
+program MapType;
+
+var
+  scores: map[String]Integer;
+  ages: map[String]Integer;
+
+begin
+  // Add key-value pairs directly
+  scores['Alice'] := 95;
+  scores['Bob'] := 87;
+  scores['Charlie'] := 92;
+
+  ages['Alice'] := 25;
+  ages['Bob'] := 30;
+  ages['Charlie'] := 28;
+
+  // Access map values
+  WriteLn('Scores:');
+  WriteLn('Alice: ', scores['Alice']);
+  WriteLn('Bob: ', scores['Bob']);
+  WriteLn('Charlie: ', scores['Charlie']);
+
+  WriteLn('Ages:');
+  WriteLn('Alice: ', ages['Alice']);
+  WriteLn('Bob: ', ages['Bob']);
+  WriteLn('Charlie: ', ages['Charlie']);
+end.

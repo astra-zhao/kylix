@@ -1,0 +1,26 @@
+unit MathHelper;
+
+interface
+
+function Square(x: Integer): Integer;
+function Cube(x: Integer): Integer;
+function IsEven(n: Integer): Boolean;
+
+implementation
+
+function Square(x: Integer): Integer;
+begin
+  result := x * x;
+end;
+
+function Cube(x: Integer): Integer;
+begin
+  result := x * x * x;
+end;
+
+function IsEven(n: Integer): Boolean;
+begin
+  result := (n mod 2) = 0;
+end;
+
+end.

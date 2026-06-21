@@ -1,0 +1,37 @@
+program WhileLoop;
+
+var
+  i: Integer;
+  sum: Integer;
+  countdown: Integer;
+
+begin
+  // Basic while loop
+  i := 1;
+  sum := 0;
+  while i <= 10 do
+  begin
+    sum := sum + i;
+    i := i + 1;
+  end;
+  WriteLn('Sum of 1-10: ', sum);
+
+  // While loop with condition
+  countdown := 5;
+  WriteLn('Countdown:');
+  while countdown > 0 do
+  begin
+    WriteLn(countdown);
+    countdown := countdown - 1;
+  end;
+  WriteLn('Blast off!');
+
+  // While loop that never executes
+  i := 100;
+  while i < 10 do
+  begin
+    WriteLn('This will not print');
+    i := i + 1;
+  end;
+  WriteLn('Loop skipped');
+end.

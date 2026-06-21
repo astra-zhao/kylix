@@ -1,0 +1,29 @@
+program TypeInference;
+
+// Type inference with := operator
+// The compiler automatically determines the type
+begin
+  var count := 42;              // Integer
+  var message := 'Hello';       // String
+  var ratio := 3.14159;         // Real
+  var active := true;           // Boolean
+
+  WriteLn('Count: ', count);
+  WriteLn('Message: ', message);
+  WriteLn('Ratio: ', ratio);
+  WriteLn('Active: ', active);
+
+  // Type is determined by first assignment
+  var result := 10;
+  result := result + 5;
+  WriteLn('Result: ', result);
+
+  // Can use in expressions
+  var sum := 10 + 20 + 30;
+  var product := 5 * 6;
+  var division := 100 / 4;
+
+  WriteLn('Sum: ', sum);
+  WriteLn('Product: ', product);
+  WriteLn('Division: ', division);
+end.

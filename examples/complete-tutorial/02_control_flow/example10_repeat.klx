@@ -1,0 +1,32 @@
+program RepeatUntil;
+
+var
+  i: Integer;
+  guess: Integer;
+
+begin
+  // Repeat-until loop (executes at least once)
+  i := 1;
+  repeat
+    WriteLn('Iteration: ', i);
+    i := i + 1;
+  until i > 5;
+
+  // Difference between while and repeat:
+  // repeat executes at least once
+  guess := 100;
+  WriteLn('This will print once even though condition is true:');
+  repeat
+    WriteLn('Guess value: ', guess);
+    guess := guess + 1;
+  until guess > 50;
+
+  // Counting down with repeat
+  i := 10;
+  WriteLn('Countdown with repeat:');
+  repeat
+    WriteLn(i);
+    i := i - 1;
+  until i <= 0;
+  WriteLn('Done!');
+end.

@@ -1,0 +1,33 @@
+program Arrays;
+
+var
+  numbers: array[0..4] of Integer;
+  names: array[0..2] of String;
+  i: Integer;
+
+begin
+  // Initialize array elements
+  numbers[0] := 10;
+  numbers[1] := 20;
+  numbers[2] := 30;
+  numbers[3] := 40;
+  numbers[4] := 50;
+
+  // Print array
+  WriteLn('Numbers array:');
+  for i := 0 to 4 do
+  begin
+    WriteLn('numbers[', i, '] = ', numbers[i]);
+  end;
+
+  // String array
+  names[0] := 'Alice';
+  names[1] := 'Bob';
+  names[2] := 'Charlie';
+
+  WriteLn('Names:');
+  for i := 0 to 2 do
+  begin
+    WriteLn(i + 1, '. ', names[i]);
+  end;
+end.

@@ -1,0 +1,45 @@
+program IfElse;
+
+var
+  x: Integer;
+  age: Integer;
+  score: Integer;
+
+begin
+  // Simple if statement
+  x := 10;
+  if x > 5 then
+  begin
+    WriteLn('x is greater than 5');
+  end;
+
+  // If-else statement
+  age := 18;
+  if age >= 18 then
+  begin
+    WriteLn('You are an adult');
+  end
+  else
+  begin
+    WriteLn('You are a minor');
+  end;
+
+  // Nested if-else
+  score := 85;
+  if score >= 90 then
+  begin
+    WriteLn('Grade: A');
+  end
+  else if score >= 80 then
+  begin
+    WriteLn('Grade: B');
+  end
+  else if score >= 70 then
+  begin
+    WriteLn('Grade: C');
+  end
+  else
+  begin
+    WriteLn('Grade: F');
+  end;
+end.

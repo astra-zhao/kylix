@@ -1,0 +1,13 @@
+program UseModule;
+uses MathHelper;
+
+begin
+  WriteLn('Square of 5: ', Square(5));
+  WriteLn('Cube of 3: ', Cube(3));
+  
+  WriteLn('Is 4 even? ', IsEven(4));
+  WriteLn('Is 7 even? ', IsEven(7));
+
+  WriteLn('Square of 10: ', Square(10));
+  WriteLn('Cube of 4: ', Cube(4));
+end.

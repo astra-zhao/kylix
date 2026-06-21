@@ -1,0 +1,41 @@
+program Operators;
+
+var
+  a, b: Integer;
+  x, y: Real;
+  flag1, flag2: Boolean;
+
+begin
+  // Arithmetic operators
+  a := 10;
+  b := 3;
+
+  WriteLn('=== Arithmetic ===');
+  WriteLn('a + b = ', a + b);
+  WriteLn('a - b = ', a - b);
+  WriteLn('a * b = ', a * b);
+  WriteLn('a / b = ', a / b);
+  WriteLn('a mod b = ', a mod b);
+  WriteLn('a div b = ', a div b);
+
+  // Comparison operators
+  WriteLn('');
+  WriteLn('=== Comparison ===');
+  WriteLn('a > b: ', a > b);
+  WriteLn('a < b: ', a < b);
+  WriteLn('a >= b: ', a >= b);
+  WriteLn('a <= b: ', a <= b);
+  WriteLn('a = b: ', a = b);
+  WriteLn('a <> b: ', a <> b);
+
+  // Logical operators
+  WriteLn('');
+  WriteLn('=== Logical ===');
+  flag1 := true;
+  flag2 := false;
+
+  WriteLn('flag1 and flag2: ', flag1 and flag2);
+  WriteLn('flag1 or flag2: ', flag1 or flag2);
+  WriteLn('not flag1: ', not flag1);
+  WriteLn('not flag2: ', not flag2);
+end.

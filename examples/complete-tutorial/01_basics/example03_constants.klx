@@ -1,0 +1,18 @@
+program Constants;
+
+// Constants are immutable values
+const
+  MAX_SIZE = 100;
+  APP_NAME = 'Kylix Demo';
+  PI = 3.14159265359;
+  DEBUG_MODE = true;
+
+begin
+  WriteLn('Application: ', APP_NAME);
+  WriteLn('Max Size: ', MAX_SIZE);
+  WriteLn('Pi: ', PI);
+  WriteLn('Debug Mode: ', DEBUG_MODE);
+
+  // Constants cannot be changed
+  // MAX_SIZE := 200;  // This would cause an error
+end.

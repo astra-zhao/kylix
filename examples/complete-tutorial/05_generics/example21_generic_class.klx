@@ -1,0 +1,54 @@
+program GenericClass;
+
+// Generic stack class
+class TStack<T>
+private
+  Items: array[0..99] of T;
+  Count: Integer;
+
+public
+  constructor Create();
+  begin
+    Count := 0;
+  end;
+
+  procedure Push(item: T);
+  begin
+    if Count < 100 then
+    begin
+      Items[Count] := item;
+      Count := Count + 1;
+    end;
+  end;
+
+  function Pop(): T;
+  begin
+    if Count > 0 then
+    begin
+      Count := Count - 1;
+      result := Items[Count];
+    end;
+  end;
+
+  function GetCount(): Integer;
+  begin
+    result := Count;
+  end;
+end;
+
+begin
+  var intStack := TStack<Integer>.Create();
+  intStack.Push(10);
+  intStack.Push(20);
+  intStack.Push(30);
+
+  WriteLn('Stack count: ', intStack.GetCount());
+  WriteLn('Pop: ', intStack.Pop());
+  WriteLn('Pop: ', intStack.Pop());
+  WriteLn('Stack count: ', intStack.GetCount());
+
+  var strStack := TStack<String>.Create();
+  strStack.Push('Hello');
+  strStack.Push('World');
+  WriteLn('Pop: ', strStack.Pop());
+end.

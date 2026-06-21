@@ -1,0 +1,34 @@
+program Records;
+
+// Record type definition
+type
+  TPoint = record
+    X: Real;
+    Y: Real;
+  end;
+
+  TPerson = record
+    Name: String;
+    Age: Integer;
+    Email: String;
+  end;
+
+var
+  point: TPoint;
+  person: TPerson;
+
+begin
+  // Initialize record
+  point.X := 10.5;
+  point.Y := 20.3;
+
+  WriteLn('Point: (', point.X, ', ', point.Y, ')');
+
+  // Initialize person
+  person.Name := 'Alice';
+  person.Age := 25;
+  person.Email := 'alice@example.com';
+
+  WriteLn('Person: ', person.Name, ', Age: ', person.Age);
+  WriteLn('Email: ', person.Email);
+end.

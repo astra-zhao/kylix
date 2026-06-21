@@ -1,0 +1,18 @@
+program Comments;
+
+// Single-line comment starts with //
+// This is another comment
+// Comments can span multiple lines this way
+
+begin
+  // This is a comment explaining the next line
+  WriteLn('Comments are ignored by the compiler');
+
+  // More comments here
+  WriteLn('This line executes');
+
+  // Comments can contain special characters: !@#$%^&*()
+  // They are useful for documentation and explanations
+
+  WriteLn('Program finished'); // End-of-line comment
+end.

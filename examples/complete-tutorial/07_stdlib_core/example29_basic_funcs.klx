@@ -1,0 +1,33 @@
+program BasicFunctions;
+
+// Basic functions without stdlib
+function Max(a: Integer; b: Integer): Integer;
+begin
+  if a > b then
+    result := a
+  else
+    result := b;
+end;
+
+function Min(a: Integer; b: Integer): Integer;
+begin
+  if a < b then
+    result := a
+  else
+    result := b;
+end;
+
+function Abs(n: Integer): Integer;
+begin
+  if n < 0 then
+    result := -n
+  else
+    result := n;
+end;
+
+begin
+  WriteLn('Max(10, 20): ', Max(10, 20));
+  WriteLn('Min(10, 20): ', Min(10, 20));
+  WriteLn('Abs(-15): ', Abs(-15));
+  WriteLn('Abs(25): ', Abs(25));
+end.

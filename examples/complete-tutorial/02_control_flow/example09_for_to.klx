@@ -1,0 +1,40 @@
+program ForLoop;
+
+var
+  i: Integer;
+  sum: Integer;
+  j: Integer;
+
+begin
+  // For loop with to
+  WriteLn('Counting up:');
+  for i := 1 to 5 do
+  begin
+    WriteLn(i);
+  end;
+
+  // For loop with downto
+  WriteLn('Counting down:');
+  for i := 5 downto 1 do
+  begin
+    WriteLn(i);
+  end;
+
+  // Calculate sum
+  sum := 0;
+  for i := 1 to 100 do
+  begin
+    sum := sum + i;
+  end;
+  WriteLn('Sum of 1-100: ', sum);
+
+  // Nested for loops
+  WriteLn('Multiplication table (3x3):');
+  for i := 1 to 3 do
+  begin
+    for j := 1 to 3 do
+    begin
+      WriteLn(i, ' x ', j, ' = ', i * j);
+    end;
+  end;
+end.
