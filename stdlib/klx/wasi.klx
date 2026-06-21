@@ -1,0 +1,29 @@
+unit wasi;
+
+// WASI — WebAssembly System Interface bindings for Kylix.
+//
+// Provides portable system-level I/O for programs compiled with
+// `kylix build --wasi`. Falls back to native OS calls on non-WASM targets.
+
+// Standard I/O
+procedure Stdout(s: String);             // Write to stdout (fd 1)
+procedure Stderr(s: String);             // Write to stderr (fd 2)
+function  Stdin(): String;               // Read one line from stdin (fd 0)
+
+// Environment
+function Args(): array of String;        // Command-line args (argv[1..])
+function Getenv(name: String): String;   // Read environment variable
+function Environ(): array of String;     // All env vars as "KEY=VALUE"
+
+// Clock
+function ClockMonotonic(): Integer;      // Monotonic nanoseconds
+function ClockWalltime(): Integer;       // Unix epoch seconds
+
+// File I/O (preopened directories under WASI)
+function  ReadFile(path: String): String;
+procedure WriteFile(path: String; content: String);
+
+// Process
+procedure WasiExit(code: Integer);      // Terminate with exit code
+
+end.

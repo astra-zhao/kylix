@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.0.0--alpha-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 > 
-> 🎉 **v2.6.0 Release**: Performance & Optimization — Parallel compilation, dead code elimination, LSP large-file performance benchmarks. See [CHANGELOG.md](CHANGELOG.md) for details.
+> 🎉 **v3.0.0-alpha Release**: Architecture breakthrough — LLVM native backend (Milestone 1), package registry server, WASI support, stdlib Phase 4 (pure Kylix jsonutil/regex/datetime). See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ## Features
 
@@ -41,7 +41,9 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 - **Documentation**: `kylix doc` — generate Markdown from `//` doc comments
 - **Type Checking**: Enhanced with error codes (KLX001–499), recovery, and "did you mean?" suggestions
 - **LSP Server**: Full IDE support with completion, hover, diagnostics, and signature help
-- **Package Manager**: `kylix add`, `kylix remove` for dependency management
+- **Package Manager**: `kylix add`, `kylix remove`, `kylix publish` for dependency management
+- **WASI**: `kylix build --wasi` — compile to WebAssembly System Interface (v3.0.0-alpha)
+- **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain (v3.0.0-alpha)
 
 ## Installation
 
@@ -79,11 +81,15 @@ cd myapp
 ```bash
 kylix new <name>       # Create a new project
 kylix build            # Compile project or file
+kylix build --wasm     # Compile to WebAssembly
+kylix build --wasi     # Compile to WASI (wasip1/wasm, Go 1.21+)
+kylix build --backend=llvm  # Compile via LLVM native backend
 kylix run              # Compile and run
 kylix check            # Syntax check (no code generation)
 kylix fmt              # Format source files
 kylix repl             # Interactive REPL
 kylix lsp              # Start LSP server (for editors)
+kylix publish          # Publish package to registry
 kylix version          # Show version
 kylix help             # Show help
 ```
@@ -559,6 +565,46 @@ nums := regex.ExtractNumbers('Room 42, Floor 3, Building 7');
 // nums = ['42', '3', '7']
 ```
 
+### HTTP Client (`httpclient`) — v3.0.0-alpha
+
+One-shot HTTP helpers and a reusable client with header support.
+
+```pascal
+uses httpclient;
+
+// One-shot GET
+body := HttpGet('https://api.example.com/data');
+
+// One-shot POST with JSON response
+resp := HttpGetJSON('https://api.example.com/items');
+
+// Reusable client with custom headers
+client := NewHttpClient('https://api.example.com');
+client.SetHeader('Authorization', 'Bearer ' + token);
+body := client.Get('/users');
+WriteLn(IntToStr(client.StatusCode()));
+```
+
+### WASI (`wasi`) — v3.0.0-alpha
+
+Portable system interface for WASI runtimes (Wasmtime, Node.js, Cloudflare Workers).
+
+```pascal
+uses wasi;
+
+begin
+  WriteLn('Hello from WASI!');
+  WriteLn('Arg count: ' + IntToStr(ArgCount()));
+  WriteLn('First arg: ' + Arg(0));
+
+  var val := GetEnvOrDefault('PORT', '8080');
+  WriteLn('PORT=' + val);
+
+  var ms := ElapsedMs();
+  WriteLn('Elapsed: ' + IntToStr(ms) + ' ms');
+end.
+```
+
 ## Language Reference
 
 ### Types
@@ -601,6 +647,17 @@ kylix/
 ├── pkg/
 │   ├── compiler/       # Compilation API
 │   ├── project/        # Project management (kylix.toml)
+│   ├── pkgmgr/         # Package manager (add/install/remove/publish)
+│   ├── llvmgen/        # LLVM native backend (v3.0.0-alpha)
+│   │   ├── codegen.go      # Generator core, SSA, string pool
+│   │   ├── expr.go         # Expression codegen
+│   │   ├── stmt.go         # Statement codegen
+│   │   ├── class.go        # Class/vtable codegen
+│   │   └── compile.go      # Full pipeline: AST → binary
+│   ├── wasi/           # WASI system interface (v3.0.0-alpha)
+│   │   ├── wasi.go         # Package doc
+│   │   ├── wasi_stub.go    # Non-WASI stub (local testing)
+│   │   └── wasi_wasip1.go  # WASI native implementation
 │   ├── formatter/      # Source formatter
 │   │   ├── formatter.go       # core + declaration formatting
 │   │   ├── formatter_stmt.go  # statement formatting
@@ -610,12 +667,32 @@ kylix/
 │   │   ├── handler_completion.go  # completion + hover
 │   │   └── handler_navigation.go  # definition, refs, rename, formatting
 │   └── repl/           # Interactive REPL
+├── registry/           # Package registry server (v3.0.0-alpha)
+│   ├── internal/
+│   │   ├── api/        # REST API handlers
+│   │   ├── auth/       # Bearer token auth
+│   │   ├── db/         # SQLite/PostgreSQL store
+│   │   └── models/     # Data models
+│   └── web/templates/  # htmx + Tailwind CSS frontend
 ├── stdlib/             # Standard library
 │   ├── web.go          # Web framework
 │   ├── orm.go          # Database connection + transaction
 │   ├── orm_query.go    # QueryBuilder fluent API
 │   ├── orm_migrate.go  # ORM CRUD + MigrationManager
-│   └── ...             # container, config, middleware, template, etc.
+│   ├── http_client.go  # THttpClient + one-shot helpers (v3.0.0-alpha)
+│   ├── klx/            # LSP declaration files
+│   │   ├── sysutil.klx
+│   │   ├── datetime.klx
+│   │   ├── regex.klx
+│   │   ├── jsonutil.klx
+│   │   ├── httpclient.klx
+│   │   └── wasi.klx
+│   └── src/            # Pure Kylix stdlib implementations
+│       ├── strutil.klx, mathutil.klx, arrayutil.klx
+│       ├── collections.klx, stringbuilder.klx, resulttype.klx, iter.klx
+│       ├── jsonutil.klx, regex.klx, datetime.klx  # Phase 4 (v3.0.0-alpha)
+│       ├── httpclient.klx, wasi.klx               # Phase 5 (v3.0.0-alpha)
+│       └── ...
 ├── token/              # Token definitions
 ├── lexer/              # Lexical analyzer
 ├── ast/                # AST node definitions
@@ -638,6 +715,8 @@ kylix/
 │   ├── error.klx
 │   └── main.klx
 ├── examples/           # Example programs
+│   ├── wasi-hello/     # WASI Hello World (Wasmtime/Node.js)
+│   └── cloudflare-worker/  # Cloudflare Workers HTTP handler
 ├── vscode-ext/         # VS Code extension
 └── docs/               # Documentation
 ```
@@ -748,6 +827,23 @@ Kylix LSP supports any editor with LSP client:
 - ✅ Diff verification: Go reference vs Kylix self-hosted — semantically equivalent
 - ✅ 15/15 examples pass on both compilers
 
+### v2.1.0–v2.6.0: Engineering Quality & stdlib ✅
+- ✅ Enhanced type system (multi-param generics, interface mapping, type inference)
+- ✅ GitHub Actions CI/CD, incremental compilation (55×), dead code elimination
+- ✅ LSP incremental sync, REPL Tab completion, i18n error messages
+- ✅ stdlib Phase 1–3: strutil, mathutil, arrayutil, collections, stringbuilder, resulttype, iter
+- ✅ Delve debugger integration, WebAssembly backend (`--wasm`)
+- ✅ Parallel compilation, LSP large-file performance benchmarks
+
+### v3.0.0-alpha: Architecture Breakthrough 🚀
+- ✅ LLVM native backend — Milestone 1 (scalar types, control flow, functions, classes)
+- ✅ WASI support (`--wasi`, `--tinygo`, `pkg/wasi/`, `stdlib/src/wasi.klx`)
+- ✅ Package registry server (`registry/`, REST API, htmx frontend, `kylix publish`)
+- ✅ stdlib Phase 4: pure Kylix jsonutil (nested JSON), regex, datetime (DateAdd/DateSub)
+- ✅ `external` function declaration parsing fixed
+- ✅ HTTP client stdlib (`httpclient`)
+- 🔲 LLVM Milestone 2: interfaces, generics, optimization passes
+
 ## Cross-Platform Compilation
 
 Kylix compiles to Go source, then uses Go's built-in cross-compilation to produce native binaries for any platform — no virtual machine, no runtime installation required on the target machine.
@@ -785,6 +881,40 @@ All cross-compilation runs on your local machine — no remote build servers nee
 
 The final binary has no external dependencies. End users do not need Go or Kylix installed to run it.
 
+### LLVM Native Backend (v3.0.0-alpha)
+
+Kylix now has an experimental LLVM backend that generates native binaries directly from the AST, bypassing the Go toolchain entirely.
+
+```bash
+# Compile via LLVM (requires llc + clang installed)
+kylix build --backend=llvm main.klx
+```
+
+The pipeline: AST → LLVM IR (`.ll`) → object file (`.o`) → native binary via `llc` + `clang`. The Go backend remains the default for production use. The LLVM backend currently supports: all scalar types, arithmetic/comparison/logic, control flow, functions, and classes with vtable dispatch. Generics, interfaces, and exceptions are planned for Milestone 2.
+
+### WASI Target (v3.0.0-alpha)
+
+Compile Kylix programs to run in WebAssembly System Interface runtimes (Wasmtime, Node.js, Cloudflare Workers):
+
+```bash
+# Standard WASI via Go 1.21+ (GOOS=wasip1 GOARCH=wasm)
+kylix build --wasi main.klx
+
+# Size-optimized via TinyGo (~30 KB vs ~3 MB)
+kylix build --wasi --tinygo main.klx
+```
+
+Use the `wasi` stdlib module for portable I/O:
+
+```pascal
+uses wasi;
+
+begin
+  WriteLn('Running in WASI!');
+  WriteLn('Args: ' + IntToStr(ArgCount()));
+end.
+```
+
 ### Supported targets
 
 | OS | Architecture | `--target` value |
@@ -794,43 +924,44 @@ The final binary has no external dependencies. End users do not need Go or Kylix
 | Windows | x86-64 | `windows/amd64` |
 | macOS | x86-64 | `darwin/amd64` |
 | macOS | Apple Silicon | `darwin/arm64` |
+| WebAssembly | wasm | `--wasm` (optionally `--tinygo`) |
+| WASI | wasip1/wasm | `--wasi` (optionally `--tinygo`) |
 
 ---
 
 ## Changelog
 
-### v1.2.2 (2026-06-12) — 15/15 Examples Pass, Tests Added 🎉
+### v3.0.0-alpha (2026-06-21) — Architecture Breakthrough 🚀
 
-Self-hosted multi-file Go output (136KB) now compiles and runs with zero errors. Major fixes: string escaping, base class type mapping, enum type declarations, builtin functions (StrToInt64, StrToFloat, append, Create), multi-name parameter parsing.
+LLVM native backend (Milestone 1), WASI target, package registry server, stdlib Phase 4 (pure Kylix jsonutil/regex/datetime), `external` parsing fix, HTTP client stdlib.
 
-### v1.1.0-v1.1.4 (2026-06-06~08) — Self-Hosting Bootstrap
+### v2.6.0 (2026-06-20) — Performance & Optimization
 
-Lexer bug fixes, generator skeleton completion, parser result-overwrite fixes, code generation improvements (record types, map init, local vars), soft keyword expansion, multi-file bootstrap, class method receiver generation.
+Parallel compilation (goroutine pool), dead code elimination, LSP large-file performance benchmarks.
 
-### v1.0.1 (2026-06-02)
+### v2.5.0 (2026-06-20) — Toolchain Deepening
 
-**Bug fix release — 4 critical fixes + 2 high-priority fixes**
+LSP cross-file rename + code actions, `kylix doc` code example extraction, `kylix bench --mem`, `iter` module, class method external definition fix.
 
-- **P0**: `inherits` keyword now works correctly (was silently ignored)
-- **P0**: Anonymous `procedure()` and `function()` now parseable as expressions
-- **P0**: Match wildcard `_` now generates correct Go `default:` branch
-- **P0**: Removed `{}` comment syntax (conflicted with match block braces)
-- **P1**: Constructor calls `Dog.Create(args)` now generate `&Dog{args}`
-- **P1**: Match branches now properly trigger Go import generation
+### v2.4.0 (2026-06-20) — Polish & Ecosystem
 
-See [CHANGELOG.md](CHANGELOG.md) for full release history and known issues.
+i18n fully integrated, REPL `:type` real inference, SetLength fixed, package manager nested deps + lockfile, stdlib Phase 3.
 
-### v1.0.0 (2026-06-01)
+### v2.3.0 (2026-06-19) — Developer Experience
 
-**🎉 First stable release — all 5 phases complete!**
+LSP incremental sync, REPL Tab/load/type, test fixtures + filter, i18n framework, Delve debug, WebAssembly backend.
 
-- **Standard Library**: Added `sysutil` (File I/O), `jsonutil` (JSON), `datetime` (DateTime), `regex` (Regular Expressions)
-- **REPL**: Readline support with persistent history, lexer-based multiline detection, stderr separation
-- **Formatter**: Class visibility modifiers, properties output, const type annotations
-- **Generics**: Type parameter declarations for classes and functions (`TList<T>`, `function Foo<T>`)
-- **Exception Handling**: ON clause support (`on E: ExceptionType do`)
-- **Web Framework**: DI container, config system, middleware suite, validation, ORM, template engine, auto-config
-- **IDE Tools**: LSP server, VS Code extension, project management, code formatting
+### v2.2.0 (2026-06-19) — Engineering Quality
+
+GitHub Actions CI, generic signature verification, project-level type checking, incremental compilation activated, stdlib Phase 2.
+
+### v2.1.0 (2026-06-19) — Type System + stdlib Phase 1
+
+Multi-param generic constraints, class→interface mapping, enhanced type inference, strutil + mathutil.
+
+### v2.0.0 (2026-06-17) — Production-Ready Release
+
+Error codes (KLX001–499), type inference, generic constraints, `kylix test/doc/bench` toolchain.
 
 See [CHANGELOG.md](CHANGELOG.md) for full release history.
 

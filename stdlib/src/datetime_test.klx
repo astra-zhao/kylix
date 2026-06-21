@@ -1,0 +1,242 @@
+// datetime_test.klx — Tests for stdlib/src/datetime.klx
+// Part of v3.0.0 stdlib Phase 4
+unit datetime_test;
+
+uses datetime;
+
+// ===== PadInt Tests =====
+
+procedure TestPadInt_NoPadding;
+begin
+  Assert(PadInt(123, 3) = '123', '3-digit no padding');
+  Assert(PadInt(1234, 4) = '1234', '4-digit no padding');
+end;
+
+procedure TestPadInt_WithPadding;
+begin
+  Assert(PadInt(5, 2) = '05', 'pad single digit to 2');
+  Assert(PadInt(7, 4) = '0007', 'pad to 4 digits');
+  Assert(PadInt(0, 3) = '000', 'zero padded');
+end;
+
+// ===== IsLeapYear Tests =====
+
+procedure TestIsLeapYear_True;
+begin
+  Assert(IsLeapYear(2000), '2000 is leap (400)');
+  Assert(IsLeapYear(2024), '2024 is leap (4)');
+  Assert(IsLeapYear(1600), '1600 is leap (400)');
+  Assert(IsLeapYear(2004), '2004 is leap');
+end;
+
+procedure TestIsLeapYear_False;
+begin
+  Assert(not IsLeapYear(1900), '1900 not leap (100)');
+  Assert(not IsLeapYear(2023), '2023 not leap');
+  Assert(not IsLeapYear(2100), '2100 not leap (100)');
+  Assert(not IsLeapYear(1999), '1999 not leap');
+end;
+
+// ===== DaysInMonth Tests =====
+
+procedure TestDaysInMonth_31Days;
+begin
+  Assert(DaysInMonth(2024, 1) = 31, 'January');
+  Assert(DaysInMonth(2024, 3) = 31, 'March');
+  Assert(DaysInMonth(2024, 7) = 31, 'July');
+  Assert(DaysInMonth(2024, 12) = 31, 'December');
+end;
+
+procedure TestDaysInMonth_30Days;
+begin
+  Assert(DaysInMonth(2024, 4) = 30, 'April');
+  Assert(DaysInMonth(2024, 6) = 30, 'June');
+  Assert(DaysInMonth(2024, 9) = 30, 'September');
+  Assert(DaysInMonth(2024, 11) = 30, 'November');
+end;
+
+procedure TestDaysInMonth_February;
+begin
+  Assert(DaysInMonth(2024, 2) = 29, 'Feb leap year');
+  Assert(DaysInMonth(2023, 2) = 28, 'Feb non-leap year');
+  Assert(DaysInMonth(2000, 2) = 29, 'Feb 2000 (leap)');
+  Assert(DaysInMonth(1900, 2) = 28, 'Feb 1900 (not leap)');
+end;
+
+// ===== MonthName Tests =====
+
+procedure TestMonthName;
+begin
+  Assert(MonthName(1) = 'January', 'January');
+  Assert(MonthName(6) = 'June', 'June');
+  Assert(MonthName(12) = 'December', 'December');
+  Assert(MonthName(0) = '', 'invalid month 0');
+  Assert(MonthName(13) = '', 'invalid month 13');
+end;
+
+procedure TestMonthShort;
+begin
+  Assert(MonthShort(1) = 'Jan', 'Jan');
+  Assert(MonthShort(7) = 'Jul', 'Jul');
+  Assert(MonthShort(12) = 'Dec', 'Dec');
+end;
+
+// ===== DayName Tests =====
+
+procedure TestDayName;
+begin
+  Assert(DayName(0) = 'Sunday', 'Sunday');
+  Assert(DayName(1) = 'Monday', 'Monday');
+  Assert(DayName(6) = 'Saturday', 'Saturday');
+  Assert(DayName(7) = '', 'invalid dow');
+end;
+
+// ===== FormatPattern Tests =====
+
+procedure TestFormatPattern_Date;
+var
+  dt: Variant;
+begin
+  dt := MakeDate(2024, 3, 15);
+  Assert(FormatPattern(dt, 'yyyy-MM-dd') = '2024-03-15', 'ISO date format');
+  Assert(FormatPattern(dt, 'dd/MM/yyyy') = '15/03/2024', 'European format');
+  Assert(FormatPattern(dt, 'yyyy/MM/dd') = '2024/03/15', 'Slash format');
+end;
+
+procedure TestFormatPattern_Time;
+var
+  dt: Variant;
+begin
+  dt := MakeTime(2024, 1, 1, 9, 5, 3);
+  Assert(FormatPattern(dt, 'HH:mm:ss') = '09:05:03', 'time with padding');
+end;
+
+procedure TestFormatPattern_DateTime;
+var
+  dt: Variant;
+begin
+  dt := MakeTime(2024, 12, 31, 23, 59, 59);
+  Assert(FormatPattern(dt, 'yyyy-MM-dd HH:mm:ss') = '2024-12-31 23:59:59', 'full datetime');
+end;
+
+procedure TestFormatPattern_Literal;
+var
+  dt: Variant;
+begin
+  dt := MakeDate(2024, 1, 1);
+  Assert(FormatPattern(dt, 'yyyy') = '2024', 'year only');
+  Assert(FormatPattern(dt, 'Hello') = 'Hello', 'literal passthrough');
+end;
+
+// ===== DateAdd/DateSub Tests (operator replacement) =====
+
+procedure TestDateAdd;
+var
+  dt, result: Variant;
+begin
+  dt := MakeDate(2024, 1, 1);
+  result := DateAdd(dt, 10);
+  Assert(result.Day() = 11, 'add 10 days');
+  Assert(result.Month() = 1, 'same month');
+end;
+
+procedure TestDateSub;
+var
+  dt, result: Variant;
+begin
+  dt := MakeDate(2024, 3, 10);
+  result := DateSub(dt, 9);
+  Assert(result.Day() = 1, 'sub 9 days');
+  Assert(result.Month() = 3, 'same month');
+end;
+
+procedure TestDateAddCrossMonth;
+var
+  dt, result: Variant;
+begin
+  dt := MakeDate(2024, 1, 29);
+  result := DateAdd(dt, 3);
+  Assert(result.Month() = 2, 'crosses into February');
+  Assert(result.Day() = 1, 'day 1 of Feb');
+end;
+
+// ===== IsWeekend/IsWeekday Tests =====
+
+procedure TestIsWeekend;
+var
+  dt: Variant;
+begin
+  // 2024-01-06 is Saturday
+  dt := MakeDate(2024, 1, 6);
+  Assert(IsWeekend(dt), 'Saturday is weekend');
+  Assert(not IsWeekday(dt), 'Saturday is not weekday');
+end;
+
+procedure TestIsWeekday;
+var
+  dt: Variant;
+begin
+  // 2024-01-08 is Monday
+  dt := MakeDate(2024, 1, 8);
+  Assert(IsWeekday(dt), 'Monday is weekday');
+  Assert(not IsWeekend(dt), 'Monday is not weekend');
+end;
+
+// ===== IsSameDay / IsSameMonth / IsSameYear Tests =====
+
+procedure TestIsSameDay;
+var
+  a, b, c: Variant;
+begin
+  a := MakeDate(2024, 6, 15);
+  b := MakeDate(2024, 6, 15);
+  c := MakeDate(2024, 6, 16);
+  Assert(IsSameDay(a, b), 'same day');
+  Assert(not IsSameDay(a, c), 'different day');
+end;
+
+procedure TestIsSameMonth;
+var
+  a, b, c: Variant;
+begin
+  a := MakeDate(2024, 6, 1);
+  b := MakeDate(2024, 6, 30);
+  c := MakeDate(2024, 7, 1);
+  Assert(IsSameMonth(a, b), 'same month');
+  Assert(not IsSameMonth(a, c), 'different month');
+end;
+
+begin
+  WriteLn('Running datetime tests...');
+
+  TestPadInt_NoPadding;
+  TestPadInt_WithPadding;
+
+  TestIsLeapYear_True;
+  TestIsLeapYear_False;
+
+  TestDaysInMonth_31Days;
+  TestDaysInMonth_30Days;
+  TestDaysInMonth_February;
+
+  TestMonthName;
+  TestMonthShort;
+  TestDayName;
+
+  TestFormatPattern_Date;
+  TestFormatPattern_Time;
+  TestFormatPattern_DateTime;
+  TestFormatPattern_Literal;
+
+  TestDateAdd;
+  TestDateSub;
+  TestDateAddCrossMonth;
+
+  TestIsWeekend;
+  TestIsWeekday;
+
+  TestIsSameDay;
+  TestIsSameMonth;
+
+  WriteLn('All 21 test procedures passed!');
+end.

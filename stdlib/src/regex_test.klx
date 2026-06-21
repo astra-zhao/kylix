@@ -1,0 +1,195 @@
+// regex_test.klx — Tests for stdlib/src/regex.klx validation helpers
+// Part of v3.0.0 stdlib Phase 4
+unit regex_test;
+
+uses regex;
+
+// ===== Character Helper Tests =====
+
+procedure TestIsDigit;
+begin
+  Assert(IsDigit('0'), '0 is digit');
+  Assert(IsDigit('9'), '9 is digit');
+  Assert(not IsDigit('a'), 'a is not digit');
+  Assert(not IsDigit(' '), 'space is not digit');
+end;
+
+procedure TestIsLetter;
+begin
+  Assert(IsLetter('a'), 'a is letter');
+  Assert(IsLetter('Z'), 'Z is letter');
+  Assert(not IsLetter('0'), '0 is not letter');
+  Assert(not IsLetter('-'), '- is not letter');
+end;
+
+// ===== IsNumeric Tests =====
+
+procedure TestIsNumeric_Valid;
+begin
+  Assert(IsNumeric('0'), 'single digit');
+  Assert(IsNumeric('123'), 'integer');
+  Assert(IsNumeric('9999999999'), 'large number');
+end;
+
+procedure TestIsNumeric_Invalid;
+begin
+  Assert(not IsNumeric(''), 'empty string');
+  Assert(not IsNumeric('12.3'), 'float');
+  Assert(not IsNumeric('12a'), 'alphanumeric');
+  Assert(not IsNumeric('-5'), 'negative');
+end;
+
+// ===== IsAlpha Tests =====
+
+procedure TestIsAlpha_Valid;
+begin
+  Assert(IsAlpha('abc'), 'lowercase');
+  Assert(IsAlpha('ABC'), 'uppercase');
+  Assert(IsAlpha('Hello'), 'mixed case');
+end;
+
+procedure TestIsAlpha_Invalid;
+begin
+  Assert(not IsAlpha(''), 'empty');
+  Assert(not IsAlpha('abc1'), 'with digit');
+  Assert(not IsAlpha('hello world'), 'with space');
+end;
+
+// ===== IsAlphanumeric Tests =====
+
+procedure TestIsAlphanumeric_Valid;
+begin
+  Assert(IsAlphanumeric('abc123'), 'mixed');
+  Assert(IsAlphanumeric('Hello123'), 'capitalized');
+  Assert(IsAlphanumeric('99Bottles'), 'starts with digit');
+end;
+
+procedure TestIsAlphanumeric_Invalid;
+begin
+  Assert(not IsAlphanumeric(''), 'empty');
+  Assert(not IsAlphanumeric('hello world'), 'space');
+  Assert(not IsAlphanumeric('foo@bar'), 'at sign');
+end;
+
+// ===== IsEmail Tests =====
+
+procedure TestIsEmail_Valid;
+begin
+  Assert(IsEmail('alice@example.com'), 'simple email');
+  Assert(IsEmail('user.name+tag@domain.co'), 'complex local');
+  Assert(IsEmail('x@y.io'), 'short email');
+  Assert(IsEmail('test@sub.domain.org'), 'subdomain');
+end;
+
+procedure TestIsEmail_Invalid;
+begin
+  Assert(not IsEmail(''), 'empty');
+  Assert(not IsEmail('not-an-email'), 'no at sign');
+  Assert(not IsEmail('@domain.com'), 'empty local');
+  Assert(not IsEmail('user@'), 'empty domain');
+  Assert(not IsEmail('user@domain'), 'no tld');
+  Assert(not IsEmail('user@domain.x'), 'tld too short');
+end;
+
+// ===== IsURL Tests =====
+
+procedure TestIsURL_Valid;
+begin
+  Assert(IsURL('http://example.com'), 'http');
+  Assert(IsURL('https://example.com/path'), 'https with path');
+  Assert(IsURL('https://sub.domain.org:8080/api'), 'port and path');
+end;
+
+procedure TestIsURL_Invalid;
+begin
+  Assert(not IsURL(''), 'empty');
+  Assert(not IsURL('ftp://example.com'), 'ftp scheme');
+  Assert(not IsURL('example.com'), 'no scheme');
+  Assert(not IsURL('http://'), 'no host');
+end;
+
+// ===== IsIPv4 Tests =====
+
+procedure TestIsIPv4_Valid;
+begin
+  Assert(IsIPv4('192.168.1.1'), 'private IP');
+  Assert(IsIPv4('0.0.0.0'), 'zero IP');
+  Assert(IsIPv4('255.255.255.255'), 'broadcast');
+  Assert(IsIPv4('8.8.8.8'), 'Google DNS');
+end;
+
+procedure TestIsIPv4_Invalid;
+begin
+  Assert(not IsIPv4(''), 'empty');
+  Assert(not IsIPv4('256.0.0.1'), 'octet out of range');
+  Assert(not IsIPv4('192.168.1'), 'only 3 octets');
+  Assert(not IsIPv4('192.168.1.1.1'), '5 octets');
+  Assert(not IsIPv4('abc.def.ghi.jkl'), 'non-numeric');
+end;
+
+// ===== IsPhone Tests =====
+
+procedure TestIsPhone_Valid;
+begin
+  Assert(IsPhone('+1 (555) 123-4567'), 'US format');
+  Assert(IsPhone('0044 207 1234567'), 'UK format');
+  Assert(IsPhone('1234567890'), 'plain digits');
+end;
+
+procedure TestIsPhone_Invalid;
+begin
+  Assert(not IsPhone(''), 'empty');
+  Assert(not IsPhone('12345'), 'too short');
+  Assert(not IsPhone('+1 (555) abc-def'), 'letters in number');
+end;
+
+// ===== IsDate Tests =====
+
+procedure TestIsDate_Valid;
+begin
+  Assert(IsDate('2024-01-15'), 'ISO format');
+  Assert(IsDate('2000-12-31'), 'year 2000');
+  Assert(IsDate('15/01/2024'), 'European format');
+end;
+
+procedure TestIsDate_Invalid;
+begin
+  Assert(not IsDate(''), 'empty');
+  Assert(not IsDate('24-1-5'), 'short year');
+  Assert(not IsDate('2024-13-01'), 'invalid month');
+  Assert(not IsDate('2024-00-15'), 'zero month');
+  Assert(not IsDate('not-a-date'), 'text');
+end;
+
+begin
+  WriteLn('Running regex tests...');
+
+  TestIsDigit;
+  TestIsLetter;
+
+  TestIsNumeric_Valid;
+  TestIsNumeric_Invalid;
+
+  TestIsAlpha_Valid;
+  TestIsAlpha_Invalid;
+
+  TestIsAlphanumeric_Valid;
+  TestIsAlphanumeric_Invalid;
+
+  TestIsEmail_Valid;
+  TestIsEmail_Invalid;
+
+  TestIsURL_Valid;
+  TestIsURL_Invalid;
+
+  TestIsIPv4_Valid;
+  TestIsIPv4_Invalid;
+
+  TestIsPhone_Valid;
+  TestIsPhone_Invalid;
+
+  TestIsDate_Valid;
+  TestIsDate_Invalid;
+
+  WriteLn('All 19 test procedures passed!');
+end.

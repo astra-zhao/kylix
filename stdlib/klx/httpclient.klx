@@ -1,0 +1,23 @@
+unit httpclient;
+
+// THttpClient — HTTP client for Kylix programs.
+type
+  THttpClient = class
+    BaseURL: String;
+    Timeout: Integer;    // milliseconds
+
+    procedure SetHeader(key: String; value: String);
+    function Get(path: String): String;
+    function Post(path: String; contentType: String; body: String): String;
+    function StatusCode(path: String): Integer;
+  end;
+
+// Constructor
+function NewHttpClient(baseURL: String; timeoutMs: Integer): THttpClient;
+
+// One-shot helpers (no THttpClient needed)
+function HttpGet(url: String): String;
+function HttpPost(url: String; contentType: String; body: String): String;
+function HttpGetJSON(url: String): map[String]Variant;
+
+end.

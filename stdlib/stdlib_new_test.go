@@ -515,3 +515,56 @@ func TestPatternHelpers(t *testing.T) {
 		t.Error("IsAlphaNumeric failed")
 	}
 }
+
+// ===== JSON Benchmarks =====
+
+var benchmarkNestedJSON = `{
+  "name": "Kylix",
+  "version": 3,
+  "active": true,
+  "tags": ["compiler", "pascal", "go"],
+  "author": {
+    "name": "Alice",
+    "email": "alice@kylix.top"
+  },
+  "stats": {
+    "tests": 250,
+    "packages": 13,
+    "lines": 15000
+  }
+}`
+
+func BenchmarkJsonDecode_Go(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_, err := JsonDecode(benchmarkNestedJSON)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkJsonEncode_Go(b *testing.B) {
+	data, _ := JsonDecodeMap(benchmarkNestedJSON)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := JsonEncode(data)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkJsonDecodeMap_Go(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_, err := JsonDecodeMap(benchmarkNestedJSON)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkJsonIsValid_Go(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		JsonIsValid(benchmarkNestedJSON)
+	}
+}

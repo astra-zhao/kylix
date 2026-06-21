@@ -1,0 +1,390 @@
+// jsonutil — JSON encoding/decoding, implemented in pure Kylix.
+//
+// Part of the v3.0.0 stdlib Kylix-ification Phase 4. This module provides
+// a complete JSON parser with support for nested objects and arrays.
+unit jsonutil;
+
+// JSON Token types for lexical analysis
+type
+  TJsonTokenKind = (
+    tkNull, tkTrue, tkFalse,
+    tkNumber, tkString,
+    tkLeftBrace, tkRightBrace,    // { }
+    tkLeftBracket, tkRightBracket, // [ ]
+    tkColon, tkComma,
+    tkEOF, tkError
+  );
+
+  TJsonToken = class
+    Kind: TJsonTokenKind;
+    Value: String;  // raw string value for numbers/strings
+
+    constructor Create(k: TJsonTokenKind; v: String);
+    begin
+      Kind := k;
+      Value := v;
+    end;
+  end;
+
+// JSON Lexer (Tokenizer)
+type
+  TJsonLexer = class
+  private
+    Source: String;
+    Position: Integer;
+    Length: Integer;
+
+    function Peek: String;
+    function Advance: String;
+    procedure SkipWhitespace;
+    function ScanNumber: String;
+    function ScanString: String;
+  public
+    constructor Create(src: String);
+    begin
+      Source := src;
+      Position := 0;
+      Length := System.Length(src);
+    end;
+
+    function NextToken: TJsonToken;
+    begin
+      SkipWhitespace;
+
+      if Position >= Length then
+      begin
+        result := TJsonToken.Create(tkEOF, '');
+        exit;
+      end;
+
+      case Peek of
+        '{': begin Advance; result := TJsonToken.Create(tkLeftBrace, '{'); end;
+        '}': begin Advance; result := TJsonToken.Create(tkRightBrace, '}'); end;
+        '[': begin Advance; result := TJsonToken.Create(tkLeftBracket, '['); end;
+        ']': begin Advance; result := TJsonToken.Create(tkRightBracket, ']'); end;
+        ':': begin Advance; result := TJsonToken.Create(tkColon, ':'); end;
+        ',': begin Advance; result := TJsonToken.Create(tkComma, ','); end;
+        '"': result := TJsonToken.Create(tkString, ScanString);
+        'n':
+          if Source[Position:Position+4] = 'null' then
+          begin
+            Position := Position + 4;
+            result := TJsonToken.Create(tkNull, 'null');
+          end
+          else
+            result := TJsonToken.Create(tkError, 'unexpected char');
+        't':
+          if Source[Position:Position+4] = 'true' then
+          begin
+            Position := Position + 4;
+            result := TJsonToken.Create(tkTrue, 'true');
+          end
+          else
+            result := TJsonToken.Create(tkError, 'unexpected char');
+        'f':
+          if Source[Position:Position+5] = 'false' then
+          begin
+            Position := Position + 5;
+            result := TJsonToken.Create(tkFalse, 'false');
+          end
+          else
+            result := TJsonToken.Create(tkError, 'unexpected char');
+      else
+        // Try to parse number: digit or '-'
+        if (Peek >= '0') and (Peek <= '9') or (Peek = '-') then
+          result := TJsonToken.Create(tkNumber, ScanNumber)
+        else
+          result := TJsonToken.Create(tkError, 'unexpected: ' + Peek);
+      end;
+    end;
+  end;
+
+function TJsonLexer.Peek: String;
+begin
+  if Position < Length then
+    result := Source[Position:Position+1]
+  else
+    result := '';
+end;
+
+function TJsonLexer.Advance: String;
+begin
+  result := Peek;
+  Position := Position + 1;
+end;
+
+procedure TJsonLexer.SkipWhitespace;
+var
+  ch: String;
+begin
+  while Position < Length do
+  begin
+    ch := Peek;
+    if (ch = ' ') or (ch = #9) or (ch = #10) or (ch = #13) then
+      Advance
+    else
+      break;
+  end;
+end;
+
+function TJsonLexer.ScanNumber: String;
+var
+  start: Integer;
+begin
+  start := Position;
+  if Peek = '-' then
+    Advance;
+  while (Position < Length) and (Peek >= '0') and (Peek <= '9') do
+    Advance;
+  if (Position < Length) and (Peek = '.') then
+  begin
+    Advance;
+    while (Position < Length) and (Peek >= '0') and (Peek <= '9') do
+      Advance;
+  end;
+  result := Source[start:Position];
+end;
+
+function TJsonLexer.ScanString: String;
+var
+  start: Integer;
+  ch: String;
+begin
+  Advance; // skip opening "
+  start := Position;
+  while Position < Length do
+  begin
+    ch := Peek;
+    if ch = '"' then
+    begin
+      result := Source[start:Position];
+      Advance; // skip closing "
+      exit;
+    end;
+    if ch = '\' then
+      Advance; // skip escape char
+    Advance;
+  end;
+  result := ''; // unterminated string
+end;
+
+// JSON Parser
+type
+  TJsonValue = Variant; // polymorphic JSON value
+
+  TJsonParser = class
+  private
+    Lexer: TJsonLexer;
+    CurrentToken: TJsonToken;
+
+    procedure NextToken;
+    function ParseValue: TJsonValue;
+    function ParseObject: map[String]Variant;
+    function ParseArray: array of Variant;
+  public
+    constructor Create(src: String);
+    begin
+      Lexer := TJsonLexer.Create(src);
+      NextToken;
+    end;
+
+    function Parse: TJsonValue;
+    begin
+      result := ParseValue;
+    end;
+  end;
+
+procedure TJsonParser.NextToken;
+begin
+  CurrentToken := Lexer.NextToken;
+end;
+
+function TJsonParser.ParseValue: TJsonValue;
+begin
+  case CurrentToken.Kind of
+    tkNull:   begin NextToken; result := nil; end;
+    tkTrue:   begin NextToken; result := true; end;
+    tkFalse:  begin NextToken; result := false; end;
+    tkNumber: begin result := StrToFloat(CurrentToken.Value); NextToken; end;
+    tkString: begin result := CurrentToken.Value; NextToken; end;
+    tkLeftBrace:  result := ParseObject;
+    tkLeftBracket: result := ParseArray;
+  else
+    raise Exception.Create('Unexpected token: ' + CurrentToken.Value);
+  end;
+end;
+
+function TJsonParser.ParseObject: map[String]Variant;
+var
+  obj: map[String]Variant;
+  key: String;
+begin
+  obj := map[String]Variant{};
+  NextToken; // skip {
+
+  if CurrentToken.Kind = tkRightBrace then
+  begin
+    NextToken;
+    result := obj;
+    exit;
+  end;
+
+  while true do
+  begin
+    if CurrentToken.Kind <> tkString then
+      raise Exception.Create('Expected string key');
+    key := CurrentToken.Value;
+    NextToken;
+
+    if CurrentToken.Kind <> tkColon then
+      raise Exception.Create('Expected colon');
+    NextToken;
+
+    obj[key] := ParseValue;
+
+    if CurrentToken.Kind = tkRightBrace then
+    begin
+      NextToken;
+      break;
+    end;
+
+    if CurrentToken.Kind <> tkComma then
+      raise Exception.Create('Expected comma or }');
+    NextToken;
+  end;
+
+  result := obj;
+end;
+
+function TJsonParser.ParseArray: array of Variant;
+var
+  arr: array of Variant;
+begin
+  SetLength(arr, 0);
+  NextToken; // skip [
+
+  if CurrentToken.Kind = tkRightBracket then
+  begin
+    NextToken;
+    result := arr;
+    exit;
+  end;
+
+  while true do
+  begin
+    SetLength(arr, Length(arr) + 1);
+    arr[Length(arr) - 1] := ParseValue;
+
+    if CurrentToken.Kind = tkRightBracket then
+    begin
+      NextToken;
+      break;
+    end;
+
+    if CurrentToken.Kind <> tkComma then
+      raise Exception.Create('Expected comma or ]');
+    NextToken;
+  end;
+
+  result := arr;
+end;
+
+// ===== Public API Functions =====
+
+// JsonDecode parses a JSON string into a generic value
+function JsonDecode(jsonStr: String): Variant;
+var
+  parser: TJsonParser;
+begin
+  parser := TJsonParser.Create(jsonStr);
+  result := parser.Parse;
+end;
+
+// JsonDecodeMap parses a JSON string into a map
+function JsonDecodeMap(jsonStr: String): map[String]Variant;
+begin
+  result := JsonDecode(jsonStr);
+end;
+
+// JsonDecodeArray parses a JSON string into an array
+function JsonDecodeArray(jsonStr: String): array of Variant;
+begin
+  result := JsonDecode(jsonStr);
+end;
+
+// JSON Encoder - delegated to Go for performance and type introspection.
+// Kylix's Variant type doesn't yet support runtime type reflection,
+// so encoding requires Go's reflect package for optimal performance.
+function JsonEncode(value: Variant): String; external;
+function JsonEncodePretty(value: Variant): String; external;
+
+// Map field accessors (safe, return default on missing key)
+function JsonGetString(m: map[String]Variant; key: String): String;
+begin
+  if key in m then
+    result := m[key]
+  else
+    result := '';
+end;
+
+function JsonGetInt(m: map[String]Variant; key: String): Integer;
+begin
+  if key in m then
+    result := Trunc(m[key])
+  else
+    result := 0;
+end;
+
+function JsonGetFloat(m: map[String]Variant; key: String): Real;
+begin
+  if key in m then
+    result := m[key]
+  else
+    result := 0.0;
+end;
+
+function JsonGetBool(m: map[String]Variant; key: String): Boolean;
+begin
+  if key in m then
+    result := m[key]
+  else
+    result := false;
+end;
+
+function JsonGetMap(m: map[String]Variant; key: String): map[String]Variant;
+begin
+  if key in m then
+    result := m[key]
+  else
+    result := map[String]Variant{};
+end;
+
+function JsonGetArray(m: map[String]Variant; key: String): array of Variant;
+begin
+  if key in m then
+    result := m[key]
+  else
+    SetLength(result, 0);
+end;
+
+function JsonHasKey(m: map[String]Variant; key: String): Boolean;
+begin
+  result := key in m;
+end;
+
+// JsonIsValid checks if a string is valid JSON
+function JsonIsValid(jsonStr: String): Boolean;
+begin
+  try
+    JsonDecode(jsonStr);
+    result := true;
+  except
+    result := false;
+  end;
+end;
+
+// File I/O (uses external stdlib functions)
+function JsonReadFile(path: String): Variant; external;
+procedure JsonWriteFile(path: String; value: Variant); external;
+
+end.

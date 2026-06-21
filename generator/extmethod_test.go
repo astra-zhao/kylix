@@ -92,3 +92,39 @@ begin end.`
 		t.Errorf("expected 1 Log method, got %d", strings.Count(out, "func (self *TLogger) Log"))
 	}
 }
+
+// ── External Function Declaration (IsExternal=true) ──────────────────────────
+
+func TestExternalFuncDecl_NoOutput(t *testing.T) {
+	// External functions must produce no Go function output.
+	src := `program Test;
+function NativeHelper(x: Integer): String; external;
+begin
+end.`
+	out := parseGen(t, src)
+	if strings.Contains(out, "func NativeHelper") {
+		t.Error("external function should not emit a Go func declaration")
+	}
+}
+
+func TestExternalFuncDecl_MultipleNoOutput(t *testing.T) {
+	src := `program Test;
+function Foo(): String; external;
+function Bar(x: Integer): Boolean; external;
+function Baz(): Integer;
+begin
+  result := 42;
+end;
+begin
+end.`
+	out := parseGen(t, src)
+	if strings.Contains(out, "func Foo") {
+		t.Error("Foo should not be emitted (external)")
+	}
+	if strings.Contains(out, "func Bar") {
+		t.Error("Bar should not be emitted (external)")
+	}
+	if !strings.Contains(out, "func Baz") {
+		t.Error("Baz (non-external) should be emitted")
+	}
+}

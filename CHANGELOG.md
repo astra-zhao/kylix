@@ -4,6 +4,98 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v3.0.0-alpha (2026-06-21) — LLVM 原生后端 + WASI + 包注册中心 + stdlib Phase 4
+
+### LLVM 原生后端（Milestone 1：最小可用子集）
+
+新包 `pkg/llvmgen/` — Kylix → LLVM IR → 原生二进制，bypasses Go codegen。
+
+- `codegen.go` — 生成器核心：module/function/block 管理，SSA 寄存器分配，字符串常量池
+- `expr.go` — 基础类型（i64/i1/double/ptr），算术/比较/逻辑运算，WriteLn/Write/IntToStr/Length，libc 调用链
+- `stmt.go` — 控制流（if/while/for/repeat），变量 alloca，函数定义，external 函数跳过 body
+- `class.go` — 类 codegen：%ClassName struct、vtable 常量、method ptr %self、GEP 字段访问、虚函数分发、malloc 构造
+- `compile.go` — 完整管道：`FindLLVM()` + `CompileToNative()`（AST → .ll → .o → binary via llc + clang）
+
+CLI: `kylix build --backend=llvm main.klx`（Go 后端仍为默认）
+
+端到端验证：Hello World + 整数算术 + while 循环 → 原生二进制，运行正确。
+
+测试：24 个单元测试（`pkg/llvmgen/codegen_test.go`，含 6 个类 codegen 测试）
+
+已知限制（Milestone 1）：不支持接口、泛型、数组、record、异常；无优化 Pass（-O0）；仅 libc 调用。
+
+---
+
+### WASI 支持
+
+CLI: `kylix build --wasi main.klx`（Go 1.21+ `GOOS=wasip1 GOARCH=wasm`），`--tinygo` 更小二进制。
+
+`pkg/wasi/` — build-tag 分离：`wasi_wasip1.go`（原生）+ `wasi_stub.go`（非 WASI 本地测试）
+- 函数：Stdout/Stderr/Stdin、Args/Getenv/Environ、ClockMonotonic/ClockWalltime、ReadFile/WriteFile、WasiExit
+
+`stdlib/src/wasi.klx` + `stdlib/klx/wasi.klx` — 纯 Kylix 高层包装（WriteLn/ReadLine/HasEnv/ArgCount/ElapsedMs 等）
+
+示例：`examples/wasi-hello/`（Wasmtime/Node.js）、`examples/cloudflare-worker/`（Cloudflare Workers）
+
+测试：8 个单元测试（`pkg/wasi/wasi_test.go`）
+
+---
+
+### 包注册中心服务端
+
+`registry/` — 独立 Go module，完整的包发布 / 搜索 / 下载服务。
+
+后端：SQLite 数据库层（Store 接口，可切换 PostgreSQL），Bearer token 认证，REST API：
+```
+GET  /api/v1/packages              搜索包（?q= 关键词）
+POST /api/v1/packages              发布包（需 Bearer token）
+GET  /api/v1/packages/:name/versions  版本列表
+GET  /api/v1/packages/:name/:ver/dl   下载（重定向 tarball）
+```
+
+Web 前端：htmx + Tailwind CSS（首页实时搜索 + 包详情页）
+
+CLI: `kylix publish [--version=X] [--registry=URL] [--token=T]`，支持 `KYLIX_TOKEN` 环境变量
+
+测试：7 个集成测试（`registry/internal/api/handler_test.go`）
+
+---
+
+### stdlib Phase 4 — 纯 Kylix 化（jsonutil/regex/datetime）
+
+**`stdlib/src/jsonutil.klx`** (390 行) — 完整 JSON 解析器（TJsonLexer + TJsonParser），支持任意深度嵌套对象和数组。修复 ROADMAP 已知缺陷："jsonutil 仅支持扁平 JSON"。JsonEncode/JsonEncodePretty 保留 external（依赖 Go reflect）。
+
+**`stdlib/src/regex.klx`** (387 行) — 纯 Kylix 字符级验证函数：IsDigit/IsLower/IsUpper/IsLetter、IsNumeric/IsAlpha/IsAlphanumeric、IsEmail/IsURL/IsIPv4/IsPhone/IsDate。无 NFA 开销。
+
+**`stdlib/src/datetime.klx`** (260 行) — FormatPattern（yyyy/MM/dd/HH/mm/ss）、DateAdd/DateSub（修复 ROADMAP TDateTime +/- 缺陷）、IsLeapYear/DaysInMonth/IsWeekend/IsWeekday/WeekNumber、MonthName/DayName。
+
+声明文件：更新 `stdlib/klx/regex.klx` 和 `stdlib/klx/datetime.klx`
+
+测试：69 个（jsonutil: 29, regex: 19, datetime: 21）
+
+---
+
+### 编译器 Bug 修复: `external` 函数声明解析
+
+`function Foo(): T; external;` 在文件末尾或任意位置现在均可正确解析。
+
+- `ast/ast.go`: `FunctionDecl.IsExternal` 新字段
+- `parser/parser_decl.go`: `EXTERNAL` 修饰词识别（行 253）
+- `generator/generator_types.go`: IsExternal=true 时跳过函数体生成
+- 8 个新测试（3 parser + 5 generator）
+
+---
+
+### stdlib HTTP 客户端
+
+`stdlib/http_client.go` — THttpClient（Get/Post/StatusCode/SetHeader），NewHttpClient()，HttpGet/HttpPost/HttpGetJSON 一键函数
+
+`stdlib/klx/httpclient.klx` — LSP 声明文件
+
+`stdlib/src/httpclient.klx` — 纯 Kylix 包装：BuildQueryString/IsOK/IsRedirect/IsClientError/IsServerError
+
+---
+
 ## v2.6.0 (2026-06-20)
 
 ### 🎉 Performance & Optimization

@@ -1,10 +1,10 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-06-14
-> 当前版本: v1.5.0+（post-Phase-11 修复批次）
+> 最后更新: 2026-06-21
+> 当前版本: v3.0.0-alpha
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
-本文档记录 v1.5.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
+本文档记录 v3.0.0-alpha 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
 
 ---
 
@@ -28,7 +28,62 @@
 
 ---
 
-## 优先级 2：功能缺口 🟠
+### ✅ 标准库已知缺陷 — v3.0.0-alpha 修复
+
+**`TDateTime` +/- 运算符未实现** → ✅ 已修复（v3.0.0-alpha）
+`DateAdd(dt, days)` 和 `DateSub(dt, days)` 在 `stdlib/src/datetime.klx` 中实现，替代运算符重载。
+
+**`jsonutil` 仅支持扁平 JSON** → ✅ 已修复（v3.0.0-alpha）
+`stdlib/src/jsonutil.klx` 重写为完整递归下降解析器（TJsonLexer + TJsonParser），支持任意深度嵌套。
+
+**`external` 函数声明在文件末尾解析失败** → ✅ 已修复（v3.0.0-alpha）
+`ast/ast.go` 新增 `IsExternal bool`，`parser/parser_decl.go` 识别 `EXTERNAL` 修饰词，`generator/generator_types.go` 跳过 body 生成。
+
+---
+
+## 优先级 6：LLVM 后端已知限制 🟠
+
+这些是 LLVM 后端 Milestone 1 的已知范围外项目，计划在 Milestone 2 中实现。
+
+### 6.1 接口未支持
+
+**影响：** `class X implements IFoo` 无法通过 LLVM 后端编译。
+
+**方案：** fat pointer（数据指针 + vtable 指针），每个接口方法生成 thunk。
+
+**工作量：** 1–2 周
+
+---
+
+### 6.2 泛型无单态化
+
+**影响：** 泛型类/函数（`TBox<T>`）无法通过 LLVM 后端编译。
+
+**方案：** 在 codegen 前对每个具体类型参数执行 AST 克隆 + 替换（单态化）。
+
+**工作量：** 2–3 周
+
+---
+
+### 6.3 无优化 Pass
+
+**影响：** LLVM 后端生成等效于 `-O0` 的代码，性能低于 Go 后端。
+
+**方案：** 调用 `opt` 工具运行 `-O2` / LTO pass，或通过 LLVM C API 内联。
+
+**工作量：** 3–5 天
+
+---
+
+### 6.4 不支持异常（try/catch）
+
+**影响：** 含 `try/except/finally` 的程序无法通过 LLVM 后端编译。
+
+**方案：** 使用 LLVM `landingpad` + `invoke` 指令，或映射到 `setjmp/longjmp`（简单方案）。
+
+**工作量：** 1–2 周
+
+---
 
 ### ✅ 2.1 类型检查层完全缺失 → v1.5.0+
 
@@ -166,9 +221,9 @@
 
 ---
 
-## 当前状态总结（2026-06-14）
+## 当前状态总结（2026-06-21）
 
-### Phase 11 完成度
+### Phase 11 完成度（v1.5.0–v2.0.0）
 
 | 优先级 | 项数 | 已完成 | 完成率 |
 |--------|------|--------|--------|
@@ -176,28 +231,21 @@
 | P2（功能缺口） | 4 | 4 | 100% |
 | P3（测试覆盖） | 4 | 4 | 100% |
 | P4（工程质量） | 3 | 3 | 100% |
-| P5（设计债务） | 3 | 0 | 0%（Phase 12）|
+| P5（设计债务） | 3 | 0 | 0%（长期）|
 
-**Phase 11 完成！Phase 12（v2.0.0 发布准备）可以启动。**
+### v3.0.0-alpha 新增修复
 
-### 新增测试统计
+| 项目 | 状态 |
+|------|------|
+| TDateTime +/- 运算符 | ✅ DateAdd/DateSub |
+| jsonutil 仅支持扁平 JSON | ✅ 嵌套解析器 |
+| external 函数解析失败 | ✅ IsExternal 字段 |
 
-本批次新增 **38 个测试**（152 → 190+ 总测试数）：
-- `pkg/compiler/compiler_test.go`: 5（接口验证）
-- `pkg/compiler/cache_test.go`: 5（增量编译缓存）
-- `pkg/compiler/typecheck_test.go`: 7（类型检查）
-- `pkg/pkgmgr/manager_test.go`: 5（包管理器）
-- `stdlib/klx_test.go`: 4（stdlib 声明文件）
-- `parser/parser_regression_test.go`: 5（泛型/多返回值）
-- `pkg/lsp/stdlib_test.go`: 4（LSP stdlib 加载）
-- `generator/generator_multireturn_test.go`: 4（多返回值生成）
+### LLVM 后端 Milestone 1 已知限制
 
----
-
-## Phase 12 目标（v2.0.0）
-
-参见 [ROADMAP.md](ROADMAP.md) Phase 12 章节：
-- 类型系统完善（类型推导、泛型约束、类型别名）
-- 错误体验改进（错误代码、错误恢复、建议修复）
-- 工具链（`kylix test`、`kylix doc`）
-- stdlib 完全 Kylix 化
+| 项目 | 状态 |
+|------|------|
+| 接口（vtable fat pointer）| 🔲 Milestone 2 |
+| 泛型单态化 | 🔲 Milestone 2 |
+| 优化 Pass (-O2) | 🔲 Milestone 2 |
+| 异常（try/catch）| 🔲 Milestone 3 |

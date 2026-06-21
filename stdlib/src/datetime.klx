@@ -1,0 +1,257 @@
+// datetime.klx — Date/time utilities, Kylix-ified.
+//
+// Strategy:
+//   - TDateTime class + factory functions: external (Go time package)
+//   - Formatting, arithmetic helpers, calendar utilities: pure Kylix
+//   - Fixes ROADMAP issue: TDateTime +/- via DateAdd/DateSub
+unit datetime;
+
+// ===== Pure Kylix: Integer padding helper =====
+
+function PadInt(n: Integer; width: Integer): String;
+var
+  s: String;
+begin
+  s := IntToStr(n);
+  while Length(s) < width do
+    s := '0' + s;
+  result := s;
+end;
+
+// ===== Pure Kylix: Custom pattern formatting =====
+// Pattern tokens: yyyy MM dd HH mm ss
+// Example: FormatPattern(dt, 'yyyy-MM-dd HH:mm:ss')
+
+function FormatPattern(dt: Variant; pattern: String): String;
+var
+  i: Integer;
+  ch: String;
+  out: String;
+begin
+  out := '';
+  i := 0;
+  while i < Length(pattern) do
+  begin
+    ch := pattern[i:i+1];
+
+    if (i + 4 <= Length(pattern)) and (pattern[i:i+4] = 'yyyy') then
+    begin
+      out := out + PadInt(dt.Year(), 4);
+      i := i + 4;
+    end
+    else if (i + 2 <= Length(pattern)) and (pattern[i:i+2] = 'MM') then
+    begin
+      out := out + PadInt(dt.Month(), 2);
+      i := i + 2;
+    end
+    else if (i + 2 <= Length(pattern)) and (pattern[i:i+2] = 'dd') then
+    begin
+      out := out + PadInt(dt.Day(), 2);
+      i := i + 2;
+    end
+    else if (i + 2 <= Length(pattern)) and (pattern[i:i+2] = 'HH') then
+    begin
+      out := out + PadInt(dt.Hour(), 2);
+      i := i + 2;
+    end
+    else if (i + 2 <= Length(pattern)) and (pattern[i:i+2] = 'mm') then
+    begin
+      out := out + PadInt(dt.Minute(), 2);
+      i := i + 2;
+    end
+    else if (i + 2 <= Length(pattern)) and (pattern[i:i+2] = 'ss') then
+    begin
+      out := out + PadInt(dt.Second(), 2);
+      i := i + 2;
+    end
+    else
+    begin
+      out := out + ch;
+      i := i + 1;
+    end;
+  end;
+  result := out;
+end;
+
+// ===== Pure Kylix: Operator replacements (+/-) =====
+// Fixes ROADMAP issue: "TDateTime 运算符 (+, -) 未实现"
+
+// DateAdd adds n days to dt and returns a new TDateTime.
+function DateAdd(dt: Variant; days: Integer): Variant;
+begin
+  result := dt.AddDays(days);
+end;
+
+// DateSub subtracts n days from dt and returns a new TDateTime.
+function DateSub(dt: Variant; days: Integer): Variant;
+begin
+  result := dt.AddDays(-days);
+end;
+
+// DateAddHours adds n hours.
+function DateAddHours(dt: Variant; hours: Integer): Variant;
+begin
+  result := dt.AddHours(hours);
+end;
+
+// DateAddMinutes adds n minutes.
+function DateAddMinutes(dt: Variant; minutes: Integer): Variant;
+begin
+  result := dt.AddMinutes(minutes);
+end;
+
+// ===== Pure Kylix: Calendar utilities =====
+
+// IsLeapYear returns true if year is a leap year.
+function IsLeapYear(year: Integer): Boolean;
+begin
+  result := (year mod 4 = 0) and ((year mod 100 <> 0) or (year mod 400 = 0));
+end;
+
+// DaysInMonth returns the number of days in a given month/year.
+function DaysInMonth(year: Integer; month: Integer): Integer;
+begin
+  if (month = 1) or (month = 3) or (month = 5) or (month = 7) or
+     (month = 8) or (month = 10) or (month = 12) then
+    result := 31
+  else if (month = 4) or (month = 6) or (month = 9) or (month = 11) then
+    result := 30
+  else if month = 2 then
+  begin
+    if IsLeapYear(year) then
+      result := 29
+    else
+      result := 28;
+  end
+  else
+    result := 0;
+end;
+
+// IsWeekend returns true if DayOfWeek is Saturday (6) or Sunday (0).
+function IsWeekend(dt: Variant): Boolean;
+var
+  dow: Integer;
+begin
+  dow := dt.DayOfWeek();
+  result := (dow = 0) or (dow = 6);
+end;
+
+// IsWeekday returns true if DayOfWeek is Monday–Friday.
+function IsWeekday(dt: Variant): Boolean;
+begin
+  result := not IsWeekend(dt);
+end;
+
+// WeekNumber returns the ISO week number (1–53).
+// Uses the algorithm: (DayOfYear - DayOfWeek + 10) / 7
+function WeekNumber(dt: Variant): Integer;
+var
+  doy: Integer;
+  dow: Integer;
+begin
+  doy := dt.DayOfYear();
+  dow := dt.DayOfWeek();
+  if dow = 0 then
+    dow := 7; // ISO: Sunday = 7
+  result := (doy - dow + 10) / 7;
+  if result < 1 then
+    result := 1;
+  if result > 53 then
+    result := 53;
+end;
+
+// ===== Pure Kylix: Date range and comparison helpers =====
+
+// DaysBetween returns the absolute number of days between two dates.
+function DaysBetween(a: Variant; b: Variant): Integer;
+var
+  diff: Integer;
+begin
+  diff := a.DiffDays(b);
+  if diff < 0 then
+    result := -diff
+  else
+    result := diff;
+end;
+
+// IsSameDay returns true if both dates fall on the same calendar day.
+function IsSameDay(a: Variant; b: Variant): Boolean;
+begin
+  result := (a.Year() = b.Year()) and
+            (a.Month() = b.Month()) and
+            (a.Day() = b.Day());
+end;
+
+// IsSameMonth returns true if both dates are in the same month/year.
+function IsSameMonth(a: Variant; b: Variant): Boolean;
+begin
+  result := (a.Year() = b.Year()) and (a.Month() = b.Month());
+end;
+
+// IsSameYear returns true if both dates are in the same year.
+function IsSameYear(a: Variant; b: Variant): Boolean;
+begin
+  result := a.Year() = b.Year();
+end;
+
+// ===== Pure Kylix: Month/Day name helpers =====
+
+function MonthName(month: Integer): String;
+begin
+  if month = 1 then result := 'January'
+  else if month = 2 then result := 'February'
+  else if month = 3 then result := 'March'
+  else if month = 4 then result := 'April'
+  else if month = 5 then result := 'May'
+  else if month = 6 then result := 'June'
+  else if month = 7 then result := 'July'
+  else if month = 8 then result := 'August'
+  else if month = 9 then result := 'September'
+  else if month = 10 then result := 'October'
+  else if month = 11 then result := 'November'
+  else if month = 12 then result := 'December'
+  else result := '';
+end;
+
+function MonthShort(month: Integer): String;
+begin
+  if month = 1 then result := 'Jan'
+  else if month = 2 then result := 'Feb'
+  else if month = 3 then result := 'Mar'
+  else if month = 4 then result := 'Apr'
+  else if month = 5 then result := 'May'
+  else if month = 6 then result := 'Jun'
+  else if month = 7 then result := 'Jul'
+  else if month = 8 then result := 'Aug'
+  else if month = 9 then result := 'Sep'
+  else if month = 10 then result := 'Oct'
+  else if month = 11 then result := 'Nov'
+  else if month = 12 then result := 'Dec'
+  else result := '';
+end;
+
+function DayName(dow: Integer): String;
+begin
+  if dow = 0 then result := 'Sunday'
+  else if dow = 1 then result := 'Monday'
+  else if dow = 2 then result := 'Tuesday'
+  else if dow = 3 then result := 'Wednesday'
+  else if dow = 4 then result := 'Thursday'
+  else if dow = 5 then result := 'Friday'
+  else if dow = 6 then result := 'Saturday'
+  else result := '';
+end;
+
+// ===== External: TDateTime class + factory functions (Go time package) =====
+
+function Now(): Variant; external;
+function Today(): Variant; external;
+function MakeDate(year: Integer; month: Integer; day: Integer): Variant; external;
+function MakeTime(year: Integer; month: Integer; day: Integer;
+                  hour: Integer; minute: Integer; second: Integer): Variant; external;
+function ParseDate(s: String): Variant; external;
+function ParseDateTime(s: String): Variant; external;
+function FromUnix(ts: Integer): Variant; external;
+function GetTimestamp(): Integer; external;
+
+end.

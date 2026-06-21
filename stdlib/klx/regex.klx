@@ -26,14 +26,20 @@ function RegexFind(pattern: String; s: String): String;
 function RegexReplace(pattern: String; s: String; replacement: String): String;
 function RegexSplit(pattern: String; s: String): array of String;
 
-// Validation helpers
-function IsEmail(s: String): Boolean;
-function IsURL(s: String): Boolean;
+// Character-level helpers (pure Kylix — stdlib/src/regex.klx)
+function IsDigit(ch: String): Boolean;
+function IsLower(ch: String): Boolean;
+function IsUpper(ch: String): Boolean;
+function IsLetter(ch: String): Boolean;
+
+// Validation helpers (pure Kylix — stdlib/src/regex.klx)
 function IsNumeric(s: String): Boolean;
 function IsAlpha(s: String): Boolean;
 function IsAlphanumeric(s: String): Boolean;
-function IsPhone(s: String): Boolean;
+function IsEmail(s: String): Boolean;
+function IsURL(s: String): Boolean;
 function IsIPv4(s: String): Boolean;
+function IsPhone(s: String): Boolean;
 function IsDate(s: String): Boolean;
 
 end.

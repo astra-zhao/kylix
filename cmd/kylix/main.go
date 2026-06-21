@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-const Version = "2.6.0"
+const Version = "3.0.0-alpha"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -44,6 +44,8 @@ func main() {
 		cmdInstall(os.Args[2:])
 	case "remove", "rm":
 		cmdRemove(os.Args[2:])
+	case "publish":
+		cmdPublish(os.Args[2:])
 	case "version", "-v", "--version":
 		fmt.Printf("Kylix %s\n", Version)
 	case "help", "-h", "--help":
@@ -72,17 +74,23 @@ COMMANDS:
     fmt     Format Kylix source files
     repl    Start interactive REPL
     lsp     Start Language Server Protocol server (for editors)
-    version Show version information
-    help    Show this help message
+
+PACKAGE MANAGEMENT:
+    add       Add a package dependency
+    install   Install all dependencies
+    remove    Remove a package dependency
+    publish   Publish package to registry
+
+OTHER:
+    version   Show version information
+    help      Show this help message
 
 EXAMPLES:
     kylix new myapp          Create a new project
     kylix build              Build current project
-    kylix build main.klx     Build a single file
     kylix run                Run current project
-    kylix run main.klx       Run a single file
-    kylix check              Check all project files
-    kylix fmt                Format all project files
+    kylix add http           Add http package
+    kylix publish --token=X  Publish to registry
 
 For more information on a command, run:
     kylix <command> --help

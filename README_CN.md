@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-2.6.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-3.0.0--alpha-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🎉 **v2.6.0 发布**: 性能与优化 — 并行编译、死代码消除、LSP 大文件性能基准。详情见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v3.0.0-alpha 发布**: 架构突破 — LLVM 原生后端（Milestone 1）、包注册中心、WASI 支持、stdlib Phase 4（纯 Kylix jsonutil/regex/datetime）。详情见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 特性
 
@@ -41,10 +41,12 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 - **文档生成**: `kylix doc` — 从 `//` 文档注释生成 Markdown
 - **类型检查**: 含错误代码 (KLX001–499)、错误恢复、"你是否想用?" 建议
 - **LSP 服务器**: 完整 IDE 支持 — 补全、悬停、诊断、签名帮助、增量同步 (v2.3.0)
-- **包管理器**: `kylix add`、`kylix remove` 管理依赖
+- **包管理器**: `kylix add`、`kylix remove`、`kylix publish` 管理和发布包
 - **REPL**: 多行输入、Tab 补全、`:load`/`:type` 元命令 (v2.3.0)
 - **调试器**: `kylix debug` 集成 Delve (v2.3.0)
 - **WebAssembly**: `kylix build --wasm` 编译为 .wasm (v2.3.0)
+- **WASI**: `kylix build --wasi` 编译为 WASI 目标 (v3.0.0-alpha)
+- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链 (v3.0.0-alpha)
 - **国际化**: 通过 `KYLIX_LANG=zh` 切换中文错误消息 (v2.3.0)
 
 ## 安装
@@ -84,6 +86,8 @@ cd myapp
 kylix new <name>       # 创建新项目
 kylix build            # 编译项目或文件
 kylix build --wasm     # 编译为 WebAssembly
+kylix build --wasi     # 编译为 WASI (wasip1/wasm, Go 1.21+)
+kylix build --backend=llvm  # 通过 LLVM 原生后端编译
 kylix run              # 编译并运行
 kylix check            # 项目级类型检查 (跨文件)
 kylix fmt              # 格式化源文件
@@ -95,6 +99,7 @@ kylix repl             # 交互式 REPL
 kylix lsp              # 启动 LSP 服务 (供编辑器)
 kylix add <pkg>        # 添加依赖包
 kylix remove <pkg>     # 删除依赖包
+kylix publish          # 发布包到注册中心
 kylix version          # 显示版本
 kylix help             # 显示帮助
 ```
@@ -598,6 +603,46 @@ nums := regex.ExtractNumbers('Room 42, Floor 3, Building 7');
 // nums = ['42', '3', '7']
 ```
 
+### HTTP 客户端 (`httpclient`) — v3.0.0-alpha
+
+一键 HTTP 辅助函数和可复用客户端，支持自定义 Header。
+
+```pascal
+uses httpclient;
+
+// 一键 GET
+body := HttpGet('https://api.example.com/data');
+
+// 一键 POST，返回 JSON 响应
+resp := HttpGetJSON('https://api.example.com/items');
+
+// 可复用客户端，带自定义 Header
+client := NewHttpClient('https://api.example.com');
+client.SetHeader('Authorization', 'Bearer ' + token);
+body := client.Get('/users');
+WriteLn(IntToStr(client.StatusCode()));
+```
+
+### WASI (`wasi`) — v3.0.0-alpha
+
+适用于 WASI 运行时（Wasmtime、Node.js、Cloudflare Workers）的可移植系统接口。
+
+```pascal
+uses wasi;
+
+begin
+  WriteLn('Hello from WASI!');
+  WriteLn('Arg count: ' + IntToStr(ArgCount()));
+  WriteLn('First arg: ' + Arg(0));
+
+  var val := GetEnvOrDefault('PORT', '8080');
+  WriteLn('PORT=' + val);
+
+  var ms := ElapsedMs();
+  WriteLn('Elapsed: ' + IntToStr(ms) + ' ms');
+end.
+```
+
 ### 纯 Kylix stdlib (v2.1+)
 
 四个模块完全用 Kylix 自身实现:
@@ -658,10 +703,10 @@ WriteLn(PadLeft('42', 5, '0'));  // 00042
 kylix/
 ├── cmd/kylix/          # CLI 入口
 │   ├── main.go             # 命令分发
-│   ├── cmd_build.go        # build / WASM
+│   ├── cmd_build.go        # build / WASM / WASI / LLVM
 │   ├── cmd_run.go          # run
 │   ├── cmd_other.go        # check / fmt / new
-│   ├── cmd_package.go      # add / install / remove
+│   ├── cmd_package.go      # add / install / remove / publish
 │   ├── cmd_testcmd.go      # test (Setup/Teardown/--filter)
 │   ├── cmd_bench.go        # bench
 │   ├── cmd_doc.go          # doc
@@ -669,24 +714,44 @@ kylix/
 ├── pkg/
 │   ├── compiler/       # 编译 API + 增量缓存
 │   ├── project/        # 项目管理 (kylix.toml)
-│   ├── pkgmgr/         # 包管理器
+│   ├── pkgmgr/         # 包管理器 (add/install/remove/publish)
+│   ├── llvmgen/        # LLVM 原生后端 (v3.0.0-alpha)
+│   │   ├── codegen.go      # 生成器核心、SSA、字符串常量池
+│   │   ├── expr.go         # 表达式 codegen
+│   │   ├── stmt.go         # 语句 codegen
+│   │   ├── class.go        # 类/vtable codegen
+│   │   └── compile.go      # 完整管道：AST → binary
+│   ├── wasi/           # WASI 系统调用层 (v3.0.0-alpha)
+│   │   ├── wasi.go         # 包文档
+│   │   ├── wasi_stub.go    # 非 WASI stub（本地测试）
+│   │   └── wasi_wasip1.go  # WASI 原生实现
 │   ├── formatter/      # 源代码格式化
 │   ├── lsp/            # Language Server Protocol (含增量同步)
 │   ├── repl/           # 交互式 REPL (Tab 补全)
 │   ├── testrunner/     # 测试与基准测试
 │   ├── docgen/         # 文档生成器
 │   └── i18n/           # 错误信息国际化 (中文/英文)
+├── registry/           # 包注册中心服务端 (v3.0.0-alpha)
+│   ├── internal/
+│   │   ├── api/        # REST API 处理器
+│   │   ├── auth/       # Bearer token 认证
+│   │   ├── db/         # SQLite/PostgreSQL 存储
+│   │   └── models/     # 数据模型
+│   └── web/templates/  # htmx + Tailwind CSS 前端
 ├── stdlib/             # 标准库
 │   ├── web.go              # Web 框架
 │   ├── orm.go              # 数据库连接 + 事务
 │   ├── orm_query.go        # QueryBuilder 流式 API
 │   ├── orm_migrate.go      # ORM CRUD + 迁移
+│   ├── http_client.go      # HTTP 客户端 (v3.0.0-alpha)
 │   ├── klx/                # LSP 自动补全声明文件
+│   │   ├── sysutil.klx, datetime.klx, regex.klx
+│   │   ├── jsonutil.klx, httpclient.klx, wasi.klx
 │   └── src/                # 纯 Kylix stdlib 实现
-│       ├── strutil.klx
-│       ├── mathutil.klx
-│       ├── arrayutil.klx
-│       └── collections.klx
+│       ├── strutil.klx, mathutil.klx, arrayutil.klx
+│       ├── collections.klx, stringbuilder.klx, resulttype.klx, iter.klx
+│       ├── jsonutil.klx, regex.klx, datetime.klx  # Phase 4 (v3.0.0-alpha)
+│       ├── httpclient.klx, wasi.klx               # Phase 5 (v3.0.0-alpha)
 ├── token/              # token 定义
 ├── lexer/              # 词法分析
 ├── ast/                # AST 节点
@@ -702,6 +767,8 @@ kylix/
 │   └── generator_expr.go   # 表达式
 ├── src/                # 自举编译器源码 (.klx)
 ├── examples/           # 示例程序
+│   ├── wasi-hello/         # WASI 示例 (Wasmtime/Node.js)
+│   └── cloudflare-worker/  # Cloudflare Workers 示例
 ├── vscode-ext/         # VS Code 扩展
 └── docs/               # 文档
 ```
@@ -839,6 +906,21 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 - ✅ Delve 调试器集成 (`kylix debug`)
 - ✅ WebAssembly 后端 (`--wasm`、`--tinygo`)
 
+### v2.4.0–v2.6.0 — 完善、生态与性能 ✅
+- ✅ i18n 全面接入、REPL `:type` 真正推导、SetLength 修复
+- ✅ 包管理器嵌套依赖 + lockfile、stdlib Phase 3
+- ✅ LSP 跨文件 rename、`kylix doc` 代码示例、`kylix bench --mem`、iter 模块
+- ✅ 并行编译 (goroutine pool)、死代码消除、LSP 大文件性能基准
+
+### v3.0.0-alpha — 架构突破 🚀
+- ✅ LLVM 原生后端 Milestone 1（标量类型、控制流、函数、类/vtable）
+- ✅ WASI 支持（`--wasi`、`--tinygo`、`pkg/wasi/`、`stdlib/src/wasi.klx`）
+- ✅ 包注册中心服务端（`registry/`、REST API、htmx 前端、`kylix publish`）
+- ✅ stdlib Phase 4：纯 Kylix jsonutil（嵌套 JSON）、regex、datetime（DateAdd/DateSub）
+- ✅ `external` 函数声明解析修复
+- ✅ HTTP 客户端 stdlib（`httpclient`）
+- 🔲 LLVM Milestone 2：接口、泛型单态化、-O2 优化
+
 ## 跨平台编译
 
 Kylix 编译为 Go 源码,然后利用 Go 内置的交叉编译产生原生二进制 — 无虚拟机,目标机器无需安装运行时。
@@ -890,6 +972,18 @@ kylix build --wasm --tinygo main.klx  # TinyGo (~30 KB)
 | macOS | x86-64 | `darwin/amd64` |
 | macOS | Apple Silicon | `darwin/arm64` |
 | WebAssembly | wasm | `--wasm` (含可选 `--tinygo`) |
+| WASI | wasip1/wasm | `--wasi` (含可选 `--tinygo`) |
+
+### LLVM 原生后端 (v3.0.0-alpha)
+
+Kylix 现在有实验性 LLVM 后端，直接从 AST 生成原生二进制，绕过 Go 工具链。
+
+```bash
+# 通过 LLVM 编译（需安装 llc + clang）
+kylix build --backend=llvm main.klx
+```
+
+管道：AST → LLVM IR (`.ll`) → 目标文件 (`.o`) → 原生二进制（via `llc` + `clang`）。Go 后端仍为默认。当前支持：所有标量类型、算术/比较/逻辑运算、控制流、函数、类（vtable 虚函数分发）。接口、泛型和异常计划在 Milestone 2 中实现。
 
 ---
 
@@ -897,14 +991,20 @@ kylix build --wasm --tinygo main.klx  # TinyGo (~30 KB)
 
 完整版本历史请见 [CHANGELOG.md](CHANGELOG.md)。最近更新:
 
+### v3.0.0-alpha (2026-06-21)
+架构突破 — LLVM 原生后端 Milestone 1、WASI 支持、包注册中心服务端、stdlib Phase 4（纯 Kylix jsonutil/regex/datetime）、`external` 解析修复、HTTP 客户端 stdlib。
+
+### v2.6.0 (2026-06-20)
+性能与优化 — 并行编译 (goroutine pool)、死代码消除、LSP 大文件性能基准。
+
+### v2.5.0 (2026-06-20)
+工具链深化 — LSP 跨文件 rename + codeAction、`kylix doc` 代码示例提取、`kylix bench --mem`、iter 模块、类方法外部定义修复。
+
+### v2.4.0 (2026-06-20)
+完善与生态 — i18n 全面接入、REPL `:type` 真正推导、SetLength 修复、包管理器嵌套依赖 + lockfile、stdlib Phase 3。
+
 ### v2.3.0 (2026-06-19)
 开发者体验全面提升 — LSP 增量同步、REPL Tab 补全、测试 fixtures + filter、i18n 框架、Delve 调试器、WebAssembly 后端。
-
-### v2.2.0 (2026-06-19)
-工程质量与 stdlib Phase 2 — GitHub Actions CI、泛型签名验证、包级类型检查、增量编译启用、`arrayutil` + `collections`。
-
-### v2.1.0 (2026-06-19)
-增强类型系统 + stdlib Phase 1 — 多参数泛型约束、类→接口映射、增强类型推导、`strutil` + `mathutil`。
 
 ### v2.0.0 (2026-06-17)
 🎉 生产级首发 — 错误代码体系、类型推导、泛型约束、`kylix test/doc/bench` 完整工具链。

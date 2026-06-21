@@ -45,5 +45,35 @@ function MakeTime(year: Integer; month: Integer; day: Integer;
 function ParseDate(s: String): TDateTime;
 function ParseDateTime(s: String): TDateTime;
 function FromUnix(ts: Integer): TDateTime;
+function GetTimestamp(): Integer;
+
+// Formatting (pure Kylix — stdlib/src/datetime.klx)
+// Tokens: yyyy MM dd HH mm ss
+function FormatPattern(dt: TDateTime; pattern: String): String;
+function PadInt(n: Integer; width: Integer): String;
+
+// Operator replacements — fixes ROADMAP: TDateTime +/- 未实现
+function DateAdd(dt: TDateTime; days: Integer): TDateTime;
+function DateSub(dt: TDateTime; days: Integer): TDateTime;
+function DateAddHours(dt: TDateTime; hours: Integer): TDateTime;
+function DateAddMinutes(dt: TDateTime; minutes: Integer): TDateTime;
+
+// Calendar utilities (pure Kylix)
+function IsLeapYear(year: Integer): Boolean;
+function DaysInMonth(year: Integer; month: Integer): Integer;
+function IsWeekend(dt: TDateTime): Boolean;
+function IsWeekday(dt: TDateTime): Boolean;
+function WeekNumber(dt: TDateTime): Integer;
+
+// Comparison helpers
+function DaysBetween(a: TDateTime; b: TDateTime): Integer;
+function IsSameDay(a: TDateTime; b: TDateTime): Boolean;
+function IsSameMonth(a: TDateTime; b: TDateTime): Boolean;
+function IsSameYear(a: TDateTime; b: TDateTime): Boolean;
+
+// Name helpers
+function MonthName(month: Integer): String;
+function MonthShort(month: Integer): String;
+function DayName(dow: Integer): String;
 
 end.

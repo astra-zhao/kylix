@@ -179,3 +179,92 @@ end.`
 		t.Errorf("expected 2 elements, got %d", len(tuple.Elements))
 	}
 }
+
+// ── External Function Declarations ───────────────────────────────────────────
+
+func TestParseExternalFunction(t *testing.T) {
+	input := `
+unit foo;
+function Bar(x: Integer): String; external;
+end.`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	if errs := p.Errors(); len(errs) > 0 {
+		t.Fatalf("parse errors: %v", errs)
+	}
+
+	if len(prog.Declarations) != 1 {
+		t.Fatalf("expected 1 declaration, got %d", len(prog.Declarations))
+	}
+
+	fn, ok := prog.Declarations[0].(*ast.FunctionDecl)
+	if !ok {
+		t.Fatalf("expected FunctionDecl, got %T", prog.Declarations[0])
+	}
+	if fn.Name != "Bar" {
+		t.Errorf("expected name 'Bar', got %q", fn.Name)
+	}
+	if !fn.IsExternal {
+		t.Error("expected IsExternal=true")
+	}
+	if fn.Body != nil {
+		t.Error("external function should have nil body")
+	}
+}
+
+func TestParseMultipleExternalFunctions(t *testing.T) {
+	input := `
+unit myunit;
+function Foo(): String; external;
+function Bar(x: Integer): Boolean; external;
+procedure Baz(s: String); external;
+end.`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	if errs := p.Errors(); len(errs) > 0 {
+		t.Fatalf("parse errors: %v", errs)
+	}
+	if len(prog.Declarations) != 3 {
+		t.Fatalf("expected 3 declarations, got %d", len(prog.Declarations))
+	}
+	for i, decl := range prog.Declarations {
+		fn, ok := decl.(*ast.FunctionDecl)
+		if !ok {
+			t.Fatalf("decl[%d]: expected FunctionDecl", i)
+		}
+		if !fn.IsExternal {
+			t.Errorf("decl[%d] (%s): expected IsExternal=true", i, fn.Name)
+		}
+	}
+}
+
+func TestParseExternalAtEndOfFile(t *testing.T) {
+	// Regression: external at end of file (after all other declarations) must not error
+	input := `
+unit myunit;
+function Add(a: Integer; b: Integer): Integer;
+begin
+  result := a + b;
+end;
+function FromGo(): String; external;
+end.`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	if errs := p.Errors(); len(errs) > 0 {
+		t.Fatalf("parse errors: %v", errs)
+	}
+	if len(prog.Declarations) != 2 {
+		t.Fatalf("expected 2 declarations, got %d", len(prog.Declarations))
+	}
+
+	ext := prog.Declarations[1].(*ast.FunctionDecl)
+	if !ext.IsExternal {
+		t.Error("last function should be external")
+	}
+}

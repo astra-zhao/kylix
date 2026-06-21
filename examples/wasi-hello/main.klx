@@ -1,0 +1,15 @@
+// WASI Hello World — runs in Wasmtime, Cloudflare Workers, Fastly Compute, etc.
+// Build: kylix build --wasi main.klx
+program hello;
+
+uses wasi;
+
+var
+  name: String;
+
+begin
+  name := GetEnvOrDefault('NAME', 'World');
+  WriteLn('Hello, ' + name + '!');
+  WriteLn('Running under WASI.');
+  WriteLn('Args: ' + IntToStr(ArgCount()));
+end.

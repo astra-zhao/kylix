@@ -256,3 +256,105 @@ func findUnits(dir string) ([]string, error) {
 	})
 	return units, err
 }
+
+// PublishResult holds the response from the registry after publishing.
+type PublishResult struct {
+	Package string `json:"package"`
+	Version string `json:"version"`
+	Message string `json:"message"`
+}
+
+// Publish creates a tarball of the current project and uploads it to the registry.
+//
+//	registryURL: e.g. "https://kylix.top" or "http://localhost:8080"
+//	apiToken:    Bearer token from `kylix login`
+//	version:     semantic version to publish (e.g. "1.0.0")
+func (m *Manager) Publish(registryURL, apiToken, version string) (*PublishResult, error) {
+	cfg := m.cfg
+
+	name := cfg.Name
+	if name == "" {
+		return nil, fmt.Errorf("kylix.json missing 'name' field")
+	}
+	if version == "" {
+		version = cfg.Version
+	}
+	if version == "" {
+		return nil, fmt.Errorf("version required: pass --version or set 'version' in kylix.json")
+	}
+
+	// Create tarball in a temp file
+	tarPath, err := createTarball(cfg.ProjectDir(), name, version)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tarball: %w", err)
+	}
+	defer os.Remove(tarPath)
+
+	// Upload tarball to registry as a multipart form
+	// Upload tarball to registry
+	result, err := uploadTarball(registryURL, apiToken, name, version, "", tarPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload: %w", err)
+	}
+	return result, nil
+}
+
+// createTarball packs all .klx files + kylix.json into a .tar.gz.
+func createTarball(projectDir, name, version string) (string, error) {
+	tarPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s.tar.gz", name, version))
+
+	// Collect files: kylix.json + all .klx files
+	var files []string
+	kylixJSON := filepath.Join(projectDir, "kylix.json")
+	if _, err := os.Stat(kylixJSON); err == nil {
+		files = append(files, kylixJSON)
+	}
+
+	units, err := findUnits(projectDir)
+	if err != nil {
+		return "", err
+	}
+	files = append(files, units...)
+
+	if len(files) == 0 {
+		return "", fmt.Errorf("no .klx files found in %s", projectDir)
+	}
+
+	// Use tar command for portability
+	args := append([]string{"-czf", tarPath, "-C", projectDir}, relPaths(projectDir, files)...)
+	cmd := exec.Command("tar", args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("tar error: %w\n%s", err, out)
+	}
+	return tarPath, nil
+}
+
+// relPaths converts absolute paths to relative paths from base.
+func relPaths(base string, paths []string) []string {
+	rel := make([]string, 0, len(paths))
+	for _, p := range paths {
+		r, err := filepath.Rel(base, p)
+		if err == nil {
+			rel = append(rel, r)
+		}
+	}
+	return rel
+}
+
+// uploadTarball posts the tarball to the registry API.
+func uploadTarball(registryURL, apiToken, name, version, description, tarPath string) (*PublishResult, error) {
+	// For MVP: just send tarball URL to registry
+	// Production: upload tarball to S3/R2 first, then pass URL
+	tarballURL := fmt.Sprintf("%s/tarballs/%s-%s.tar.gz", registryURL, name, version)
+
+	body := fmt.Sprintf(`{"name":%q,"version":%q,"description":%q,"tarball_url":%q,"dependencies":"[]"}`,
+		name, version, description, tarballURL)
+
+	req, err := newAuthRequest("POST", registryURL+"/api/v1/packages", apiToken, []byte(body))
+	if err != nil {
+		return nil, err
+	}
+
+	return doJSONRequest[PublishResult](req)
+}
+

@@ -1,0 +1,43 @@
+// Cloudflare Workers example — Kylix HTTP handler compiled to WASM.
+// Build: kylix build --wasi --tinygo worker.klx
+// Deploy: wrangler deploy
+program worker;
+
+uses wasi;
+
+// Simulate reading an HTTP request from stdin (in a real CF Workers WASM
+// environment, the host provides request data via WASI stdin/env vars).
+var
+  method: String;
+  path: String;
+  response: String;
+
+begin
+  method := GetEnvOrDefault('HTTP_METHOD', 'GET');
+  path   := GetEnvOrDefault('HTTP_PATH', '/');
+
+  if method = 'GET' then
+  begin
+    if path = '/' then
+    begin
+      response := '{"message":"Hello from Kylix on Cloudflare Workers!","path":"' + path + '"}';
+      Stdout('HTTP/1.1 200 OK' + Chr(10));
+      Stdout('Content-Type: application/json' + Chr(10));
+      Stdout(Chr(10));
+      Stdout(response);
+    end
+    else
+    begin
+      Stdout('HTTP/1.1 404 Not Found' + Chr(10));
+      Stdout('Content-Type: application/json' + Chr(10));
+      Stdout(Chr(10));
+      Stdout('{"error":"not found","path":"' + path + '"}');
+    end;
+  end
+  else
+  begin
+    Stdout('HTTP/1.1 405 Method Not Allowed' + Chr(10));
+    Stdout(Chr(10));
+    Stdout('{"error":"method not allowed"}');
+  end;
+end.

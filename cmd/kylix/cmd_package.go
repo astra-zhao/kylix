@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"kylix/pkg/pkgmgr"
 	"kylix/pkg/project"
@@ -93,4 +94,47 @@ func packageDirsFromWd(wd string) []string {
 		}
 	}
 	return dirs
+}
+
+func cmdPublish(args []string) {
+	fs := flag.NewFlagSet("publish", flag.ExitOnError)
+	version := fs.String("version", "", "Version to publish (default: from kylix.toml)")
+	registry := fs.String("registry", "https://kylix.top", "Registry URL")
+	token := fs.String("token", "", "API token (or set KYLIX_TOKEN env var)")
+	fs.Parse(args)
+
+	// Resolve token
+	apiToken := *token
+	if apiToken == "" {
+		apiToken = os.Getenv("KYLIX_TOKEN")
+	}
+	if apiToken == "" {
+		fmt.Fprintln(os.Stderr, "Error: API token required (--token or KYLIX_TOKEN env var)")
+		fmt.Fprintln(os.Stderr, "  Get a token at: "+*registry+"/login")
+		os.Exit(1)
+	}
+
+	wd, _ := os.Getwd()
+	cfg, err := project.Load(wd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading project: %v\n", err)
+		os.Exit(1)
+	}
+
+	mgr := pkgmgr.New(cfg)
+	fmt.Printf("Publishing %s@%s to %s...\n", cfg.Name, firstNonEmpty(*version, cfg.Version), *registry)
+
+	result, err := mgr.Publish(*registry, apiToken, *version)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Publish failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("✓ Published %s@%s\n", result.Package, result.Version)
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

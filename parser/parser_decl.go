@@ -240,10 +240,18 @@ func (p *Parser) parseFunctionDecl() *ast.FunctionDecl {
 		p.nextToken()
 	}
 
-	// virtual / override / abstract / static modifiers
+	// virtual / override / abstract / static / external modifiers
 	if p.curTokenIs(token.VIRTUAL) || p.curTokenIs(token.OVERRIDE) ||
 		p.curTokenIs(token.ABSTRACT) || p.curTokenIs(token.STATIC) ||
 		p.curTokenIs(token.DYNAMIC) {
+		p.nextToken()
+		if p.curTokenIs(token.SEMICOLON) {
+			p.nextToken()
+		}
+	}
+
+	if p.curTokenIs(token.EXTERNAL) {
+		decl.IsExternal = true
 		p.nextToken()
 		if p.curTokenIs(token.SEMICOLON) {
 			p.nextToken()

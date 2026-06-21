@@ -77,6 +77,7 @@ type FunctionDecl struct {
 	LocalDecls  []Node // local var/const declarations before begin block
 	IsAsync     bool
 	IsExport    bool
+	IsExternal  bool // body implemented in Go stdlib; no Kylix body emitted
 }
 
 func (f *FunctionDecl) statementNode()       {}

@@ -1,0 +1,119 @@
+// wasi.klx — WASI system interface, Kylix-ified.
+//
+// Pure Kylix high-level wrappers around the low-level WASI system calls.
+// External bindings delegate to pkg/wasi/ which uses Go 1.21 wasip1 support.
+unit wasi;
+
+// ===== Pure Kylix: I/O helpers =====
+
+// WriteLn writes a string followed by a newline to stdout.
+procedure WriteLn(s: String);
+begin
+  Stdout(s + Chr(10));
+end;
+
+// WriteErrLn writes a string followed by a newline to stderr.
+procedure WriteErrLn(s: String);
+begin
+  Stderr(s + Chr(10));
+end;
+
+// Print writes a string without newline to stdout.
+procedure Print(s: String);
+begin
+  Stdout(s);
+end;
+
+// ReadLine reads a line from stdin, stripping trailing newline.
+function ReadLine(): String;
+begin
+  result := Stdin();
+end;
+
+// ===== Pure Kylix: Environment helpers =====
+
+// GetEnvOrDefault returns env var value, or defaultVal if not set.
+function GetEnvOrDefault(name: String; defaultVal: String): String;
+var
+  v: String;
+begin
+  v := Getenv(name);
+  if Length(v) = 0 then
+    result := defaultVal
+  else
+    result := v;
+end;
+
+// HasEnv returns true if the environment variable is set and non-empty.
+function HasEnv(name: String): Boolean;
+begin
+  result := Length(Getenv(name)) > 0;
+end;
+
+// ===== Pure Kylix: Argument helpers =====
+
+// ArgCount returns the number of command-line arguments.
+function ArgCount(): Integer;
+var
+  a: array of String;
+begin
+  a := Args();
+  result := Length(a);
+end;
+
+// Arg returns the nth command-line argument (0-indexed), or '' if out of range.
+function Arg(n: Integer): String;
+var
+  a: array of String;
+begin
+  a := Args();
+  if (n >= 0) and (n < Length(a)) then
+    result := a[n]
+  else
+    result := '';
+end;
+
+// HasArg returns true if the given flag appears in the argument list.
+function HasArg(flag: String): Boolean;
+var
+  a: array of String;
+  i: Integer;
+begin
+  a := Args();
+  i := 0;
+  while i < Length(a) do
+  begin
+    if a[i] = flag then
+    begin
+      result := true;
+      exit;
+    end;
+    i := i + 1;
+  end;
+  result := false;
+end;
+
+// ===== Pure Kylix: Clock helpers =====
+
+// ElapsedMs returns elapsed milliseconds since the given monotonic start time.
+function ElapsedMs(startNs: Integer): Integer;
+begin
+  result := (ClockMonotonic() - startNs) / 1000000;
+end;
+
+// ===== External: low-level WASI system calls =====
+// Implemented in pkg/wasi/ (Go 1.21 wasip1 + stub for native builds)
+
+procedure Stdout(s: String); external;
+procedure Stderr(s: String); external;
+function  Stdin(): String; external;
+function  Args(): array of String; external;
+function  Getenv(name: String): String; external;
+function  Environ(): array of String; external;
+function  ClockMonotonic(): Integer; external;
+function  ClockWalltime(): Integer; external;
+function  ReadFile(path: String): String; external;
+procedure WriteFile(path: String; content: String); external;
+procedure WasiExit(code: Integer); external;
+
+end.

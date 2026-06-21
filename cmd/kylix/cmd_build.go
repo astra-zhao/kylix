@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"kylix/pkg/compiler"
+	"kylix/pkg/llvmgen"
 	"kylix/pkg/project"
 	"os"
 	"os/exec"
@@ -15,16 +16,23 @@ func cmdBuild(args []string) {
 	output := fs.String("o", "", "Output file (for single file compilation)")
 	verbose := fs.Bool("v", false, "Verbose output")
 	target := fs.String("target", "", "Cross-compile target: os/arch (e.g. linux/amd64, windows/amd64, darwin/arm64)")
-	wasm := fs.Bool("wasm", false, "Compile to WebAssembly (.wasm) — uses GOOS=js GOARCH=wasm")
-	tinygo := fs.Bool("tinygo", false, "Use TinyGo for WASM build (smaller output, requires tinygo installed)")
+	wasm := fs.Bool("wasm", false, "Compile to WebAssembly (.wasm) — uses GOOS=js GOARCH=wasm (browser)")
+	wasi := fs.Bool("wasi", false, "Compile to WASI WebAssembly (.wasm) — uses GOOS=wasip1 GOARCH=wasm (server-side)")
+	tinygo := fs.Bool("tinygo", false, "Use TinyGo for WASM/WASI build (smaller output, requires tinygo installed)")
+	backend := fs.String("backend", "go", "Compiler backend: go (default) or llvm (experimental)")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix build [options] [file.klx]
 
 Build the current project or a single Kylix file.
 
-WASM EXAMPLES:
-  kylix build --wasm main.klx           # Standard Go WASM (~3 MB)
-  kylix build --wasm --tinygo main.klx  # TinyGo WASM (~30 KB, requires tinygo)
+WASM/WASI EXAMPLES:
+  kylix build --wasm main.klx            # Browser WASM via Go (~3 MB)
+  kylix build --wasm --tinygo main.klx   # Browser WASM via TinyGo (~30 KB)
+  kylix build --wasi main.klx            # WASI (Wasmtime/Cloudflare Workers)
+  kylix build --wasi --tinygo main.klx   # WASI via TinyGo (smaller)
+
+LLVM BACKEND (EXPERIMENTAL):
+  kylix build --backend=llvm main.klx    # Native binary via LLVM IR
 
 OPTIONS:
 `)
@@ -36,13 +44,17 @@ OPTIONS:
 		os.Exit(1)
 	}
 
-	// --wasm overrides --target
-	if *wasm && *target != "" {
-		fmt.Fprintln(os.Stderr, "Error: --wasm and --target are mutually exclusive")
+	// Mutual exclusion checks
+	if *wasm && *wasi {
+		fmt.Fprintln(os.Stderr, "Error: --wasm and --wasi are mutually exclusive")
 		os.Exit(1)
 	}
-	if *tinygo && !*wasm {
-		fmt.Fprintln(os.Stderr, "Error: --tinygo requires --wasm")
+	if (*wasm || *wasi) && *target != "" {
+		fmt.Fprintln(os.Stderr, "Error: --wasm/--wasi and --target are mutually exclusive")
+		os.Exit(1)
+	}
+	if *tinygo && !*wasm && !*wasi {
+		fmt.Fprintln(os.Stderr, "Error: --tinygo requires --wasm or --wasi")
 		os.Exit(1)
 	}
 
@@ -69,6 +81,16 @@ OPTIONS:
 
 		if fs.NArg() == 1 {
 			file := fs.Arg(0)
+
+			// LLVM backend shortcut — bypass Go codegen entirely
+			if *backend == "llvm" {
+				if err := buildWithLLVM(file, *output); err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					os.Exit(1)
+				}
+				return
+			}
+
 			result, err := compiler.CompileFile(file, opts)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -78,12 +100,12 @@ OPTIONS:
 			if !result.Success {
 				os.Exit(1)
 			}
-			if *wasm {
+			if *wasm || *wasi {
 				binOut := *output
 				if binOut == "" {
 					binOut = stripExt(file) + ".wasm"
 				}
-				if err := goBuildWasm(result.OutputFile, binOut, *tinygo); err != nil {
+				if err := goBuildWasmTarget(result.OutputFile, binOut, *wasi, *tinygo); err != nil {
 					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 					os.Exit(1)
 				}
@@ -91,7 +113,11 @@ OPTIONS:
 				if *tinygo {
 					flavor = "TinyGo"
 				}
-				fmt.Printf("✓ Built %s → %s [wasm via %s]\n", file, binOut, flavor)
+				target := "wasm"
+				if *wasi {
+					target = "wasi"
+				}
+				fmt.Printf("✓ Built %s → %s [%s via %s]\n", file, binOut, target, flavor)
 			} else if targetGOOS != "" {
 				binOut := *output
 				if binOut == "" {
@@ -187,9 +213,9 @@ OPTIONS:
 		}
 	}
 
-	if *wasm {
+	if *wasm || *wasi {
 		binOut := filepath.Join(outDir, cfg.Name+".wasm")
-		if err := goBuildWasm(outFile, binOut, *tinygo); err != nil {
+		if err := goBuildWasmTarget(outFile, binOut, *wasi, *tinygo); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -197,7 +223,11 @@ OPTIONS:
 		if *tinygo {
 			flavor = "TinyGo"
 		}
-		fmt.Printf("✓ Built %s → %s [wasm via %s]\n", cfg.Name, binOut, flavor)
+		tgt := "wasm"
+		if *wasi {
+			tgt = "wasi"
+		}
+		fmt.Printf("✓ Built %s → %s [%s via %s]\n", cfg.Name, binOut, tgt, flavor)
 	} else if targetGOOS != "" {
 		binOut := filepath.Join(outDir, cfg.Name)
 		if targetGOOS == "windows" {
@@ -232,30 +262,37 @@ func goBuild(goFile, outBin, goos, goarch string) error {
 	return cmd.Run()
 }
 
-// goBuildWasm compiles the generated Go file to WebAssembly using either
-// the standard go toolchain (GOOS=js GOARCH=wasm) or TinyGo (smaller binary).
-// useTinyGo controls which compiler is used.
-func goBuildWasm(goFile, outBin string, useTinyGo bool) error {
+// goBuildWasmTarget compiles to WebAssembly for browser (GOOS=js) or WASI (GOOS=wasip1).
+// useTinyGo selects TinyGo instead of the standard Go toolchain.
+func goBuildWasmTarget(goFile, outBin string, useWasi, useTinyGo bool) error {
 	if useTinyGo {
-		// Verify tinygo is installed
 		if _, err := exec.LookPath("tinygo"); err != nil {
 			return fmt.Errorf("tinygo not found in PATH; install from https://tinygo.org/getting-started/install/")
 		}
-		cmd := exec.Command("tinygo", "build",
-			"-o", outBin,
-			"-target=wasm",
-			goFile,
-		)
+		tinygoTarget := "wasm"
+		if useWasi {
+			tinygoTarget = "wasi"
+		}
+		cmd := exec.Command("tinygo", "build", "-o", outBin, "-target="+tinygoTarget, goFile)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
 	}
-	// Standard Go: GOOS=js GOARCH=wasm
+	// Standard Go toolchain
+	goos := "js"
+	if useWasi {
+		goos = "wasip1"
+	}
 	cmd := exec.Command("go", "build", "-o", outBin, goFile)
-	cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
+	cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH=wasm")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// goBuildWasm is kept for backward compatibility.
+func goBuildWasm(goFile, outBin string, useTinyGo bool) error {
+	return goBuildWasmTarget(goFile, outBin, false, useTinyGo)
 }
 
 // stripExt removes the file extension.
@@ -269,4 +306,22 @@ func stripExt(name string) string {
 		}
 	}
 	return name
+}
+
+// buildWithLLVM compiles a Kylix file to native binary via LLVM IR.
+func buildWithLLVM(srcFile, outBin string) error {
+	llvmPaths, err := llvmgen.FindLLVM()
+	if err != nil {
+		return fmt.Errorf("LLVM toolchain not found: %w\nHint: brew install llvm (macOS) or apt install llvm clang (Linux)", err)
+	}
+
+	result, err := llvmgen.CompileToNative(srcFile, outBin, llvmPaths)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("✓ Built %s → %s [llvm]\n", srcFile, result.BinFile)
+	fmt.Printf("  IR:  %s\n", result.IRFile)
+	fmt.Printf("  Obj: %s\n", result.ObjFile)
+	return nil
 }

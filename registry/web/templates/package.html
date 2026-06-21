@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Name}} — Kylix Package Registry</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <header class="bg-indigo-700 text-white shadow">
+    <div class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-3">
+        <span class="text-2xl font-bold tracking-tight">kylix</span>
+        <span class="text-indigo-300 text-sm">package registry</span>
+      </a>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 py-8">
+    <div class="mb-4 text-sm text-gray-500">
+      <a href="/" class="hover:text-indigo-600">← All packages</a>
+    </div>
+
+    <!-- Package header -->
+    <div class="bg-white rounded-lg border p-6 mb-6">
+      <div class="flex items-start justify-between">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">{{.Name}}</h1>
+          <p class="text-gray-500 mt-1">by <span class="font-medium">{{.Owner}}</span></p>
+          {{if .Description}}
+          <p class="text-gray-700 mt-3">{{.Description}}</p>
+          {{end}}
+        </div>
+        <div class="text-right text-sm text-gray-500">
+          <span class="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full font-mono">
+            {{.LatestVersion}}
+          </span>
+        </div>
+      </div>
+
+      <!-- Install command -->
+      <div class="mt-4 bg-gray-900 text-green-400 rounded-lg p-3 font-mono text-sm">
+        $ kylix install {{.Name}}
+      </div>
+
+      <!-- Links -->
+      {{if .RepoURL}}
+      <div class="mt-4">
+        <a href="{{.RepoURL}}" class="text-sm text-indigo-600 hover:underline" target="_blank">
+          View source →
+        </a>
+      </div>
+      {{end}}
+    </div>
+
+    <!-- Versions -->
+    <div class="bg-white rounded-lg border p-6">
+      <h2 class="text-lg font-semibold mb-4">Versions</h2>
+      {{if .Versions}}
+      <div class="space-y-2">
+        {{range .Versions}}
+        <div class="flex items-center justify-between py-2 border-b last:border-0">
+          <div>
+            <span class="font-mono text-sm font-semibold text-indigo-700">{{.Version}}</span>
+            <span class="ml-3 text-xs text-gray-400">{{.PublishedAt.Format "2006-01-02"}}</span>
+          </div>
+          <a href="/api/v1/packages/{{$.Name}}/{{.Version}}/dl"
+             class="text-xs bg-indigo-50 text-indigo-700 px-3 py-1 rounded hover:bg-indigo-100">
+            Download
+          </a>
+        </div>
+        {{end}}
+      </div>
+      {{else}}
+      <p class="text-gray-400 text-sm">No versions published yet.</p>
+      {{end}}
+    </div>
+  </main>
+</body>
+</html>

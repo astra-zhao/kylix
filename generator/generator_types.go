@@ -283,6 +283,11 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 		return
 	}
 
+	// External functions are implemented in Go stdlib; emit nothing.
+	if decl.IsExternal {
+		return
+	}
+
 	// Method definition: ClassName.MethodName
 	if idx := strings.Index(decl.Name, "."); idx >= 0 {
 		className := decl.Name[:idx]

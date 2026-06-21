@@ -1,0 +1,58 @@
+// httpclient.klx — HTTP client, Kylix-ified.
+// Pure Kylix wrappers around Go net/http via external bindings.
+unit httpclient;
+
+// ===== Pure Kylix: URL construction helpers =====
+
+// BuildQueryString builds ?k1=v1&k2=v2 from parallel arrays.
+function BuildQueryString(keys: array of String; values: array of String): String;
+var
+  i: Integer;
+  sep: String;
+  out: String;
+begin
+  out := '';
+  sep := '?';
+  i := 0;
+  while i < Length(keys) do
+  begin
+    out := out + sep + keys[i] + '=' + values[i];
+    sep := '&';
+    i := i + 1;
+  end;
+  result := out;
+end;
+
+// IsOK returns true if the status code is 2xx.
+function IsOK(statusCode: Integer): Boolean;
+begin
+  result := (statusCode >= 200) and (statusCode < 300);
+end;
+
+// IsRedirect returns true if the status code is 3xx.
+function IsRedirect(statusCode: Integer): Boolean;
+begin
+  result := (statusCode >= 300) and (statusCode < 400);
+end;
+
+// IsClientError returns true if the status code is 4xx.
+function IsClientError(statusCode: Integer): Boolean;
+begin
+  result := (statusCode >= 400) and (statusCode < 500);
+end;
+
+// IsServerError returns true if the status code is 5xx.
+function IsServerError(statusCode: Integer): Boolean;
+begin
+  result := statusCode >= 500;
+end;
+
+// ===== External: Go net/http bindings =====
+// Implemented in stdlib/http_client.go
+
+function NewHttpClient(baseURL: String; timeoutMs: Integer): Variant; external;
+function HttpGet(url: String): String; external;
+function HttpPost(url: String; contentType: String; body: String): String; external;
+function HttpGetJSON(url: String): map[String]Variant; external;
+
+end.
