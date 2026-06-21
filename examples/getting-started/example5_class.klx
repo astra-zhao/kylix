@@ -1,0 +1,17 @@
+program ClassDemo;
+
+type
+  TPerson = class
+  public
+    Name: String;
+    Age: Integer;
+  end;
+
+var
+  person: TPerson;
+begin
+  person := TPerson.Create;
+  person.Name := 'Bob';
+  person.Age := 30;
+  WriteLn('Person: ' + person.Name + ', Age: ' + IntToStr(person.Age));
+end.
