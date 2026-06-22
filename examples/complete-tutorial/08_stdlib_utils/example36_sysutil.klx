@@ -1,0 +1,27 @@
+// example36_sysutil.klx — File I/O with sysutil
+// Demonstrates:
+//   - WriteFile, ReadFile, FileExists
+//   - PathJoin for path manipulation
+//   - uses sysutil in program files (v3.1.0+)
+
+program SysutilDemo;
+uses sysutil;
+
+var
+  fname: String;
+  content: String;
+begin
+  fname := '/tmp/kylix_example_sysutil.txt';
+  
+  WriteFile(fname, 'Hello from Kylix sysutil!');
+  WriteLn('File written to: ' + fname);
+  
+  if FileExists(fname) then
+    WriteLn('File exists: confirmed');
+  
+  content := ReadFile(fname);
+  WriteLn('Read back: ' + content);
+  
+  WriteLn('PathJoin example: ' + PathJoin('/usr', 'local', 'bin'));
+  WriteLn('PathBase example: ' + PathBase('/path/to/file.txt'));
+end.

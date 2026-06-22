@@ -1,0 +1,25 @@
+// example38_datetime.klx — Date and time with datetime
+// Demonstrates:
+//   - Now(), Today(), MakeDate()
+//   - TDateTime methods: Year(), Month(), Day()
+//   - FormatDate(), AddDays()
+//   - uses datetime in program files (v3.1.0+)
+
+program DatetimeDemo;
+uses datetime;
+
+begin
+  var now := Now();
+  WriteLn('Current year: ' + IntToStr(now.Year()));
+  WriteLn('Current month: ' + IntToStr(now.Month()));
+  WriteLn('Current day: ' + IntToStr(now.Day()));
+  
+  var custom := MakeDate(2024, 12, 25);
+  WriteLn('Christmas 2024: ' + custom.FormatDate());
+  
+  var future := custom.AddDays(7);
+  WriteLn('One week later: ' + future.FormatDate());
+  
+  var past := custom.AddDays(-7);
+  WriteLn('One week before: ' + past.FormatDate());
+end.

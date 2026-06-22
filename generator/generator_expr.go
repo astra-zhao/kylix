@@ -195,6 +195,14 @@ func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 	}
 
 	if ident, ok := e.Function.(*ast.Identifier); ok {
+		// Dispatch stdlib functions from `uses` modules to stdlib.FuncName(...)
+		if stdlibFunc, module := g.resolveStdlibFunc(ident.Value); stdlibFunc != "" {
+			_ = module
+			g.imports["kylix/stdlib"] = true
+			g.generateStdlibCall(stdlibFunc, e.Arguments)
+			return
+		}
+
 		switch ident.Value {
 		case "Ord":
 			if len(e.Arguments) == 1 {

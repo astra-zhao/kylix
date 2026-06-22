@@ -1,0 +1,29 @@
+// example37_jsonutil.klx — JSON parsing with jsonutil
+// Demonstrates:
+//   - JsonIsValid for validation
+//   - JsonDecodeMap for parsing objects
+//   - JsonGetString, JsonGetInt for field access
+//   - uses jsonutil in program files (v3.1.0+)
+
+program JsonutilDemo;
+uses jsonutil;
+
+var
+  json: String;
+  obj: map[String]Variant;
+begin
+  json := '{"name":"Kylix","version":3,"active":true}';
+  
+  if JsonIsValid(json) then
+    WriteLn('JSON is valid');
+  
+  obj := JsonDecodeMap(json);
+  WriteLn('name: ' + JsonGetString(obj, 'name'));
+  WriteLn('version: ' + IntToStr(JsonGetInt(obj, 'version')));
+  
+  if JsonGetBool(obj, 'active') then
+    WriteLn('active: true');
+  
+  if not JsonIsValid('bad json {') then
+    WriteLn('Invalid JSON detected correctly');
+end.

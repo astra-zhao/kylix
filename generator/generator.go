@@ -41,6 +41,7 @@ type Generator struct {
 	classIsBase     map[string]bool     // true if class is a parent (→ interface{} in type exprs)
 	classFields     map[string][]string // class name → ordered field names (for constructor mapping)
 	userFuncs       map[string]bool     // user-defined function names (override built-in mapping)
+	usedModules     map[string]bool     // modules imported via `uses` clause
 }
 
 func New() *Generator {
@@ -53,6 +54,7 @@ func New() *Generator {
 		classIsBase:    make(map[string]bool),
 		classFields:    make(map[string][]string),
 		userFuncs:      make(map[string]bool),
+		usedModules:    make(map[string]bool),
 	}
 }
 
@@ -504,12 +506,15 @@ func (g *Generator) scanStatementForException(stmt ast.Statement) {
 
 // scanImports maps uses clause modules and built-in function calls to Go imports.
 func (g *Generator) scanImports(program *ast.Program) {
-	// uses clause → stdlib package
+	// uses clause → stdlib package + record used modules
 	for _, module := range program.Uses {
+		g.usedModules[module] = true
 		switch module {
 		case "web", "container", "config", "middleware", "validation",
 			"orm", "template", "autoconfig", "sysutil", "jsonutil",
-			"datetime", "regex":
+			"datetime", "regex", "strutil", "mathutil", "arrayutil",
+			"collections", "httpclient", "iter", "stringbuilder",
+			"resulttype", "wasi":
 			g.imports["kylix/stdlib"] = true
 		}
 	}

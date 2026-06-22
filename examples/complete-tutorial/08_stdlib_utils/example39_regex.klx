@@ -1,0 +1,27 @@
+// example39_regex.klx — Pattern validation with regex
+// Demonstrates:
+//   - IsEmail, IsURL, IsNumeric validators
+//   - uses regex in program files (v3.1.0+)
+
+program RegexDemo;
+uses regex;
+
+begin
+  if IsEmail('user@example.com') then
+    WriteLn('Valid email');
+  
+  if not IsEmail('bad-email') then
+    WriteLn('Invalid email detected');
+  
+  if IsURL('https://kylix.top') then
+    WriteLn('Valid URL');
+  
+  if IsNumeric('12345') then
+    WriteLn('Valid numeric string');
+  
+  if not IsNumeric('abc123') then
+    WriteLn('Non-numeric string detected');
+  
+  if IsAlpha('hello') then
+    WriteLn('Valid alphabetic string');
+end.
