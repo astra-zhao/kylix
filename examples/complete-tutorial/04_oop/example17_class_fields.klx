@@ -1,0 +1,37 @@
+// example17_class_fields.klx — Class fields with := type inference
+// Demonstrates:
+//   - Class definition with public fields
+//   - Object creation using := type inference (avoids interface{} issue)
+//   - Field access via dot notation
+
+program ClassFields;
+
+type
+  TPerson = class
+  public
+    Name: String;
+    Age: Integer;
+    Email: String;
+  end;
+
+begin
+  // Use := for type inference so the compiler knows the concrete type
+  var p := TPerson.Create;
+  p.Name := 'Alice';
+  p.Age := 30;
+  p.Email := 'alice@example.com';
+
+  WriteLn('Name: ' + p.Name);
+  WriteLn('Age: ' + IntToStr(p.Age));
+  WriteLn('Email: ' + p.Email);
+
+  // Another instance
+  var p2 := TPerson.Create;
+  p2.Name := 'Bob';
+  p2.Age := 25;
+  p2.Email := 'bob@example.com';
+
+  WriteLn('--- Second person ---');
+  WriteLn('Name: ' + p2.Name);
+  WriteLn('Age: ' + IntToStr(p2.Age));
+end.

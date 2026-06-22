@@ -1,0 +1,42 @@
+// example20_enum.klx — Enum types
+// Demonstrates:
+//   - Defining enum types with (Val1, Val2, ...)
+//   - Using enums in case/of statements
+//   - Enum comparison
+
+program EnumTypes;
+
+type
+  TDirection = (North, South, East, West);
+  TColor     = (Red, Green, Blue, Yellow);
+  TStatus    = (Pending, Active, Inactive, Deleted);
+
+var
+  dir:    TDirection;
+  color:  TColor;
+  status: TStatus;
+begin
+  dir := North;
+  case dir of
+    North: WriteLn('Direction: North');
+    South: WriteLn('Direction: South');
+    East:  WriteLn('Direction: East');
+    West:  WriteLn('Direction: West');
+  end;
+
+  color := Green;
+  if color = Green then
+    WriteLn('Color is green');
+
+  status := Active;
+  case status of
+    Pending:  WriteLn('Status: Pending');
+    Active:   WriteLn('Status: Active');
+    Inactive: WriteLn('Status: Inactive');
+    Deleted:  WriteLn('Status: Deleted');
+  end;
+
+  dir := West;
+  if dir <> North then
+    WriteLn('Not going North');
+end.

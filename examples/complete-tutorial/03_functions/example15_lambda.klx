@@ -1,0 +1,31 @@
+// example15_lambda.klx — Anonymous procedures (lambda)
+// Demonstrates:
+//   - Assigning an anonymous procedure to a variable
+//   - Calling it like a regular procedure
+//
+// Note: Anonymous functions with return values (function(x): T) have a known
+// compiler limitation in v3.0.0-alpha — the return type is not generated.
+// Use named functions for return values instead.
+
+program LambdaDemo;
+
+begin
+  // Anonymous procedure (no return value) works correctly
+  var greet := procedure(name: String)
+  begin
+    WriteLn('Hello, ' + name + '!');
+  end;
+
+  greet('Alice');
+  greet('Bob');
+  greet('Kylix');
+
+  var printLine := procedure(label: String; value: Integer)
+  begin
+    WriteLn(label + ': ' + IntToStr(value));
+  end;
+
+  printLine('Answer', 42);
+  printLine('Year', 2024);
+  printLine('Items', 7);
+end.

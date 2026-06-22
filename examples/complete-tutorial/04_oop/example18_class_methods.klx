@@ -1,0 +1,49 @@
+// example18_class_methods.klx — Class methods using self.
+// Demonstrates:
+//   - Method definition inside a class
+//   - Using self.FieldName to access fields in methods
+//   - Calling methods on an instance
+
+program ClassMethods;
+
+type
+  TCounter = class
+  public
+    Value: Integer;
+
+    procedure Increment();
+    begin
+      self.Value := self.Value + 1;
+    end;
+
+    procedure Add(n: Integer);
+    begin
+      self.Value := self.Value + n;
+    end;
+
+    procedure Reset();
+    begin
+      self.Value := 0;
+    end;
+
+    function Get(): Integer;
+    begin
+      result := self.Value;
+    end;
+  end;
+
+begin
+  var c := TCounter.Create;
+  c.Value := 0;
+
+  c.Increment();
+  c.Increment();
+  c.Increment();
+  WriteLn('After 3 Increment: ' + IntToStr(c.Get()));
+
+  c.Add(10);
+  WriteLn('After Add(10): ' + IntToStr(c.Get()));
+
+  c.Reset();
+  WriteLn('After Reset: ' + IntToStr(c.Get()));
+end.

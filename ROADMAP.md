@@ -1,12 +1,12 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-06-21  
+> 最后更新: 2026-06-22  
 > 当前版本: v3.0.0-alpha 🚀  
 > 官网: [kylix.top](https://kylix.top)  
-> 目标: Kylix 语言自举（用 Kylix 写 Kylix 编译器）
+> 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**🚀 v3.0.0-alpha 发布！** 架构突破 — LLVM 原生后端（最小可用子集）、包注册中心、WASI 支持、stdlib Phase 4。  
-**📍 下一步：** LLVM 后端继续完善（类与接口 vtable、泛型单态化、-O2）。
+**🚀 v3.0.0-alpha 发布！** 架构突破 — LLVM 后端 Milestone 1、包注册中心、WASI、stdlib Phase 4。  
+**📍 当前重点：** v3.1 — Spring Boot 式 Web 框架 + LLVM Milestone 2 + 教程完善。
 
 ---
 
@@ -14,20 +14,19 @@
 
 | 阶段 | 内容 | 状态 | 版本 |
 |------|------|------|------|
-| Phase 6 | 修复关键 Bug | ✅ 完成 | v1.0.2 |
-| Phase 7 | 补齐语言能力 | ✅ 完成 | v1.0.3 |
-| Phase 8 | 编写 compiler.klx | ✅ 完成 | v1.1.2 |
-| Phase 9 | 自举验证 | ✅ 完成 | v1.2.0 |
-| Phase 10 | v2.0 准备：核心特性 | ✅ 完成 | v1.3.0–v1.5.0 |
-| Phase 11 | v2.0 准备：工程质量 | ✅ 完成 | v1.6.0–v2.0.0 |
-| Phase 12 | v2.0.0 发布：生产级编译器 | ✅ 完成 | v2.0.0 |
-| **v2.1.0** | **增强类型系统 + stdlib Phase 1** | **✅ 完成** | **v2.1.0** |
-| **v2.2.0** | **工程质量 + stdlib Phase 2** | **✅ 完成** | **v2.2.0** |
-| **v2.3.0** | **开发者体验 (LSP/REPL/Debug/WASM)** | **✅ 完成** | **v2.3.0** |
-| **v2.4.0** | **完善与生态 (i18n/推导/SetLength/包管理)** | **✅ 完成** | **v2.4.0** |
-| **v2.5.0** | **工具链深化 (LSP/doc/bench/iter/方法修复)** | **✅ 完成** | **v2.5.0** |
-| **v2.6.0** | **性能与优化 (并行编译/DCE/LSP基准)** | **✅ 完成** | **v2.6.0** |
-| **v3.0.0** | **LLVM 后端 + 包注册中心** | 🚀 alpha | 2026-06-21 |
+| Phase 1-5 | 转译器 + IDE + 框架 + 语言增强 + stdlib | ✅ 完成 | v1.0.0 |
+| Phase 6-9 | Bug修复 + 语言能力 + 自举 + 自举验证 | ✅ 完成 | v1.0.2–v1.2.0 |
+| Phase 10-12 | v2.0 核心特性 + 工程质量 + 生产级发布 | ✅ 完成 | v1.3.0–v2.0.0 |
+| **v2.1.0** | 增强类型系统 + stdlib Phase 1 | ✅ 完成 | v2.1.0 |
+| **v2.2.0** | 工程质量 + stdlib Phase 2 | ✅ 完成 | v2.2.0 |
+| **v2.3.0** | 开发者体验 (LSP/REPL/Debug/WASM) | ✅ 完成 | v2.3.0 |
+| **v2.4.0** | 完善与生态 (i18n/推导/SetLength/包管理) | ✅ 完成 | v2.4.0 |
+| **v2.5.0** | 工具链深化 (LSP/doc/bench/iter/方法修复) | ✅ 完成 | v2.5.0 |
+| **v2.6.0** | 性能与优化 (并行编译/DCE/LSP基准) | ✅ 完成 | v2.6.0 |
+| **v3.0.0** | LLVM 后端 + 包注册中心 + WASI | 🚀 alpha | 2026-06-21 |
+| **v3.1.0** | Spring Boot 式框架 + LLVM M2 + 教程 | 📋 规划中 | 2026-Q3 |
+| **v3.2.0** | 编译器修复 + stdlib 完整可用 | 📋 规划中 | 2026-Q3 |
+| **v4.0.0** | 自研运行时 + 完全脱离 Go | 📋 长期 | 2027+ |
 
 ---
 
@@ -40,241 +39,280 @@
 | Kylix 级 stdlib 测试 | 117 个（10 模块）|
 | 纯 Kylix stdlib 函数 | 90+ |
 | CLI 命令 | 19 个 |
-| 错误代码 (i18n) | 21 个（中英双语）|
+| 教程示例 | 29 个（27 完全工作）|
 | 原生构建目标 | 5 (linux/darwin/windows × amd64/arm64) |
 | WASM 目标 | 2 (Go 标准 + TinyGo) |
 | WASI 目标 | 2 (Go wasip1 + TinyGo) |
 | LLVM 后端 | ✅ Milestone 1（标量/控制流/函数/类）|
 | 包注册中心 | ✅ REST API + Web 前端 |
-| 并行编译 | ✅ (goroutine pool, race detector) |
-| 死代码消除 | ✅ (递归 DCE) |
 
 ---
 
-## v2.1.0 ✅ (2026-06-19) — 增强类型系统 + stdlib Phase 1
+## v3.0.0-alpha ✅ (2026-06-21) — 架构突破
 
-| # | 任务 | 状态 |
-|---|------|------|
-| 1 | 多参数泛型约束 (`TMap<K: IComparable, V: IHashable>`) | ✅ |
-| 2 | 类→接口实现映射验证（方法名 + 签名） | ✅ |
-| 3 | 增强类型推导（Boolean、array of T、nil、not） | ✅ |
-| 4 | stdlib Phase 1: `strutil` (8 fn) + `mathutil` (12 fn) | ✅ |
-
----
-
-## v2.2.0 ✅ (2026-06-19) — 工程质量 + stdlib Phase 2
-
-| # | 任务 | 状态 |
-|---|------|------|
-| 1 | GitHub Actions CI/CD (ci.yml + release.yml) | ✅ |
-| 2 | 泛型约束方法签名验证（参数类型 + 返回类型） | ✅ |
-| 3 | 包级类型检查 (`CheckProject`，跨文件 uses 解析) | ✅ |
-| 4 | 增量编译启用 (`BuildCache` 接入 cmdBuild) | ✅ |
-| 5 | stdlib Phase 2: `arrayutil` (8 fn) + `collections` (6 fn) | ✅ |
+已在 TASKS.md 和 CHANGELOG.md 详细记录。核心交付：
+- LLVM 原生后端 Milestone 1（24 测试）
+- 包注册中心服务端（registry/ + kylix publish）
+- WASI 支持（--wasi flag + pkg/wasi/）
+- stdlib Phase 4 纯 Kylix 化（jsonutil/regex/datetime）
+- 编译器 bug 修复（external 解析）
+- 入门教程 29 个示例
 
 ---
 
-## v2.3.0 ✅ (2026-06-19) — 开发者体验
+## 🚀 v3.1.0 — Spring Boot 式框架 + LLVM Milestone 2
 
-| # | 任务 | 状态 |
-|---|------|------|
-| 1 | LSP 增量同步 (textDocumentSync 2，版本检查，range 编辑) | ✅ |
-| 2 | REPL Tab 补全 + `:load` + `:type` | ✅ |
-| 3 | kylix test: Setup/Teardown + `--filter` | ✅ |
-| 4 | i18n 框架 (21 codes × 2 languages) | ✅ |
-| 5 | Delve 调试器集成 (`kylix debug`) | ✅ |
-| 6 | WebAssembly 后端 (`--wasm` + `--tinygo`) | ✅ |
+> 预计: 2026-Q3 | 工作量: 2 个月
 
----
+### 任务 1: KylixBoot 框架 — Spring Boot 式 Web 框架 ⭐⭐⭐
 
-## v2.4.0 ✅ (2026-06-20) — 完善与生态
+Kylix 版的 Spring Boot：通过**注解式声明**（Attribute）自动装配路由、依赖注入、ORM、配置。
 
-| # | 任务 | 状态 |
-|---|------|------|
-| 1 | i18n 全面接入 typecheck（消息 + hint 中文化） | ✅ |
-| 2 | REPL `:type` 真正类型推导 (`compiler.InferType`) | ✅ |
-| 3 | SetLength 修复 (Go 泛型 `__kylixSetLength[T any]`) | ✅ |
-| 5 | 包管理器: 嵌套依赖解析 + `kylix.lock` | ✅ |
-| 6 | stdlib Phase 3: `stringbuilder` (5 fn) + `resulttype` (6 fn) | ✅ |
+**设计目标：**
+```pascal
+// 目标语法 — 声明式 Web 控制器
+program UserService;
+uses kylix.boot;
 
----
+[Controller('/api/users')]
+type
+  TUserController = class
+    [Inject]
+    UserRepo: TUserRepository;
 
-## v2.5.0 ✅ (2026-06-20) — 工具链深化
+    [Get('/')]
+    function ListUsers(req: TRequest): TResponse;
+    begin
+      result := req.json(UserRepo.FindAll());
+    end;
 
-| # | 任务 | 状态 |
-|---|------|------|
-| 1 | LSP 跨文件 rename + 上下文 codeAction | ✅ |
-| 2 | `kylix doc` 代码示例提取 (fenced code blocks) | ✅ |
-| 3 | `kylix bench --mem` 内存分配报告 (B/op + allocs/op) | ✅ |
-| 4 | `iter` 迭代器模块 (9 函数: Contains/Count/Unique/Reverse/Concat/Slice/Sum/Min/Max) | ✅ |
-| 5 | 类方法外部定义修复 (forward declaration 不再重复生成) | ✅ |
+    [Post('/')]
+    function CreateUser(req: TRequest): TResponse;
+    begin
+      var user := req.body<TUser>();
+      UserRepo.Save(user);
+      result := req.created(user);
+    end;
+  end;
 
-**注**: Map/Filter/Reduce 延后 — Kylix 当前不支持函数类型参数。改为提供不依赖回调的 9 个实用函数。
+[Repository]
+type
+  TUserRepository = class
+    [Query('SELECT * FROM users')]
+    function FindAll(): array of TUser;
 
----
+    [Query('SELECT * FROM users WHERE id = ?')]
+    function FindById(id: Integer): TUser;
 
-## v2.6.0 ✅ (2026-06-20) — 性能与优化
+    procedure Save(user: TUser);
+  end;
 
-| # | 任务 | 状态 |
-|---|------|------|
-| 1 | 并行编译 (goroutine pool parse, race detector 通过, CPU 113%) | ✅ |
-| 2 | 死代码消除 (递归 DCE, return/raise/Exit/break/continue 后截断) | ✅ |
-| 3 | LSP 大文件性能基准 (500 函数 1.2ms parse, 1.0ms 增量编辑) | ✅ |
+[Configuration]
+type
+  TAppConfig = class
+    [Value('server.port', 8080)]
+    Port: Integer;
 
----
+    [Value('db.url')]
+    DatabaseURL: String;
+  end;
 
-## 🔮 v3.0.0 — 架构突破 (2026-Q4)
+begin
+  KylixBoot.Run(TUserController, TUserRepository, TAppConfig);
+end.
+```
 
-### 1. LLVM 原生后端（2-3 月）
-- [x] `pkg/llvmgen/codegen.go` — 生成器核心架构（module/function/block/SSA）
-- [x] `pkg/llvmgen/expr.go` — 基础类型表达式 (i64/i1/double/ptr)，算术/比较/逻辑运算，WriteLn/IntToStr/Length
-- [x] `pkg/llvmgen/stmt.go` — 控制流 (if/while/for/repeat)，函数定义/调用，变量 alloca
-- [x] `pkg/llvmgen/compile.go` — 完整管道：AST → .ll → .o → native binary（llc + clang）
-- [x] `kylix build --backend=llvm` — CLI 集成，bypassGo codegen 路径
-- [x] 端到端验证：Hello World + 整数算术 + while 循环，原生二进制运行正确
-- [x] 18 个单元测试（IR 生成正确性）
-- [ ] 类与接口 codegen（vtable / fat pointer）— 下一步
-- [ ] 泛型单态化 — 下一步
-- [ ] LLVM 优化 Pass (-O2 / LTO) — 下一步
-- [ ] 交叉编译 (linux/windows/arm64) — 下一步
+**核心模块：**
 
-### 2. 包注册中心服务端（1 月）
-- [x] `registry/` 子目录，独立 Go module
-- [x] SQLite 数据库层（Store 接口，可切换 PostgreSQL）
-- [x] REST API：GET /packages, POST /packages, GET /packages/:name/versions, GET /dl
-- [x] API token 认证（Bearer token middleware）
-- [x] Web 前端：htmx + Tailwind CSS，首页 + 包详情页
-- [x] `kylix publish` CLI 命令（tarball 打包 + 上传）
-- [x] 7 个集成测试（端到端：publish → list → search → download）
+| 模块 | 说明 |
+|------|------|
+| `kylix.boot/router` | 注解驱动的路由注册（[Get]/[Post]/[Put]/[Delete]）|
+| `kylix.boot/di` | 依赖注入容器（[Inject]/[Component]/[Service]）|
+| `kylix.boot/orm` | 声明式 ORM（[Entity]/[Repository]/[Query]）|
+| `kylix.boot/config` | 配置绑定（[Configuration]/[Value]）|
+| `kylix.boot/middleware` | 中间件链（[Middleware]/[Filter]）|
+| `kylix.boot/validation` | 参数校验（[Required]/[Min]/[Max]/[Email]）|
+| `kylix.boot/security` | 认证授权（[Authenticated]/[Role]）|
+| `kylix.boot/cache` | 缓存注解（[Cacheable]/[CacheEvict]）|
 
-### 3. stdlib 完全 Kylix 化 Phase 4+（2 周）
-- [x] 任务 3.1: `jsonutil` — 纯 Kylix 解码器，支持嵌套 JSON，29 测试
-- [x] 任务 3.2: `regex` — 纯 Kylix 验证函数（IsEmail/IsURL/IsIPv4/IsPhone/IsDate），19 测试
-- [x] 任务 3.3: `datetime` — FormatPattern/DateAdd/DateSub/IsLeapYear/DaysInMonth，21 测试
-- 性能关键部分通过 `external` 声明保留 Go 实现
+**实现路径：**
+1. Attribute 语法解析（parser 扩展）
+2. 编译时注解处理器（annotation processor）
+3. 代码生成：路由表 + DI 容器 + ORM 映射
+4. 运行时：Go net/http 包装
 
-### 4. WASI 支持（2 周）
-- [x] `--wasi` 编译选项 (`GOOS=wasip1 GOARCH=wasm` via Go 1.21+)
-- [x] TinyGo `-target=wasi` 支持（更小二进制）
-- [x] `pkg/wasi/` — 系统调用层（Stdout/Stdin/Getenv/Args/Clock/File I/O）
-- [x] Build-tag 分离：wasip1 原生实现 + 非 WASI stub（可本地测试）
-- [x] `stdlib/src/wasi.klx` — 纯 Kylix 高层包装（WriteLn/ReadLine/HasArg/ElapsedMs）
-- [x] `stdlib/klx/wasi.klx` — LSP 声明文件
-- [x] `examples/wasi-hello/` — Wasmtime/Node.js 运行示例
-- [x] `examples/cloudflare-worker/` — Cloudflare Workers HTTP handler 示例
-- [x] 8 个单元测试（pkg/wasi）
+### 任务 2: LLVM 后端 Milestone 2
 
----
+- [ ] 数组 codegen（`alloca [N x T]` + GEP 索引）
+- [ ] 动态数组（`array of T` → slice 结构体）
+- [ ] 接口 codegen（vtable fat pointer `{ ptr vtable, ptr data }`）
+- [ ] 泛型单态化（模板展开，每个实例生成独立函数）
+- [ ] 异常处理（`invoke` + `landingpad`）
+- [ ] LLVM 优化 Pass（`-O2` 通过 llc 参数）
+- [ ] 交叉编译目标（`--backend=llvm --target=linux/amd64`）
 
-## 🐛 剩余已知问题
+### 任务 3: 编译器修复（v3.1 重点）
 
-### 类型系统
-- [ ] 无泛型变体检查（协变/逆变）— v2.7+
-- [ ] 多返回值未完全集成到类型推导 — v2.5
+以下 bug 影响示例完整性，需修复：
 
-### 编译器
-- [x] ~~错误恢复有时在无效 AST 状态继续~~ → ✅ v2.2 (错误恢复)
-- [x] ~~无常量传播或死代码消除~~ → ✅ v2.6 (DCE)
-- [x] ~~类方法外部定义生成重复 Go 方法~~ → ✅ v2.5
-- [x] ~~`external` 函数声明解析失败~~ → ✅ v3.0.0-alpha
+| Bug | 表现 | 影响 |
+|-----|------|------|
+| 字符串插值 | `${var}` 不展开 | 中等 |
+| 匿名函数返回类型 | `function(x):T` 生成无返回值签名 | 中等 |
+| `var p: TClass` 字段访问 | 生成 `interface{}`，字段不可见 | 高 |
+| `match` 代码生成 | 生成 Go 语法错误 | 高 |
+| `uses` 在 `program` 中 | stdlib 函数不可直接调用 | 高 |
 
-### 标准库
-- [x] ~~`TDateTime` 运算符 (+, -) 未实现~~ → ✅ v3.0.0-alpha (DateAdd/DateSub)
-- [x] ~~`jsonutil` 仅支持扁平 JSON~~ → ✅ v3.0.0-alpha (嵌套解析)
-- [ ] `TRegex` 不支持命名捕获组 — v3.1
+### 任务 4: 完整教程 v2（覆盖所有 74 特性）
 
-### 工具链
-- [x] ~~`kylix doc` 不提取代码示例~~ → ✅ v2.5
-- [x] ~~`kylix bench` 不报告内存分配~~ → ✅ v2.5
-- [x] ~~LSP rename 重构未实现~~ → ✅ v2.5 (跨文件)
-- [x] ~~LSP code actions 未实现~~ → ✅ v2.5 (rename + extract)
-
-### LLVM 后端（Milestone 1 已知限制）
-- [ ] 不支持接口（vtable fat pointer）— Milestone 2
-- [ ] 不支持泛型单态化 — Milestone 2
-- [ ] 无优化 Pass（-O0）— Milestone 2
-- [ ] 不支持异常（try/catch）— Milestone 3
-- [ ] 不支持数组、record — Milestone 2
-
-### 基础设施
-- [x] ~~无 CI/CD~~ → ✅ v2.2
-- [ ] 无跨平台自动化回归测试 — v2.5
-- [ ] 网站 (kylix.top) 需更新 v3.x 示例 — v3.1
+- [ ] OOP 接口示例（等 bug 修复后）
+- [ ] 字符串插值示例（等 bug 修复后）
+- [ ] Match 模式匹配示例（等 bug 修复后）
+- [ ] Lambda 返回值示例（等 bug 修复后）
+- [ ] stdlib 示例（等 `uses` 在 program 中修复后）
+- [ ] Web server 完整示例
+- [ ] kylix test 工作流示例
+- [ ] WASI 完整示例
+- [ ] LLVM 后端示例
 
 ---
 
-## 🔮 v3.1 — 下一步里程碑
+## 📋 v3.2.0 — 编译器健壮性 + stdlib 全量可用
 
-### LLVM 后端 Milestone 2
-- [ ] 接口 codegen（vtable / fat pointer）
-- [ ] 泛型单态化
-- [ ] LLVM 优化 Pass (-O2 / LTO)
-- [ ] 交叉编译支持 (linux/windows/arm64)
+> 预计: 2026-Q4 | 工作量: 6 周
 
-### 包注册中心部署
-- [ ] 部署到 kylix.top/packages
-- [ ] 域名 + TLS + PostgreSQL 生产配置
-- [ ] 搜索索引优化
+### 任务 1: 编译器 Bug 全量修复
 
-### stdlib Phase 6
-- [ ] `net` 模块（TCP/UDP/DNS）
-- [ ] `crypto` 模块（hash/HMAC/AES）
-- [ ] `encoding` 模块（base64/hex/CSV）
+- [ ] `var p: TClass` → 生成 `*TClass` 而非 `interface{}`
+- [ ] 字符串插值展开（Lexer 层处理 `${expr}`)
+- [ ] 匿名函数返回类型保留
+- [ ] `match` 语句完整代码生成
+- [ ] `uses` 在 `program` 中正确注入符号表
+
+### 任务 2: stdlib 全量可用（program 中直接调用）
+
+- [ ] strutil 函数可在 program 中用（Reverse/ToUpper/StartsWith...）
+- [ ] mathutil 函数可在 program 中用（Abs/Max/Min/Pow/IsPrime...）
+- [ ] arrayutil 函数可在 program 中用
+- [ ] sysutil 函数可在 program 中用（ReadFile/WriteFile/FileExists...）
+- [ ] jsonutil 函数可在 program 中用（JsonDecodeMap/JsonGetString...）
+- [ ] datetime 函数可在 program 中用（Now/MakeDate/FormatPattern...）
+- [ ] regex 函数可在 program 中用（IsEmail/IsURL/IsNumeric...）
+
+### 任务 3: stdlib Phase 6 — 网络与加密
+
+- [ ] `net` — TCP/UDP 客户端，DNS 查询
+- [ ] `crypto` — SHA256/MD5/HMAC/AES 加密
+- [ ] `encoding` — Base64/Hex/CSV/URL 编解码
+- [ ] `os` — 进程管理、信号、环境变量
+
+### 任务 4: 包注册中心正式上线
+
+- [ ] 部署到 kylix.top/packages（PostgreSQL + TLS）
+- [ ] 搜索索引与全文检索
+- [ ] 包统计仪表板（下载量/依赖图）
+- [ ] GitHub Actions 自动发布集成
 
 ---
 
-## 📝 文档缺口
+## 📋 v4.0.0 — 完全独立运行时（脱离 Go）
 
-- [ ] 新手入门教程 — v2.5
-- [ ] 泛型约束使用指南 — v2.5
-- [ ] 测试最佳实践指南 — v2.5
-- [ ] 性能优化指南 — v2.6
-- [ ] Delphi/FreePascal 迁移指南 — v2.6
-- [ ] LSP 配置 (VS Code / Neovim) — v2.5
+> 预计: 2027 | 工作量: 6+ 月
+
+### 目标
+
+Kylix 彻底脱离 Go 工具链，成为完全自主的编译型语言：
+
+```
+Kylix 源码 (.klx)
+    ↓  kylix compile
+LLVM IR (.ll)
+    ↓  llc / lld
+原生二进制
+```
+
+### 任务 1: 自研运行时 (KylixRT)
+
+- [ ] 垃圾回收器（引用计数 + 标记清除）
+- [ ] 字符串运行时（引用计数字符串，零拷贝切片）
+- [ ] 动态数组运行时（增长策略）
+- [ ] 接口运行时（fat pointer + 类型擦除）
+- [ ] 异常运行时（stack unwinding via LLVM EH）
+- [ ] 并发原语（goroutine 等价 → 协程）
+
+### 任务 2: LLVM 后端 Milestone 3 — 完整 Kylix 语言
+
+- [ ] 泛型完整实现（约束 + 单态化 + 特化）
+- [ ] 字符串插值 codegen（`${expr}` → LLVM IR）
+- [ ] 闭包 codegen（捕获变量的内存布局）
+- [ ] async/await codegen（stackful 协程）
+- [ ] 完整 Pascal 运行时（Set 类型、string 类型、Real）
+
+### 任务 3: 自举编译器 v2.0
+
+- [ ] 用 Kylix 重写 LLVM 后端（`generator_llvm.klx`）
+- [ ] 编译器能编译自己（完整自举）
+- [ ] 性能对比：Kylix v4 vs Go 参考编译器
+
+### 任务 4: 完整 IDE 支持
+
+- [ ] DAP 调试适配器（KylixRT 原生调试）
+- [ ] VS Code 扩展 v2（语义高亮 + 类型推导显示）
+- [ ] IntelliJ 插件
+- [ ] Language Server 重写（更快的增量分析）
+
+---
+
+## 🐛 已知问题跟踪
+
+### 编译器层
+
+| ID | 问题 | 严重度 | 目标版本 |
+|----|------|--------|---------|
+| KLX-C01 | `var p: TClass` 生成 `interface{}` 导致字段不可访问 | 高 | v3.2 |
+| KLX-C02 | 字符串插值 `${var}` 不展开 | 中 | v3.2 |
+| KLX-C03 | 匿名函数 `function(x):T` 返回类型丢失 | 中 | v3.2 |
+| KLX-C04 | `match` 语句生成无效 Go 代码 | 高 | v3.2 |
+| KLX-C05 | `uses` 模块在 `program` 中符号不可见 | 高 | v3.2 |
+
+### LLVM 后端层（Milestone 1 已知限制）
+
+| ID | 问题 | 目标版本 |
+|----|------|---------|
+| KLX-L01 | 不支持数组（array of T / array[1..N]）| v3.1 |
+| KLX-L02 | 不支持接口（interface）| v3.1 |
+| KLX-L03 | 不支持泛型单态化 | v3.1 |
+| KLX-L04 | 不支持异常处理（try/except）| v3.1 |
+| KLX-L05 | 无优化 Pass（-O0 等效）| v3.1 |
 
 ---
 
 ## 🎓 社区与生态
 
-### 短期 (v2.5)
-- [ ] 发布 v2.6.0 公告
-- [ ] 创建 Discord/Slack 社区
-- [ ] 设置 GitHub Discussions
+### 近期 (v3.1)
+- [ ] 发布 v3.0.0-alpha 公告
+- [ ] 创建 Discord 社区
+- [ ] 完整教程 v2（29→50+ 示例）
+- [ ] Spring Boot 式框架预览
 
-### 中期 (v3.0)
-- [ ] 包注册中心 (kylix.top/packages)
-- [ ] 示例项目库
-- [ ] 视频教程 / 截屏
+### 中期 (v3.2)
+- [ ] 包注册中心 kylix.top/packages 上线
+- [ ] GitHub Actions Kylix 模板
+- [ ] 企业级项目模板库
 
-### 长期 (v3.0 后)
+### 长期 (v4.0)
 - [ ] 会议演讲 / 工作坊
 - [ ] 企业赞助 / 基金会
+- [ ] 学术论文（类型系统 + LLVM 后端设计）
 
 ---
 
-## 历史阶段存档
+## 设计决策记录
 
-### Phase 6 → v1.0.2 ✅
-字符串插值、异常类型、多返回值、Properties、数组范围、内存泄漏修复。
+1. **KylixBoot 框架策略**: 第一阶段用代码生成实现注解语义（无运行时反射），第二阶段等 LLVM 后端成熟后迁移到编译时属性处理。
 
-### Phase 7 → v1.0.3 ✅
-Map 类型、变体类型、动态数组。
+2. **LLVM 后端分阶段策略**: M1（基础）→ M2（完整语言）→ M3（优化）三阶段，Go 后端始终保留作 fallback。
 
-### Phase 8 → v1.1.2 ✅
-枚举类型、Slice 表达式、Unit 文件系统、多文件联编。7 个 Kylix 源文件编写。
+3. **v4.0 脱离 Go 的时机**: 等 LLVM 后端能编译 Kylix 标准库（所有 stdlib）之后再正式宣布 Go 独立。不提前承诺。
 
-### Phase 9 → v1.2.0 ✅
-自举验证通过 — Go 参考编译器与 Kylix 自举编译器语义等价，15/15 示例通过。
-
-### Phase 10 → v1.3.0–v1.5.0 ✅
-接口验证、Kylix 层错误报告 (`//line`)、真实泛型、多返回值覆盖、LSP 诊断、增量编译 (55×)、stdlib `.klx` 声明 + 包管理器。
-
-### Phase 11 → v2.0.0 ✅
-技术债务清理：CompileFile 缓存、topoSort 路径对齐、GenerateBody exception、类型检查 MVP、包管理器集成、38 个新测试。
-
-### Phase 12 → v2.0.0 ✅
-错误代码体系 (KLX001–499)、错误恢复、拼写建议、类型推导、泛型约束、`kylix test/doc/bench`、26 个测试、1360 LOC。
-
----
-
-**License**: MIT
+4. **编译器 bug 修复优先级**: `uses` 在 program 中的符号注入 > `var p: TClass` 类型推导 > 字符串插值 > match codegen > lambda 返回类型。

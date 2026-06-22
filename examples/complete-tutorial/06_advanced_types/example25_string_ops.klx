@@ -1,0 +1,39 @@
+// example25_string_ops.klx — String operations
+// Demonstrates:
+//   - String concatenation with +
+//   - IntToStr, Length, Copy, Pos builtins
+//   - String comparison
+
+program StringOps;
+
+begin
+  var s := 'Hello, Kylix!';
+
+  // Basic info
+  WriteLn('String: ' + s);
+  WriteLn('Length: ' + IntToStr(Length(s)));
+
+  // Substrings with slice syntax [from:to]  (0-indexed)
+  WriteLn('First 5 chars: ' + s[0:5]);
+  WriteLn('From index 7: ' + s[7:Length(s)]);
+
+  // Concatenation
+  var a := 'foo';
+  var b := 'bar';
+  WriteLn('Concat: ' + a + b);
+
+  // Comparison
+  if a = 'foo' then
+    WriteLn('a equals foo');
+  if a <> b then
+    WriteLn('a and b differ');
+
+  // IntToStr / building strings from numbers
+  var n := 2024;
+  WriteLn('Year: ' + IntToStr(n));
+
+  // Empty string check
+  var empty := '';
+  if Length(empty) = 0 then
+    WriteLn('empty string');
+end.

@@ -1,0 +1,62 @@
+// example19_inheritance.klx — Class inheritance
+// Demonstrates:
+//   - Base class and derived class
+//   - Inheriting fields from parent
+//   - Adding new fields and methods in subclass
+//   - Using := type inference for subclass instances
+
+program Inheritance;
+
+type
+  TShape = class
+  public
+    Color: String;
+
+    procedure Describe();
+    begin
+      WriteLn('Shape, color: ' + self.Color);
+    end;
+  end;
+
+  TRectangle = class(TShape)
+  public
+    Width: Integer;
+    Height: Integer;
+
+    function Area(): Integer;
+    begin
+      result := self.Width * self.Height;
+    end;
+
+    function Perimeter(): Integer;
+    begin
+      result := 2 * (self.Width + self.Height);
+    end;
+  end;
+
+  TSquare = class(TRectangle)
+  public
+    procedure SetSide(n: Integer);
+    begin
+      self.Width := n;
+      self.Height := n;
+    end;
+  end;
+
+begin
+  var rect := TRectangle.Create;
+  rect.Color := 'blue';
+  rect.Width := 8;
+  rect.Height := 5;
+  rect.Describe();
+  WriteLn('Area: ' + IntToStr(rect.Area()));
+  WriteLn('Perimeter: ' + IntToStr(rect.Perimeter()));
+
+  WriteLn('---');
+
+  var sq := TSquare.Create;
+  sq.Color := 'red';
+  sq.SetSide(6);
+  sq.Describe();
+  WriteLn('Area: ' + IntToStr(sq.Area()));
+end.
