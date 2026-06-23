@@ -538,6 +538,18 @@ func (g *Generator) scanImports(program *ast.Program) {
 					}
 				}
 			}
+		case *ast.TypeDecl:
+			// Class methods often live inside TypeDecl.Type (a ClassDecl).
+			// Scan them too so WriteLn etc. trigger fmt import.
+			if cd, ok := d.Type.(*ast.ClassDecl); ok {
+				for _, method := range cd.Methods {
+					if method.Body != nil {
+						for _, stmt := range method.Body.Statements {
+							g.scanStatementForImports(stmt)
+						}
+					}
+				}
+			}
 		}
 	}
 }
@@ -643,7 +655,12 @@ func (g *Generator) scanExpressionForImports(expr ast.Expression) {
 				g.imports["strconv"] = true
 			}
 			if ident.Value == "ReadFile" {
-				g.imports["os"] = true
+				// Only add `os` import when ReadFile uses the legacy inline
+				// codegen (no `uses sysutil`). When sysutil is imported,
+				// ReadFile is dispatched to stdlib.ReadFile instead.
+				if !g.usedModules["sysutil"] {
+					g.imports["os"] = true
+				}
 			}
 		}
 	case *ast.InfixExpression:

@@ -63,6 +63,28 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"template": strToSet("NewTemplateEngine", "NewView"),
 }
 
+// stdlibErrorFuncReturnTypes maps error-returning stdlib functions to their
+// concrete Go return type. Used to avoid `interface{}` wrapping issues when
+// assigning the result to a typed variable.
+var stdlibErrorFuncReturnTypes = map[string]string{
+	"ReadFile":        "string",
+	"ParseDate":       "*stdlib.TDateTime",
+	"ParseDateTime":   "*stdlib.TDateTime",
+	"RegexCompile":    "*stdlib.TRegex",
+	"HttpGet":         "string",
+	"HttpPost":        "string",
+	"HttpGetJSON":     "map[string]interface{}",
+	"ListDir":         "[]string",
+	"ListFiles":       "[]string",
+	"ReadLines":       "[]string",
+	"GetFileSize":     "int64",
+	"FileOpen":        "*stdlib.TTextFile",
+	"JsonDecode":      "interface{}",
+	"JsonDecodeMap":   "map[string]interface{}",
+	"JsonDecodeArray": "[]interface{}",
+	"JsonReadFile":    "interface{}",
+}
+
 // stdlibErrorFuncs are stdlib functions that return (T, error) in Go.
 // The generator wraps them to discard the error.
 var stdlibErrorFuncs = map[string]bool{
@@ -73,6 +95,8 @@ var stdlibErrorFuncs = map[string]bool{
 	"ParseDate": true, "ParseDateTime": true,
 	"RegexCompile": true,
 	"HttpGet": true, "HttpPost": true, "HttpGetJSON": true,
+	"JsonDecode": true, "JsonDecodeMap": true, "JsonDecodeArray": true,
+	"JsonReadFile": true,
 }
 
 // stdlibProcedureFuncs are stdlib functions that return no value (procedures).
@@ -120,7 +144,12 @@ func (g *Generator) generateStdlibCall(funcName string, args []ast.Expression) {
 			g.write(") }()")
 		} else {
 			// function returning (T, error): wrap to return T only
-			g.write("func() interface{} { _v, _ := " + goCall + "(")
+			// Use concrete type when known to avoid type-assertion friction.
+			retType := "interface{}"
+			if t, ok := stdlibErrorFuncReturnTypes[funcName]; ok {
+				retType = t
+			}
+			g.write("func() " + retType + " { _v, _ := " + goCall + "(")
 			g.writeArgList(args)
 			g.write("); return _v }()")
 		}

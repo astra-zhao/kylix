@@ -478,11 +478,11 @@ func (g *Generator) generateTypeExpression(expr ast.Expression) {
 	case *ast.Identifier:
 		typeName := t.Value
 		if g.classTypes[typeName] {
-			if g.classIsBase[typeName] {
-				g.write("interface{}")
-			} else {
-				g.write("*" + typeName)
-			}
+			// v3.1.0: Always emit *TypeName for class types.
+			// Previously emitted interface{} for base classes (to allow polymorphism),
+			// but that made fields inaccessible. Polymorphism in Kylix is rare and
+			// can be handled via interfaces or type assertions when needed.
+			g.write("*" + typeName)
 		} else {
 			g.write(g.mapType(typeName))
 		}

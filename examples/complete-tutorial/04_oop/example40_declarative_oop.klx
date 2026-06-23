@@ -1,0 +1,53 @@
+// example40_declarative_oop.klx — Declarative class variable declarations (v3.1.0+)
+// Demonstrates:
+//   - var p: TClass declarations now generate *TClass (was interface{} pre-v3.1)
+//   - Field access works directly on declared class variables
+//   - Inheritance with base classes still accessible
+//
+// Before v3.1: var p: TClass generated interface{}, fields were inaccessible.
+// After v3.1.0 (KLX-C01 fix): var p: TClass generates *TClass for all classes.
+
+program DeclarativeOOP;
+
+type
+  TAnimal = class
+  public
+    Name: String;
+    Sound: String;
+
+    procedure Speak();
+    begin
+      WriteLn(self.Name + ' says ' + self.Sound);
+    end;
+  end;
+
+  TDog = class(TAnimal)
+  public
+    Breed: String;
+
+    procedure Describe();
+    begin
+      WriteLn('Dog: ' + self.Name + ' (' + self.Breed + ')');
+    end;
+  end;
+
+var
+  cat: TAnimal;
+  dog: TDog;
+begin
+  // Both styles now work in v3.1.0:
+  //   var p: TClass + p := TClass.Create
+  //   var p := TClass.Create  (type inference)
+
+  cat := TAnimal.Create;
+  cat.Name := 'Whiskers';
+  cat.Sound := 'Meow';
+  cat.Speak();
+
+  dog := TDog.Create;
+  dog.Name := 'Rex';
+  dog.Sound := 'Woof';
+  dog.Breed := 'Labrador';
+  dog.Speak();
+  dog.Describe();
+end.

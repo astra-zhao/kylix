@@ -246,6 +246,11 @@ func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 				return
 			}
 		case "ReadFile":
+			// Skip the inline `os.ReadFile` fallback when `uses sysutil` is present —
+			// the stdlib dispatcher will handle it via stdlib.ReadFile.
+			if g.usedModules["sysutil"] {
+				break
+			}
 			if len(e.Arguments) == 1 {
 				g.imports["os"] = true
 				g.write("func() string { data, _ := os.ReadFile(")
