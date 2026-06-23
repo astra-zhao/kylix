@@ -4,6 +4,97 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v3.1.0 (2026-06-23) — KylixBoot Framework + Compiler Fixes + LLVM Arrays
+
+### KylixBoot Framework — Spring Boot-style Runtime Core
+
+New `pkg/boot/` package (~700 lines, 23 tests) — declarative web framework foundation.
+
+- `types.go` — Request, Response, Handler, Middleware
+- `router.go` — Route matching with path params (`/users/:id`)
+- `server.go` — HTTP server with graceful shutdown
+- `di.go` — DI container: Singleton / Transient / Instance + reflection-based Inject
+- `app.go` — Top-level App + global shortcuts (`boot.GET`, `boot.POST`, `boot.Use`, `boot.Listen`)
+- `config.go` — Config with env var fallback
+- `middleware.go` — Logger, Recover, CORS, Auth, RateLimit, RequestID
+
+Bridge: `stdlib/boot_bridge.go` re-exports the runtime as `stdlib.BootXxx`.
+LSP: `stdlib/klx/boot.klx` provides declarations for completion / hover.
+Generator: `boot` registered in the stdlib module dispatcher.
+
+Tests: 23/23 pass (`pkg/boot/boot_test.go`).
+
+---
+
+### Annotation Syntax — `[Name]` / `[Name(args)]`
+
+New `ast.Attribute` type with `Name` and `Args`. The following AST nodes gain an `Attributes []*Attribute` field:
+
+- `ClassDecl`, `TypeDecl`, `FunctionDecl`, `VarDecl`
+
+New `parser/parser_attribute.go` parses `[Name]` and `[Name(args...)]` at top-level and inside class bodies. Foundation for v3.2's auto-route registration, ORM mapping, validation, and DI.
+
+Example: `examples/complete-tutorial/example41_attributes.klx`.
+
+---
+
+### Compiler Fixes (KLX-C01 .. KLX-C05)
+
+**KLX-C01 — `var p: TClass` field access (commit ff867f5)**
+
+`var p: TPerson` previously emitted `interface{}` when the class was inherited, breaking `p.Field` access. Fix:
+- `generator/generator_types.go` always emits `*TypeName` for class types
+- `generator/generator.go` scans `TypeDecl`-wrapped `ClassDecl` method bodies for imports
+- `generator/generator_expr.go` skips `os.ReadFile` inline when `uses sysutil` active
+- `generator/generator_stdlib.go` uses concrete return types for error-returning functions
+
+New example: `example40_declarative_oop.klx`.
+
+**KLX-C02 — String interpolation (commit d8dbc6e)**
+
+`lexer/lexer.go` single-quoted strings containing `${...}` now emit `STRING_INTERPOLATION` instead of plain STRING.
+
+**KLX-C03 — Lambda / anonymous function return types (commit d8dbc6e)**
+
+`ast.LambdaExpression` gained a `ReturnType` field. Parser saves it; generator emits the return type + `var result T` + `return result` for typed anonymous functions.
+
+**KLX-C04 — `match` statement codegen (commit d8dbc6e)**
+
+`match` now generates a tagless `switch { case _v == p: }` (was a broken `switch _v := ... { case _v == 1: }`).
+
+**KLX-C05 — `uses` symbol injection in programs (commit 6f18bc9)**
+
+`uses sysutil/jsonutil/datetime/regex/httpclient` in program files previously emitted undefined function calls. Fix:
+- Generator tracks `usedModules map[string]bool`
+- New `generator/generator_stdlib.go` (~270 lines) maps stdlib module names to function sets
+- `resolveStdlibFunc()` checks module membership
+- `generateStdlibCall()` emits `stdlib.FuncName(...)` calls
+- Functions returning `(T, error)` wrapped with concrete return types
+
+Unlocks 40+ stdlib functions in program files.
+
+---
+
+### LLVM Backend — Milestone 2 Phase 1 (Arrays + Optimization)
+
+- `pkg/llvmgen/array.go` (~200 lines): static arrays `array[1..N] of T` → `alloca [N x T]`; dynamic arrays `array of T` → `{ ptr, i64, i64 }` slice struct
+- Pascal 1-based indices automatically converted to LLVM 0-based
+- Compile-time constant evaluation for array sizes (handles `array[1..N]` desugared to `((N-1)+1)`)
+- `pkg/llvmgen/array_test.go` adds 6 tests (total 30)
+- `CompileOpts.OptLevel` + `--llvm-opt=0/1/2/3` CLI flag; `llc -O=N`
+- `emitMain` now allocates top-level VarDecls in `main()`; new `program *ast.Program` field on Generator
+
+---
+
+### Tests
+
+- 30 LLVM tests (+6 array tests)
+- 23 KylixBoot tests (new package)
+- All 15 Go packages still pass
+- Tutorial: 32/34 examples pass (~94%)
+
+---
+
 ## v3.0.0-alpha (2026-06-21) — LLVM 原生后端 + WASI + 包注册中心 + stdlib Phase 4
 
 ### LLVM 原生后端（Milestone 1：最小可用子集）

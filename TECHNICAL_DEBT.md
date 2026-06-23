@@ -1,10 +1,24 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-06-21
-> 当前版本: v3.0.0-alpha
+> 最后更新: 2026-06-23
+> 当前版本: v3.1.0
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
-本文档记录 v3.0.0-alpha 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
+本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
+
+---
+
+## ✅ v3.1.0 修复的编译器缺陷
+
+| ID | 缺陷 | 修复内容 |
+|----|------|---------|
+| **KLX-C01** | `var p: TClass` 生成 `interface{}` 导致字段不可访问 | `generator/generator_types.go` 始终为类类型 emit `*TypeName` |
+| **KLX-C02** | 字符串插值 `${var}` 不展开 | `lexer/lexer.go` 单引号字符串中 `${...}` emit STRING_INTERPOLATION |
+| **KLX-C03** | 匿名函数 `function(x): T` 返回类型丢失 | `ast.LambdaExpression.ReturnType` + parser/generator 配套 |
+| **KLX-C04** | `match` 语句生成无效 Go 代码 | 改为 tagless `switch { case _v == p: }` |
+| **KLX-C05** | `uses sysutil/jsonutil/...` 在 program 中符号不可见 | `generator/generator_stdlib.go` 映射 40+ stdlib 函数 |
+
+详见 CHANGELOG.md v3.1.0 章节。
 
 ---
 
@@ -43,7 +57,19 @@
 
 ## 优先级 6：LLVM 后端已知限制 🟠
 
-这些是 LLVM 后端 Milestone 1 的已知范围外项目，计划在 Milestone 2 中实现。
+这些是 LLVM 后端 Milestone 1 + Phase 1 后剩余的范围外项目。
+
+### ✅ 6.0 数组未支持 → v3.1.0 修复
+
+`pkg/llvmgen/array.go`（~200 行）：
+- 静态 `array[1..N] of T` → `alloca [N x T]`
+- 动态 `array of T` → `{ ptr, i64, i64 }` slice 结构体
+- Pascal 1-based 索引转 LLVM 0-based
+- 6 个新测试
+
+### ✅ 6.3 无优化 Pass → v3.1.0 修复
+
+`CompileOpts.OptLevel` + `--llvm-opt=0/1/2/3` CLI 标志；`llc -O=N`。
 
 ### 6.1 接口未支持
 
@@ -51,7 +77,7 @@
 
 **方案：** fat pointer（数据指针 + vtable 指针），每个接口方法生成 thunk。
 
-**工作量：** 1–2 周
+**工作量：** 1–2 周（v3.2 Phase 2）
 
 ---
 
@@ -61,17 +87,7 @@
 
 **方案：** 在 codegen 前对每个具体类型参数执行 AST 克隆 + 替换（单态化）。
 
-**工作量：** 2–3 周
-
----
-
-### 6.3 无优化 Pass
-
-**影响：** LLVM 后端生成等效于 `-O0` 的代码，性能低于 Go 后端。
-
-**方案：** 调用 `opt` 工具运行 `-O2` / LTO pass，或通过 LLVM C API 内联。
-
-**工作量：** 3–5 天
+**工作量：** 2–3 周（v3.2 Phase 3）
 
 ---
 
@@ -81,7 +97,7 @@
 
 **方案：** 使用 LLVM `landingpad` + `invoke` 指令，或映射到 `setjmp/longjmp`（简单方案）。
 
-**工作量：** 1–2 周
+**工作量：** 1–2 周（v3.2+）
 
 ---
 
@@ -221,7 +237,14 @@
 
 ---
 
-## 当前状态总结（2026-06-21）
+## 当前状态总结（2026-06-23）
+
+### 新增已知缺陷（v3.1.0 引入或残留）
+
+| ID | 问题 | 严重度 | 目标 |
+|----|------|--------|------|
+| **KLX-G01** | `example21_generic_class` 编译通过但运行时异常（泛型实例化路径）| 中 | v3.2 |
+| **KLX-M01** | `example33_use_module` 多文件 unit 编译路径在某些场景失败 | 中 | v3.2 |
 
 ### Phase 11 完成度（v1.5.0–v2.0.0）
 
@@ -241,11 +264,22 @@
 | jsonutil 仅支持扁平 JSON | ✅ 嵌套解析器 |
 | external 函数解析失败 | ✅ IsExternal 字段 |
 
-### LLVM 后端 Milestone 1 已知限制
+### v3.1.0 新增修复
 
 | 项目 | 状态 |
 |------|------|
-| 接口（vtable fat pointer）| 🔲 Milestone 2 |
-| 泛型单态化 | 🔲 Milestone 2 |
-| 优化 Pass (-O2) | 🔲 Milestone 2 |
-| 异常（try/catch）| 🔲 Milestone 3 |
+| KLX-C01 `var p: TClass` 字段访问 | ✅ 生成 `*TClass` |
+| KLX-C02 字符串插值 | ✅ STRING_INTERPOLATION token |
+| KLX-C03 lambda 返回类型 | ✅ ReturnType 字段 |
+| KLX-C04 match codegen | ✅ tagless switch |
+| KLX-C05 uses 符号注入 | ✅ generator_stdlib.go |
+| LLVM 数组（静态 + 动态）| ✅ Milestone 2 Phase 1 |
+| LLVM 优化 Pass | ✅ `--llvm-opt=N` |
+
+### LLVM 后端剩余限制
+
+| 项目 | 状态 |
+|------|------|
+| 接口（vtable fat pointer）| 🔲 Milestone 2 Phase 2 (v3.2) |
+| 泛型单态化 | 🔲 Milestone 2 Phase 3 (v3.2) |
+| 异常（try/catch）| 🔲 v3.2+ |

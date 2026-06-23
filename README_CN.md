@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-3.0.0--alpha-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-3.1.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🎉 **v3.0.0-alpha 发布**: 架构突破 — LLVM 原生后端（Milestone 1）、包注册中心、WASI 支持、stdlib Phase 4（纯 Kylix jsonutil/regex/datetime）。详情见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v3.1.0 发布**: KylixBoot 框架（Spring Boot 式注解 + DI + 路由）、`[Attribute]` 注解语法、LLVM 数组 + 优化选项，以及 5 个关键编译器修复 (KLX-C01..C05)。详情见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 特性
 
@@ -47,6 +47,8 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 - **WebAssembly**: `kylix build --wasm` 编译为 .wasm (v2.3.0)
 - **WASI**: `kylix build --wasi` 编译为 WASI 目标 (v3.0.0-alpha)
 - **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链 (v3.0.0-alpha)
+- **KylixBoot 框架**: Spring Boot 式注解驱动的 Web 应用 (v3.1.0)
+- **注解语法**: `[Controller]`、`[Get]`、`[Inject]`、`[Entity]` (v3.1.0)
 - **国际化**: 通过 `KYLIX_LANG=zh` 切换中文错误消息 (v2.3.0)
 
 ## 安装
@@ -88,6 +90,7 @@ kylix build            # 编译项目或文件
 kylix build --wasm     # 编译为 WebAssembly
 kylix build --wasi     # 编译为 WASI (wasip1/wasm, Go 1.21+)
 kylix build --backend=llvm  # 通过 LLVM 原生后端编译
+kylix build --backend=llvm --llvm-opt=2  # 启用 LLVM 优化（-O2）
 kylix run              # 编译并运行
 kylix check            # 项目级类型检查 (跨文件)
 kylix fmt              # 格式化源文件
@@ -643,6 +646,88 @@ begin
 end.
 ```
 
+### KylixBoot 框架 (`boot`) — v3.1.0+
+
+Spring Boot 式 Web 框架：带路径参数的路由、DI 容器、优雅停机、环境变量配置和内置中间件。
+
+```pascal
+program HelloBoot;
+uses boot;
+
+begin
+  // 通过全局快捷方式注册路由
+  boot.GET('/', procedure(req: TRequest; res: TResponse)
+  begin
+    res.Send('Hello, KylixBoot!');
+  end);
+
+  boot.GET('/users/:id', procedure(req: TRequest; res: TResponse)
+  begin
+    res.JSON(record id := req.Param('id'); end);
+  end);
+
+  // 内置中间件
+  boot.Use(boot.Logger());
+  boot.Use(boot.Recover());
+  boot.Use(boot.CORS());
+
+  // 内置优雅停机
+  boot.Listen(':8080');
+end.
+```
+
+容器支持：
+
+```pascal
+// DI 容器
+container := boot.NewContainer();
+container.RegisterSingleton('UserService', TUserService);
+container.RegisterTransient('Request', TRequestScope);
+
+// 基于反射的注入
+container.Inject(controller);
+```
+
+23 个单元测试位于 `pkg/boot/`；声明文件在 `stdlib/klx/boot.klx`。
+
+### 注解语法 (`[Attribute]`) — v3.1.0+
+
+注解为类、类型、函数和字段附加元数据，是声明式 API（路由注册、ORM 映射、DI、校验）的基础。
+
+```pascal
+[Controller('/api/users')]
+type
+  TUserController = class
+    [Inject]
+    UserRepo: TUserRepository;
+
+    [Get('/')]
+    function ListUsers(req: TRequest): TResponse;
+    begin
+      result := req.JSON(UserRepo.FindAll());
+    end;
+
+    [Post('/'), Authenticated]
+    function CreateUser(req: TRequest): TResponse;
+    begin
+      var user := req.Body<TUser>();
+      UserRepo.Save(user);
+      result := req.Created(user);
+    end;
+  end;
+
+[Entity('users')]
+type
+  TUser = class
+    [Column('id'), PrimaryKey]
+    Id: Integer;
+    [Required, Email]
+    Email: String;
+  end;
+```
+
+注解在 AST 层解析（`ast.Attribute`），附加到 `ClassDecl`/`TypeDecl`/`FunctionDecl`/`VarDecl`，为 v3.2 的自动路由注册 + ORM 代码生成做准备。
+
 ### 纯 Kylix stdlib (v2.1+)
 
 四个模块完全用 Kylix 自身实现:
@@ -912,14 +997,34 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 - ✅ LSP 跨文件 rename、`kylix doc` 代码示例、`kylix bench --mem`、iter 模块
 - ✅ 并行编译 (goroutine pool)、死代码消除、LSP 大文件性能基准
 
-### v3.0.0-alpha — 架构突破 🚀
+### v3.0.0-alpha — 架构突破 ✅
 - ✅ LLVM 原生后端 Milestone 1（标量类型、控制流、函数、类/vtable）
 - ✅ WASI 支持（`--wasi`、`--tinygo`、`pkg/wasi/`、`stdlib/src/wasi.klx`）
 - ✅ 包注册中心服务端（`registry/`、REST API、htmx 前端、`kylix publish`）
 - ✅ stdlib Phase 4：纯 Kylix jsonutil（嵌套 JSON）、regex、datetime（DateAdd/DateSub）
 - ✅ `external` 函数声明解析修复
 - ✅ HTTP 客户端 stdlib（`httpclient`）
-- 🔲 LLVM Milestone 2：接口、泛型单态化、-O2 优化
+
+### v3.1.0 — KylixBoot + 编译器修复 + LLVM 数组 ✅
+- ✅ KylixBoot 框架（`pkg/boot/`，约 700 行，23 测试）—— 路由、DI、中间件、优雅停机
+- ✅ 注解语法 `[Name]` / `[Name(args)]`，作用于类、类型、函数和字段
+- ✅ KLX-C01 修复：`var p: TClass` 现在生成 `*TClass`（不再是 `interface{}`）
+- ✅ KLX-C02 修复：单引号字符串中的 `${...}` 正确生成 STRING_INTERPOLATION
+- ✅ KLX-C03 修复：lambda / 匿名函数返回类型保留
+- ✅ KLX-C04 修复：match 语句 codegen 生成有效 Go 代码
+- ✅ KLX-C05 修复：`uses sysutil/jsonutil/...` 在 program 文件中注入 stdlib 符号（40+ 函数）
+- ✅ LLVM Milestone 2 Phase 1：静态 + 动态数组，`--llvm-opt=N`
+- ✅ 教程扩展 `example40_declarative_oop.klx` 和 `example41_attributes.klx`（32/34 示例通过）
+
+### v3.2.0 — 自动装配 + ORM + LLVM M2 Phase 2 🔲
+- 🔲 从 `[Controller]` / `[Get]` 注解自动注册路由（集成 DI）
+- 🔲 ORM 注解：`[Entity]` / `[Repository]` / `[Query]`
+- 🔲 LLVM Milestone 2 Phase 2 —— 接口 fat pointer
+- 🔲 LLVM Milestone 2 Phase 3 —— 泛型单态化
+- 🔲 校验注解 `[Required]` / `[Min]` / `[Email]`
+- 🔲 安全注解 `[Authenticated]` / `[Role]`
+- 🔲 包注册中心部署到 kylix.top/packages
+- 🔲 stdlib Phase 6：net / crypto / encoding
 
 ## 跨平台编译
 
@@ -974,22 +1079,50 @@ kylix build --wasm --tinygo main.klx  # TinyGo (~30 KB)
 | WebAssembly | wasm | `--wasm` (含可选 `--tinygo`) |
 | WASI | wasip1/wasm | `--wasi` (含可选 `--tinygo`) |
 
-### LLVM 原生后端 (v3.0.0-alpha)
+### LLVM 原生后端 (v3.0.0-alpha，v3.1.0 扩展)
 
 Kylix 现在有实验性 LLVM 后端，直接从 AST 生成原生二进制，绕过 Go 工具链。
 
 ```bash
 # 通过 LLVM 编译（需安装 llc + clang）
 kylix build --backend=llvm main.klx
+
+# 启用 LLVM 优化（-O0 / -O1 / -O2 / -O3）
+kylix build --backend=llvm --llvm-opt=2 main.klx
 ```
 
-管道：AST → LLVM IR (`.ll`) → 目标文件 (`.o`) → 原生二进制（via `llc` + `clang`）。Go 后端仍为默认。当前支持：所有标量类型、算术/比较/逻辑运算、控制流、函数、类（vtable 虚函数分发）。接口、泛型和异常计划在 Milestone 2 中实现。
+管道：AST → LLVM IR (`.ll`) → 目标文件 (`.o`) → 原生二进制（via `llc` + `clang`）。Go 后端仍为默认。
+
+**Milestone 1 + Phase 1 (v3.1.0) 支持：**
+- 所有标量类型、算术/比较/逻辑运算、控制流、函数
+- 类（vtable 虚函数分发）
+- **静态数组**（`array[1..N] of T` → `alloca [N x T]`）
+- **动态数组**（`array of T` → `{ ptr, i64, i64 }` slice 结构体）
+- Pascal 1-based 索引自动转换为 LLVM 0-based
+- 通过 `--llvm-opt=N` 启用 LLVM 优化 Pass（`llc -O=N`）
+
+```pascal
+program Arrays;
+var
+  fixed: array[1..5] of Integer;
+  dyn: array of Integer;
+  i: Integer;
+begin
+  for i := 1 to 5 do fixed[i] := i * i;
+  WriteLn(fixed[3]);  // 9
+end.
+```
+
+接口、泛型和异常计划在 Milestone 2 Phase 2-3（v3.2）中实现。
 
 ---
 
 ## 更新日志
 
 完整版本历史请见 [CHANGELOG.md](CHANGELOG.md)。最近更新:
+
+### v3.1.0 (2026-06-23)
+KylixBoot 框架（路由/DI/中间件，23 测试）、注解语法 `[Name]`、5 个编译器修复（KLX-C01..C05：类变量类型、字符串插值、lambda 返回值、match codegen、uses 符号注入）、LLVM Milestone 2 Phase 1（静态 + 动态数组、`--llvm-opt=N`）。
 
 ### v3.0.0-alpha (2026-06-21)
 架构突破 — LLVM 原生后端 Milestone 1、WASI 支持、包注册中心服务端、stdlib Phase 4（纯 Kylix jsonutil/regex/datetime）、`external` 解析修复、HTTP 客户端 stdlib。

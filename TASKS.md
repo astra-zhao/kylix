@@ -1,8 +1,65 @@
 # Kylix 开发任务清单
 
-> 最后更新: 2026-06-22  
-> 当前版本: v3.0.0-alpha  
+> 最后更新: 2026-06-23  
+> 当前版本: v3.1.0  
 > 关联文档: [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md)
+
+---
+
+## ✅ v3.1.0 已完成 (2026-06-23)
+
+### KylixBoot 框架核心运行时
+- [x] `pkg/boot/types.go` — Request / Response / Handler / Middleware
+- [x] `pkg/boot/router.go` — 路由匹配 + 路径参数 (`/users/:id`)
+- [x] `pkg/boot/server.go` — HTTP 服务器 + 优雅停机
+- [x] `pkg/boot/di.go` — DI 容器（Singleton / Transient / Instance + 反射 Inject）
+- [x] `pkg/boot/app.go` — App + 全局快捷方式（boot.GET / POST / Use / Listen）
+- [x] `pkg/boot/config.go` — 配置（环境变量回退）
+- [x] `pkg/boot/middleware.go` — Logger / Recover / CORS / Auth / RateLimit / RequestID
+- [x] `pkg/boot/boot_test.go` — 23/23 测试通过
+- [x] `stdlib/boot_bridge.go` — 桥接为 `stdlib.BootXxx`
+- [x] `stdlib/klx/boot.klx` — LSP 声明文件
+- [x] generator 注册 `boot` 模块到 stdlib 分发器
+
+### 注解语法支持
+- [x] `ast.Attribute` 类型（Name + Args）
+- [x] `Attributes []*Attribute` 字段加到 ClassDecl / TypeDecl / FunctionDecl / VarDecl
+- [x] `parser/parser_attribute.go` — 解析 `[Name]` 和 `[Name(args...)]`
+- [x] 顶层和类体内均可使用
+- [x] 新示例 `example41_attributes.klx`
+
+### 编译器修复（KLX-C01..C05）
+- [x] **KLX-C01** — `var p: TClass` 生成 `*TClass` 而非 `interface{}`
+  - `generator/generator_types.go` 始终为类类型 emit `*TypeName`
+  - `generator/generator.go` 扫描 TypeDecl-wrapped ClassDecl 方法体的 import
+  - `generator/generator_expr.go` `uses sysutil` 活跃时跳过 `os.ReadFile` 内联
+  - 新示例 `example40_declarative_oop.klx`
+- [x] **KLX-C02** — `lexer/lexer.go` 单引号字符串中的 `${...}` emit STRING_INTERPOLATION
+- [x] **KLX-C03** — `ast.LambdaExpression` 新增 ReturnType 字段；parser 保存；generator emit 返回类型 + `var result T` + `return result`
+- [x] **KLX-C04** — `match` 生成 tagless `switch { case _v == p: }`（不再是无效的 `switch _v := ... { case _v == 1: }`）
+- [x] **KLX-C05** — `uses` 在 program 中符号注入
+  - Generator 新增 `usedModules map[string]bool`
+  - `generator/generator_stdlib.go`（~270 行）映射 stdlib 模块名 → 函数集
+  - `resolveStdlibFunc()` 检查函数归属
+  - `generateStdlibCall()` emit `stdlib.FuncName(...)`
+  - 返回 `(T, error)` 的函数包装为具体返回类型
+  - 解锁 40+ stdlib 函数在 program 文件中使用
+
+### LLVM Milestone 2 Phase 1
+- [x] `pkg/llvmgen/array.go`（~200 行）—— 静态 `array[1..N] of T` → `alloca [N x T]`
+- [x] 动态 `array of T` → `{ ptr, i64, i64 }` slice 结构体
+- [x] Pascal 1-based 索引转 LLVM 0-based
+- [x] `pkg/llvmgen/array_test.go` —— 6 个新测试（LLVM 测试总数 30）
+- [x] 编译期常量求值（`array[1..N]` 处理 `((N-1)+1)`）
+- [x] `CompileOpts.OptLevel` + `--llvm-opt=0/1/2/3` CLI 标志
+- [x] `llc` 传入 `-O=N`
+- [x] `emitMain` 在 `main()` 中分配顶层 VarDecl
+- [x] Generator 新增 `program *ast.Program` 字段
+
+### 教程扩展
+- [x] `examples/complete-tutorial/example40_declarative_oop.klx`
+- [x] `examples/complete-tutorial/example41_attributes.klx`
+- [x] 教程示例 32/34 通过（~94%）
 
 ---
 
@@ -59,149 +116,72 @@
 
 ---
 
-## 📋 v3.1.0 待完成任务
+## 📋 v3.2.0 待完成任务
 
-### 优先级 P0 — 编译器 Bug 修复（解锁后续所有示例）
+### 优先级 P0 — 注解处理器自动装配
 
-| ID | 任务 | 影响 |
-|----|------|------|
-| KLX-C05 | `uses X` 在 `program` 中符号注入（strutil/mathutil/sysutil/jsonutil/datetime/regex 均受影响）| 解锁 30+ 特性 |
-| KLX-C01 | `var p: TClass` 生成 `*TClass` 而非 `interface{}`（解锁 OOP 声明式变量）| 解锁 OOP 示例 |
-| KLX-C04 | `match` 语句完整代码生成 | 解锁 match 示例 |
-| KLX-C02 | 字符串插值 `${var}` 展开 | 解锁字符串示例 |
-| KLX-C03 | 匿名函数 `function(x): T` 返回类型生成 | 解锁 lambda 示例 |
+KylixBoot 在 v3.1 完成了运行时 + 注解 AST，v3.2 把它们连接起来。
 
-每个 bug 修复后，对应补充教程示例。
+- [ ] 编译时扫描 `[Controller('/path')]` 类，自动生成路由注册代码
+- [ ] `[Get('/sub')]` / `[Post]` / `[Put]` / `[Delete]` 方法注解 → 注册到全局路由表
+- [ ] 路径合成：`Controller.path + Method.path` 完整 URL
+- [ ] `[Inject]` 字段 → 编译时生成 `container.Resolve(typeOf(Field))`
+- [ ] `[Component]` / `[Service]` 类 → 自动注册到容器
+- [ ] 注解参数缺失/重复路径的编译期诊断
 
-### 优先级 P1 — KylixBoot 框架
+### 优先级 P0 — ORM 注解
 
-**目标**: Spring Boot 式 Web 框架，声明式注解驱动。
+- [ ] `[Entity('table_name')]` 类注解
+- [ ] `[Column('col_name')]` / `[PrimaryKey]` / `[AutoIncrement]` 字段注解
+- [ ] `[Repository]` 类注解 → 自动生成 CRUD（FindAll/FindById/Save/Delete）
+- [ ] `[Query('SELECT ...')]` 方法注解 → 参数化 SQL
+- [ ] 支持 SQLite / PostgreSQL / MySQL
+- [ ] 从 `[Entity]` 自动生成迁移 SQL
 
-**阶段 1: 注解语法支持（编译器层）**
-- [ ] 解析 `[Attribute]` 语法（Lexer + Parser 扩展）
-- [ ] `ast.AttributeDecl` 节点
-- [ ] 注解附加到类/方法/字段声明
+### 优先级 P1 — LLVM Milestone 2 Phase 2 (接口)
 
-**阶段 2: 核心容器（代码生成层）**
-- [ ] `kylix.boot/di` — 依赖注入容器
-  - [ ] `[Component]` / `[Service]` / `[Repository]` 注册
-  - [ ] `[Inject]` 字段注入
-  - [ ] 生命周期管理（singleton/scoped）
-- [ ] `kylix.boot/config` — 配置绑定
-  - [ ] `[Configuration]` 类注解
-  - [ ] `[Value('key', default)]` 字段绑定
-  - [ ] 支持 .env / YAML / 环境变量
+- [ ] 接口 codegen：`{ ptr vtable, ptr data }` fat pointer
+- [ ] 每个接口方法的 thunk 生成
+- [ ] `obj is IFoo` / `obj as IFoo` 在 LLVM 中实现
 
-**阶段 3: Web 层**
-- [ ] `kylix.boot/router` — 路由注册
-  - [ ] `[Controller('/base')]` 类注解
-  - [ ] `[Get('/path')]` / `[Post]` / `[Put]` / `[Delete]` 方法注解
-  - [ ] 路径参数 `[Get('/users/:id')]`
-- [ ] `kylix.boot/middleware` — 中间件链
-  - [ ] `[Middleware]` 注解
-  - [ ] 内置：Logger / CORS / Auth / RateLimit
-- [ ] `kylix.boot/validation` — 参数校验
-  - [ ] `[Required]` / `[Min(n)]` / `[Max(n)]` / `[Email]` / `[Regex]`
-  - [ ] 自动 400 响应
+### 优先级 P1 — LLVM Milestone 2 Phase 3 (泛型)
 
-**阶段 4: 数据层**
-- [ ] `kylix.boot/orm` — 声明式 ORM
-  - [ ] `[Entity('table_name')]` 类注解
-  - [ ] `[Column('col_name')]` 字段注解
-  - [ ] `[Repository]` 类注解，自动生成 CRUD
-  - [ ] `[Query('SELECT ...')]` 自定义查询
-  - [ ] 支持 SQLite / PostgreSQL / MySQL
-- [ ] `kylix.boot/migrate` — 数据库迁移
-  - [ ] 从 `[Entity]` 自动生成迁移 SQL
+- [ ] 泛型单态化：每个 `TBox<Integer>` / `TBox<String>` 生成独立函数/类型
+- [ ] AST 克隆 + 类型参数替换
+- [ ] 与现有 monomorphization 表配合
 
-**阶段 5: 安全层**
-- [ ] `kylix.boot/security` — 认证授权
-  - [ ] `[Authenticated]` — 要求登录
-  - [ ] `[Role('admin')]` — 角色校验
-  - [ ] JWT 令牌生成与验证
-- [ ] `kylix.boot/cache` — 缓存
-  - [ ] `[Cacheable(key, ttl)]` 方法缓存
-  - [ ] `[CacheEvict(key)]` 缓存清除
-  - [ ] 内存缓存 + Redis 适配
+### 优先级 P1 — 校验注解
 
-**阶段 6: 开发工具**
-- [ ] `kylix boot new myapp` — 脚手架命令
-- [ ] `kylix boot run` — 热重载开发服务器
-- [ ] `kylix boot build` — 生产构建（静态链接）
-- [ ] `kylix boot test` — 集成测试框架
-- [ ] `kylix boot generate entity User` — 代码生成
+- [ ] `[Required]` — 字段非空
+- [ ] `[Min(n)]` / `[Max(n)]` — 数值边界
+- [ ] `[MinLen(n)]` / `[MaxLen(n)]` — 字符串长度
+- [ ] `[Email]` / `[Regex(pattern)]` — 格式
+- [ ] 校验失败自动 400 响应
 
-### 优先级 P2 — LLVM 后端 Milestone 2
+### 优先级 P2 — 安全注解
 
-- [ ] 静态数组（`array[1..N] of T` → `[N x T]`）
-- [ ] 动态数组（`array of T` → `{ ptr, len, cap }` 结构体）
-- [ ] 接口 codegen（`{ ptr vtable, ptr data }` fat pointer）
-- [ ] 泛型单态化（模板展开）
-- [ ] 异常处理（`invoke` + `landingpad`）
-- [ ] LLVM 优化 Pass（`-O0` / `-O1` / `-O2` 选项）
-- [ ] 交叉编译（`--backend=llvm --target=linux/amd64`）
+- [ ] `[Authenticated]` — 要求登录中间件
+- [ ] `[Role('admin')]` — 角色校验
+- [ ] JWT 令牌生成与验证
 
-### 优先级 P3 — 教程完善（依赖 P0 bug 修复）
-
-修复 P0 后立即补充以下示例：
-
-- [ ] `example26_string_interp.klx` — 字符串插值 `${var}`
-- [ ] `example15_lambda_fn.klx` — 带返回值的匿名函数
-- [ ] `example34_match.klx` — match 模式匹配
-- [ ] `example35_interface.klx` — 接口声明与实现
-- [ ] `example36_strutil.klx` — strutil 模块
-- [ ] `example37_mathutil.klx` — mathutil 模块
-- [ ] `example38_arrayutil.klx` — arrayutil 模块
-- [ ] `example39_sysutil.klx` — 文件 I/O
-- [ ] `example40_jsonutil.klx` — JSON 解析
-- [ ] `example41_datetime.klx` — 日期时间
-- [ ] `example42_regex.klx` — 正则表达式验证
-- [ ] `example43_httpclient.klx` — HTTP 客户端
-- [ ] `example44_web_server.klx` — Web 服务器
-- [ ] `example45_kylix_test.klx` — 测试框架
-- [ ] `example46_wasi.klx` — WASI 编译示例
-- [ ] `example47_llvm.klx` — LLVM 后端示例
-- [ ] `example48_async.klx` — async/await
-
-### 优先级 P4 — 包注册中心部署
+### 优先级 P2 — 包注册中心部署
 
 - [ ] 部署到 kylix.top/packages（VPS + PostgreSQL + TLS）
 - [ ] 域名配置 packages.kylix.top
 - [ ] GitHub Actions 自动发布 workflow
 - [ ] 搜索与分类功能
 
----
-
-## 📋 v3.2.0 待完成任务
-
-### 编译器健壮性全面修复
-
-- [ ] 所有 KLX-C0x bug（见 ROADMAP.md 清单）
-- [ ] 类型检查覆盖率提升至 80%+
-- [ ] 错误恢复：所有解析错误后继续报告下一个错误
-- [ ] 更好的错误信息（含建议修复）
-
-### stdlib 全量可用
-
-stdlib 所有模块在 `program` 文件中 `uses X` 后可直接调用，无需命名空间前缀。
-
-- [ ] strutil（8 函数）
-- [ ] mathutil（12 函数）
-- [ ] arrayutil（8 函数）
-- [ ] collections（TIntList）
-- [ ] sysutil（ReadFile/WriteFile/FileExists 等）
-- [ ] jsonutil（JsonDecodeMap/JsonEncode 等）
-- [ ] datetime（Now/MakeDate/FormatPattern 等）
-- [ ] regex（IsEmail/IsURL/IsNumeric 等）
-- [ ] httpclient（HttpGet/HttpPost/THttpClient）
-- [ ] wasi（WriteLn/ReadLine/GetEnv/Args）
-
-### stdlib Phase 6 — 网络与加密
+### 优先级 P2 — stdlib Phase 6
 
 - [ ] `net` — TCP/UDP 客户端，HTTP 代理
 - [ ] `crypto` — SHA256/MD5/HMAC/AES/BCrypt
 - [ ] `encoding` — Base64/Hex/CSV/URL/JSON-Lines
 - [ ] `os` — 进程/信号/管道
+
+### 优先级 P3 — 残留 Bug（v3.1 未覆盖）
+
+- [ ] **KLX-G01** — `example21_generic_class` 运行时异常
+- [ ] **KLX-M01** — `example33_use_module` 多文件 unit 编译路径问题
 
 ---
 

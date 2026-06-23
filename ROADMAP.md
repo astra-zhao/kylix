@@ -1,12 +1,12 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-06-22  
-> 当前版本: v3.0.0-alpha 🚀  
+> 最后更新: 2026-06-23  
+> 当前版本: v3.1.0 ✅  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**🚀 v3.0.0-alpha 发布！** 架构突破 — LLVM 后端 Milestone 1、包注册中心、WASI、stdlib Phase 4。  
-**📍 当前重点：** v3.1 — Spring Boot 式 Web 框架 + LLVM Milestone 2 + 教程完善。
+**✅ v3.1.0 发布！** KylixBoot 框架 + 注解语法 + 5 个编译器修复 (KLX-C01..C05) + LLVM Milestone 2 Phase 1（数组 + 优化）。  
+**📍 当前重点：** v3.2 — 自动路由注册 + ORM 注解 + LLVM Milestone 2 Phase 2/3（接口 + 泛型）。
 
 ---
 
@@ -23,27 +23,29 @@
 | **v2.4.0** | 完善与生态 (i18n/推导/SetLength/包管理) | ✅ 完成 | v2.4.0 |
 | **v2.5.0** | 工具链深化 (LSP/doc/bench/iter/方法修复) | ✅ 完成 | v2.5.0 |
 | **v2.6.0** | 性能与优化 (并行编译/DCE/LSP基准) | ✅ 完成 | v2.6.0 |
-| **v3.0.0** | LLVM 后端 + 包注册中心 + WASI | 🚀 alpha | 2026-06-21 |
-| **v3.1.0** | Spring Boot 式框架 + LLVM M2 + 教程 | 📋 规划中 | 2026-Q3 |
-| **v3.2.0** | 编译器修复 + stdlib 完整可用 | 📋 规划中 | 2026-Q3 |
+| **v3.0.0** | LLVM 后端 + 包注册中心 + WASI | ✅ alpha | 2026-06-21 |
+| **v3.1.0** | KylixBoot 框架 + 注解语法 + LLVM 数组 + 编译器修复 | ✅ 完成 | 2026-06-23 |
+| **v3.2.0** | 自动路由注册 + ORM 注解 + LLVM M2 P2/P3 | 📋 规划中 | 2026-Q3 |
 | **v4.0.0** | 自研运行时 + 完全脱离 Go | 📋 长期 | 2027+ |
 
 ---
 
-## 📊 累计统计 (v3.0.0-alpha)
+## 📊 累计统计 (v3.1.0)
 
 | 指标 | 数量 |
 |------|------|
-| Go 测试包 | 15 个（全部通过）|
-| Go 级测试 | ~310+ |
+| Go 测试包 | 15+ 个（全部通过）|
+| Go 级测试 | ~330+ |
 | Kylix 级 stdlib 测试 | 117 个（10 模块）|
 | 纯 Kylix stdlib 函数 | 90+ |
 | CLI 命令 | 19 个 |
-| 教程示例 | 29 个（27 完全工作）|
+| 教程示例 | 34 个（32 完全工作，~94%）|
 | 原生构建目标 | 5 (linux/darwin/windows × amd64/arm64) |
 | WASM 目标 | 2 (Go 标准 + TinyGo) |
 | WASI 目标 | 2 (Go wasip1 + TinyGo) |
-| LLVM 后端 | ✅ Milestone 1（标量/控制流/函数/类）|
+| LLVM 后端 | ✅ Milestone 2 Phase 1（数组 + 优化）|
+| LLVM 测试 | 30 个（含 6 个数组测试）|
+| KylixBoot 测试 | 23 个 |
 | 包注册中心 | ✅ REST API + Web 前端 |
 
 ---
@@ -60,160 +62,106 @@
 
 ---
 
-## 🚀 v3.1.0 — Spring Boot 式框架 + LLVM Milestone 2
+## ✅ v3.1.0 (2026-06-23) — KylixBoot 框架 + 注解语法 + LLVM 数组 + 编译器修复
 
-> 预计: 2026-Q3 | 工作量: 2 个月
+详见 TASKS.md 和 CHANGELOG.md。核心交付：
 
-### 任务 1: KylixBoot 框架 — Spring Boot 式 Web 框架 ⭐⭐⭐
-
-Kylix 版的 Spring Boot：通过**注解式声明**（Attribute）自动装配路由、依赖注入、ORM、配置。
-
-**设计目标：**
-```pascal
-// 目标语法 — 声明式 Web 控制器
-program UserService;
-uses kylix.boot;
-
-[Controller('/api/users')]
-type
-  TUserController = class
-    [Inject]
-    UserRepo: TUserRepository;
-
-    [Get('/')]
-    function ListUsers(req: TRequest): TResponse;
-    begin
-      result := req.json(UserRepo.FindAll());
-    end;
-
-    [Post('/')]
-    function CreateUser(req: TRequest): TResponse;
-    begin
-      var user := req.body<TUser>();
-      UserRepo.Save(user);
-      result := req.created(user);
-    end;
-  end;
-
-[Repository]
-type
-  TUserRepository = class
-    [Query('SELECT * FROM users')]
-    function FindAll(): array of TUser;
-
-    [Query('SELECT * FROM users WHERE id = ?')]
-    function FindById(id: Integer): TUser;
-
-    procedure Save(user: TUser);
-  end;
-
-[Configuration]
-type
-  TAppConfig = class
-    [Value('server.port', 8080)]
-    Port: Integer;
-
-    [Value('db.url')]
-    DatabaseURL: String;
-  end;
-
-begin
-  KylixBoot.Run(TUserController, TUserRepository, TAppConfig);
-end.
-```
-
-**核心模块：**
-
-| 模块 | 说明 |
-|------|------|
-| `kylix.boot/router` | 注解驱动的路由注册（[Get]/[Post]/[Put]/[Delete]）|
-| `kylix.boot/di` | 依赖注入容器（[Inject]/[Component]/[Service]）|
-| `kylix.boot/orm` | 声明式 ORM（[Entity]/[Repository]/[Query]）|
-| `kylix.boot/config` | 配置绑定（[Configuration]/[Value]）|
-| `kylix.boot/middleware` | 中间件链（[Middleware]/[Filter]）|
-| `kylix.boot/validation` | 参数校验（[Required]/[Min]/[Max]/[Email]）|
-| `kylix.boot/security` | 认证授权（[Authenticated]/[Role]）|
-| `kylix.boot/cache` | 缓存注解（[Cacheable]/[CacheEvict]）|
-
-**实现路径：**
-1. Attribute 语法解析（parser 扩展）
-2. 编译时注解处理器（annotation processor）
-3. 代码生成：路由表 + DI 容器 + ORM 映射
-4. 运行时：Go net/http 包装
-
-### 任务 2: LLVM 后端 Milestone 2
-
-- [ ] 数组 codegen（`alloca [N x T]` + GEP 索引）
-- [ ] 动态数组（`array of T` → slice 结构体）
-- [ ] 接口 codegen（vtable fat pointer `{ ptr vtable, ptr data }`）
-- [ ] 泛型单态化（模板展开，每个实例生成独立函数）
-- [ ] 异常处理（`invoke` + `landingpad`）
-- [ ] LLVM 优化 Pass（`-O2` 通过 llc 参数）
-- [ ] 交叉编译目标（`--backend=llvm --target=linux/amd64`）
-
-### 任务 3: 编译器修复（v3.1 重点）
-
-以下 bug 影响示例完整性，需修复：
-
-| Bug | 表现 | 影响 |
-|-----|------|------|
-| 字符串插值 | `${var}` 不展开 | 中等 |
-| 匿名函数返回类型 | `function(x):T` 生成无返回值签名 | 中等 |
-| `var p: TClass` 字段访问 | 生成 `interface{}`，字段不可见 | 高 |
-| `match` 代码生成 | 生成 Go 语法错误 | 高 |
-| `uses` 在 `program` 中 | stdlib 函数不可直接调用 | 高 |
-
-### 任务 4: 完整教程 v2（覆盖所有 74 特性）
-
-- [ ] OOP 接口示例（等 bug 修复后）
-- [ ] 字符串插值示例（等 bug 修复后）
-- [ ] Match 模式匹配示例（等 bug 修复后）
-- [ ] Lambda 返回值示例（等 bug 修复后）
-- [ ] stdlib 示例（等 `uses` 在 program 中修复后）
-- [ ] Web server 完整示例
-- [ ] kylix test 工作流示例
-- [ ] WASI 完整示例
-- [ ] LLVM 后端示例
+### 已完成
+- [x] **KylixBoot 框架核心运行时** —— `pkg/boot/`（~700 行，23 测试）
+  - Router（路径参数 `/users/:id`）、Server（优雅停机）
+  - DI 容器（Singleton/Transient/Instance + 反射 Inject）
+  - 全局快捷方式（`boot.GET`、`boot.POST`、`boot.Use`、`boot.Listen`）
+  - Config（环境变量回退）
+  - 内置中间件：Logger / Recover / CORS / Auth / RateLimit / RequestID
+  - 桥接 `stdlib/boot_bridge.go` 重新导出
+  - LSP 声明文件 `stdlib/klx/boot.klx`
+- [x] **注解语法 `[Name]` / `[Name(args)]`** —— `ast.Attribute` + `parser/parser_attribute.go`
+  - 作用于 `ClassDecl`、`TypeDecl`、`FunctionDecl`、`VarDecl`
+  - 顶层和类体内均可使用
+  - 新示例 `example41_attributes.klx`
+- [x] **KLX-C01 修复** —— `var p: TClass` 现在生成 `*TClass` 而非 `interface{}`
+- [x] **KLX-C02 修复** —— 单引号字符串中 `${...}` 正确生成 STRING_INTERPOLATION
+- [x] **KLX-C03 修复** —— lambda/匿名函数返回类型保留
+- [x] **KLX-C04 修复** —— match 语句生成 tagless `switch { case _v == p: }`（不再生成无效 Go）
+- [x] **KLX-C05 修复** —— `uses sysutil/jsonutil/datetime/regex/httpclient` 在 program 中注入符号
+  - `generator/generator_stdlib.go`（~270 行）映射 40+ stdlib 函数
+- [x] **LLVM Milestone 2 Phase 1** —— 数组 + 优化
+  - `pkg/llvmgen/array.go`（~200 行）：静态 `array[1..N] of T` → `alloca [N x T]`
+  - 动态 `array of T` → `{ ptr, i64, i64 }` slice 结构体
+  - Pascal 1-based 索引自动转 LLVM 0-based
+  - 编译期常量求值（`array[1..N]` 处理 `((N-1)+1)`）
+  - `--llvm-opt=0/1/2/3` CLI 标志（`llc -O=N`）
+  - 6 个新测试（总数 30）
+- [x] **教程扩展** —— `example40_declarative_oop.klx` + `example41_attributes.klx`，32/34 通过（~94%）
 
 ---
 
-## 📋 v3.2.0 — 编译器健壮性 + stdlib 全量可用
+## 📋 v3.2.0 — 自动装配 + ORM 注解 + LLVM Milestone 2 Phase 2/3
 
-> 预计: 2026-Q4 | 工作量: 6 周
+> 预计: 2026-Q3 | 工作量: 8 周
 
-### 任务 1: 编译器 Bug 全量修复
+### P0 — 注解处理器自动装配
 
-- [ ] `var p: TClass` → 生成 `*TClass` 而非 `interface{}`
-- [ ] 字符串插值展开（Lexer 层处理 `${expr}`)
-- [ ] 匿名函数返回类型保留
-- [ ] `match` 语句完整代码生成
-- [ ] `uses` 在 `program` 中正确注入符号表
+KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST + 运行时，v3.2 把它们连接起来）。
 
-### 任务 2: stdlib 全量可用（program 中直接调用）
+- [ ] 编译时扫描 `[Controller('/path')]` 类 → 自动调用 `boot.GET('/path/...', handler)`
+- [ ] `[Get('/sub')]` / `[Post]` / `[Put]` / `[Delete]` 方法注解 → 注册到全局路由表
+- [ ] `[Inject]` 字段 → 编译时生成 DI 容器 `Resolve(typeOf(Field))` 调用
+- [ ] `[Component]` / `[Service]` 类 → 自动注册到容器
+- [ ] 错误处理：注解参数缺失/重复路径的编译期诊断
 
-- [ ] strutil 函数可在 program 中用（Reverse/ToUpper/StartsWith...）
-- [ ] mathutil 函数可在 program 中用（Abs/Max/Min/Pow/IsPrime...）
-- [ ] arrayutil 函数可在 program 中用
-- [ ] sysutil 函数可在 program 中用（ReadFile/WriteFile/FileExists...）
-- [ ] jsonutil 函数可在 program 中用（JsonDecodeMap/JsonGetString...）
-- [ ] datetime 函数可在 program 中用（Now/MakeDate/FormatPattern...）
-- [ ] regex 函数可在 program 中用（IsEmail/IsURL/IsNumeric...）
+### P0 — ORM 注解
 
-### 任务 3: stdlib Phase 6 — 网络与加密
+声明式数据访问层，对接现有 `stdlib/orm`。
 
-- [ ] `net` — TCP/UDP 客户端，DNS 查询
-- [ ] `crypto` — SHA256/MD5/HMAC/AES 加密
-- [ ] `encoding` — Base64/Hex/CSV/URL 编解码
-- [ ] `os` — 进程管理、信号、环境变量
+- [ ] `[Entity('table_name')]` 类注解 → 自动表映射
+- [ ] `[Column('col')]` / `[PrimaryKey]` / `[AutoIncrement]` 字段注解
+- [ ] `[Repository]` 类注解 → 自动生成 CRUD 方法
+- [ ] `[Query('SELECT ...')]` 方法注解 → 编译为参数化 SQL
+- [ ] 支持 SQLite / PostgreSQL / MySQL
+- [ ] 从 `[Entity]` 自动推导迁移 SQL
 
-### 任务 4: 包注册中心正式上线
+### P1 — LLVM Milestone 2 Phase 2 (接口 fat pointer)
+
+- [ ] 接口 codegen：`{ ptr vtable, ptr data }` fat pointer
+- [ ] 每个接口方法生成 thunk
+- [ ] 接口断言 `obj is IFoo` / `obj as IFoo` 的 LLVM 指令
+- [ ] 工作量：1–2 周
+
+### P1 — LLVM Milestone 2 Phase 3 (泛型单态化)
+
+- [ ] 模板展开：每个 `TBox<Integer>`、`TBox<String>` 生成独立函数/类型
+- [ ] AST 克隆 + 类型参数替换
+- [ ] 工作量：2–3 周
+
+### P1 — 校验注解
+
+- [ ] `[Required]` —— 字段非空校验
+- [ ] `[Min(n)]` / `[Max(n)]` —— 数值边界
+- [ ] `[MinLen(n)]` / `[MaxLen(n)]` —— 字符串长度
+- [ ] `[Email]` / `[Regex(pattern)]` —— 格式校验
+- [ ] 自动 400 响应
+
+### P2 — 安全注解
+
+- [ ] `[Authenticated]` —— 要求登录
+- [ ] `[Role('admin')]` —— 角色校验
+- [ ] JWT 令牌生成与验证
+
+### P2 — 包注册中心部署
 
 - [ ] 部署到 kylix.top/packages（PostgreSQL + TLS）
-- [ ] 搜索索引与全文检索
-- [ ] 包统计仪表板（下载量/依赖图）
-- [ ] GitHub Actions 自动发布集成
+- [ ] 域名 packages.kylix.top
+- [ ] 搜索索引、全文检索
+- [ ] 包统计仪表板
+- [ ] GitHub Actions 自动发布 workflow
 
----
+### P2 — stdlib Phase 6 (网络/加密/编码)
+
+- [ ] `net` — TCP/UDP 客户端、HTTP 代理、DNS 查询
+- [ ] `crypto` — SHA256/MD5/HMAC/AES/BCrypt
+- [ ] `encoding` — Base64/Hex/CSV/URL/JSON-Lines
+- [ ] `os` — 进程管理、信号、管道、环境变量
 
 ## 📋 v4.0.0 — 完全独立运行时（脱离 Go）
 
@@ -267,23 +215,25 @@ LLVM IR (.ll)
 
 ### 编译器层
 
-| ID | 问题 | 严重度 | 目标版本 |
-|----|------|--------|---------|
-| KLX-C01 | `var p: TClass` 生成 `interface{}` 导致字段不可访问 | 高 | v3.2 |
-| KLX-C02 | 字符串插值 `${var}` 不展开 | 中 | v3.2 |
-| KLX-C03 | 匿名函数 `function(x):T` 返回类型丢失 | 中 | v3.2 |
-| KLX-C04 | `match` 语句生成无效 Go 代码 | 高 | v3.2 |
-| KLX-C05 | `uses` 模块在 `program` 中符号不可见 | 高 | v3.2 |
+| ID | 问题 | 严重度 | 状态 |
+|----|------|--------|------|
+| KLX-C01 | `var p: TClass` 生成 `interface{}` 导致字段不可访问 | 高 | ✅ v3.1.0 |
+| KLX-C02 | 字符串插值 `${var}` 不展开 | 中 | ✅ v3.1.0 |
+| KLX-C03 | 匿名函数 `function(x):T` 返回类型丢失 | 中 | ✅ v3.1.0 |
+| KLX-C04 | `match` 语句生成无效 Go 代码 | 高 | ✅ v3.1.0 |
+| KLX-C05 | `uses` 模块在 `program` 中符号不可见 | 高 | ✅ v3.1.0 |
+| KLX-G01 | `example21_generic_class` 运行时异常（泛型实例化） | 中 | 🔲 v3.2 |
+| KLX-M01 | `example33_use_module` 多文件 unit 编译问题 | 中 | 🔲 v3.2 |
 
-### LLVM 后端层（Milestone 1 已知限制）
+### LLVM 后端层
 
-| ID | 问题 | 目标版本 |
-|----|------|---------|
-| KLX-L01 | 不支持数组（array of T / array[1..N]）| v3.1 |
-| KLX-L02 | 不支持接口（interface）| v3.1 |
-| KLX-L03 | 不支持泛型单态化 | v3.1 |
-| KLX-L04 | 不支持异常处理（try/except）| v3.1 |
-| KLX-L05 | 无优化 Pass（-O0 等效）| v3.1 |
+| ID | 问题 | 状态 |
+|----|------|------|
+| KLX-L01 | 数组 codegen（array of T / array[1..N]）| ✅ v3.1.0 (Phase 1) |
+| KLX-L02 | 接口 fat pointer | 🔲 v3.2 (Phase 2) |
+| KLX-L03 | 泛型单态化 | 🔲 v3.2 (Phase 3) |
+| KLX-L04 | 异常处理（try/except）| 🔲 v3.2+ |
+| KLX-L05 | 优化 Pass | ✅ v3.1.0（`--llvm-opt=N`）|
 
 ---
 

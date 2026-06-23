@@ -2,15 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-3.0.0--alpha-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.1.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
-> 
-> 🎉 **v3.0.0-alpha Release**: Architecture breakthrough — LLVM native backend (Milestone 1), package registry server, WASI support, stdlib Phase 4 (pure Kylix jsonutil/regex/datetime). See [CHANGELOG.md](CHANGELOG.md) for details.
+>
+> 🎉 **v3.1.0 Release**: KylixBoot framework (Spring Boot–style annotations + DI + router), `[Attribute]` syntax, LLVM arrays + optimization passes, and 5 critical compiler fixes (KLX-C01..C05). See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ## Features
 
@@ -44,6 +44,8 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 - **Package Manager**: `kylix add`, `kylix remove`, `kylix publish` for dependency management
 - **WASI**: `kylix build --wasi` — compile to WebAssembly System Interface (v3.0.0-alpha)
 - **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain (v3.0.0-alpha)
+- **KylixBoot Framework**: Spring Boot–style annotation-driven web apps (v3.1.0)
+- **Annotation Syntax**: `[Controller]`, `[Get]`, `[Inject]`, `[Entity]` (v3.1.0)
 
 ## Installation
 
@@ -84,6 +86,7 @@ kylix build            # Compile project or file
 kylix build --wasm     # Compile to WebAssembly
 kylix build --wasi     # Compile to WASI (wasip1/wasm, Go 1.21+)
 kylix build --backend=llvm  # Compile via LLVM native backend
+kylix build --backend=llvm --llvm-opt=2  # Optimized LLVM build (-O2)
 kylix run              # Compile and run
 kylix check            # Syntax check (no code generation)
 kylix fmt              # Format source files
@@ -605,6 +608,88 @@ begin
 end.
 ```
 
+### KylixBoot Framework (`boot`) — v3.1.0+
+
+Spring Boot–style web framework: router with path params, DI container, graceful shutdown, env-var configuration, and built-in middleware.
+
+```pascal
+program HelloBoot;
+uses boot;
+
+begin
+  // Register routes via global shortcuts
+  boot.GET('/', procedure(req: TRequest; res: TResponse)
+  begin
+    res.Send('Hello, KylixBoot!');
+  end);
+
+  boot.GET('/users/:id', procedure(req: TRequest; res: TResponse)
+  begin
+    res.JSON(record id := req.Param('id'); end);
+  end);
+
+  // Built-in middleware
+  boot.Use(boot.Logger());
+  boot.Use(boot.Recover());
+  boot.Use(boot.CORS());
+
+  // Graceful shutdown built in
+  boot.Listen(':8080');
+end.
+```
+
+Container support:
+
+```pascal
+// DI container
+container := boot.NewContainer();
+container.RegisterSingleton('UserService', TUserService);
+container.RegisterTransient('Request', TRequestScope);
+
+// Reflection-based injection
+container.Inject(controller);
+```
+
+23 unit tests in `pkg/boot/`; declarations in `stdlib/klx/boot.klx`.
+
+### Annotation Syntax (`[Attribute]`) — v3.1.0+
+
+Annotations attach metadata to classes, types, functions, and fields — the foundation of declarative APIs (route registration, ORM mapping, DI, validation).
+
+```pascal
+[Controller('/api/users')]
+type
+  TUserController = class
+    [Inject]
+    UserRepo: TUserRepository;
+
+    [Get('/')]
+    function ListUsers(req: TRequest): TResponse;
+    begin
+      result := req.JSON(UserRepo.FindAll());
+    end;
+
+    [Post('/'), Authenticated]
+    function CreateUser(req: TRequest): TResponse;
+    begin
+      var user := req.Body<TUser>();
+      UserRepo.Save(user);
+      result := req.Created(user);
+    end;
+  end;
+
+[Entity('users')]
+type
+  TUser = class
+    [Column('id'), PrimaryKey]
+    Id: Integer;
+    [Required, Email]
+    Email: String;
+  end;
+```
+
+Annotations parse at the AST level (`ast.Attribute`), attach to `ClassDecl`/`TypeDecl`/`FunctionDecl`/`VarDecl`, and are designed for v3.2's auto-route registration + ORM code generation.
+
 ## Language Reference
 
 ### Types
@@ -835,14 +920,34 @@ Kylix LSP supports any editor with LSP client:
 - ✅ Delve debugger integration, WebAssembly backend (`--wasm`)
 - ✅ Parallel compilation, LSP large-file performance benchmarks
 
-### v3.0.0-alpha: Architecture Breakthrough 🚀
+### v3.0.0-alpha: Architecture Breakthrough ✅
 - ✅ LLVM native backend — Milestone 1 (scalar types, control flow, functions, classes)
 - ✅ WASI support (`--wasi`, `--tinygo`, `pkg/wasi/`, `stdlib/src/wasi.klx`)
 - ✅ Package registry server (`registry/`, REST API, htmx frontend, `kylix publish`)
 - ✅ stdlib Phase 4: pure Kylix jsonutil (nested JSON), regex, datetime (DateAdd/DateSub)
 - ✅ `external` function declaration parsing fixed
 - ✅ HTTP client stdlib (`httpclient`)
-- 🔲 LLVM Milestone 2: interfaces, generics, optimization passes
+
+### v3.1.0: KylixBoot + Compiler Fixes + LLVM Arrays ✅
+- ✅ KylixBoot framework (`pkg/boot/`, ~700 lines, 23 tests) — router, DI, middleware, graceful shutdown
+- ✅ Annotation syntax `[Name]` / `[Name(args)]` on classes, types, functions, fields
+- ✅ KLX-C01 fix: `var p: TClass` now emits `*TClass` instead of `interface{}`
+- ✅ KLX-C02 fix: single-quoted strings with `${...}` produce STRING_INTERPOLATION
+- ✅ KLX-C03 fix: lambda/anonymous-function return types preserved
+- ✅ KLX-C04 fix: match statement codegen now produces valid Go
+- ✅ KLX-C05 fix: `uses sysutil/jsonutil/...` in program files now injects stdlib symbols (40+ functions)
+- ✅ LLVM Milestone 2 Phase 1: static + dynamic arrays, `--llvm-opt=N`
+- ✅ Tutorial expanded with `example40_declarative_oop.klx` and `example41_attributes.klx` (32/34 examples pass)
+
+### v3.2.0: Auto-Wiring + ORM + LLVM M2 Phase 2 🔲
+- 🔲 Auto-route registration from `[Controller]`/`[Get]` annotations (DI integration)
+- 🔲 ORM annotations: `[Entity]` / `[Repository]` / `[Query]`
+- 🔲 LLVM Milestone 2 Phase 2 — interface fat pointer
+- 🔲 LLVM Milestone 2 Phase 3 — generic monomorphization
+- 🔲 Validation annotations `[Required]` / `[Min]` / `[Email]`
+- 🔲 Security annotations `[Authenticated]` / `[Role]`
+- 🔲 Registry deployment to kylix.top/packages
+- 🔲 stdlib Phase 6: net / crypto / encoding
 
 ## Cross-Platform Compilation
 
@@ -881,16 +986,41 @@ All cross-compilation runs on your local machine — no remote build servers nee
 
 The final binary has no external dependencies. End users do not need Go or Kylix installed to run it.
 
-### LLVM Native Backend (v3.0.0-alpha)
+### LLVM Native Backend (v3.0.0-alpha, expanded in v3.1.0)
 
-Kylix now has an experimental LLVM backend that generates native binaries directly from the AST, bypassing the Go toolchain entirely.
+Kylix has an experimental LLVM backend that generates native binaries directly from the AST, bypassing the Go toolchain entirely.
 
 ```bash
 # Compile via LLVM (requires llc + clang installed)
 kylix build --backend=llvm main.klx
+
+# Apply LLVM optimization passes (-O0 / -O1 / -O2 / -O3)
+kylix build --backend=llvm --llvm-opt=2 main.klx
 ```
 
-The pipeline: AST → LLVM IR (`.ll`) → object file (`.o`) → native binary via `llc` + `clang`. The Go backend remains the default for production use. The LLVM backend currently supports: all scalar types, arithmetic/comparison/logic, control flow, functions, and classes with vtable dispatch. Generics, interfaces, and exceptions are planned for Milestone 2.
+Pipeline: AST → LLVM IR (`.ll`) → object file (`.o`) → native binary via `llc` + `clang`. The Go backend remains the default for production use.
+
+**Milestone 1 + Phase 1 (v3.1.0) support:**
+- All scalar types, arithmetic/comparison/logic, control flow, functions
+- Classes with vtable dispatch
+- **Static arrays** (`array[1..N] of T` → `alloca [N x T]`)
+- **Dynamic arrays** (`array of T` → `{ ptr, i64, i64 }` slice struct)
+- Pascal 1-based indexing automatically converted to LLVM 0-based
+- LLVM optimization passes via `--llvm-opt=N` (`llc -O=N`)
+
+```pascal
+program Arrays;
+var
+  fixed: array[1..5] of Integer;
+  dyn: array of Integer;
+  i: Integer;
+begin
+  for i := 1 to 5 do fixed[i] := i * i;
+  WriteLn(fixed[3]);  // 9
+end.
+```
+
+Generics, interfaces, and exceptions land in Milestone 2 (Phase 2-3, v3.2).
 
 ### WASI Target (v3.0.0-alpha)
 
@@ -930,6 +1060,10 @@ end.
 ---
 
 ## Changelog
+
+### v3.1.0 (2026-06-23) — KylixBoot Framework + Compiler Fixes + LLVM Arrays
+
+KylixBoot framework (router/DI/middleware, 23 tests), annotation syntax `[Name]`, 5 compiler fixes (KLX-C01..C05: typed class vars, string interpolation, lambda return types, match codegen, uses-symbol injection), LLVM Milestone 2 Phase 1 (static + dynamic arrays, `--llvm-opt=N`).
 
 ### v3.0.0-alpha (2026-06-21) — Architecture Breakthrough 🚀
 
