@@ -69,6 +69,18 @@ type CompileResult struct {
 //  3. llc: .ll → .o
 //  4. clang: .o → native binary
 func CompileToNative(srcFile, outBin string, llvmPaths *LLVMPaths) (*CompileResult, error) {
+	return CompileToNativeOpts(srcFile, outBin, llvmPaths, CompileOpts{})
+}
+
+// CompileOpts configures optional codegen parameters (e.g., optimization).
+type CompileOpts struct {
+	// OptLevel selects LLVM optimization tier: "" / "0" / "1" / "2" / "3" / "s".
+	// Empty defaults to -O0 (no optimization).
+	OptLevel string
+}
+
+// CompileToNativeOpts compiles with options.
+func CompileToNativeOpts(srcFile, outBin string, llvmPaths *LLVMPaths, opts CompileOpts) (*CompileResult, error) {
 	// Read and parse source
 	src, err := os.ReadFile(srcFile)
 	if err != nil {
@@ -82,11 +94,16 @@ func CompileToNative(srcFile, outBin string, llvmPaths *LLVMPaths) (*CompileResu
 		return nil, fmt.Errorf("parse errors: %s", strings.Join(errs, "; "))
 	}
 
-	return CompileASTToNative(prog, srcFile, outBin, llvmPaths)
+	return compileASTWithOpts(prog, srcFile, outBin, llvmPaths, opts)
 }
 
 // CompileASTToNative compiles an already-parsed AST to a native binary.
 func CompileASTToNative(prog *ast.Program, srcFile, outBin string, llvmPaths *LLVMPaths) (*CompileResult, error) {
+	return compileASTWithOpts(prog, srcFile, outBin, llvmPaths, CompileOpts{})
+}
+
+// compileASTWithOpts is the shared implementation that honors CompileOpts.
+func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LLVMPaths, opts CompileOpts) (*CompileResult, error) {
 	// Generate LLVM IR
 	ir, err := Generate(prog)
 	if err != nil {
@@ -100,13 +117,20 @@ func CompileASTToNative(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		return nil, fmt.Errorf("write IR: %w", err)
 	}
 
-	// llc: .ll → .o
+	// llc: .ll → .o with optional optimization level
 	objFile := base + ".o"
-	llcCmd := exec.Command(llvmPaths.LLC,
-		"-filetype=obj",
-		"-o", objFile,
-		irFile,
-	)
+	llcArgs := []string{"-filetype=obj"}
+	if opts.OptLevel != "" {
+		// LLVM 22 doesn't accept letter levels (s/z) on llc directly; clamp them.
+		switch opts.OptLevel {
+		case "0", "1", "2", "3":
+			llcArgs = append(llcArgs, "-O="+opts.OptLevel)
+		default:
+			llcArgs = append(llcArgs, "-O=2")
+		}
+	}
+	llcArgs = append(llcArgs, "-o", objFile, irFile)
+	llcCmd := exec.Command(llvmPaths.LLC, llcArgs...)
 	if out, err := llcCmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("llc failed: %w\n%s", err, out)
 	}

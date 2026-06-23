@@ -86,6 +86,9 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 	case *ast.CallExpression:
 		return g.emitCall(e)
 
+	case *ast.IndexExpression:
+		return g.emitArrayIndex(e, false)
+
 	default:
 		// Unknown expression — emit zero
 		r := g.tmp()

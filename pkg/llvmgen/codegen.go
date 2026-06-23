@@ -22,6 +22,8 @@ type Generator struct {
 	labelCount int             // basic block label counter
 	locals     map[string]string  // var name → alloca register (%v_name)
 	classes    map[string]*ClassInfo // class name → compiled class metadata
+	arrayInfo  map[string]*arrayInfo // var name → array metadata
+	program    *ast.Program    // current AST root (for cross-pass access)
 	funcName   string          // current function being generated
 	strings    []stringConst   // string constants (emitted at module level)
 }
@@ -35,9 +37,10 @@ type stringConst struct {
 // NewGenerator creates a new LLVM IR generator.
 func NewGenerator(moduleName string) *Generator {
 	return &Generator{
-		module:  moduleName,
-		locals:  make(map[string]string),
-		classes: make(map[string]*ClassInfo),
+		module:    moduleName,
+		locals:    make(map[string]string),
+		classes:   make(map[string]*ClassInfo),
+		arrayInfo: make(map[string]*arrayInfo),
 	}
 }
 
@@ -53,6 +56,7 @@ func Generate(prog *ast.Program) (string, error) {
 // ===== Module-level emission =====
 
 func (g *Generator) emitProgram(prog *ast.Program) error {
+	g.program = prog
 	g.emitHeader()
 
 	// Emit runtime declarations (libc functions we'll call)
@@ -107,6 +111,16 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	g.line("entry:")
 	g.funcName = "main"
 	g.locals = make(map[string]string)
+
+	// Emit top-level VarDecl as local allocas inside main().
+	// (Top-level `var x: T;` declarations live in prog.Declarations.)
+	for _, decl := range g.program.Declarations {
+		if vd, ok := decl.(*ast.VarDecl); ok {
+			if err := g.emitVarDecl(vd); err != nil {
+				return err
+			}
+		}
+	}
 
 	for _, stmt := range stmts {
 		if err := g.emitStatement(stmt); err != nil {

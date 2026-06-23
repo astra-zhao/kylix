@@ -127,6 +127,12 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 	}
 	name := s.Names[0]
 
+	// Array type: dispatch to dedicated handler (Milestone 2).
+	if arrT, ok := s.Type.(*ast.ArrayType); ok {
+		g.emitArrayVarDecl(name, arrT)
+		return nil
+	}
+
 	llvmT := "i64"
 	suffix := "_int"
 	if s.Type != nil {
@@ -165,6 +171,16 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 	v, t, err := g.emitExpr(s.Value)
 	if err != nil {
 		return err
+	}
+
+	// Handle array element assignment: arr[i] := value
+	if idx, ok := s.Name.(*ast.IndexExpression); ok {
+		ptrReg, elemType, err := g.emitArrayIndex(idx, true)
+		if err != nil {
+			return err
+		}
+		g.line(fmt.Sprintf("  store %s %s, ptr %s", elemType, v, ptrReg))
+		return nil
 	}
 
 	// s.Name is Expression, extract identifier name

@@ -20,6 +20,7 @@ func cmdBuild(args []string) {
 	wasi := fs.Bool("wasi", false, "Compile to WASI WebAssembly (.wasm) — uses GOOS=wasip1 GOARCH=wasm (server-side)")
 	tinygo := fs.Bool("tinygo", false, "Use TinyGo for WASM/WASI build (smaller output, requires tinygo installed)")
 	backend := fs.String("backend", "go", "Compiler backend: go (default) or llvm (experimental)")
+	llvmOpt := fs.String("llvm-opt", "", "LLVM optimization level (0/1/2/3); only meaningful with --backend=llvm")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix build [options] [file.klx]
 
@@ -84,7 +85,7 @@ OPTIONS:
 
 			// LLVM backend shortcut — bypass Go codegen entirely
 			if *backend == "llvm" {
-				if err := buildWithLLVM(file, *output); err != nil {
+				if err := buildWithLLVM(file, *output, *llvmOpt); err != nil {
 					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 					os.Exit(1)
 				}
@@ -309,18 +310,24 @@ func stripExt(name string) string {
 }
 
 // buildWithLLVM compiles a Kylix file to native binary via LLVM IR.
-func buildWithLLVM(srcFile, outBin string) error {
+func buildWithLLVM(srcFile, outBin, optLevel string) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
 		return fmt.Errorf("LLVM toolchain not found: %w\nHint: brew install llvm (macOS) or apt install llvm clang (Linux)", err)
 	}
 
-	result, err := llvmgen.CompileToNative(srcFile, outBin, llvmPaths)
+	result, err := llvmgen.CompileToNativeOpts(srcFile, outBin, llvmPaths, llvmgen.CompileOpts{
+		OptLevel: optLevel,
+	})
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("✓ Built %s → %s [llvm]\n", srcFile, result.BinFile)
+	optInfo := ""
+	if optLevel != "" {
+		optInfo = " -O" + optLevel
+	}
+	fmt.Printf("✓ Built %s → %s [llvm%s]\n", srcFile, result.BinFile, optInfo)
 	fmt.Printf("  IR:  %s\n", result.IRFile)
 	fmt.Printf("  Obj: %s\n", result.ObjFile)
 	return nil
