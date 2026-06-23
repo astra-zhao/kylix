@@ -61,6 +61,13 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	),
 	"validation": strToSet("NewValidator", "NewRequestValidator"),
 	"template": strToSet("NewTemplateEngine", "NewView"),
+	"boot": strToSet(
+		"BootRun", "BootGET", "BootPOST", "BootPUT", "BootDELETE",
+		"BootUseLogger", "BootUseRecover", "BootUseCORS", "BootUseRequestID",
+		"BootText", "BootJSON", "BootHTML",
+		"BootConfigSet", "BootConfigGetString", "BootConfigGetInt",
+		"BootRegisterInstance", "BootResolve",
+	),
 }
 
 // stdlibErrorFuncReturnTypes maps error-returning stdlib functions to their

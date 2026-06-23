@@ -1,0 +1,40 @@
+// boot.klx — KylixBoot framework declarations for LSP completion.
+//
+// Spring Boot-style web framework. Provides declarative routing, dependency
+// injection, configuration, and middleware. Use programmatically in v3.1.0;
+// annotation-driven auto-registration arrives in v3.2.0.
+unit boot;
+
+// Boot* functions are exposed as stdlib bridge wrappers around the
+// internal pkg/boot package, so they're directly callable in Kylix code.
+
+// ===== Server lifecycle =====
+procedure BootRun(port: Integer);
+
+// ===== Route registration =====
+procedure BootGET(path: String; handler: Variant);
+procedure BootPOST(path: String; handler: Variant);
+procedure BootPUT(path: String; handler: Variant);
+procedure BootDELETE(path: String; handler: Variant);
+
+// ===== Middleware =====
+procedure BootUseLogger();
+procedure BootUseRecover();
+procedure BootUseCORS();
+procedure BootUseRequestID();
+
+// ===== Response builders =====
+function BootText(status: Integer; body: String): Variant;
+function BootJSON(status: Integer; value: Variant): Variant;
+function BootHTML(status: Integer; body: String): Variant;
+
+// ===== Configuration =====
+procedure BootConfigSet(key: String; value: Variant);
+function BootConfigGetString(key: String; fallback: String): String;
+function BootConfigGetInt(key: String; fallback: Integer): Integer;
+
+// ===== Dependency injection =====
+procedure BootRegisterInstance(name: String; instance: Variant);
+function BootResolve(name: String): Variant;
+
+end.
