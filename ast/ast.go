@@ -467,7 +467,8 @@ func (t *TupleLiteral) TokenLiteral() string { return "tuple" }
 type LambdaExpression struct {
 	Token      token.Token // NEW: the '(' or first param token
 	Parameters []*Parameter
-	Body       Node // can be BlockStatement or Expression
+	ReturnType Expression // optional: return type for function (anonymous functions)
+	Body       Node       // can be BlockStatement or Expression
 }
 
 func (l *LambdaExpression) expressionNode()      {}

@@ -139,8 +139,16 @@ func (l *Lexer) NextToken() token.Token {
 	case ']':
 		tok = l.newToken(token.RBRACKET, string(l.ch))
 	case '\'':
-		tok.Type = token.STRING
-		tok.Literal = l.readSingleQuotedString()
+		// Single-quoted string. If it contains '${' it is an interpolated
+		// string; otherwise a plain literal. This mirrors `$"..."` syntax
+		// but lets users write `'Hello ${name}'` without the `$` prefix.
+		s := l.readSingleQuotedString()
+		if strings.Contains(s, "${") {
+			tok.Type = token.STRING_INTERPOLATION
+		} else {
+			tok.Type = token.STRING
+		}
+		tok.Literal = s
 		return tok
 	case '"':
 		tok.Type = token.STRING

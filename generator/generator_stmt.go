@@ -346,11 +346,17 @@ func (g *Generator) generateCaseStatement(stmt *ast.CaseStatement) {
 }
 
 func (g *Generator) generateMatchStatement(stmt *ast.MatchStatement) {
-	// Pascal match → Go switch with explicit equality comparisons and guards.
-	g.write("switch _v := ")
-	g.generateExpression(stmt.Expression)
-	g.writeLine(" {")
+	// Pascal match → Go: introduce _v as a local, then use a tagless switch
+	// with boolean cases. Tagless `switch { case cond: }` supports both
+	// value equality (_v == p) and guards (when clause) uniformly.
+	g.writeLine("{")
 	g.indent++
+	g.write("_v := ")
+	g.generateExpression(stmt.Expression)
+	g.writeLine("")
+	g.write("_ = _v")
+	g.writeLine("")
+	g.writeLine("switch {")
 	for _, branch := range stmt.Branches {
 		wildcard := false
 		if ident, ok := branch.Pattern.(*ast.Identifier); ok && ident.Value == "_" {
@@ -393,6 +399,7 @@ func (g *Generator) generateMatchStatement(stmt *ast.MatchStatement) {
 		}
 		g.indent--
 	}
+	g.writeLine("}")
 	g.indent--
 	g.writeLine("}")
 }

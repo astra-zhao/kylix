@@ -545,6 +545,7 @@ begin
 end.`
 	out, errs := compile(input)
 	assertNoErrors(t, errs)
-	assertContains(t, out, `switch _v :=`)
+	assertContains(t, out, `_v :=`)
+	assertContains(t, out, `switch {`)
 	assertContains(t, out, `default:`)
 }

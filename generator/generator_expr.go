@@ -286,12 +286,29 @@ func (g *Generator) generateLambdaExpression(e *ast.LambdaExpression) {
 		}
 	}
 	g.write(") ")
+
+	// Emit return type for anonymous functions, and initialize `result` so
+	// that `result := ...` in the body works like a named function.
+	hasReturn := e.ReturnType != nil
+	if hasReturn {
+		g.generateTypeExpression(e.ReturnType)
+		g.write(" ")
+	}
+
 	switch body := e.Body.(type) {
 	case *ast.BlockStatement:
 		g.writeLine("{")
 		g.indent++
+		if hasReturn {
+			g.write("var result ")
+			g.generateTypeExpression(e.ReturnType)
+			g.writeLine("")
+		}
 		for _, s := range body.Statements {
 			g.generateStatement(s)
+		}
+		if hasReturn {
+			g.writeLine("return result")
 		}
 		g.indent--
 		g.write("}")

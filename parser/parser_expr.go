@@ -348,9 +348,10 @@ func (p *Parser) parseAnonymousFunction() ast.Expression {
 	}
 
 	// Optional return type for functions.
+	var returnType ast.Expression
 	if kind.Type == token.FUNCTION && p.curTokenIs(token.COLON) {
 		p.nextToken()
-		p.parseTypeExpression() // consume but discard in anonymous context
+		returnType = p.parseTypeExpression()
 	}
 
 	if p.curTokenIs(token.SEMICOLON) {
@@ -419,7 +420,7 @@ func (p *Parser) parseAnonymousFunction() ast.Expression {
 		body = block
 	}
 
-	return &ast.LambdaExpression{Token: kind, Parameters: params, Body: body}
+	return &ast.LambdaExpression{Token: kind, Parameters: params, ReturnType: returnType, Body: body}
 }
 
 func (p *Parser) parseArrayLiteral() ast.Expression {
