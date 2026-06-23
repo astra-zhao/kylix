@@ -34,11 +34,12 @@ func (p *Program) TokenLiteral() string { return p.Name }
 
 // Variable Declaration
 type VarDecl struct {
-	Token    token.Token // NEW: the 'var' keyword
-	Names    []string
-	Type     Expression
-	Value    Expression
-	Inferred bool // true if using :=
+	Token      token.Token // NEW: the 'var' keyword
+	Names      []string
+	Type       Expression
+	Value      Expression
+	Inferred   bool         // true if using :=
+	Attributes []*Attribute // KylixBoot field annotations: [Inject], [Column('name')], [Value('key')]
 }
 
 func (v *VarDecl) statementNode()       {}
@@ -57,9 +58,10 @@ func (c *ConstDecl) TokenLiteral() string { return c.Token.Literal }
 
 // Type Declaration
 type TypeDecl struct {
-	Token token.Token // NEW: the identifier token
-	Name  string
-	Type  Expression
+	Token      token.Token // NEW: the identifier token
+	Name       string
+	Type       Expression
+	Attributes []*Attribute // KylixBoot annotations: [Controller('/api')], [Entity], etc.
 }
 
 func (t *TypeDecl) statementNode()       {}
@@ -77,7 +79,8 @@ type FunctionDecl struct {
 	LocalDecls  []Node // local var/const declarations before begin block
 	IsAsync     bool
 	IsExport    bool
-	IsExternal  bool // body implemented in Go stdlib; no Kylix body emitted
+	IsExternal  bool         // body implemented in Go stdlib; no Kylix body emitted
+	Attributes  []*Attribute // KylixBoot annotations: [Get('/path')], [Inject], etc.
 }
 
 func (f *FunctionDecl) statementNode()       {}
@@ -289,6 +292,7 @@ type ClassDecl struct {
 	Methods    []*FunctionDecl
 	Properties []*PropertyDecl
 	Visibility token.TokenType
+	Attributes []*Attribute // KylixBoot annotations
 }
 
 func (c *ClassDecl) statementNode()       {}
@@ -564,3 +568,20 @@ type IsExpression struct {
 
 func (i *IsExpression) expressionNode()      {}
 func (i *IsExpression) TokenLiteral() string { return i.Token.Literal }
+
+// Attribute represents a KylixBoot annotation: [Name] or [Name(arg1, arg2)].
+// Attaches to ClassDecl, TypeDecl, FunctionDecl, VarDecl, and PropertyDecl.
+//
+// Examples:
+//
+//	[Controller('/api/users')]
+//	[Inject]
+//	[Get('/:id')]
+//	[Value('server.port', 8080)]
+type Attribute struct {
+	Token token.Token  // the '[' token
+	Name  string       // attribute name, e.g. "Controller", "Inject", "Get"
+	Args  []Expression // optional arguments inside the parentheses
+}
+
+func (a *Attribute) TokenLiteral() string { return a.Token.Literal }

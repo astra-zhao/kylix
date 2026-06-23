@@ -1,0 +1,72 @@
+// example41_attributes.klx — Attribute (annotation) syntax (v3.1.0+)
+// Demonstrates KylixBoot-style declarative annotations:
+//   - Class attributes:    [Controller('/api')]
+//   - Method attributes:   [Get('/path')], [Post('/path')]
+//   - Field attributes:    [Inject], [Value('key', default)]
+//   - Marker attributes:   [Component], [Authenticated]
+//
+// Attributes are stored in the AST and made available to frameworks
+// like KylixBoot for compile-time routing, dependency injection, etc.
+// In v3.1.0 they are parsed but ignored by the Go backend.
+
+program AttributeDemo;
+
+[Controller('/api/users')]
+type
+  TUserController = class
+  public
+    [Inject]
+    Repo: String;
+
+    [Get('/')]
+    function ListUsers(): String;
+    begin
+      result := 'GET /api/users → ' + self.Repo;
+    end;
+
+    [Post('/')]
+    function CreateUser(): String;
+    begin
+      result := 'POST /api/users → created';
+    end;
+
+    [Get('/:id')]
+    function GetUser(): String;
+    begin
+      result := 'GET /api/users/:id';
+    end;
+  end;
+
+[Component]
+type
+  TAppConfig = class
+  public
+    [Value('app.name', 'KylixApp')]
+    AppName: String;
+
+    [Value('server.port', 8080)]
+    Port: Integer;
+  end;
+
+[Authenticated]
+[Get('/health')]
+function HealthCheck(): String;
+begin
+  result := 'OK';
+end;
+
+begin
+  var ctrl := TUserController.Create;
+  ctrl.Repo := 'UserRepo';
+  WriteLn(ctrl.ListUsers());
+  WriteLn(ctrl.CreateUser());
+  WriteLn(ctrl.GetUser());
+
+  var cfg := TAppConfig.Create;
+  cfg.AppName := 'KylixDemo';
+  cfg.Port := 9090;
+  WriteLn('App: ' + cfg.AppName);
+  WriteLn('Port: ' + IntToStr(cfg.Port));
+
+  WriteLn(HealthCheck());
+end.

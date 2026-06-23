@@ -290,7 +290,64 @@ func (p *Parser) ParseProgram() *ast.Program {
 			if decl != nil {
 				program.Declarations = append(program.Declarations, decl)
 			}
-		} else if p.curTokenIs(token.BEGIN) {
+		} else if p.curTokenIs(token.LBRACKET) {
+				// Could be an attribute or an array indexing expression.
+				// Peek ahead: if followed by IDENT + RBRACKET, it's an attribute.
+				attrs := p.parseAttributeList()
+				if len(attrs) > 0 {
+					// Attribute precedes a declaration. Route to the correct handler.
+					if p.curTokenIs(token.TYPE) {
+						p.nextToken()
+						for p.curTokenIs(token.IDENT) {
+							decl := p.parseSingleTypeDecl()
+							if decl != nil {
+								decl.Attributes = attrs
+								program.Declarations = append(program.Declarations, decl)
+							}
+							for p.curTokenIs(token.SEMICOLON) {
+								p.nextToken()
+							}
+						}
+					} else if p.curTokenIs(token.FUNCTION) || p.curTokenIs(token.PROCEDURE) || p.curTokenIs(token.ASYNC) {
+						decl := p.parseFunctionDecl()
+						if decl != nil {
+							decl.Attributes = attrs
+							program.Declarations = append(program.Declarations, decl)
+						}
+					} else if p.curTokenIs(token.CLASS) {
+						decl := p.parseClassDecl()
+						if decl != nil {
+							decl.Attributes = attrs
+							program.Declarations = append(program.Declarations, decl)
+						}
+					} else if p.curTokenIs(token.VAR) {
+						varToken := p.curToken
+						p.nextToken()
+						for p.isIdentOrSoftKeyword() || p.curTokenIs(token.LPAREN) {
+							decl := p.parseSingleVarDecl(varToken)
+							if decl != nil {
+								decl.Attributes = attrs
+								program.Declarations = append(program.Declarations, decl)
+							}
+							for p.curTokenIs(token.SEMICOLON) {
+								p.nextToken()
+							}
+						}
+					} else {
+						// Fallback: return attributes to the statement expr
+						for _, a := range attrs {
+							_ = a
+						}
+					}
+				} else {
+					stmt := p.parseStatement()
+					if stmt != nil {
+						program.Statements = append(program.Statements, stmt)
+					} else {
+						p.nextToken()
+					}
+				}
+			} else if p.curTokenIs(token.BEGIN) {
 			block := p.parseBlockStatement()
 			if block != nil {
 				program.Statements = append(program.Statements, block.Statements...)

@@ -442,6 +442,24 @@ func (p *Parser) parseClassDecl() *ast.ClassDecl {
 			if method != nil {
 				decl.Methods = append(decl.Methods, method)
 			}
+		} else if p.curTokenIs(token.LBRACKET) {
+			// KylixBoot annotation on a class member.
+			attrs := p.parseAttributeList()
+			if p.curTokenIs(token.FUNCTION) || p.curTokenIs(token.PROCEDURE) ||
+				p.curTokenIs(token.CONSTRUCTOR) || p.curTokenIs(token.DESTRUCTOR) {
+				method := p.parseFunctionDecl()
+				if method != nil {
+					method.Attributes = attrs
+					decl.Methods = append(decl.Methods, method)
+				}
+			} else if p.curTokenIs(token.IDENT) || p.isSoftKeyword() {
+				// Annotated field declaration: [Inject] Name: Type;
+				fieldDecl := p.parseSingleVarDecl(token.Token{})
+				if fieldDecl != nil {
+					fieldDecl.Attributes = attrs
+					decl.Fields = append(decl.Fields, fieldDecl)
+				}
+			}
 		} else if p.curTokenIs(token.PROPERTY) {
 			prop := p.parsePropertyDecl()
 			if prop != nil {
