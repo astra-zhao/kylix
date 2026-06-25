@@ -9,30 +9,30 @@ private
 public
   constructor Create();
   begin
-    Count := 0;
+    self.Count := 0;
   end;
 
   procedure Push(item: T);
   begin
-    if Count < 100 then
+    if self.Count < 100 then
     begin
-      Items[Count] := item;
-      Count := Count + 1;
+      self.Items[self.Count] := item;
+      self.Count := self.Count + 1;
     end;
   end;
 
   function Pop(): T;
   begin
-    if Count > 0 then
+    if self.Count > 0 then
     begin
-      Count := Count - 1;
-      result := Items[Count];
+      self.Count := self.Count - 1;
+      result := self.Items[self.Count];
     end;
   end;
 
   function GetCount(): Integer;
   begin
-    result := Count;
+    result := self.Count;
   end;
 end;
 

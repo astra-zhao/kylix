@@ -27,34 +27,36 @@ type Generator struct {
 	program         *ast.Program
 	variables       map[string]string // tracks variable types for codegen hints
 	inFunction      bool
-	inReturnFunc    bool                // true when current function has a return value (Exit → return result)
-	inExceptHandler bool                // true when inside a recover() block for bare raise
-	reRaiseVar      string              // Go variable holding the recovered value for re-raise
-	nameMap         map[string]string   // temporary name substitutions (e.g., E→e in on clause)
-	imports         map[string]bool     // Go imports needed by the output
-	needsException  bool                // whether Exception type must be emitted
-	needsSetLength  bool                // whether the __kylixSetLength helper is needed
-	exceptionTypes  map[string]bool     // exception type names from on clauses
-	multiReturn     bool                // current function has multiple return values
-	multiReturnN    int                 // number of return values in current function
-	classTypes      map[string]bool     // user-defined class type names
-	classIsBase     map[string]bool     // true if class is a parent (→ interface{} in type exprs)
-	classFields     map[string][]string // class name → ordered field names (for constructor mapping)
-	userFuncs       map[string]bool     // user-defined function names (override built-in mapping)
-	usedModules     map[string]bool     // modules imported via `uses` clause
+	inReturnFunc    bool                            // true when current function has a return value (Exit → return result)
+	inExceptHandler bool                            // true when inside a recover() block for bare raise
+	reRaiseVar      string                          // Go variable holding the recovered value for re-raise
+	nameMap         map[string]string               // temporary name substitutions (e.g., E→e in on clause)
+	imports         map[string]bool                 // Go imports needed by the output
+	needsException  bool                            // whether Exception type must be emitted
+	needsSetLength  bool                            // whether the __kylixSetLength helper is needed
+	exceptionTypes  map[string]bool                 // exception type names from on clauses
+	multiReturn     bool                            // current function has multiple return values
+	multiReturnN    int                             // number of return values in current function
+	classTypes      map[string]bool                 // user-defined class type names
+	classIsBase     map[string]bool                 // true if class is a parent (→ interface{} in type exprs)
+	classFields     map[string][]string             // class name → ordered field names (for constructor mapping)
+	classTypeParams map[string][]*ast.TypeParameter // class name → generic type parameters
+	userFuncs       map[string]bool                 // user-defined function names (override built-in mapping)
+	usedModules     map[string]bool                 // modules imported via `uses` clause
 }
 
 func New() *Generator {
 	return &Generator{
-		variables:      make(map[string]string),
-		nameMap:        make(map[string]string),
-		imports:        make(map[string]bool),
-		exceptionTypes: make(map[string]bool),
-		classTypes:     make(map[string]bool),
-		classIsBase:    make(map[string]bool),
-		classFields:    make(map[string][]string),
-		userFuncs:      make(map[string]bool),
-		usedModules:    make(map[string]bool),
+		variables:       make(map[string]string),
+		nameMap:         make(map[string]string),
+		imports:         make(map[string]bool),
+		exceptionTypes:  make(map[string]bool),
+		classTypes:      make(map[string]bool),
+		classIsBase:     make(map[string]bool),
+		classFields:     make(map[string][]string),
+		classTypeParams: make(map[string][]*ast.TypeParameter),
+		userFuncs:       make(map[string]bool),
+		usedModules:     make(map[string]bool),
 	}
 }
 
@@ -410,6 +412,7 @@ func (g *Generator) collectClassTypes(program *ast.Program) {
 			g.userFuncs[d.Name] = true
 		case *ast.ClassDecl:
 			g.classTypes[d.Name] = true
+			g.classTypeParams[d.Name] = d.TypeParams
 			if d.Parent != "" {
 				g.classIsBase[d.Parent] = true
 			}
@@ -421,6 +424,7 @@ func (g *Generator) collectClassTypes(program *ast.Program) {
 		case *ast.TypeDecl:
 			if cd, ok := d.Type.(*ast.ClassDecl); ok {
 				g.classTypes[d.Name] = true
+				g.classTypeParams[d.Name] = cd.TypeParams
 				if cd.Parent != "" {
 					g.classIsBase[cd.Parent] = true
 				}

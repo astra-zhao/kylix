@@ -4,7 +4,50 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v3.1.0 (2026-06-23) — KylixBoot Framework + Compiler Fixes + LLVM Arrays
+## v3.1.1 (2026-06-25) — Unit Codegen + Generic Class Hotfix
+
+### Compiler Fixes
+
+**KLX-M01 — Unit `interface` / `implementation` parsing**
+
+Pascal unit files now correctly treat `interface` and `implementation` as section markers instead of generating an empty Go interface declaration.
+
+- `token/token.go`: adds the `implementation` keyword token
+- `parser/parser.go`: skips unit section markers and parses implementation functions as top-level function declarations with bodies
+- `generator/generator_types.go`: skips bodiless forward declarations and guards against empty interface names
+- `pkg/compiler/unit_sections_test.go`: regression coverage for multi-file unit builds
+
+This fixes `examples/complete-tutorial/11_modules/example33_use_module.klx`.
+
+**KLX-G01 — Generic class method receivers**
+
+Go codegen now emits instantiated receivers for generic class methods:
+
+```go
+func (self *TStack[T]) Push(item T)
+```
+
+instead of the invalid:
+
+```go
+func (self *TStack) Push(item T)
+```
+
+- `generator/generator.go`: tracks class type parameters during pre-scan
+- `generator/generator_types.go`: emits generic receivers for methods and properties
+- `generator/generator_generics_test.go`: regression coverage for generic class receivers
+- `example21_generic_class.klx`: uses explicit `self.Field` access, matching the OOP tutorial convention
+
+### Tutorial Verification
+
+`examples/complete-tutorial/test_all.sh` now covers all tutorial example directories and the module example. Current result: **35/35 passed** (34 `example*.klx` files plus the `math_helper.klx` unit companion file).
+
+### Cache Invalidation
+
+Incremental build cache entries now include `CacheVersion`, invalidating stale generated fragments after codegen changes.
+
+---
+
 
 ### KylixBoot Framework — Spring Boot-style Runtime Core
 

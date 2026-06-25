@@ -286,10 +286,20 @@ func (p *Parser) ParseProgram() *ast.Program {
 				program.Declarations = append(program.Declarations, decl)
 			}
 		} else if p.curTokenIs(token.INTERFACE) {
-			decl := p.parseInterfaceDecl()
-			if decl != nil {
-				program.Declarations = append(program.Declarations, decl)
+			if program.IsUnit {
+				// Unit section marker: `interface`. Declarations below it are parsed
+				// normally until the `implementation` section marker.
+				p.nextToken()
+			} else {
+				decl := p.parseInterfaceDecl()
+				if decl != nil {
+					program.Declarations = append(program.Declarations, decl)
+				}
 			}
+		} else if p.curTokenIs(token.IMPLEMENTATION) {
+			// Unit section marker: `implementation`. Function/procedure declarations
+			// below it include bodies and should be emitted as top-level functions.
+			p.nextToken()
 		} else if p.curTokenIs(token.LBRACKET) {
 				// Could be an attribute or an array indexing expression.
 				// Peek ahead: if followed by IDENT + RBRACKET, it's an attribute.

@@ -85,9 +85,10 @@ const (
 	EXCEPT      = "except"
 	FINALLY     = "finally"
 	RAISE       = "raise"
-	CLASS       = "class"
-	INTERFACE   = "interface"
-	OBJECT      = "object"
+	CLASS          = "class"
+	INTERFACE      = "interface"
+	IMPLEMENTATION = "implementation"
+	OBJECT         = "object"
 	RECORD      = "record"
 	ARRAY       = "array"
 	SET         = "set"
@@ -180,9 +181,10 @@ var keywords = map[string]TokenType{
 	"except":      EXCEPT,
 	"finally":     FINALLY,
 	"raise":       RAISE,
-	"class":       CLASS,
-	"interface":   INTERFACE,
-	"object":      OBJECT,
+	"class":          CLASS,
+	"interface":      INTERFACE,
+	"implementation": IMPLEMENTATION,
+	"object":         OBJECT,
 	"record":      RECORD,
 	"array":       ARRAY,
 	"set":         SET,

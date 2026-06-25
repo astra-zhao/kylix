@@ -19,8 +19,13 @@ import (
 	"time"
 )
 
+// CacheVersion invalidates stale generated fragments after codegen changes.
+const CacheVersion = 2
+
 // CacheEntry holds the cached output for a single .klx file.
 type CacheEntry struct {
+	Version int `json:"version"`
+
 	// Fingerprint fields — used to decide whether the cache is still valid.
 	ModTime time.Time `json:"mod_time"`
 	Size    int64     `json:"size"`
@@ -67,7 +72,7 @@ func (c *BuildCache) Load(srcPath string) *CacheEntry {
 		return nil
 	}
 
-	if entry.ModTime.Equal(info.ModTime()) && entry.Size == info.Size() {
+	if entry.Version == CacheVersion && entry.ModTime.Equal(info.ModTime()) && entry.Size == info.Size() {
 		return &entry
 	}
 	return nil
@@ -80,6 +85,7 @@ func (c *BuildCache) Store(srcPath, goCode string) {
 		return
 	}
 	entry := CacheEntry{
+		Version: CacheVersion,
 		ModTime: info.ModTime(),
 		Size:    info.Size(),
 		SrcPath: srcPath,

@@ -237,14 +237,14 @@
 
 ---
 
-## 当前状态总结（2026-06-23）
+## 当前状态总结（2026-06-25）
 
 ### 新增已知缺陷（v3.1.0 引入或残留）
 
 | ID | 问题 | 严重度 | 目标 |
 |----|------|--------|------|
-| **KLX-G01** | `example21_generic_class` 编译通过但运行时异常（泛型实例化路径）| 中 | v3.2 |
-| **KLX-M01** | `example33_use_module` 多文件 unit 编译路径在某些场景失败 | 中 | v3.2 |
+| **KLX-G01** | `example21_generic_class` 泛型类 receiver codegen 错误 | 中 | ✅ v3.1.1 |
+| **KLX-M01** | `example33_use_module` 多文件 unit 编译路径失败 | 中 | ✅ v3.1.1 |
 
 ### Phase 11 完成度（v1.5.0–v2.0.0）
 
@@ -255,6 +255,15 @@
 | P3（测试覆盖） | 4 | 4 | 100% |
 | P4（工程质量） | 3 | 3 | 100% |
 | P5（设计债务） | 3 | 0 | 0%（长期）|
+
+### v3.1.1 新增修复
+
+| 项目 | 状态 |
+|------|------|
+| KLX-G01 泛型类方法 receiver | ✅ 生成 `*TStack[T]`，教程示例可运行 |
+| KLX-M01 Unit interface/implementation | ✅ 正确生成 implementation 函数体，跳过 forward declarations |
+| 教程测试覆盖 | ✅ `test_all.sh` 覆盖所有目录，35/35 通过 |
+| 增量缓存 codegen 失效 | ✅ `CacheVersion` 防止复用旧 fragment |
 
 ### v3.0.0-alpha 新增修复
 

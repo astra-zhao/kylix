@@ -69,18 +69,36 @@ func (g *Generator) generateClassDecl(decl *ast.ClassDecl) {
 		if method.Body == nil {
 			continue
 		}
-		g.generateClassMethod(decl.Name, method)
+		g.generateClassMethod(decl.Name, decl.TypeParams, method)
 	}
 	for _, prop := range decl.Properties {
-		g.generatePropertyAccessors(decl.Name, prop)
+		g.generatePropertyAccessors(decl.Name, decl.TypeParams, prop)
 	}
 }
 
+func (g *Generator) writeClassReceiverType(className string, typeParams []*ast.TypeParameter) {
+	g.write(className)
+	if len(typeParams) == 0 {
+		return
+	}
+	g.write("[")
+	for i, param := range typeParams {
+		if i > 0 {
+			g.write(", ")
+		}
+		g.write(param.Name)
+	}
+	g.write("]")
+}
+
 // generateClassMethod emits a single method bound to *ClassName.
-func (g *Generator) generateClassMethod(className string, method *ast.FunctionDecl) {
+func (g *Generator) generateClassMethod(className string, typeParams []*ast.TypeParameter, method *ast.FunctionDecl) {
 	hasReturnType := method.ReturnType != nil || len(method.ReturnTypes) > 0
 
-	g.write(fmt.Sprintf("func (self *%s) %s", className, method.Name))
+	g.write("func (self *")
+	g.writeClassReceiverType(className, typeParams)
+	g.write(") ")
+	g.write(method.Name)
 	g.generateFunctionSignature(method)
 	g.writeLine(" {")
 	g.indent++
@@ -136,9 +154,11 @@ func (g *Generator) generateClassMethod(className string, method *ast.FunctionDe
 // property Name: Type read FieldA write FieldB;
 // → func (self *C) Name() Type { return self.FieldA }
 // → func (self *C) SetName(v Type) { self.FieldB = v }
-func (g *Generator) generatePropertyAccessors(className string, prop *ast.PropertyDecl) {
+func (g *Generator) generatePropertyAccessors(className string, typeParams []*ast.TypeParameter, prop *ast.PropertyDecl) {
 	if prop.Getter != "" {
-		g.write(fmt.Sprintf("func (self *%s) %s() ", className, prop.Name))
+		g.write("func (self *")
+		g.writeClassReceiverType(className, typeParams)
+		g.write(fmt.Sprintf(") %s() ", prop.Name))
 		if prop.Type != nil {
 			g.generateTypeExpression(prop.Type)
 		} else {
@@ -153,7 +173,9 @@ func (g *Generator) generatePropertyAccessors(className string, prop *ast.Proper
 	}
 
 	if prop.Setter != "" {
-		g.write(fmt.Sprintf("func (self *%s) Set%s(v ", className, prop.Name))
+		g.write("func (self *")
+		g.writeClassReceiverType(className, typeParams)
+		g.write(fmt.Sprintf(") Set%s(v ", prop.Name))
 		if prop.Type != nil {
 			g.generateTypeExpression(prop.Type)
 		} else {
@@ -169,6 +191,9 @@ func (g *Generator) generatePropertyAccessors(className string, prop *ast.Proper
 }
 
 func (g *Generator) generateInterfaceDecl(decl *ast.InterfaceDecl) {
+	if decl.Name == "" {
+		return
+	}
 	g.writeLine(fmt.Sprintf("type %s interface {", decl.Name))
 	g.indent++
 	for _, parent := range decl.Parents {
@@ -272,6 +297,9 @@ func (g *Generator) generateConstDecl(decl *ast.ConstDecl) {
 }
 
 func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
+	if decl.Body == nil {
+		return
+	}
 	g.writeLineDirective(decl.Token.Line)
 	hasReturnType := decl.ReturnType != nil || len(decl.ReturnTypes) > 0
 	hasMultiReturn := len(decl.ReturnTypes) > 1
@@ -292,7 +320,10 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 	if idx := strings.Index(decl.Name, "."); idx >= 0 {
 		className := decl.Name[:idx]
 		methodName := decl.Name[idx+1:]
-		g.write(fmt.Sprintf("func (self *%s) %s", className, methodName))
+		g.write("func (self *")
+		g.writeClassReceiverType(className, g.classTypeParams[className])
+		g.write(") ")
+		g.write(methodName)
 	} else {
 		g.write(fmt.Sprintf("func %s", decl.Name))
 	}

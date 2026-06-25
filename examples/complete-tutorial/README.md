@@ -1,6 +1,6 @@
-# Kylix v3.1.0 Complete Tutorial
+# Kylix v3.1.1 Complete Tutorial
 
-Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix v3.1.0 with tested, runnable examples — 32 of 34 examples pass (~94%).
+Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix v3.1.1 with tested, runnable examples — 35 of 35 checks pass (34 `example*.klx` files plus the `math_helper.klx` unit companion file).
 
 ## What is Kylix?
 
@@ -8,18 +8,20 @@ Kylix is a modern Pascal-to-Go transpiler that brings modern language features t
 
 ## Prerequisites
 
-- Kylix compiler (v3.1.0 or later)
+- Kylix compiler (v3.1.1 or later)
 - Go 1.18+ (for running generated code)
 
 ## Tutorial Structure
 
-This tutorial contains **34 working examples** organized into categories. Several major v3.0 limitations are now fixed in v3.1.0:
+This tutorial contains **34 runnable example files** organized into categories. Several major v3.0 limitations are now fixed in v3.1.x:
 
 - ✅ `var p: TClass` now works correctly (KLX-C01)
 - ✅ String interpolation `${var}` expands (KLX-C02)
 - ✅ Lambda return types preserved (KLX-C03)
 - ✅ `match` statement codegen fixed (KLX-C04)
 - ✅ `uses sysutil/jsonutil/datetime/...` works in `program` files (KLX-C05)
+- ✅ Generic class methods emit valid Go receivers (KLX-G01, v3.1.1)
+- ✅ Unit `interface` / `implementation` sections compile correctly (KLX-M01, v3.1.1)
 
 ### 1. Basics (6 examples) - `01_basics/`
 - `example01_hello.klx` - Hello World
@@ -47,7 +49,7 @@ This tutorial contains **34 working examples** organized into categories. Severa
 - `example19_inheritance.klx` - Class inheritance
 
 ### 5. Generics (1 example) - `05_generics/`
-- `example21_generic_class.klx` - Generic stack class (⚠️ KLX-G01 runtime issue)
+- `example21_generic_class.klx` - Generic stack class
 
 ### 6. Advanced Types (3 examples) - `06_advanced_types/`
 - `example22_records.klx` - Record types
@@ -63,7 +65,7 @@ This tutorial contains **34 working examples** organized into categories. Severa
 
 ### 9. Modules (2 examples) - `11_modules/`
 - `math_helper.klx` - Unit definition
-- `example33_use_module.klx` - Using units with `uses` (⚠️ KLX-M01 multi-file issue)
+- `example33_use_module.klx` - Using units with `uses`
 
 ### 10. Declarative OOP (1 example) - new in v3.1.0
 - `example40_declarative_oop.klx` - `var p := TPerson.Create` pattern with inheritance (KLX-C01 fix demo)
@@ -257,13 +259,11 @@ begin
 end.
 ```
 
-## Known Limitations (v3.1.0)
+## Known Limitations (v3.1.1)
 
-Most former limitations are now fixed! Remaining known issues:
+Most former tutorial limitations are now fixed. Remaining known issue:
 
-- **example21_generic_class** — compiles but has a runtime issue (tracked as KLX-G01)
-- **example33_use_module** — multi-file unit compilation path has edge-case failures (tracked as KLX-M01)
-- **LLVM backend** — interfaces, generics, and exceptions not yet supported (planned for Milestone 2 Phase 2-3 in v3.2)
+- **LLVM backend** — interfaces, generics, and exceptions are not yet supported (planned for Milestone 2 Phase 2-3 in v3.2)
 
 ### Working Features
 ✅ Basic types (Integer, String, Real, Boolean)
@@ -271,7 +271,7 @@ Most former limitations are now fixed! Remaining known issues:
 ✅ All control flow (if, while, for, repeat, case)
 ✅ Functions, procedures, recursion, multi-return
 ✅ Arrays (fixed + dynamic), Map types, Record types
-✅ Generic classes (compile)
+✅ Generic classes (build + run)
 ✅ Exception handling (try/except/finally)
 ✅ Modules (unit/uses)
 ✅ All operators (arithmetic, comparison, logical)
@@ -282,6 +282,8 @@ Most former limitations are now fixed! Remaining known issues:
 ✅ **`uses sysutil/jsonutil/datetime/regex/httpclient` in programs** (v3.1.0 fix)
 ✅ **Annotation syntax `[Name]` / `[Name(args)]`** (v3.1.0)
 ✅ **KylixBoot framework** — `uses boot` for declarative web apps (v3.1.0)
+✅ **Generic class method receivers** (v3.1.1 fix)
+✅ **Unit interface/implementation sections** (v3.1.1 fix)
 
 ## Tips and Best Practices
 
@@ -291,7 +293,8 @@ Most former limitations are now fixed! Remaining known issues:
 4. **Multi-return requires pre-declared variables** - can't use `:=` with tuple assignment
 5. **Arrays are 0-indexed** in Kylix (with optional Pascal-style 1-based ranges)
 6. **Maps auto-initialize** - no need for explicit initialization
-7. **For class instance vars, both `var p: TPerson` and `var p := TPerson.Create` now work** (v3.1.0)
+7. **Use `self.Field` inside class methods** to access instance fields
+8. **For class instance vars, both `var p: TPerson` and `var p := TPerson.Create` now work** (v3.1.0)
 
 ## Quick Start Example
 
@@ -333,13 +336,13 @@ go run hello.go
 | Control Flow | 5 | ✅ All work |
 | Functions | 3 | ✅ All work |
 | OOP | 3 | ✅ All work |
-| Generics | 1 | ⚠️ Compiles, runtime issue (KLX-G01) |
+| Generics | 1 | ✅ Works |
 | Advanced Types | 3 | ✅ All work |
 | Core Functions | 1 | ✅ Works |
 | Exceptions | 2 | ✅ All work |
-| Modules | 2 | ⚠️ KLX-M01 edge case |
+| Modules | 2 | ✅ Works |
 | Declarative OOP | 1 | ✅ Works (v3.1.0) |
 | Annotations | 1 | ✅ Works (v3.1.0) |
-| **Total** | **34** | **32 fully working (~94%)** |
+| **Total** | **34** | **35/35 checks pass** |
 
 Happy coding with Kylix! 🚀
