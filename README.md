@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-3.1.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.2.0--dev-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
-> 🎉 **v3.1.0 Release**: KylixBoot framework (Spring Boot–style annotations + DI + router), `[Attribute]` syntax, LLVM arrays + optimization passes, and 5 critical compiler fixes (KLX-C01..C05). See [CHANGELOG.md](CHANGELOG.md) for details.
+> 🎉 **v3.2.0-dev**: Full KylixBoot annotation stack — auto route wiring (`[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]`), DI (`[Service]`/`[Component]`/`[Inject]`), procedure-style handlers, field validation (`[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]`), per-route security (`[Authenticated]`/`[Role]`), and declarative ORM (`[Entity]`/`[Column]`/`[Repository]`/`[Query]`). See [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 
@@ -45,7 +45,13 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 - **WASI**: `kylix build --wasi` — compile to WebAssembly System Interface (v3.0.0-alpha)
 - **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain (v3.0.0-alpha)
 - **KylixBoot Framework**: Spring Boot–style annotation-driven web apps (v3.1.0)
-- **Annotation Syntax**: `[Controller]`, `[Get]`, `[Inject]`, `[Entity]` (v3.1.0)
+- **Annotation Auto-Wiring**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` auto route registration (v3.2.0)
+- **Dependency Injection**: `[Service]`/`[Component]`/`[Inject]` compile-time auto-wiring (v3.2.0)
+- **Procedure Handlers**: `procedure M(req; res)` alongside function-style handlers (v3.2.0)
+- **Validation Annotations**: `[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]` → `Validate()`/`IsValid()` (v3.2.0)
+- **Security Annotations**: `[Authenticated]`/`[Role('admin')]` per-route guards (v3.2.0)
+- **ORM Annotations**: `[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]` declarative data layer (v3.2.0)
+- **Annotation Diagnostics**: KLX207–KLX213 framework contract errors (v3.2.0)
 
 ## Installation
 
@@ -652,6 +658,77 @@ container.Inject(controller);
 
 23 unit tests in `pkg/boot/`; declarations in `stdlib/klx/boot.klx`.
 
+### KylixBoot Annotations — v3.2.0+
+
+The compiler now auto-wires the whole stack from annotations, so you no longer call `boot.GET` by hand:
+
+```pascal
+program App;
+uses boot, orm;
+
+[Entity('users')]
+type
+  TUser = class
+    [PrimaryKey]
+    Id: Integer;
+    [Column('email')]
+    Email: String;
+  end;
+
+[Repository(TUser)]
+type
+  TUserRepository = class
+    [Query('SELECT * FROM users WHERE email = ?')]
+    function ByEmail(email: String): TUser;
+  end;
+
+[Service]
+type
+  TUserService = class
+    [Inject]
+    Repo: TUserRepository;
+    function Greeting(): String;
+    begin result := 'hello from service'; end;
+  end;
+
+[Controller('/api')]
+type
+  TUserController = class
+    [Inject]
+    UserService: TUserService;
+
+    [Get('/hello')]
+    [Authenticated]
+    function Hello(req: TRequest): TResponse;
+    begin
+      result := BootText(200, self.UserService.Greeting());
+    end;
+
+    [Get('/users')]
+    [Role('admin')]
+    function Users(req: TRequest): TResponse;
+    begin
+      result := BootJSON(200, record ok := true; end);
+    end;
+  end;
+
+begin
+  WriteLn('KylixBoot annotations ready');
+end.
+```
+
+What the compiler generates before your `main()`:
+
+- singletons for `[Service]`/`[Component]` classes + `BootRegisterInstance`
+- `TUser.ToRow()` / `FromRow()` mapping helpers
+- `TUserRepository.FindAll/FindById/Save/DeleteById` + the `ByEmail` query body
+- typed `[Inject]` field assignments
+- route closures registered via `BootGET`/`BootPOST`, with `BootEnforceAuth`/`BootEnforceRole` guards injected for `[Authenticated]`/`[Role]`
+
+Bad annotations fail before codegen with `KLX207`–`KLX213` (duplicate routes, invalid args, unsupported handler signatures, missing inject targets, invalid validation/security/ORM usage).
+
+See `examples/complete-tutorial/12_special_features/example42..47` for runnable demos.
+
 ### Annotation Syntax (`[Attribute]`) — v3.1.0+
 
 Annotations attach metadata to classes, types, functions, and fields — the foundation of declarative APIs (route registration, ORM mapping, DI, validation).
@@ -939,13 +1016,17 @@ Kylix LSP supports any editor with LSP client:
 - ✅ LLVM Milestone 2 Phase 1: static + dynamic arrays, `--llvm-opt=N`
 - ✅ Tutorial expanded with `example40_declarative_oop.klx` and `example41_attributes.klx` (32/34 examples pass)
 
-### v3.2.0: Auto-Wiring + ORM + LLVM M2 Phase 2 🔲
-- 🔲 Auto-route registration from `[Controller]`/`[Get]` annotations (DI integration)
-- 🔲 ORM annotations: `[Entity]` / `[Repository]` / `[Query]`
+### v3.2.0-dev: KylixBoot Annotation Stack ✅ (in progress)
+- ✅ Auto-route registration from `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` annotations
+- ✅ DI auto-wiring: `[Service]`/`[Component]`/`[Inject]`
+- ✅ Procedure-style route handlers (`procedure M(req; res)`)
+- ✅ Validation annotations: `[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]` → `Validate()`/`IsValid()`
+- ✅ Security annotations: `[Authenticated]`/`[Role('admin')]` per-route guards
+- ✅ ORM annotations: `[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]`
+- ✅ Annotation diagnostics: KLX207 (duplicate route) … KLX213 (invalid ORM)
+- ✅ Tutorial: 41/41 examples pass (6 new KylixBoot annotation examples)
 - 🔲 LLVM Milestone 2 Phase 2 — interface fat pointer
 - 🔲 LLVM Milestone 2 Phase 3 — generic monomorphization
-- 🔲 Validation annotations `[Required]` / `[Min]` / `[Email]`
-- 🔲 Security annotations `[Authenticated]` / `[Role]`
 - 🔲 Registry deployment to kylix.top/packages
 - 🔲 stdlib Phase 6: net / crypto / encoding
 

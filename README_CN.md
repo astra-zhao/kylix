@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-3.1.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-3.2.0--dev-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🎉 **v3.1.0 发布**: KylixBoot 框架（Spring Boot 式注解 + DI + 路由）、`[Attribute]` 注解语法、LLVM 数组 + 优化选项，以及 5 个关键编译器修复 (KLX-C01..C05)。详情见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v3.2.0-dev**: 完整 KylixBoot 注解栈 —— 自动路由装配（`[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]`）、依赖注入（`[Service]`/`[Component]`/`[Inject]`）、procedure 风格 handler、字段校验（`[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]`）、按路由安全控制（`[Authenticated]`/`[Role]`）、声明式 ORM（`[Entity]`/`[Column]`/`[Repository]`/`[Query]`）。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 特性
 
@@ -48,7 +48,13 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 - **WASI**: `kylix build --wasi` 编译为 WASI 目标 (v3.0.0-alpha)
 - **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链 (v3.0.0-alpha)
 - **KylixBoot 框架**: Spring Boot 式注解驱动的 Web 应用 (v3.1.0)
-- **注解语法**: `[Controller]`、`[Get]`、`[Inject]`、`[Entity]` (v3.1.0)
+- **注解自动装配**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` 自动路由注册 (v3.2.0)
+- **依赖注入**: `[Service]`/`[Component]`/`[Inject]` 编译期自动装配 (v3.2.0)
+- **Procedure 风格 handler**: `procedure M(req; res)` 与 function 风格并存 (v3.2.0)
+- **校验注解**: `[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]` → `Validate()`/`IsValid()` (v3.2.0)
+- **安全注解**: `[Authenticated]`/`[Role('admin')]` 按路由守卫 (v3.2.0)
+- **ORM 注解**: `[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]` 声明式数据层 (v3.2.0)
+- **注解诊断**: KLX207–KLX213 框架契约错误 (v3.2.0)
 - **国际化**: 通过 `KYLIX_LANG=zh` 切换中文错误消息 (v2.3.0)
 
 ## 安装
@@ -690,6 +696,77 @@ container.Inject(controller);
 
 23 个单元测试位于 `pkg/boot/`；声明文件在 `stdlib/klx/boot.klx`。
 
+### KylixBoot 注解 — v3.2.0+
+
+编译器现在会直接从注解自动装配整套栈，你不再需要手动调用 `boot.GET`：
+
+```pascal
+program App;
+uses boot, orm;
+
+[Entity('users')]
+type
+  TUser = class
+    [PrimaryKey]
+    Id: Integer;
+    [Column('email')]
+    Email: String;
+  end;
+
+[Repository(TUser)]
+type
+  TUserRepository = class
+    [Query('SELECT * FROM users WHERE email = ?')]
+    function ByEmail(email: String): TUser;
+  end;
+
+[Service]
+type
+  TUserService = class
+    [Inject]
+    Repo: TUserRepository;
+    function Greeting(): String;
+    begin result := 'hello from service'; end;
+  end;
+
+[Controller('/api')]
+type
+  TUserController = class
+    [Inject]
+    UserService: TUserService;
+
+    [Get('/hello')]
+    [Authenticated]
+    function Hello(req: TRequest): TResponse;
+    begin
+      result := BootText(200, self.UserService.Greeting());
+    end;
+
+    [Get('/users')]
+    [Role('admin')]
+    function Users(req: TRequest): TResponse;
+    begin
+      result := BootJSON(200, record ok := true; end);
+    end;
+  end;
+
+begin
+  WriteLn('KylixBoot annotations ready');
+end.
+```
+
+编译器会在你的 `main()` 之前生成：
+
+- `[Service]`/`[Component]` 类的单例 + `BootRegisterInstance`
+- `TUser.ToRow()` / `FromRow()` 字段映射助手
+- `TUserRepository.FindAll/FindById/Save/DeleteById` + `ByEmail` 查询体
+- 强类型 `[Inject]` 字段赋值
+- 通过 `BootGET`/`BootPOST` 注册的路由闭包，并为 `[Authenticated]`/`[Role]` 注入 `BootEnforceAuth`/`BootEnforceRole` 守卫
+
+非法注解会在 codegen 之前以 `KLX207`–`KLX213` 报错（重复路由、非法参数、不支持的 handler 签名、缺失注入目标、非法 validation/security/ORM 用法）。
+
+可运行示例见 `examples/complete-tutorial/12_special_features/example42..47`。
+
 ### 注解语法 (`[Attribute]`) — v3.1.0+
 
 注解为类、类型、函数和字段附加元数据，是声明式 API（路由注册、ORM 映射、DI、校验）的基础。
@@ -1016,13 +1093,17 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 - ✅ LLVM Milestone 2 Phase 1：静态 + 动态数组，`--llvm-opt=N`
 - ✅ 教程扩展 `example40_declarative_oop.klx` 和 `example41_attributes.klx`（32/34 示例通过）
 
-### v3.2.0 — 自动装配 + ORM + LLVM M2 Phase 2 🔲
-- 🔲 从 `[Controller]` / `[Get]` 注解自动注册路由（集成 DI）
-- 🔲 ORM 注解：`[Entity]` / `[Repository]` / `[Query]`
+### v3.2.0-dev：KylixBoot 注解栈 ✅（进行中）
+- ✅ 从 `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` 注解自动注册路由
+- ✅ DI 自动装配：`[Service]`/`[Component]`/`[Inject]`
+- ✅ Procedure 风格路由 handler（`procedure M(req; res)`）
+- ✅ 校验注解：`[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]` → `Validate()`/`IsValid()`
+- ✅ 安全注解：`[Authenticated]`/`[Role('admin')]` 按路由守卫
+- ✅ ORM 注解：`[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]`
+- ✅ 注解诊断：KLX207（重复路由）… KLX213（非法 ORM）
+- ✅ 教程：41/41 示例通过（新增 6 个 KylixBoot 注解示例）
 - 🔲 LLVM Milestone 2 Phase 2 —— 接口 fat pointer
 - 🔲 LLVM Milestone 2 Phase 3 —— 泛型单态化
-- 🔲 校验注解 `[Required]` / `[Min]` / `[Email]`
-- 🔲 安全注解 `[Authenticated]` / `[Role]`
 - 🔲 包注册中心部署到 kylix.top/packages
 - 🔲 stdlib Phase 6：net / crypto / encoding
 
