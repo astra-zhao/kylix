@@ -27,6 +27,8 @@ type Request struct {
 	Request *http.Request
 	Params  map[string]string
 	body    []byte
+	User    string
+	Roles   []string
 }
 
 // Param returns a URL path parameter value (e.g. "/users/:id" → req.Param("id")).
@@ -128,6 +130,24 @@ func (r *Response) WithHeader(key, value string) *Response {
 		r.Headers = map[string]string{}
 	}
 	r.Headers[key] = value
+	return r
+}
+
+// Send mutates the response body as plain text.
+func (r *Response) Send(body string) *Response {
+	if r.Headers == nil {
+		r.Headers = map[string]string{}
+	}
+	r.Body = body
+	if r.ContentType == "" {
+		r.ContentType = "text/plain; charset=utf-8"
+	}
+	return r
+}
+
+// StatusCode mutates the response status code.
+func (r *Response) StatusCode(status int) *Response {
+	r.Status = status
 	return r
 }
 

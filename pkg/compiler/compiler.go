@@ -83,6 +83,10 @@ func CompileFile(sourceFile string, opts Options) (*Result, error) {
 
 	// Interface implementation validation
 	result.Diagnostics = append(result.Diagnostics, checkInterfaces(program, sourceFile)...)
+	result.Diagnostics = append(result.Diagnostics, checkBootAnnotations(program, sourceFile)...)
+	result.Diagnostics = append(result.Diagnostics, checkValidationAnnotations(program, sourceFile)...)
+	result.Diagnostics = append(result.Diagnostics, checkSecurityAnnotations(program, sourceFile)...)
+	result.Diagnostics = append(result.Diagnostics, checkORMAnnotations(program, sourceFile)...)
 
 	// Type checker: undeclared vars, arity, obvious type mismatches
 	for _, td := range TypeCheck(program, sourceFile) {
@@ -418,13 +422,13 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 
 	// Parallel parse: each file is lexed+parsed independently in a goroutine.
 	type parseResult struct {
-		index    int
-		file     string
-		absFile  string
-		program  *ast.Program
-		err      error
+		index     int
+		file      string
+		absFile   string
+		program   *ast.Program
+		err       error
 		parseErrs []string
-		cached   bool
+		cached    bool
 	}
 
 	results := make([]parseResult, len(files))
@@ -505,6 +509,10 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 	}
 
 	// Semantic checks on all files — run all of them before deciding success.
+	result.Diagnostics = append(result.Diagnostics, CheckBootAnnotations(sorted, sortedFiles)...)
+	result.Diagnostics = append(result.Diagnostics, CheckValidationAnnotations(sorted, sortedFiles)...)
+	result.Diagnostics = append(result.Diagnostics, CheckSecurityAnnotations(sorted, sortedFiles)...)
+	result.Diagnostics = append(result.Diagnostics, CheckORMAnnotations(sorted, sortedFiles)...)
 	for i, prog := range sorted {
 		result.Diagnostics = append(result.Diagnostics, checkInterfaces(prog, sortedFiles[i])...)
 		for _, td := range TypeCheck(prog, sortedFiles[i]) {
@@ -531,6 +539,9 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 	for _, prog := range sorted {
 		gen.CollectClassTypes(prog)
 		gen.ScanImports(prog)
+		gen.ScanBootAnnotations(prog)
+		gen.ScanValidationAnnotations(prog)
+		gen.ScanORMAnnotations(prog)
 		gen.ScanForException(prog)
 	}
 	// (exception types are emitted inside BuildOutput)

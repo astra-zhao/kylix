@@ -1,6 +1,6 @@
 # Kylix v3.1.1 Complete Tutorial
 
-Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix v3.1.1 with tested, runnable examples — 35 of 35 checks pass (34 `example*.klx` files plus the `math_helper.klx` unit companion file).
+Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix v3.2.0 with tested, runnable examples — 41 of 41 checks pass (40 `example*.klx` files plus the `math_helper.klx` unit companion file).
 
 ## What is Kylix?
 
@@ -13,7 +13,7 @@ Kylix is a modern Pascal-to-Go transpiler that brings modern language features t
 
 ## Tutorial Structure
 
-This tutorial contains **34 runnable example files** organized into categories. Several major v3.0 limitations are now fixed in v3.1.x:
+This tutorial contains **40 runnable example files** organized into categories. Several major v3.0 limitations are now fixed in v3.1.x:
 
 - ✅ `var p: TClass` now works correctly (KLX-C01)
 - ✅ String interpolation `${var}` expands (KLX-C02)
@@ -70,8 +70,14 @@ This tutorial contains **34 runnable example files** organized into categories. 
 ### 10. Declarative OOP (1 example) - new in v3.1.0
 - `example40_declarative_oop.klx` - `var p := TPerson.Create` pattern with inheritance (KLX-C01 fix demo)
 
-### 11. Special Features (1 example) - new in v3.1.0
+### 11. Special Features (7 examples) - new in v3.1.0+
 - `example41_attributes.klx` - `[Attribute]` annotation syntax (`[Controller]`, `[Get]`, `[Inject]`, `[Entity]`)
+- `example42_kylixboot_autowire.klx` - v3.2.0 KylixBoot `[Controller]` + `[Get]` auto route registration
+- `example43_kylixboot_di.klx` - v3.2.0 KylixBoot `[Service]` + `[Inject]` DI auto-wiring
+- `example44_kylixboot_proc_handler.klx` - v3.2.0 procedure-style route handler
+- `example45_validation_annotations.klx` - v3.2.0 `[Required]`/`[Email]`/`[Min]`/`[MinLen]` field validators
+- `example46_security_annotations.klx` - v3.2.0 `[Authenticated]`/`[Role]` per-route security guards
+- `example47_orm_annotations.klx` - v3.2.0 `[Entity]`/`[Column]`/`[Repository]`/`[Query]` declarative ORM
 
 ## How to Run Examples
 
@@ -342,7 +348,7 @@ go run hello.go
 | Exceptions | 2 | ✅ All work |
 | Modules | 2 | ✅ Works |
 | Declarative OOP | 1 | ✅ Works (v3.1.0) |
-| Annotations | 1 | ✅ Works (v3.1.0) |
-| **Total** | **34** | **35/35 checks pass** |
+| Annotations / Auto-wire / DI / Procedure handlers / Validation / Security / ORM | 7 | ✅ Works (v3.1.0+ / v3.2.0) |
+| **Total** | **40** | **41/41 checks pass** |
 
 Happy coding with Kylix! 🚀

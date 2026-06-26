@@ -21,6 +21,32 @@ func doRequest(r *Router, method, path string) (int, string, http.Header) {
 	return resp.StatusCode, string(body), resp.Header
 }
 
+func TestResponse_Send(t *testing.T) {
+	res := NewResponse(200, "")
+	if got := res.Send("hello"); got != res {
+		t.Fatal("Send should return the receiver")
+	}
+	if res.Body != "hello" {
+		t.Errorf("Body=%q, want hello", res.Body)
+	}
+	if res.ContentType != "text/plain; charset=utf-8" {
+		t.Errorf("ContentType=%q", res.ContentType)
+	}
+	if res.Headers == nil {
+		t.Error("Headers should be initialized")
+	}
+}
+
+func TestResponse_StatusCode(t *testing.T) {
+	res := NewResponse(200, "ok")
+	if got := res.StatusCode(201); got != res {
+		t.Fatal("StatusCode should return the receiver")
+	}
+	if res.Status != 201 {
+		t.Errorf("Status=%d, want 201", res.Status)
+	}
+}
+
 // ===== Router tests =====
 
 func TestRouter_BasicGET(t *testing.T) {

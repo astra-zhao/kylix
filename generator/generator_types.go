@@ -74,6 +74,9 @@ func (g *Generator) generateClassDecl(decl *ast.ClassDecl) {
 	for _, prop := range decl.Properties {
 		g.generatePropertyAccessors(decl.Name, decl.TypeParams, prop)
 	}
+	g.generateValidationMethods(decl.Name, decl.TypeParams, decl)
+	g.generateORMEntityMethods(decl.Name, decl.TypeParams, decl)
+	g.generateORMRepositoryMethods(decl.Name, decl.TypeParams, decl)
 }
 
 func (g *Generator) writeClassReceiverType(className string, typeParams []*ast.TypeParameter) {
@@ -508,6 +511,16 @@ func (g *Generator) generateTypeExpression(expr ast.Expression) {
 	switch t := expr.(type) {
 	case *ast.Identifier:
 		typeName := t.Value
+		if g.usedModules["boot"] {
+			switch typeName {
+			case "TRequest", "BootRequest":
+				g.write("*stdlib.BootRequest")
+				return
+			case "TResponse", "BootResponse":
+				g.write("*stdlib.BootResponse")
+				return
+			}
+		}
 		if g.classTypes[typeName] {
 			// v3.1.0: Always emit *TypeName for class types.
 			// Previously emitted interface{} for base classes (to allow polymorphism),

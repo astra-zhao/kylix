@@ -45,7 +45,7 @@ func (p *Parser) parseAttribute() *ast.Attribute {
 	openTok := p.curToken
 	p.nextToken() // consume '['
 
-	if !p.curTokenIs(token.IDENT) {
+	if !p.isIdentOrSoftKeyword() {
 		// Not an attribute — could be an array literal or indexing context.
 		// Back up — but we already consumed '['; emit an error.
 		p.errors = append(p.errors, "expected attribute name after '['")

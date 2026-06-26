@@ -110,3 +110,28 @@ func BootRegisterInstance(name string, instance interface{}) {
 func BootResolve(name string) interface{} {
 	return boot.Resolve(name)
 }
+
+// BootRegisterAuth registers the global token → user validator used by
+// [Authenticated] and [Role] annotation guards.
+func BootRegisterAuth(v func(string) (string, bool)) {
+	boot.RegisterAuthValidator(v)
+}
+
+// BootRegisterRoles registers the global user → roles provider used by
+// [Role] annotation guards.
+func BootRegisterRoles(p func(string) []string) {
+	boot.RegisterRolesProvider(p)
+}
+
+// BootEnforceAuth verifies the Bearer token and populates req.User on success.
+// Returns a 401 *Response on any failure, nil on success. Called by generated
+// route closures for methods carrying [Authenticated] or [Role(...)].
+func BootEnforceAuth(req *boot.Request) *boot.Response {
+	return boot.EnforceAuth(req)
+}
+
+// BootEnforceRole returns a 403 *Response unless req.User has the given role.
+// Implicitly calls EnforceAuth if req.User is empty.
+func BootEnforceRole(req *boot.Request, role string) *boot.Response {
+	return boot.EnforceRole(req, role)
+}

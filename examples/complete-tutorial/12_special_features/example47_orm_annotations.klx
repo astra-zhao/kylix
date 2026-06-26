@@ -1,0 +1,28 @@
+program ORMAnnotations;
+uses orm;
+
+[Entity('users')]
+type
+  TUser = class
+    [PrimaryKey]
+    Id: Integer;
+
+    [Column('email')]
+    Email: String;
+
+    Name: String;
+  end;
+
+[Repository(TUser)]
+type
+  TUserRepository = class
+    [Query('SELECT * FROM users WHERE email = ?')]
+    function ByEmail(email: String): TUser;
+
+    [Query('SELECT * FROM users')]
+    function All(): array of TUser;
+  end;
+
+begin
+  WriteLn('KylixBoot ORM annotations OK');
+end.

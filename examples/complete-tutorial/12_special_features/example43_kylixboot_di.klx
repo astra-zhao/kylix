@@ -1,0 +1,28 @@
+program KylixBootDI;
+uses boot;
+
+[Service]
+type
+  TUserService = class
+    function Greeting(): String;
+    begin
+      result := 'Hello from service';
+    end;
+  end;
+
+[Controller('/di')]
+type
+  TUserController = class
+    [Inject]
+    UserService: TUserService;
+
+    [Get('/hello')]
+    function Hello(req: TRequest): TResponse;
+    begin
+      result := BootText(200, self.UserService.Greeting());
+    end;
+  end;
+
+begin
+  WriteLn('KylixBoot DI auto-wire OK');
+end.

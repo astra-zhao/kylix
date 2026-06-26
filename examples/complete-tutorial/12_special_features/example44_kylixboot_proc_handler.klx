@@ -1,0 +1,17 @@
+program KylixBootProcHandler;
+uses boot;
+
+[Controller('/proc')]
+type
+  TProcController = class
+    [Get('/hello')]
+    procedure Hello(req: TRequest; res: TResponse);
+    begin
+      res.StatusCode(200);
+      res.Send('Hello from procedure handler');
+    end;
+  end;
+
+begin
+  WriteLn('KylixBoot procedure handler OK');
+end.

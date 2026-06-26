@@ -1,0 +1,24 @@
+program SecurityAnnotations;
+uses boot;
+
+[Controller('/admin')]
+type
+  TAdminController = class
+    [Get('/dashboard')]
+    [Authenticated]
+    function Dashboard(req: TRequest): TResponse;
+    begin
+      result := BootText(200, 'admin dashboard');
+    end;
+
+    [Get('/users')]
+    [Role('admin')]
+    function ListUsers(req: TRequest): TResponse;
+    begin
+      result := BootText(200, 'admin users');
+    end;
+  end;
+
+begin
+  WriteLn('KylixBoot security annotations OK');
+end.

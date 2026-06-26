@@ -51,8 +51,8 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"orm": strToSet(
 		"NewDatabase", "NewORM", "NewQueryBuilder", "NewMigrationManager",
 	),
-	"container": strToSet("NewContainer"),
-	"config": strToSet("NewConfig", "NewAppConfig"),
+	"container":  strToSet("NewContainer"),
+	"config":     strToSet("NewConfig", "NewAppConfig"),
 	"autoconfig": strToSet("NewAutoConfig"),
 	"middleware": strToSet(
 		"NewCORSMiddleware", "NewLoggingMiddleware", "NewRecoveryMiddleware",
@@ -60,13 +60,14 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"NewRequestIDMiddleware", "GetRequestID", "GetAuthToken",
 	),
 	"validation": strToSet("NewValidator", "NewRequestValidator"),
-	"template": strToSet("NewTemplateEngine", "NewView"),
+	"template":   strToSet("NewTemplateEngine", "NewView"),
 	"boot": strToSet(
 		"BootRun", "BootGET", "BootPOST", "BootPUT", "BootDELETE",
 		"BootUseLogger", "BootUseRecover", "BootUseCORS", "BootUseRequestID",
 		"BootText", "BootJSON", "BootHTML",
 		"BootConfigSet", "BootConfigGetString", "BootConfigGetInt",
 		"BootRegisterInstance", "BootResolve",
+		"BootRegisterAuth", "BootRegisterRoles", "BootEnforceAuth", "BootEnforceRole",
 	),
 }
 
@@ -101,7 +102,7 @@ var stdlibErrorFuncs = map[string]bool{
 	"ReadLines": true, "WriteLines": true, "GetFileSize": true,
 	"ParseDate": true, "ParseDateTime": true,
 	"RegexCompile": true,
-	"HttpGet": true, "HttpPost": true, "HttpGetJSON": true,
+	"HttpGet":      true, "HttpPost": true, "HttpGetJSON": true,
 	"JsonDecode": true, "JsonDecodeMap": true, "JsonDecodeArray": true,
 	"JsonReadFile": true,
 }

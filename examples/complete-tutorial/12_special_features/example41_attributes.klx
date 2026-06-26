@@ -5,35 +5,44 @@
 //   - Field attributes:    [Inject], [Value('key', default)]
 //   - Marker attributes:   [Component], [Authenticated]
 //
-// Attributes are stored in the AST and made available to frameworks
-// like KylixBoot for compile-time routing, dependency injection, etc.
-// In v3.1.0 they are parsed but ignored by the Go backend.
+// v3.2.0: [Controller]/[Get]/[Post] are now validated by the compiler, so
+// route handlers use the supported signature: function(req: TRequest): TResponse.
 
 program AttributeDemo;
+uses boot;
+
+[Service]
+type
+  TUserRepository = class
+    function Name(): String;
+    begin
+      result := 'UserRepo';
+    end;
+  end;
 
 [Controller('/api/users')]
 type
   TUserController = class
   public
     [Inject]
-    Repo: String;
+    Repo: TUserRepository;
 
     [Get('/')]
-    function ListUsers(): String;
+    function ListUsers(req: TRequest): TResponse;
     begin
-      result := 'GET /api/users → ' + self.Repo;
+      result := BootText(200, 'GET /api/users → ' + self.Repo.Name());
     end;
 
     [Post('/')]
-    function CreateUser(): String;
+    function CreateUser(req: TRequest): TResponse;
     begin
-      result := 'POST /api/users → created';
+      result := BootText(201, 'POST /api/users → created');
     end;
 
     [Get('/:id')]
-    function GetUser(): String;
+    function GetUser(req: TRequest): TResponse;
     begin
-      result := 'GET /api/users/:id';
+      result := BootText(200, 'GET /api/users/:id');
     end;
   end;
 
@@ -49,18 +58,18 @@ type
   end;
 
 [Authenticated]
-[Get('/health')]
 function HealthCheck(): String;
 begin
   result := 'OK';
 end;
 
 begin
+  var repo := TUserRepository.Create;
   var ctrl := TUserController.Create;
-  ctrl.Repo := 'UserRepo';
-  WriteLn(ctrl.ListUsers());
-  WriteLn(ctrl.CreateUser());
-  WriteLn(ctrl.GetUser());
+  ctrl.Repo := repo;
+  WriteLn(ctrl.ListUsers(nil).Body);
+  WriteLn(ctrl.CreateUser(nil).Body);
+  WriteLn(ctrl.GetUser(nil).Body);
 
   var cfg := TAppConfig.Create;
   cfg.AppName := 'KylixDemo';

@@ -29,12 +29,19 @@ const (
 	ErrTypeAliasLoop     = "KLX105"
 
 	// Semantic errors
-	ErrUndeclared        = "KLX201"
-	ErrWrongArity        = "KLX202"
-	ErrDuplicateDecl     = "KLX203"
-	ErrUninitializedVar  = "KLX204"
-	ErrBreakOutsideLoop  = "KLX205"
-	ErrReturnTypeMissing = "KLX206"
+	ErrUndeclared          = "KLX201"
+	ErrWrongArity          = "KLX202"
+	ErrDuplicateDecl       = "KLX203"
+	ErrUninitializedVar    = "KLX204"
+	ErrBreakOutsideLoop    = "KLX205"
+	ErrReturnTypeMissing   = "KLX206"
+	ErrDuplicateRoute      = "KLX207"
+	ErrInvalidAnnotation   = "KLX208"
+	ErrUnsupportedHandler  = "KLX209"
+	ErrMissingInjectTarget = "KLX210"
+	ErrInvalidValidation   = "KLX211"
+	ErrInvalidSecurity     = "KLX212"
+	ErrInvalidORM          = "KLX213"
 
 	// Interface / contract errors
 	ErrMissingMethod    = "KLX301"

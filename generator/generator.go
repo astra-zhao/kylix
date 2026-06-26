@@ -21,42 +21,52 @@ func __kylixSetLength[T any](s []T, n int) []T {
 
 // Generator accumulates Go source code from a Kylix AST.
 type Generator struct {
-	output          strings.Builder
-	indent          int
-	sourceFile      string // current Kylix source file (for //line directives)
-	program         *ast.Program
-	variables       map[string]string // tracks variable types for codegen hints
-	inFunction      bool
-	inReturnFunc    bool                            // true when current function has a return value (Exit → return result)
-	inExceptHandler bool                            // true when inside a recover() block for bare raise
-	reRaiseVar      string                          // Go variable holding the recovered value for re-raise
-	nameMap         map[string]string               // temporary name substitutions (e.g., E→e in on clause)
-	imports         map[string]bool                 // Go imports needed by the output
-	needsException  bool                            // whether Exception type must be emitted
-	needsSetLength  bool                            // whether the __kylixSetLength helper is needed
-	exceptionTypes  map[string]bool                 // exception type names from on clauses
-	multiReturn     bool                            // current function has multiple return values
-	multiReturnN    int                             // number of return values in current function
-	classTypes      map[string]bool                 // user-defined class type names
-	classIsBase     map[string]bool                 // true if class is a parent (→ interface{} in type exprs)
-	classFields     map[string][]string             // class name → ordered field names (for constructor mapping)
-	classTypeParams map[string][]*ast.TypeParameter // class name → generic type parameters
-	userFuncs       map[string]bool                 // user-defined function names (override built-in mapping)
-	usedModules     map[string]bool                 // modules imported via `uses` clause
+	output           strings.Builder
+	indent           int
+	sourceFile       string // current Kylix source file (for //line directives)
+	program          *ast.Program
+	variables        map[string]string // tracks variable types for codegen hints
+	inFunction       bool
+	inReturnFunc     bool                            // true when current function has a return value (Exit → return result)
+	inExceptHandler  bool                            // true when inside a recover() block for bare raise
+	reRaiseVar       string                          // Go variable holding the recovered value for re-raise
+	nameMap          map[string]string               // temporary name substitutions (e.g., E→e in on clause)
+	imports          map[string]bool                 // Go imports needed by the output
+	needsException   bool                            // whether Exception type must be emitted
+	needsSetLength   bool                            // whether the __kylixSetLength helper is needed
+	exceptionTypes   map[string]bool                 // exception type names from on clauses
+	multiReturn      bool                            // current function has multiple return values
+	multiReturnN     int                             // number of return values in current function
+	classTypes       map[string]bool                 // user-defined class type names
+	classIsBase      map[string]bool                 // true if class is a parent (→ interface{} in type exprs)
+	classFields      map[string][]string             // class name → ordered field names (for constructor mapping)
+	classTypeParams  map[string][]*ast.TypeParameter // class name → generic type parameters
+	bootRoutes       []bootRoute                     // KylixBoot annotation-generated routes
+	bootComponents   []bootComponent                 // KylixBoot service/component singletons
+	bootInjects      []bootInjectField               // KylixBoot [Inject] field assignments
+	validationFields map[string][]validationField    // class name → fields with validation attrs
+	validatedOrder   []string                        // deterministic order of validated classes
+	ormEntities      map[string]*ormEntity           // ORM [Entity] metadata
+	ormEntitiesOrder []string                        // deterministic order for ORM emission
+	ormRepositories  []ormRepository                 // ORM [Repository] classes
+	userFuncs        map[string]bool                 // user-defined function names (override built-in mapping)
+	usedModules      map[string]bool                 // modules imported via `uses` clause
 }
 
 func New() *Generator {
 	return &Generator{
-		variables:       make(map[string]string),
-		nameMap:         make(map[string]string),
-		imports:         make(map[string]bool),
-		exceptionTypes:  make(map[string]bool),
-		classTypes:      make(map[string]bool),
-		classIsBase:     make(map[string]bool),
-		classFields:     make(map[string][]string),
-		classTypeParams: make(map[string][]*ast.TypeParameter),
-		userFuncs:       make(map[string]bool),
-		usedModules:     make(map[string]bool),
+		variables:        make(map[string]string),
+		nameMap:          make(map[string]string),
+		imports:          make(map[string]bool),
+		exceptionTypes:   make(map[string]bool),
+		classTypes:       make(map[string]bool),
+		classIsBase:      make(map[string]bool),
+		classFields:      make(map[string][]string),
+		classTypeParams:  make(map[string][]*ast.TypeParameter),
+		validationFields: make(map[string][]validationField),
+		ormEntities:      make(map[string]*ormEntity),
+		userFuncs:        make(map[string]bool),
+		usedModules:      make(map[string]bool),
 	}
 }
 
@@ -71,6 +81,15 @@ func (g *Generator) ScanImports(p *ast.Program) { g.scanImports(p) }
 
 // ScanForException is the exported pre-scan pass for cross-package use.
 func (g *Generator) ScanForException(p *ast.Program) { g.scanForException(p) }
+
+// ScanBootAnnotations is the exported pre-scan pass for KylixBoot annotation auto-wiring.
+func (g *Generator) ScanBootAnnotations(p *ast.Program) { g.scanBootAnnotations(p) }
+
+// ScanValidationAnnotations is the exported pre-scan pass for field validation annotations.
+func (g *Generator) ScanValidationAnnotations(p *ast.Program) { g.scanValidationAnnotations(p) }
+
+// ScanORMAnnotations is the exported pre-scan pass for [Entity]/[Repository]/[Query] annotations.
+func (g *Generator) ScanORMAnnotations(p *ast.Program) { g.scanORMAnnotations(p) }
 
 // WriteExceptionTypes emits the shared exception type declarations.
 func (g *Generator) WriteExceptionTypes() { g.writeExceptionTypes() }
@@ -112,6 +131,9 @@ func (g *Generator) Generate(program *ast.Program) string {
 	// Pre-scan passes collect metadata before any output is written.
 	g.collectClassTypes(program)
 	g.scanImports(program)
+	g.scanBootAnnotations(program)
+	g.scanValidationAnnotations(program)
+	g.scanORMAnnotations(program)
 	g.scanForException(program)
 
 	g.writeLine("package main")
@@ -153,6 +175,7 @@ func (g *Generator) Generate(program *ast.Program) string {
 	if !program.IsUnit && len(program.Statements) > 0 {
 		g.writeLine("func main() {")
 		g.indent++
+		g.emitBootAutoWiring()
 		for _, stmt := range program.Statements {
 			g.generateStatement(stmt)
 		}
@@ -192,6 +215,9 @@ func (g *Generator) GenerateMulti(programs []*ast.Program) string {
 	}
 	for _, prog := range programs {
 		g.scanImports(prog)
+		g.scanBootAnnotations(prog)
+		g.scanValidationAnnotations(prog)
+		g.scanORMAnnotations(prog)
 		g.scanForException(prog)
 	}
 
@@ -237,6 +263,7 @@ func (g *Generator) GenerateMulti(programs []*ast.Program) string {
 		if !prog.IsUnit && len(prog.Statements) > 0 {
 			g.writeLine("func main() {")
 			g.indent++
+			g.emitBootAutoWiring()
 			for _, stmt := range prog.Statements {
 				g.generateStatement(stmt)
 			}
@@ -255,8 +282,8 @@ func (g *Generator) GenerateMulti(programs []*ast.Program) string {
 // CompileProjectIncremental which adds the shared header once.
 //
 // The caller must have already run the global pre-scan passes
-// (collectClassTypes / scanImports / scanForException) on ALL programs so
-// cross-unit type references resolve correctly.
+// (collectClassTypes / scanImports / ScanBootAnnotations / scanForException) on ALL programs so
+// cross-unit type references and KylixBoot routes resolve correctly.
 func (g *Generator) GenerateBody(program *ast.Program) string {
 	// Snapshot current output length so we can extract only what we add.
 	start := g.output.Len()
@@ -290,6 +317,7 @@ func (g *Generator) GenerateBody(program *ast.Program) string {
 	if !program.IsUnit && len(program.Statements) > 0 {
 		g.writeLine("func main() {")
 		g.indent++
+		g.emitBootAutoWiring()
 		for _, stmt := range program.Statements {
 			g.generateStatement(stmt)
 		}

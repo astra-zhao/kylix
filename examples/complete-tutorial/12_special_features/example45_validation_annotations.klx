@@ -1,0 +1,26 @@
+program ValidationAnnotations;
+
+type
+  TCreateUser = class
+    [Required]
+    [Email]
+    Email: String;
+
+    [MinLen(8)]
+    Password: String;
+
+    [Min(18)]
+    Age: Integer;
+  end;
+
+begin
+  var user := TCreateUser.Create;
+  user.Email := 'bad-email';
+  user.Password := 'short';
+  user.Age := 16;
+
+  if not user.IsValid() then
+    WriteLn('Validation failed')
+  else
+    WriteLn('Validation passed');
+end.

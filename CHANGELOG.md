@@ -4,7 +4,111 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v3.1.1 (2026-06-25) — Unit Codegen + Generic Class Hotfix
+## v3.2.0-dev (2026-06-25) — KylixBoot Annotation Auto-Wiring
+
+### ORM Annotations
+
+The compiler now scans `[Entity('table')]`, `[Column('col')]`, `[PrimaryKey]`, `[Repository(TEntity)]`, and `[Query('SELECT ...')]` annotations and generates ORM helper methods that delegate to the existing `stdlib.ORM` runtime.
+
+MVP support:
+
+- `[Entity]` generates `ToRow()` and `FromRow()` mapping helpers on the class.
+- `[Repository(TEntity)]` generates baseline `FindAll`, `FindById`, `Save`, and `DeleteById` methods taking `orm *stdlib.ORM` as the first argument.
+- `[Query('SELECT ...')]` generates a method body that calls `orm.Query` or `orm.QueryAll` based on the return type (single entity vs `array of entity`).
+- Existing methods on the entity/repository class take precedence — generation is skipped to avoid duplicate Go method definitions.
+- Compiler diagnostic `KLX213 ErrInvalidORM` covers bad `[Entity]` args, unknown repository entity targets, misplaced `[Query]`, and invalid query return types.
+
+Example: `examples/complete-tutorial/12_special_features/example47_orm_annotations.klx`.
+
+Tests: `generator/generator_orm_annotations_test.go`, `pkg/compiler/orm_annotations_test.go`.
+
+---
+
+### Security Annotations
+
+KylixBoot now supports per-route security guards via field annotations:
+
+- `[Authenticated]` injects a 401 guard that validates `Authorization: Bearer <token>` using `boot.RegisterAuthValidator`.
+- `[Role('admin')]` adds a 403 guard against `boot.RegisterRolesProvider` (implies `[Authenticated]`).
+
+Generated route closures emit the guards before dispatching to the controller:
+
+```go
+stdlib.BootGET("/admin/users", func(req *stdlib.BootRequest) *stdlib.BootResponse {
+    if __r := stdlib.BootEnforceAuth(req); __r != nil { return __r }
+    if __r := stdlib.BootEnforceRole(req, "admin"); __r != nil { return __r }
+    return __kylix_ctrl_TAdminController.ListUsers(req)
+})
+```
+
+Runtime additions:
+- `pkg/boot/security.go` — `RegisterAuthValidator`, `RegisterRolesProvider`, `EnforceAuth`, `EnforceRole`
+- `pkg/boot/types.go` — `Request.User` / `Request.Roles`
+- `stdlib/boot_bridge.go` — `BootRegisterAuth`, `BootRegisterRoles`, `BootEnforceAuth`, `BootEnforceRole`
+- `stdlib/klx/boot.klx` — LSP declarations for the security helpers
+
+Compiler diagnostic `KLX212 ErrInvalidSecurity` covers:
+- `[Role]` missing or non-string argument
+- `[Authenticated]` / `[Role]` outside a controller route method
+
+Example: `examples/complete-tutorial/12_special_features/example46_security_annotations.klx`.
+
+Tests: `pkg/boot/security_test.go`, `generator/generator_boot_security_test.go`, `pkg/compiler/security_annotations_test.go`.
+
+---
+
+### Validation Annotations
+
+The compiler now scans `[Required]` / `[Email]` / `[Min]` / `[Max]` / `[MinLen]` / `[MaxLen]` field annotations on classes and generates `Validate()` and `IsValid()` methods.
+
+MVP support:
+
+- `[Required]` checks empty strings via `strings.TrimSpace` or zero for numeric fields
+- `[Email]` runs a conservative regex compatible with `stdlib/validation.Email`
+- `[MinLen(n)]` / `[MaxLen(n)]` check string length
+- `[Min(n)]` / `[Max(n)]` check numeric bounds
+- Generated methods skip if the class already defines `Validate` or `IsValid`
+- Compiler diagnostic `KLX211` flags missing integer args or type mismatches such as `[Min] Name: String`
+
+Example: `examples/complete-tutorial/12_special_features/example45_validation_annotations.klx`.
+
+Tests: `generator/generator_validation_annotations_test.go`, `pkg/compiler/validation_annotations_test.go`.
+
+---
+
+### KylixBoot Auto Route Registration
+
+The compiler now scans `[Controller]` classes and HTTP method attributes at codegen pre-scan time and emits route registrations before user `main()` statements.
+
+MVP support:
+
+- `[Controller('/base')]` on classes
+- `[Get('/path')]`, `[Post('/path')]`, `[Put('/path')]`, `[Delete('/path')]` on class methods
+- Function handler signature: `function Method(req: TRequest): TResponse`
+- Generated startup code registers closures through `stdlib.BootGET/POST/PUT/DELETE`
+- `TRequest` / `TResponse` map to `*stdlib.BootRequest` / `*stdlib.BootResponse` when `uses boot` is active
+
+Example: `examples/complete-tutorial/12_special_features/example42_kylixboot_autowire.klx`.
+
+Tests: `generator/generator_boot_annotations_test.go`.
+
+### KylixBoot Service / Component + Inject Auto-Wiring
+
+The compiler now scans `[Service]` and `[Component]` classes and emits singleton startup wiring before route registration.
+
+MVP support:
+
+- `[Service]` / `[Component]` class singleton instantiation
+- `BootRegisterInstance` registration by exact class name and short Pascal name (`TUserService` + `UserService`)
+- `[Inject]` fields resolved by field type and assigned directly in generated Go
+- Controllers reuse the injected controller instance for generated route closures
+
+Example: `examples/complete-tutorial/12_special_features/example43_kylixboot_di.klx`.
+
+Tests: `generator/generator_boot_di_test.go`.
+
+---
+
 
 ### Compiler Fixes
 

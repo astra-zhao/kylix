@@ -1,0 +1,16 @@
+program KylixBootAutoWire;
+uses boot;
+
+[Controller('/api')]
+type
+  THelloController = class
+    [Get('/hello')]
+    function Hello(req: TRequest): TResponse;
+    begin
+      result := BootText(200, 'Hello from auto-wire');
+    end;
+  end;
+
+begin
+  WriteLn('KylixBoot auto-wire OK');
+end.

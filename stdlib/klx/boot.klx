@@ -37,4 +37,10 @@ function BootConfigGetInt(key: String; fallback: Integer): Integer;
 procedure BootRegisterInstance(name: String; instance: Variant);
 function BootResolve(name: String): Variant;
 
+// ===== Security annotation guards =====
+procedure BootRegisterAuth(validator: Variant);
+procedure BootRegisterRoles(provider: Variant);
+function BootEnforceAuth(req: TRequest): TResponse;
+function BootEnforceRole(req: TRequest; role: String): TResponse;
+
 end.
