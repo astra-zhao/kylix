@@ -408,6 +408,26 @@ func (g *Generator) emitLength(arg ast.Expression) (string, string, error) {
 // emitMember lowers obj.Field — field access on a class-typed receiver.
 // Interface receivers don't currently expose fields directly.
 func (g *Generator) emitMember(e *ast.MemberExpression) (string, string, error) {
+	// Constructor pattern: TFoo.Create or TBox<Integer>.Create — return a
+	// fresh heap-allocated instance of the (specialized) class.
+	if e.Member == "Create" {
+		if ident, ok := e.Object.(*ast.Identifier); ok {
+			if _, known := g.classes[ident.Value]; known {
+				reg, err := g.emitConstructor(ident.Value)
+				return reg, "ptr", err
+			}
+		}
+		if gt, ok := e.Object.(*ast.GenericType); ok {
+			mangled := mangleGeneric(gt.Base, gt.TypeParams)
+			if mangled != "" {
+				if _, known := g.classes[mangled]; known {
+					reg, err := g.emitConstructor(mangled)
+					return reg, "ptr", err
+				}
+			}
+		}
+	}
+
 	kind, typeName := g.receiverKind(e.Object)
 	if kind != "class" {
 		r := g.tmp()

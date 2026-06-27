@@ -5,8 +5,8 @@
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**🚧 v3.2.0 开发中！** KylixBoot 注解栈已完成 —— 自动路由装配、DI、procedure handler、字段校验、安全守卫、声明式 ORM，外加 KLX207–KLX213 注解诊断。LLVM Milestone 2 Phase 2（接口 fat pointer + 成员访问 + 方法分发 + is/as）已落地。教程 41/41 通过。  
-**📍 当前重点：** LLVM Milestone 2 Phase 3（泛型单态化）与包注册中心部署。
+**🚧 v3.2.0 开发中！** KylixBoot 注解栈已完成 —— 自动路由装配、DI、procedure handler、字段校验、安全守卫、声明式 ORM，外加 KLX207–KLX213 注解诊断。LLVM Milestone 2 Phase 2（接口 fat pointer）与 Phase 3（泛型单态化）已落地，LLVM M2 已功能完备（接口 + 数组 + 优化 + 泛型）。教程 41/41 通过。  
+**📍 当前重点：** 包注册中心部署到 kylix.top/packages，stdlib Phase 6（net / crypto / encoding）。
 
 ---
 

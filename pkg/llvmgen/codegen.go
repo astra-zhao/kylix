@@ -20,14 +20,16 @@ type Generator struct {
 	module     string          // LLVM module name
 	tmpCount   int             // SSA register counter (%t0, %t1, …)
 	labelCount int             // basic block label counter
-	locals      map[string]string      // var name → alloca register (%v_name)
-	classes     map[string]*ClassInfo  // class name → compiled class metadata
-	interfaces  map[string]*InterfaceInfo // interface name → metadata
-	localTypes  map[string]string      // var name → Kylix type name (class/interface)
-	arrayInfo   map[string]*arrayInfo  // var name → array metadata
-	program     *ast.Program           // current AST root (for cross-pass access)
-	funcName    string                 // current function being generated
-	strings     []stringConst          // string constants (emitted at module level)
+	locals           map[string]string         // var name → alloca register (%v_name)
+	classes          map[string]*ClassInfo     // class name → compiled class metadata
+	interfaces       map[string]*InterfaceInfo // interface name → metadata
+	genericTemplates map[string]*ast.ClassDecl // base name → generic class template
+	instantiations   map[string]bool           // mangled name → already specialized
+	localTypes       map[string]string         // var name → Kylix type name (class/interface)
+	arrayInfo        map[string]*arrayInfo     // var name → array metadata
+	program          *ast.Program              // current AST root (for cross-pass access)
+	funcName         string                    // current function being generated
+	strings          []stringConst             // string constants (emitted at module level)
 }
 
 type stringConst struct {
@@ -39,12 +41,14 @@ type stringConst struct {
 // NewGenerator creates a new LLVM IR generator.
 func NewGenerator(moduleName string) *Generator {
 	return &Generator{
-		module:     moduleName,
-		locals:     make(map[string]string),
-		classes:    make(map[string]*ClassInfo),
-		interfaces: make(map[string]*InterfaceInfo),
-		localTypes: make(map[string]string),
-		arrayInfo:  make(map[string]*arrayInfo),
+		module:           moduleName,
+		locals:           make(map[string]string),
+		classes:          make(map[string]*ClassInfo),
+		interfaces:       make(map[string]*InterfaceInfo),
+		genericTemplates: make(map[string]*ast.ClassDecl),
+		instantiations:   make(map[string]bool),
+		localTypes:       make(map[string]string),
+		arrayInfo:        make(map[string]*arrayInfo),
 	}
 }
 
@@ -71,6 +75,12 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 		if err := g.emitDecl(decl); err != nil {
 			return err
 		}
+	}
+
+	// After non-generic decls are emitted (so templates are registered),
+	// walk the program and specialize each unique generic instantiation.
+	if err := g.collectInstantiations(prog); err != nil {
+		return err
 	}
 
 	// Emit main function from top-level statements
@@ -160,11 +170,19 @@ func (g *Generator) emitDecl(node ast.Node) error {
 		}
 		return g.emitFunctionDecl(d)
 	case *ast.ClassDecl:
+		if isGenericTemplate(d) {
+			g.registerGenericTemplate(d)
+			return nil
+		}
 		return g.emitClassDecl(d)
 	case *ast.TypeDecl:
 		// Unwrap type alias declarations — ClassDecl lives inside TypeDecl.Type
 		if classDecl, ok := d.Type.(*ast.ClassDecl); ok {
 			classDecl.Name = d.Name // ensure the name is set from TypeDecl
+			if isGenericTemplate(classDecl) {
+				g.registerGenericTemplate(classDecl)
+				return nil
+			}
 			return g.emitClassDecl(classDecl)
 		}
 		if ifaceDecl, ok := d.Type.(*ast.InterfaceDecl); ok {

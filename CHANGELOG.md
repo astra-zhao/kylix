@@ -6,6 +6,33 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ## v3.2.0-dev (2026-06-25) — KylixBoot Annotation Auto-Wiring
 
+### LLVM Backend Milestone 2 Phase 3 — Generic Monomorphization
+
+The LLVM backend now specializes generic class declarations for each concrete instantiation, completing LLVM M2:
+
+```
+%TBox_Integer = type { ptr, i64 }
+%TBox_String  = type { ptr, ptr }
+define i64 @TBox_Integer_Get(ptr %self) { ... }
+define ptr @TBox_String_Get(ptr %self) { ... }
+```
+
+What landed:
+
+- Generic class templates (`TBox<T>`) are registered but not emitted directly. `emitDecl` defers them to the monomorphization pass.
+- A new `collectInstantiations` AST walker finds every `*ast.GenericType` reference (in `VarDecl`, function/method signatures, member expressions, expressions).
+- Each unique instantiation is mangled (`TBox<Integer>` → `TBox_Integer`) and specialized once. Specialization clones the template `ClassDecl`, substitutes type-parameter identifiers throughout fields, method params/returns, and property types, then routes the clone through the existing `emitClassDecl` path so it gets a struct, vtable, and methods.
+- Constructor pattern `TBox<Integer>.Create` and plain `TFoo.Create` are now lowered (this also fixes a pre-existing gap where non-generic constructor calls weren't actually wired to `emitConstructor`).
+- Generic and class-typed `VarDecl`s now allocate `ptr` slots and register their resolved (mangled) type into `localTypes` so member access and method dispatch work end-to-end.
+
+Tests: `pkg/llvmgen/generics_test.go` (6 IR-fragment tests). All 44 existing llvmgen tests continue to pass.
+
+`CacheVersion` bumped to `10` (defensive — Go-backend output unchanged).
+
+Deferred: free-standing generic functions, generic constraints validation in the LLVM path (Go backend already validates), nested generics like `TList<TBox<Integer>>`, cross-module discovery.
+
+---
+
 ### LLVM Backend Milestone 2 Phase 2 — Interfaces (fat pointer)
 
 The LLVM backend now lowers Pascal interface declarations and dispatches calls through a two-word fat pointer:

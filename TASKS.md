@@ -189,7 +189,17 @@ KylixBoot 在 v3.1 完成了运行时 + 注解 AST，v3.2-dev 把它们全部连
 - [x] `obj is IFoo` / `obj as IFoo` 表达式
 - [x] `pkg/llvmgen/interface_test.go` — 8 个 IR fragment 测试
 
-### 优先级 P1 — LLVM Milestone 2 Phase 3 (泛型)
+### 优先级 P1 — LLVM Milestone 2 Phase 3 (泛型) ✅ 已完成 (2026-06-27)
+
+- [x] 泛型类模板注册：`ClassDecl.TypeParams` 非空时挂到 `genericTemplates`，跳过直接 emit
+- [x] AST collector：遍历 program 收集所有 `*ast.GenericType` 实例化点
+- [x] 名称改写：`TBox<Integer>` → `TBox_Integer`，`TPair<Integer, String>` → `TPair_Integer_String`
+- [x] AST 克隆 + 类型参数替换（支持 `Identifier` / `GenericType` / `ArrayType.ElementType`）
+- [x] 特化类复用 `emitClassDecl`，自动得到结构体 + vtable + 方法
+- [x] `var x: TBox<Integer>` / `TBox<Integer>.Create` / 裸 `TFoo.Create` 全部路由到 `emitConstructor(mangled)`
+- [x] `pkg/llvmgen/generics_test.go` — 6 个 IR fragment 测试
+
+
 
 - [ ] 泛型单态化：每个 `TBox<Integer>` / `TBox<String>` 生成独立函数/类型
 - [ ] AST 克隆 + 类型参数替换

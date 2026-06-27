@@ -1026,7 +1026,7 @@ Kylix LSP supports any editor with LSP client:
 - ✅ Annotation diagnostics: KLX207 (duplicate route) … KLX213 (invalid ORM)
 - ✅ Tutorial: 41/41 examples pass (6 new KylixBoot annotation examples)
 - ✅ LLVM Milestone 2 Phase 2 — interface fat pointer + member access + method dispatch + is/as
-- 🔲 LLVM Milestone 2 Phase 3 — generic monomorphization
+- ✅ LLVM Milestone 2 Phase 3 — generic class monomorphization (template cloning + type-param substitution)
 - 🔲 Registry deployment to kylix.top/packages
 - 🔲 stdlib Phase 6: net / crypto / encoding
 

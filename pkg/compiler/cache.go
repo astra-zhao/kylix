@@ -20,7 +20,7 @@ import (
 )
 
 // CacheVersion invalidates stale generated fragments after codegen changes.
-const CacheVersion = 9
+const CacheVersion = 10
 
 // CacheEntry holds the cached output for a single .klx file.
 type CacheEntry struct {

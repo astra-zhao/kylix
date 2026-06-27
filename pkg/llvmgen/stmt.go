@@ -150,6 +150,33 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 		}
 	}
 
+	// Generic instantiation: TBox<Integer> → record the mangled type, then
+	// allocate a pointer slot (class instances are heap-allocated and the
+	// local holds a ptr to the struct).
+	if gt, ok := s.Type.(*ast.GenericType); ok {
+		mangled := mangleGeneric(gt.Base, gt.TypeParams)
+		if mangled != "" {
+			allocaReg := fmt.Sprintf("%%v_%s", name)
+			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
+			g.line(fmt.Sprintf("  store ptr null, ptr %s", allocaReg))
+			g.locals[name] = allocaReg
+			g.localTypes[name] = mangled
+			return nil
+		}
+	}
+
+	// Plain class-typed local: hold a ptr to the heap-allocated instance.
+	if ident, ok := s.Type.(*ast.Identifier); ok {
+		if _, isClass := g.classes[ident.Value]; isClass {
+			allocaReg := fmt.Sprintf("%%v_%s", name)
+			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
+			g.line(fmt.Sprintf("  store ptr null, ptr %s", allocaReg))
+			g.locals[name] = allocaReg
+			g.localTypes[name] = ident.Value
+			return nil
+		}
+	}
+
 	llvmT := "i64"
 	suffix := "_int"
 	kylixType := ""
