@@ -66,7 +66,9 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	g.line("entry:")
 	g.funcName = decl.Name
 	savedLocals := g.locals
+	savedTypes := g.localTypes
 	g.locals = make(map[string]string)
+	g.localTypes = make(map[string]string)
 
 	// Allocate result variable for functions
 	if retType != "void" {
@@ -84,6 +86,9 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 		g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, llvmT))
 		g.line(fmt.Sprintf("  store %s %%%s, ptr %s", llvmT, p.Name, allocaReg))
 		g.locals[p.Name] = allocaReg
+		if p.Type != nil {
+			g.localTypes[p.Name] = typeExprName(p.Type)
+		}
 	}
 
 	// Emit local declarations
@@ -116,6 +121,7 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	g.line("}")
 	g.line("")
 	g.locals = savedLocals
+	g.localTypes = savedTypes
 	return nil
 }
 
@@ -133,10 +139,23 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 		return nil
 	}
 
+	// Interface-typed local: reserve { vtable, data } pair allocas.
+	if s.Type != nil {
+		if tname := typeExprName(s.Type); tname != "" {
+			if _, isIface := g.interfaces[tname]; isIface {
+				g.emitInterfaceVarDecl(name)
+				g.localTypes[name] = tname
+				return nil
+			}
+		}
+	}
+
 	llvmT := "i64"
 	suffix := "_int"
+	kylixType := ""
 	if s.Type != nil {
 		tname := typeExprName(s.Type)
+		kylixType = tname
 		llvmT = LLVMType(tname)
 		switch strings.ToLower(tname) {
 		case "boolean", "bool":
@@ -163,11 +182,27 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 	}
 
 	g.locals[name] = allocaReg
+	if kylixType != "" {
+		g.localTypes[name] = kylixType
+	}
 	return nil
 }
 
 // emitAssign generates a store instruction.
 func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
+	// LHS may be an interface-typed local — handle boxing before evaluating value
+	// so we can pick the right per-class vtable.
+	if ident, ok := s.Name.(*ast.Identifier); ok {
+		if ifaceName, isIface := g.localTypes[ident.Value]; isIface {
+			if _, known := g.interfaces[ifaceName]; known {
+				if vtableReg, dataReg, ok := g.evalInterfaceRHS(s.Value, ifaceName); ok {
+					g.emitInterfaceAssign(ident.Value, vtableReg, dataReg)
+					return nil
+				}
+			}
+		}
+	}
+
 	v, t, err := g.emitExpr(s.Value)
 	if err != nil {
 		return err

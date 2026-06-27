@@ -52,6 +52,9 @@ func (g *Generator) emitClassDecl(decl *ast.ClassDecl) error {
 	// Emit vtable constant
 	g.emitVtable(info, decl)
 
+	// Emit per-interface vtable constants (interface fat-pointer support).
+	g.emitInterfaceVtables(info)
+
 	// Emit method functions
 	for _, method := range decl.Methods {
 		if method.IsExternal || method.Body == nil {
@@ -164,8 +167,10 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	g.line("entry:")
 
 	savedLocals := g.locals
+	savedTypes := g.localTypes
 	savedFunc := g.funcName
 	g.locals = make(map[string]string)
+	g.localTypes = make(map[string]string)
 	g.funcName = className + "_" + method.Name
 
 	// Register `self` pointer
@@ -181,6 +186,9 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 		g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, llvmT))
 		g.line(fmt.Sprintf("  store %s %%%s, ptr %s", llvmT, p.Name, allocaReg))
 		g.locals[p.Name] = allocaReg
+		if p.Type != nil {
+			g.localTypes[p.Name] = typeExprName(p.Type)
+		}
 	}
 
 	// Result variable
@@ -210,6 +218,7 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	g.line("")
 
 	g.locals = savedLocals
+	g.localTypes = savedTypes
 	g.funcName = savedFunc
 	return nil
 }

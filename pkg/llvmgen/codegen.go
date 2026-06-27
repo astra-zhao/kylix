@@ -20,12 +20,14 @@ type Generator struct {
 	module     string          // LLVM module name
 	tmpCount   int             // SSA register counter (%t0, %t1, …)
 	labelCount int             // basic block label counter
-	locals     map[string]string  // var name → alloca register (%v_name)
-	classes    map[string]*ClassInfo // class name → compiled class metadata
-	arrayInfo  map[string]*arrayInfo // var name → array metadata
-	program    *ast.Program    // current AST root (for cross-pass access)
-	funcName   string          // current function being generated
-	strings    []stringConst   // string constants (emitted at module level)
+	locals      map[string]string      // var name → alloca register (%v_name)
+	classes     map[string]*ClassInfo  // class name → compiled class metadata
+	interfaces  map[string]*InterfaceInfo // interface name → metadata
+	localTypes  map[string]string      // var name → Kylix type name (class/interface)
+	arrayInfo   map[string]*arrayInfo  // var name → array metadata
+	program     *ast.Program           // current AST root (for cross-pass access)
+	funcName    string                 // current function being generated
+	strings     []stringConst          // string constants (emitted at module level)
 }
 
 type stringConst struct {
@@ -37,10 +39,12 @@ type stringConst struct {
 // NewGenerator creates a new LLVM IR generator.
 func NewGenerator(moduleName string) *Generator {
 	return &Generator{
-		module:    moduleName,
-		locals:    make(map[string]string),
-		classes:   make(map[string]*ClassInfo),
-		arrayInfo: make(map[string]*arrayInfo),
+		module:     moduleName,
+		locals:     make(map[string]string),
+		classes:    make(map[string]*ClassInfo),
+		interfaces: make(map[string]*InterfaceInfo),
+		localTypes: make(map[string]string),
+		arrayInfo:  make(map[string]*arrayInfo),
 	}
 }
 
@@ -163,6 +167,12 @@ func (g *Generator) emitDecl(node ast.Node) error {
 			classDecl.Name = d.Name // ensure the name is set from TypeDecl
 			return g.emitClassDecl(classDecl)
 		}
+		if ifaceDecl, ok := d.Type.(*ast.InterfaceDecl); ok {
+			ifaceDecl.Name = d.Name
+			return g.emitInterfaceDecl(ifaceDecl)
+		}
+	case *ast.InterfaceDecl:
+		return g.emitInterfaceDecl(d)
 	}
 	return nil
 }

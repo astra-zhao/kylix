@@ -179,11 +179,15 @@ KylixBoot 在 v3.1 完成了运行时 + 注解 AST，v3.2-dev 把它们全部连
 
 ## 📋 v3.2.0 剩余任务
 
-### 优先级 P1 — LLVM Milestone 2 Phase 2 (接口)
+### 优先级 P1 — LLVM Milestone 2 Phase 2 (接口) ✅ 已完成 (2026-06-27)
 
-- [ ] 接口 codegen：`{ ptr vtable, ptr data }` fat pointer
-- [ ] 每个接口方法的 thunk 生成
-- [ ] `obj is IFoo` / `obj as IFoo` 在 LLVM 中实现
+- [x] 接口 codegen：`%IFoo_iface = type { ptr, ptr }` fat pointer + `%IFoo_vtable` 类型
+- [x] 每个接口在实现类上 emit 独立的 `@TFoo_IFoo_vtable` 常量
+- [x] `MemberExpression` 字段访问 codegen（之前完全缺失）
+- [x] `obj.Method(args)` 直接分发（class）+ 通过 vtable 槽位间接分发（interface）
+- [x] `iface := obj` / `iface := obj as IFoo` 装箱
+- [x] `obj is IFoo` / `obj as IFoo` 表达式
+- [x] `pkg/llvmgen/interface_test.go` — 8 个 IR fragment 测试
 
 ### 优先级 P1 — LLVM Milestone 2 Phase 3 (泛型)
 

@@ -6,6 +6,34 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ## v3.2.0-dev (2026-06-25) — KylixBoot Annotation Auto-Wiring
 
+### LLVM Backend Milestone 2 Phase 2 — Interfaces (fat pointer)
+
+The LLVM backend now lowers Pascal interface declarations and dispatches calls through a two-word fat pointer:
+
+```
+%IFoo_vtable = type { ptr, ptr, ... }     ; one ptr per method
+%IFoo_iface  = type { ptr, ptr }          ; { vtable, data }
+@TFoo_IFoo_vtable = constant { ptr } [ ptr @TFoo_M ]
+```
+
+What landed:
+
+- `InterfaceDecl` is emitted (was previously silently dropped). Per-class interface vtables are emitted in interface declaration order alongside the existing class vtable.
+- `MemberExpression` and `obj.Method(args)` are lowered for the first time — concrete class field access (`obj.Field`) and direct method dispatch were never wired up before this slice.
+- Interface-typed locals reserve two `ptr` allocas (`%v_x_iface_vt`, `%v_x_iface_data`). Assignment `iface := concreteObj` or `iface := obj as IFoo` boxes the object into `{ @TClass_IFace_vtable, data }`.
+- Interface method calls indirect through the vtable slot: load slot via `getelementptr [N x ptr]`, then indirect `call`.
+- `obj is IFoo` lowers to a compile-time `i1` for known class→interface implementation pairs.
+- `obj as IFoo` produces a boxed fat pointer when the receiver class implements the target interface, else a null pointer.
+- Generator state additions: `interfaces map[string]*InterfaceInfo`, `localTypes map[string]string`. `localTypes` is populated for `VarDecl` with declared types, function parameters, and method parameters.
+
+Tests: `pkg/llvmgen/interface_test.go` (8 IR-fragment tests). All existing `pkg/llvmgen` tests still pass.
+
+`CacheVersion` bumped to `9` to invalidate any cached Go fragments from before this LLVM-side change (defensive — Go backend output is unchanged).
+
+Deferred to the next slice: dynamic `is`/`as` against arbitrary-typed interface values (needs runtime type IDs), multi-level inheritance vtable merging, cross-module interface resolution.
+
+---
+
 ### ORM Annotations
 
 The compiler now scans `[Entity('table')]`, `[Column('col')]`, `[PrimaryKey]`, `[Repository(TEntity)]`, and `[Query('SELECT ...')]` annotations and generates ORM helper methods that delegate to the existing `stdlib.ORM` runtime.

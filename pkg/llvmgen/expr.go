@@ -89,6 +89,15 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 	case *ast.IndexExpression:
 		return g.emitArrayIndex(e, false)
 
+	case *ast.MemberExpression:
+		return g.emitMember(e)
+
+	case *ast.IsExpression:
+		return g.emitIsExpr(e)
+
+	case *ast.TypeCastExpression:
+		return g.emitAsExpr(e)
+
 	default:
 		// Unknown expression — emit zero
 		r := g.tmp()
@@ -241,6 +250,11 @@ func (g *Generator) emitPrefix(e *ast.PrefixExpression) (string, string, error) 
 
 // emitCall generates a function call expression.
 func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
+	// obj.Method(args) — method dispatch on a class or interface receiver.
+	if member, ok := e.Function.(*ast.MemberExpression); ok {
+		return g.emitMethodCall(member, e.Arguments)
+	}
+
 	funcName := ""
 	if ident, ok := e.Function.(*ast.Identifier); ok {
 		funcName = ident.Value
@@ -390,3 +404,166 @@ func (g *Generator) emitLength(arg ast.Expression) (string, string, error) {
 	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr noundef %s)", r, v))
 	return r, "i64", nil
 }
+
+// emitMember lowers obj.Field — field access on a class-typed receiver.
+// Interface receivers don't currently expose fields directly.
+func (g *Generator) emitMember(e *ast.MemberExpression) (string, string, error) {
+	kind, typeName := g.receiverKind(e.Object)
+	if kind != "class" {
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; member access on non-class %s.%s", r, typeName, e.Member))
+		return r, "i64", nil
+	}
+	objReg, objType, err := g.loadObjectPtr(e.Object, typeName)
+	if err != nil {
+		return "", "", err
+	}
+	_ = objType
+	return g.emitFieldAccess(typeName, objReg, e.Member)
+}
+
+// loadObjectPtr loads the underlying object pointer for a receiver expression.
+// For class-typed locals this is the loaded ptr from the alloca; for interface
+// locals it's the data slot.
+func (g *Generator) loadObjectPtr(obj ast.Expression, typeName string) (string, string, error) {
+	ident, ok := obj.(*ast.Identifier)
+	if !ok {
+		return g.emitExpr(obj)
+	}
+	if _, isIface := g.interfaces[typeName]; isIface {
+		_, dataAlloca := interfaceLocalNames(ident.Value)
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", r, dataAlloca))
+		return r, "ptr", nil
+	}
+	alloca, ok := g.locals[ident.Value]
+	if !ok {
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; unknown receiver %s", r, ident.Value))
+		return r, "ptr", nil
+	}
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", r, alloca))
+	return r, "ptr", nil
+}
+
+// emitMethodCall lowers obj.Method(args). Concrete class receivers dispatch
+// directly to @Class_Method via emitVirtualCall (which already loads the class
+// vtable). Interface receivers indirect through the per-class interface vtable
+// stored in the fat pointer.
+func (g *Generator) emitMethodCall(member *ast.MemberExpression, args []ast.Expression) (string, string, error) {
+	kind, typeName := g.receiverKind(member.Object)
+	argRegs := make([]string, 0, len(args))
+	argTypes := make([]string, 0, len(args))
+	for _, a := range args {
+		r, t, err := g.emitExpr(a)
+		if err != nil {
+			return "", "", err
+		}
+		argRegs = append(argRegs, r)
+		argTypes = append(argTypes, t)
+	}
+	switch kind {
+	case "class":
+		objReg, _, err := g.loadObjectPtr(member.Object, typeName)
+		if err != nil {
+			return "", "", err
+		}
+		return g.emitVirtualCall(typeName, objReg, member.Member, argRegs, argTypes)
+	case "interface":
+		ident := member.Object.(*ast.Identifier)
+		return g.emitInterfaceCall(ident.Value, typeName, member.Member, argRegs, argTypes)
+	default:
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; unsupported receiver for %s", r, member.Member))
+		return r, "i64", nil
+	}
+}
+
+// emitInterfaceCall loads (vtable, data) from the interface local and indirect-calls
+// the method slot resolved by interface declaration order.
+func (g *Generator) emitInterfaceCall(varName, ifaceName, methodName string, argRegs, argTypes []string) (string, string, error) {
+	iface, ok := g.interfaces[ifaceName]
+	if !ok {
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; unknown interface %s", r, ifaceName))
+		return r, "i64", nil
+	}
+	var slot *InterfaceMethodInfo
+	for i := range iface.Methods {
+		if iface.Methods[i].Name == methodName {
+			slot = &iface.Methods[i]
+			break
+		}
+	}
+	if slot == nil {
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; %s.%s not found", r, ifaceName, methodName))
+		return r, "i64", nil
+	}
+	vtAlloca, dataAlloca := interfaceLocalNames(varName)
+	vtablePtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", vtablePtr, vtAlloca))
+	dataPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", dataPtr, dataAlloca))
+
+	slotPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [%d x ptr], ptr %s, i32 0, i32 %d",
+		slotPtr, len(iface.Methods), vtablePtr, slot.VtableIdx))
+	fnPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", fnPtr, slotPtr))
+
+	callArgs := []string{"ptr " + dataPtr}
+	for i, r := range argRegs {
+		callArgs = append(callArgs, argTypes[i]+" "+r)
+	}
+	paramSig := []string{"ptr"}
+	paramSig = append(paramSig, slot.Params...)
+	fnType := fmt.Sprintf("%s (%s)", slot.RetType, strings.Join(paramSig, ", "))
+	if slot.RetType == "void" {
+		g.line(fmt.Sprintf("  call void %s(%s)", fnPtr, strings.Join(callArgs, ", ")))
+		return "0", "void", nil
+	}
+	result := g.tmp()
+	g.line(fmt.Sprintf("  %s = call %s %s(%s)", result, fnType, fnPtr, strings.Join(callArgs, ", ")))
+	return result, slot.RetType, nil
+}
+
+// emitIsExpr lowers `obj is IFoo` to a compile-time i1: 1 if the object's
+// concrete class implements the target interface, else 0. Dynamic checks on
+// already-boxed interface values would require runtime type IDs (deferred).
+func (g *Generator) emitIsExpr(e *ast.IsExpression) (string, string, error) {
+	target := typeExprName(e.TargetType)
+	kind, typeName := g.receiverKind(e.Expression)
+	val := 0
+	if kind == "class" && g.classImplementsInterface(typeName, target) {
+		val = 1
+	}
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i1 0, %d ; %s is %s", r, val, typeName, target))
+	return r, "i1", nil
+}
+
+// emitAsExpr lowers `obj as IFoo` to a fat-pointer construction. The result
+// type is reported as "ptr" so callers can store it via emitInterfaceAssign
+// when the destination is an interface-typed local. Failure → null fat pointer.
+func (g *Generator) emitAsExpr(e *ast.TypeCastExpression) (string, string, error) {
+	target := typeExprName(e.TargetType)
+	kind, typeName := g.receiverKind(e.Expression)
+	if kind == "class" && g.classImplementsInterface(typeName, target) {
+		objReg, _, err := g.loadObjectPtr(e.Expression, typeName)
+		if err != nil {
+			return "", "", err
+		}
+		vt, data := g.emitBoxInterface(typeName, target, objReg)
+		// Bundle: return the data ptr as the canonical "value", leaving the
+		// vtable accessible through the class+iface pair. Real boxed storage
+		// happens in emitAssign when the LHS is an interface-typed local.
+		_ = vt
+		return data, "ptr", nil
+	}
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; %s as %s — incompatible", r, typeName, target))
+	return r, "ptr", nil
+}
+

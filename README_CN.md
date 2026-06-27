@@ -1102,7 +1102,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 - ✅ ORM 注解：`[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]`
 - ✅ 注解诊断：KLX207（重复路由）… KLX213（非法 ORM）
 - ✅ 教程：41/41 示例通过（新增 6 个 KylixBoot 注解示例）
-- 🔲 LLVM Milestone 2 Phase 2 —— 接口 fat pointer
+- ✅ LLVM Milestone 2 Phase 2 —— 接口 fat pointer + 成员访问 + 方法分发 + is/as
 - 🔲 LLVM Milestone 2 Phase 3 —— 泛型单态化
 - 🔲 包注册中心部署到 kylix.top/packages
 - 🔲 stdlib Phase 6：net / crypto / encoding
