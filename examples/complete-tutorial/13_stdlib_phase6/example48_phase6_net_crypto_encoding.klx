@@ -1,0 +1,25 @@
+program Phase6Demo;
+uses crypto, encoding;
+
+begin
+  WriteLn('SHA256: ' + Sha256('hello'));
+  WriteLn('Base64: ' + Base64Encode('hello'));
+  WriteLn('Hex: ' + HexEncode('hello'));
+  WriteLn('MD5: ' + Md5('abc'));
+  WriteLn('HMAC: ' + HmacSha256('key', 'data'));
+
+  var hash := BCryptHash('test', 4);
+  if BCryptCompare('test', hash) then
+    WriteLn('BCrypt: OK')
+  else
+    WriteLn('BCrypt: FAIL');
+
+  var enc := AesEncrypt('mykey', 'hello world');
+  var dec := AesDecrypt('mykey', enc);
+  if dec = 'hello world' then
+    WriteLn('AES round-trip: OK')
+  else
+    WriteLn('AES round-trip: FAIL');
+
+  WriteLn('Phase 6 stdlib OK');
+end.

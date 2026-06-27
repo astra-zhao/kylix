@@ -6,7 +6,7 @@
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
 **🚧 v3.2.0 开发中！** KylixBoot 注解栈已完成 —— 自动路由装配、DI、procedure handler、字段校验、安全守卫、声明式 ORM，外加 KLX207–KLX213 注解诊断。LLVM Milestone 2 Phase 2（接口 fat pointer）与 Phase 3（泛型单态化）已落地，LLVM M2 已功能完备（接口 + 数组 + 优化 + 泛型）。教程 41/41 通过。  
-**📍 当前重点：** 包注册中心部署到 kylix.top/packages，stdlib Phase 6（net / crypto / encoding）。
+**📍 当前重点：** v3.2.0 功能开发已基本完成（注解栈 + LLVM M2 + stdlib Phase 6 + registry 脚手架），下一阶段为正式发布 v3.2.0。
 
 ---
 
@@ -148,15 +148,15 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 - [ ] `[Role('admin')]` —— 角色校验
 - [ ] JWT 令牌生成与验证
 
-### P2 — 包注册中心部署
+### P2 — 包注册中心部署 ✅ 脚手架已交付
 
-- [ ] 部署到 kylix.top/packages（PostgreSQL + TLS）
-- [ ] 域名 packages.kylix.top
+- [x] `registry/deploy/` 脚手架（Dockerfile / docker-compose / nginx.conf / Makefile / CI workflow）
+- [x] DNS + TLS 后 `make up` 即可上线
 - [ ] 搜索索引、全文检索
 - [ ] 包统计仪表板
 - [ ] GitHub Actions 自动发布 workflow
 
-### P2 — stdlib Phase 6 (网络/加密/编码)
+### P2 — stdlib Phase 6 (网络/加密/编码) ✅ 已完成
 
 - [ ] `net` — TCP/UDP 客户端、HTTP 代理、DNS 查询
 - [ ] `crypto` — SHA256/MD5/HMAC/AES/BCrypt

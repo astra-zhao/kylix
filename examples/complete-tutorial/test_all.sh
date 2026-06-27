@@ -72,7 +72,8 @@ for dir in \
     07_stdlib_core \
     08_stdlib_utils \
     10_exceptions \
-    12_special_features; do
+    12_special_features \
+    13_stdlib_phase6; do
     run_single_file_dir "$dir"
 done
 

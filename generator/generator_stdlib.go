@@ -42,6 +42,26 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"RegexCompile", "RegexMustCompile",
 		"RegexMatch", "RegexFind", "RegexFind2", "RegexReplace", "RegexSplit",
 	),
+	"net": strToSet(
+		"TcpDial", "TcpWrite", "TcpRead", "TcpClose",
+		"TcpListen", "TcpAccept", "TcpListenerClose",
+		"UdpDial", "UdpSend", "UdpRecv", "UdpClose",
+		"DnsLookup", "DnsLookupCNAME",
+	),
+	"crypto": strToSet(
+		"Sha256", "Sha512", "Md5", "HmacSha256",
+		"AesEncrypt", "AesDecrypt",
+		"BCryptHash", "BCryptCompare",
+		"RandomBytes", "RandomToken",
+	),
+	"encoding": strToSet(
+		"Base64Encode", "Base64Decode",
+		"Base64URLEncode", "Base64URLDecode",
+		"HexEncode", "HexDecode",
+		"UrlEncode", "UrlDecode",
+		"CsvEncode", "CsvDecode",
+		"JsonLinesEncode", "JsonLinesDecode",
+	),
 	"httpclient": strToSet(
 		"NewHttpClient", "HttpGet", "HttpPost", "HttpGetJSON",
 	),
@@ -91,6 +111,21 @@ var stdlibErrorFuncReturnTypes = map[string]string{
 	"JsonDecodeMap":   "map[string]interface{}",
 	"JsonDecodeArray": "[]interface{}",
 	"JsonReadFile":    "interface{}",
+	"TcpDial":         "*stdlib.TTcpConn",
+	"TcpListen":       "*stdlib.TTcpListener",
+	"UdpDial":         "*stdlib.TUdpConn",
+	"DnsLookup":       "[]string",
+	"DnsLookupCNAME":  "string",
+	"AesEncrypt":      "string",
+	"AesDecrypt":      "string",
+	"BCryptHash":      "string",
+	"RandomBytes":     "string",
+	"RandomToken":     "string",
+	"Base64Decode":    "string",
+	"HexDecode":       "string",
+	"UrlDecode":       "string",
+	"CsvDecode":       "[][]string",
+	"JsonLinesDecode": "[]map[string]interface{}",
 }
 
 // stdlibErrorFuncs are stdlib functions that return (T, error) in Go.
@@ -105,6 +140,12 @@ var stdlibErrorFuncs = map[string]bool{
 	"HttpGet":      true, "HttpPost": true, "HttpGetJSON": true,
 	"JsonDecode": true, "JsonDecodeMap": true, "JsonDecodeArray": true,
 	"JsonReadFile": true,
+	"AesEncrypt":   true, "AesDecrypt": true,
+	"BCryptHash": true, "RandomBytes": true, "RandomToken": true,
+	"Base64Decode": true, "HexDecode": true, "UrlDecode": true,
+	"CsvDecode": true, "JsonLinesDecode": true,
+	"TcpDial": true, "TcpListen": true, "UdpDial": true,
+	"DnsLookup": true, "DnsLookupCNAME": true,
 }
 
 // stdlibProcedureFuncs are stdlib functions that return no value (procedures).

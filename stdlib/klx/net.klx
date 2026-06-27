@@ -1,0 +1,34 @@
+unit net;
+
+// TCP =====================================================================
+type
+  TTcpConn = class
+  end;
+
+  TTcpListener = class
+  end;
+
+function TcpDial(host: String; port: Integer): TTcpConn;
+function TcpWrite(conn: TTcpConn; data: String): Integer;
+function TcpRead(conn: TTcpConn; n: Integer): String;
+procedure TcpClose(conn: TTcpConn);
+
+function TcpListen(port: Integer): TTcpListener;
+function TcpAccept(listener: TTcpListener): TTcpConn;
+procedure TcpListenerClose(listener: TTcpListener);
+
+// UDP =====================================================================
+type
+  TUdpConn = class
+  end;
+
+function UdpDial(host: String; port: Integer): TUdpConn;
+function UdpSend(conn: TUdpConn; data: String): Integer;
+function UdpRecv(conn: TUdpConn; n: Integer): String;
+procedure UdpClose(conn: TUdpConn);
+
+// DNS =====================================================================
+function DnsLookup(host: String): array of String;
+function DnsLookupCNAME(host: String): String;
+
+end.

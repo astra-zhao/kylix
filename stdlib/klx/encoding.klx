@@ -1,0 +1,26 @@
+unit encoding;
+
+// ===== Base64 =====
+function Base64Encode(data: String): String;
+function Base64Decode(data: String): String;
+
+function Base64URLEncode(data: String): String;
+function Base64URLDecode(data: String): String;
+
+// ===== Hex =====
+function HexEncode(data: String): String;
+function HexDecode(data: String): String;
+
+// ===== URL =====
+function UrlEncode(s: String): String;
+function UrlDecode(s: String): String;
+
+// ===== CSV =====
+function CsvEncode(rows: array of array of String): String;
+function CsvDecode(s: String): array of array of String;
+
+// ===== JSON Lines =====
+function JsonLinesEncode(rows: array of map[String]Variant): String;
+function JsonLinesDecode(s: String): array of map[String]Variant;
+
+end.

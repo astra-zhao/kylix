@@ -1027,8 +1027,8 @@ Kylix LSP supports any editor with LSP client:
 - ✅ Tutorial: 41/41 examples pass (6 new KylixBoot annotation examples)
 - ✅ LLVM Milestone 2 Phase 2 — interface fat pointer + member access + method dispatch + is/as
 - ✅ LLVM Milestone 2 Phase 3 — generic class monomorphization (template cloning + type-param substitution)
-- 🔲 Registry deployment to kylix.top/packages
-- 🔲 stdlib Phase 6: net / crypto / encoding
+- ✅ Registry deployment scaffold (Dockerfile / docker-compose / CI — `make up` after DNS + TLS)
+- ✅ stdlib Phase 6: net / crypto / encoding
 
 ## Cross-Platform Compilation
 

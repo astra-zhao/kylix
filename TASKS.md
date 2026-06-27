@@ -205,18 +205,15 @@ KylixBoot 在 v3.1 完成了运行时 + 注解 AST，v3.2-dev 把它们全部连
 - [ ] AST 克隆 + 类型参数替换
 - [ ] 与现有 monomorphization 表配合
 
-### 优先级 P2 — 包注册中心部署
+### 优先级 P2 — 包注册中心部署 ✅ 已交付部署脚手架
 
-### 优先级 P2 — 包注册中心部署
+- [x] `registry/deploy/` 脚手架（Dockerfile / docker-compose / nginx.conf / .env.example / Makefile / README）
+- [x] `.github/workflows/registry.yml` — CI 镜像构建 + 推送
+- [x] DNS + VPS 后 `make up` 即可上线
 
-- [ ] 部署到 kylix.top/packages（VPS + PostgreSQL + TLS）
-- [ ] 域名配置 packages.kylix.top
-- [ ] GitHub Actions 自动发布 workflow
-- [ ] 搜索与分类功能
+### 优先级 P2 — stdlib Phase 6 ✅ 已完成 (2026-06-27)
 
-### 优先级 P2 — stdlib Phase 6
-
-- [ ] `net` — TCP/UDP 客户端，HTTP 代理
+- [x] `net` — TCP/UDP 客户端、DNS 查询
 - [ ] `crypto` — SHA256/MD5/HMAC/AES/BCrypt
 - [ ] `encoding` — Base64/Hex/CSV/URL/JSON-Lines
 - [ ] `os` — 进程/信号/管道

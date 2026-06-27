@@ -546,7 +546,7 @@ func (g *Generator) scanImports(program *ast.Program) {
 			"orm", "template", "autoconfig", "sysutil", "jsonutil",
 			"datetime", "regex", "strutil", "mathutil", "arrayutil",
 			"collections", "httpclient", "iter", "stringbuilder",
-			"resulttype", "wasi", "boot":
+			"resulttype", "wasi", "boot", "net", "crypto", "encoding":
 			g.imports["kylix/stdlib"] = true
 		}
 	}

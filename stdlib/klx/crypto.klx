@@ -1,0 +1,21 @@
+unit crypto;
+
+// ===== Hashes =====
+function Sha256(data: String): String;
+function Sha512(data: String): String;
+function Md5(data: String): String;
+function HmacSha256(key: String; data: String): String;
+
+// ===== AES-256-GCM =====
+function AesEncrypt(key: String; plaintext: String): String;
+function AesDecrypt(key: String; ciphertext: String): String;
+
+// ===== BCrypt =====
+function BCryptHash(password: String; cost: Integer): String;
+function BCryptCompare(password: String; hash: String): Boolean;
+
+// ===== Random =====
+function RandomBytes(n: Integer): String;
+function RandomToken(n: Integer): String;
+
+end.

@@ -1,6 +1,6 @@
 # Kylix v3.1.1 Complete Tutorial
 
-Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix v3.2.0 with tested, runnable examples — 41 of 41 checks pass (40 `example*.klx` files plus the `math_helper.klx` unit companion file).
+Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix v3.2.0 with tested, runnable examples — 42 of 42 checks pass (41 `example*.klx` files plus the `math_helper.klx` unit companion file).
 
 ## What is Kylix?
 
@@ -13,7 +13,7 @@ Kylix is a modern Pascal-to-Go transpiler that brings modern language features t
 
 ## Tutorial Structure
 
-This tutorial contains **40 runnable example files** organized into categories. Several major v3.0 limitations are now fixed in v3.1.x:
+This tutorial contains **41 runnable example files** organized into categories. Several major v3.0 limitations are now fixed in v3.1.x:
 
 - ✅ `var p: TClass` now works correctly (KLX-C01)
 - ✅ String interpolation `${var}` expands (KLX-C02)
@@ -77,7 +77,10 @@ This tutorial contains **40 runnable example files** organized into categories. 
 - `example44_kylixboot_proc_handler.klx` - v3.2.0 procedure-style route handler
 - `example45_validation_annotations.klx` - v3.2.0 `[Required]`/`[Email]`/`[Min]`/`[MinLen]` field validators
 - `example46_security_annotations.klx` - v3.2.0 `[Authenticated]`/`[Role]` per-route security guards
-- `example47_orm_annotations.klx` - v3.2.0 `[Entity]`/`[Column]`/`[Repository]`/`[Query]` declarative ORM
+- `example47_orm_annotations.klx` - v3.2.0 ORM annotations (`[Entity]`/`[Repository]`/`[Query]`)
+
+### 12. stdlib Phase 6 (1 example) - new in v3.2.0
+- `example48_phase6_net_crypto_encoding.klx` - SHA-256, Base64, BCrypt, CSV, HMAC, MD5
 
 ## How to Run Examples
 
@@ -349,6 +352,7 @@ go run hello.go
 | Modules | 2 | ✅ Works |
 | Declarative OOP | 1 | ✅ Works (v3.1.0) |
 | Annotations / Auto-wire / DI / Procedure handlers / Validation / Security / ORM | 7 | ✅ Works (v3.1.0+ / v3.2.0) |
-| **Total** | **40** | **41/41 checks pass** |
+| stdlib Phase 6 (crypto / encoding) | 1 | ✅ Works (v3.2.0) |
+| **Total** | **41** | **42/42 checks pass** |
 
 Happy coding with Kylix! 🚀

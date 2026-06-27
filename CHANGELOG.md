@@ -33,6 +33,41 @@ Deferred: free-standing generic functions, generic constraints validation in the
 
 ---
 
+### stdlib Phase 6 — net / crypto / encoding
+
+Three new stdlib modules, each with Go implementation, Kylix LSP declarations, and Go tests:
+
+- **`net`** — TCP dial/listen/accept/write/read, UDP dial/send/recv/close, DNS lookup (`DnsLookup`, `DnsLookupCNAME`).
+- **`crypto`** — SHA-256, SHA-512, MD5, HMAC-SHA256, AES-256-GCM, bcrypt (cost-controlled), `RandomBytes`, `RandomToken` (URL-safe).
+- **`encoding`** — Base64 (standard + URL-safe), Hex, URL percent-encoding, CSV, JSON Lines.
+
+Tests: `stdlib/net_test.go`, `stdlib/crypto_test.go`, `stdlib/encoding_test.go`. Example: `examples/complete-tutorial/13_stdlib_phase6/example48_phase6_net_crypto_encoding.klx`.
+
+Generator registration: all three modules registered in `stdlibModuleFuncs`, `stdlibErrorFuncReturnTypes`, `stdlibErrorFuncs`.
+
+Dependency added: `golang.org/x/crypto v0.53.0` (bcrypt).
+
+CacheVersion bumped to 11.
+
+---
+
+### Registry Deployment Scaffold
+
+`registry/deploy/` now ships a complete deployment stack:
+
+- `Dockerfile` — multi-stage Alpine build.
+- `docker-compose.yml` — registry + PostgreSQL with healthcheck.
+- `.env.example` — secrets template.
+- `nginx.conf` — TLS reverse proxy for `packages.kylix.top`.
+- `Makefile` — `build`, `up`, `down`, `logs`, `migrate`.
+- `README.md` — full runbook.
+
+`.github/workflows/registry.yml` — CI pipeline that builds, tests, and pushes a multi-arch Docker image to GHCR.
+
+The registry itself (REST API, SQLite/PostgreSQL, Bearer auth, htmx frontend, 7 integration tests) was already fully implemented. The scaffold makes it one `make up` away from production once the end user provides DNS + TLS.
+
+---
+
 ### LLVM Backend Milestone 2 Phase 2 — Interfaces (fat pointer)
 
 The LLVM backend now lowers Pascal interface declarations and dispatches calls through a two-word fat pointer:
