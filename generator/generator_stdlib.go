@@ -88,6 +88,11 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"BootConfigSet", "BootConfigGetString", "BootConfigGetInt",
 		"BootRegisterInstance", "BootResolve",
 		"BootRegisterAuth", "BootRegisterRoles", "BootEnforceAuth", "BootEnforceRole",
+		"BootRegisterJwtAuth",
+	),
+	"jwt": strToSet(
+		"JwtSign", "JwtVerify", "JwtSubject", "JwtGetString", "JwtGetInt",
+		"BootRegisterJwtAuth",
 	),
 }
 
@@ -126,6 +131,8 @@ var stdlibErrorFuncReturnTypes = map[string]string{
 	"UrlDecode":       "string",
 	"CsvDecode":       "[][]string",
 	"JsonLinesDecode": "[]map[string]interface{}",
+	"JwtSign":         "string",
+	"JwtVerify":       "map[string]interface{}",
 }
 
 // stdlibErrorFuncs are stdlib functions that return (T, error) in Go.
@@ -146,6 +153,7 @@ var stdlibErrorFuncs = map[string]bool{
 	"CsvDecode": true, "JsonLinesDecode": true,
 	"TcpDial": true, "TcpListen": true, "UdpDial": true,
 	"DnsLookup": true, "DnsLookupCNAME": true,
+	"JwtSign": true, "JwtVerify": true,
 }
 
 // stdlibProcedureFuncs are stdlib functions that return no value (procedures).

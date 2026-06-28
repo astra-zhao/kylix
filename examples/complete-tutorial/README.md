@@ -1,6 +1,6 @@
 # Kylix v3.1.1 Complete Tutorial
 
-Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix v3.3.0 with tested, runnable examples — 43 of 43 checks pass (42 `example*.klx` files plus the `math_helper.klx` unit companion file).
+Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix v3.3.0 with tested, runnable examples — 44 of 44 checks pass (43 `example*.klx` files plus the `math_helper.klx` unit companion file).
 
 ## What is Kylix?
 

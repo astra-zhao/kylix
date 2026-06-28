@@ -1,0 +1,28 @@
+program JwtDemo;
+uses boot, jwt;
+
+[Controller('/api')]
+type
+  TAuthController = class
+    // POST /api/login — issues a JWT token
+    [Post('/login')]
+    function Login(req: TRequest): TResponse;
+    begin
+      var token := JwtSign('my-secret', 'user1', 3600, nil);
+      result := BootText(200, token);
+    end;
+
+    // GET /api/me — requires a valid JWT
+    [Get('/me')]
+    [Authenticated]
+    function Me(req: TRequest): TResponse;
+    begin
+      result := BootText(200, 'JWT demo OK');
+    end;
+  end;
+
+begin
+  // One call registers a JWT validator; [Authenticated] routes verify it.
+  BootRegisterJwtAuth('my-secret');
+  WriteLn('JWT demo OK');
+end.

@@ -74,7 +74,8 @@ for dir in \
     10_exceptions \
     12_special_features \
     13_stdlib_phase6 \
-    14_body_binding; do
+    14_body_binding \
+    15_jwt; do
     run_single_file_dir "$dir"
 done
 

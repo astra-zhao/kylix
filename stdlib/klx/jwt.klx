@@ -1,0 +1,31 @@
+unit jwt;
+
+// JWT (JSON Web Token) support — HS256 only, no external dependencies.
+//
+// Typical usage:
+//   BootRegisterJwtAuth('my-secret');   // once at startup
+//   [Authenticated]                     // on controller methods
+
+// Create a signed HS256 token.
+// expiresIn = lifetime in seconds (0 = no expiry).
+// extraClaims = additional payload fields (pass nil/empty for none).
+function JwtSign(secret: String; subject: String; expiresIn: Integer; extraClaims: Variant): String;
+
+// Verify and decode a JWT. Returns nil claims map if invalid/expired.
+function JwtVerify(secret: String; token: String): Variant;
+
+// Extract the "sub" claim from a decoded claims map.
+function JwtSubject(claims: Variant): String;
+
+// Read a string claim from a decoded claims map.
+function JwtGetString(claims: Variant; key: String): String;
+
+// Read a numeric claim from a decoded claims map.
+function JwtGetInt(claims: Variant; key: String): Integer;
+
+// Register a JWT-based auth validator with KylixBoot.
+// After this call, [Authenticated] routes automatically verify Bearer JWTs.
+// The "sub" claim becomes req.User.
+procedure BootRegisterJwtAuth(secret: String);
+
+end.
