@@ -43,4 +43,7 @@ procedure BootRegisterRoles(provider: Variant);
 function BootEnforceAuth(req: TRequest): TResponse;
 function BootEnforceRole(req: TRequest; role: String): TResponse;
 
+// ===== Body binding (generated route closures) =====
+function BootReadJSON(req: TRequest; out: Variant): Integer;
+
 end.

@@ -25,6 +25,7 @@ type bootRoute struct {
 	MethodName  string
 	HandlerKind bootHandlerKind
 	Security    bootSecurity
+	BodyType    string // [Body(TEntity)] for JSON body binding
 	SourceLine  int
 }
 
@@ -126,6 +127,7 @@ func (g *Generator) scanBootController(className string, attrs []*ast.Attribute,
 				MethodName:  method.Name,
 				HandlerKind: kind,
 				Security:    security,
+				BodyType:    scanBodyType(method.Attributes),
 				SourceLine:  method.Token.Line,
 			})
 		}
@@ -176,6 +178,27 @@ func findAttribute(attrs []*ast.Attribute, names ...string) *ast.Attribute {
 		}
 	}
 	return nil
+}
+
+func attributeIdentifierArg(attr *ast.Attribute) (string, bool) {
+	if attr == nil || len(attr.Args) == 0 {
+		return "", false
+	}
+	if ident, ok := attr.Args[0].(*ast.Identifier); ok {
+		return ident.Value, true
+	}
+	return "", false
+}
+
+func scanBodyType(attrs []*ast.Attribute) string {
+	for _, attr := range attrs {
+		if strings.EqualFold(attr.Name, "Body") {
+			if t, ok := attributeIdentifierArg(attr); ok {
+				return t
+			}
+		}
+	}
+	return ""
 }
 
 func attributeStringArg(attr *ast.Attribute, fallback string) (string, bool) {
@@ -306,6 +329,19 @@ func (g *Generator) emitBootAutoWiring() {
 		}
 		for _, role := range route.Security.Roles {
 			g.writeLine(fmt.Sprintf("if __r := stdlib.BootEnforceRole(req, %q); __r != nil { return __r }", role))
+		}
+		if route.BodyType != "" {
+			g.writeLine(fmt.Sprintf("var __body %s", route.BodyType))
+			g.writeLine("if err := stdlib.BootReadJSON(req, &__body); err != nil {")
+			g.indent++
+			g.writeLine(`return stdlib.BootJSON(400, map[string]string{"error": "invalid JSON"})`)
+			g.indent--
+			g.writeLine("}")
+			g.writeLine("if !__body.IsValid() {")
+			g.indent++
+			g.writeLine("return stdlib.BootJSON(400, __body.Validate())")
+			g.indent--
+			g.writeLine("}")
 		}
 		if route.HandlerKind == bootHandlerProcedure {
 			g.writeLine("res := stdlib.BootText(200, \"\")")

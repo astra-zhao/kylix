@@ -1,0 +1,28 @@
+program BodyBindingDemo;
+uses boot;
+
+[Entity('users')]
+type
+  TCreateUser = class
+    [Required]
+    [Email]
+    Email: String;
+    [Required]
+    [MinLen(8)]
+    Password: String;
+  end;
+
+[Controller('/api')]
+type
+  TUserController = class
+    [Post('/users')]
+    [Body(TCreateUser)]
+    function CreateUser(req: TRequest): TResponse;
+    begin
+      result := BootText(201, 'user created');
+    end;
+  end;
+
+begin
+  WriteLn('Body binding annotations OK');
+end.

@@ -73,7 +73,8 @@ for dir in \
     08_stdlib_utils \
     10_exceptions \
     12_special_features \
-    13_stdlib_phase6; do
+    13_stdlib_phase6 \
+    14_body_binding; do
     run_single_file_dir "$dir"
 done
 

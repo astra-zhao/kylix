@@ -135,3 +135,9 @@ func BootEnforceAuth(req *boot.Request) *boot.Response {
 func BootEnforceRole(req *boot.Request, role string) *boot.Response {
 	return boot.EnforceRole(req, role)
 }
+
+// BootReadJSON unmarshals the request body as JSON into the given pointer.
+// Used by generated route closures annotated with [Body(TEntity)].
+func BootReadJSON(req *boot.Request, out interface{}) error {
+	return req.JSON(out)
+}

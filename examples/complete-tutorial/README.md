@@ -1,6 +1,6 @@
 # Kylix v3.1.1 Complete Tutorial
 
-Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix v3.2.0 with tested, runnable examples — 42 of 42 checks pass (41 `example*.klx` files plus the `math_helper.klx` unit companion file).
+Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix v3.3.0 with tested, runnable examples — 43 of 43 checks pass (42 `example*.klx` files plus the `math_helper.klx` unit companion file).
 
 ## What is Kylix?
 
@@ -13,7 +13,7 @@ Kylix is a modern Pascal-to-Go transpiler that brings modern language features t
 
 ## Tutorial Structure
 
-This tutorial contains **41 runnable example files** organized into categories. Several major v3.0 limitations are now fixed in v3.1.x:
+This tutorial contains **42 runnable example files** organized into categories. Several major v3.0 limitations are now fixed in v3.1.x:
 
 - ✅ `var p: TClass` now works correctly (KLX-C01)
 - ✅ String interpolation `${var}` expands (KLX-C02)
@@ -81,6 +81,9 @@ This tutorial contains **41 runnable example files** organized into categories. 
 
 ### 12. stdlib Phase 6 (1 example) - new in v3.2.0
 - `example48_phase6_net_crypto_encoding.klx` - SHA-256, Base64, BCrypt, CSV, HMAC, MD5
+
+### 13. Request Body Binding (1 example) - new in v3.3.0
+- `example49_body_binding.klx` - `[Body(TEntity)]` JSON request body binding with `Validate()`/`IsValid()` checks
 
 ## How to Run Examples
 
@@ -353,6 +356,7 @@ go run hello.go
 | Declarative OOP | 1 | ✅ Works (v3.1.0) |
 | Annotations / Auto-wire / DI / Procedure handlers / Validation / Security / ORM | 7 | ✅ Works (v3.1.0+ / v3.2.0) |
 | stdlib Phase 6 (crypto / encoding) | 1 | ✅ Works (v3.2.0) |
-| **Total** | **41** | **42/42 checks pass** |
+| Request Body Binding | 1 | ✅ Works (v3.3.0) |
+| **Total** | **42** | **43/43 checks pass** |
 
 Happy coding with Kylix! 🚀

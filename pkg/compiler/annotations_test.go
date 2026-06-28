@@ -223,3 +223,58 @@ end.
 		t.Fatalf("expected success, got %+v", result.Diagnostics)
 	}
 }
+
+func TestBodyBindingMissingArg(t *testing.T) {
+	file := writeAnnotationTemp(t, `program Test;
+uses boot;
+[Controller('/api')]
+type
+  TCtrl = class
+    [Post('/users')]
+    [Body]
+    function Create(req: TRequest): TResponse;
+    begin result := BootText(201, "ok"); end;
+  end;
+begin end.
+`)
+	r, err := compiler.CompileFile(file, compiler.Options{OutputFile: filepath.Join(t.TempDir(), "out.go")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !annotationsHasCode(r.Diagnostics, compiler.ErrBodyBinding) {
+		t.Fatalf("expected %s, got %+v", compiler.ErrBodyBinding, r.Diagnostics)
+	}
+}
+
+func TestBodyBindingValid(t *testing.T) {
+	file := writeAnnotationTemp(t, `program Test;
+uses boot;
+[Entity("users")]
+type
+  TUser = class
+    [Required]
+    Email: String;
+  end;
+[Controller("/api")]
+type
+  TCtrl = class
+    [Post("/users")]
+    [Body(TUser)]
+    function Create(req: TRequest): TResponse;
+    begin result := BootText(201, "ok"); end;
+  end;
+begin
+  WriteLn("OK");
+end.
+`)
+	r, err := compiler.CompileFile(file, compiler.Options{OutputFile: filepath.Join(t.TempDir(), "out.go")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if annotationsHasCode(r.Diagnostics, compiler.ErrBodyBinding) {
+		t.Fatalf("unexpected diagnostic: %+v", r.Diagnostics)
+	}
+	if !r.Success {
+		t.Fatalf("expected success, got %+v", r.Diagnostics)
+	}
+}

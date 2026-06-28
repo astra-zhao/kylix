@@ -109,6 +109,18 @@ func validateBootAnnotationClasses(classes []bootAnnotationClass) []Diagnostic {
 							fmt.Sprintf("KylixBoot route handler %s.%s must be function(req: TRequest): TResponse or procedure(req: TRequest; res: TResponse)", class.ClassName, method.Name),
 							"Use either: function Method(req: TRequest): TResponse; or procedure Method(req: TRequest; res: TResponse);"))
 					}
+					for _, mattr := range method.Attributes {
+						if !strings.EqualFold(mattr.Name, "Body") {
+							continue
+						}
+						if len(mattr.Args) == 0 {
+							diags = append(diags, NewError(class.File, mattr.Token.Line, mattr.Token.Column,
+								ErrBodyBinding, "[Body] requires an entity class argument"))
+						} else if _, ok := mattr.Args[0].(*ast.Identifier); !ok {
+							diags = append(diags, NewError(class.File, mattr.Token.Line, mattr.Token.Column,
+								ErrBodyBinding, "[Body] argument must be an entity class identifier"))
+						}
+					}
 					path := bootAnnotationNormalizePath(basePath, methodPath)
 					key := bootAnnotationRouteKey{Method: httpMethod, Path: path}
 					if prev, exists := routes[key]; exists {

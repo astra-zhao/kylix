@@ -129,3 +129,37 @@ func TestNormalizeBootPath(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateBootBodyBindingRoute(t *testing.T) {
+	input := `
+program BodyTest;
+uses boot;
+
+[Entity('users')]
+type
+  TCreateUser = class
+    [Required]
+    Email: String;
+  end;
+
+[Controller('/api')]
+type
+  TUserController = class
+    [Post('/users')]
+    [Body(TCreateUser)]
+    function Create(req: TRequest): TResponse;
+    begin
+      result := BootText(201, 'created');
+    end;
+  end;
+
+begin
+  WriteLn('OK');
+end.`
+	out, errs := compile(input)
+	assertNoErrors(t, errs)
+	assertContains(t, out, `var __body TCreateUser`)
+	assertContains(t, out, `stdlib.BootReadJSON(req, &__body)`)
+	assertContains(t, out, `if !__body.IsValid() {`)
+	assertContains(t, out, `return stdlib.BootJSON(400, __body.Validate())`)
+}
