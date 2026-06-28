@@ -4,7 +4,19 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v3.2.0-dev (2026-06-25) — KylixBoot Annotation Auto-Wiring
+## v3.2.0 (2026-06-29) — KylixBoot Annotation Stack + LLVM M2 Complete + stdlib Phase 6
+
+> 🎉 **Major release.** Pre-built binaries for Linux/macOS/Windows are attached to this GitHub release.
+
+### Highlights
+
+- **KylixBoot annotation stack** — compile-time auto-wiring for routes (`[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]`), DI (`[Service]`/`[Component]`/`[Inject]`), procedure-style handlers, field validation (`[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]`), per-route security (`[Authenticated]`/`[Role]`), and declarative ORM (`[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]`).
+- **Annotation diagnostics** `KLX207`–`KLX213` — duplicate routes, unsupported handler signatures, missing inject targets, invalid validation/security/ORM usage all fail at compile time with clear errors.
+- **LLVM Backend Milestone 2 complete** — Phase 1 (arrays + optimization, v3.1.0), Phase 2 (interface fat pointer + member access + method dispatch + `is`/`as`), Phase 3 (generic class monomorphization).
+- **stdlib Phase 6** — `net` (TCP/UDP/DNS), `crypto` (SHA-256/512, MD5, HMAC, AES-256-GCM, BCrypt, secure random), `encoding` (Base64/Hex/URL/CSV/JSON Lines).
+- **Registry deployment scaffold** — Dockerfile, docker-compose, nginx TLS reverse proxy, GitHub Actions image builder. One `make up` away from a private registry.
+- **Tutorial 42/42 passing** with 6 new annotation examples + Phase 6 demo.
+- **v3.1.1 hotfix included** — unit `interface`/`implementation` codegen fix (KLX-M01) and generic class method receivers (KLX-G01).
 
 ### LLVM Backend Milestone 2 Phase 3 — Generic Monomorphization
 
