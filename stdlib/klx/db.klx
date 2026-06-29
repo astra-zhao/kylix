@@ -1,0 +1,23 @@
+unit db;
+
+// db — Kylix-friendly database convenience layer (Phase 7).
+// SQLite is the default tutorial driver (":memory:" for in-memory).
+
+type
+  TDatabase = class
+  end;
+
+// Open a database by driver ("sqlite3" | "mysql" | "postgres") and DSN.
+function DbOpen(driver: String; dsn: String): TDatabase;
+// Open an SQLite database file (":memory:" for in-memory).
+function DbOpenSQLite(path: String): TDatabase;
+// Execute INSERT/UPDATE/DELETE/DDL; returns rows affected.
+function DbExec(db: TDatabase; query: String): Integer;
+// Run SELECT; returns all rows as array of map (keyed by column name).
+function DbQueryRows(db: TDatabase; query: String): array of Variant;
+// Run a single-value SELECT; returns first column as String ("" if no rows).
+function DbQueryScalar(db: TDatabase; query: String): String;
+// Close the connection pool.
+procedure DbClose(db: TDatabase);
+
+end.

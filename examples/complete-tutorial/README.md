@@ -91,6 +91,9 @@ This tutorial contains **42 runnable example files** organized into categories. 
 ### 15. OpenAPI / Swagger (1 example) - new in v3.3.0
 - `example51_openapi.klx` - `[Controller]`/`[Get]`/`[Post]`/`[Body]`/`[Authenticated]`/`[Role]` → OpenAPI 3.1 YAML via `kylix doc --openapi`
 
+### 16. Database (1 example) - new in v4.0 (Phase 7)
+- `example52_database.klx` - SQLite in-memory DB with `DbOpenSQLite`/`DbExec`/`DbQueryScalar`, parameterized queries
+
 ## How to Run Examples
 
 ### Single File
@@ -380,6 +383,7 @@ go run hello.go
 | Request Body Binding | 1 | ✅ Works (v3.3.0) |
 | JWT Authentication | 1 | ✅ Works (v3.3.0) |
 | OpenAPI / Swagger | 1 | ✅ Works (v3.3.0) |
-| **Total** | **44** | **45/45 checks pass** |
+| Database (SQLite) | 1 | ✅ Works (v4.0 Phase 7) |
+| **Total** | **45** | **46/46 checks pass** |
 
 Happy coding with Kylix! 🚀

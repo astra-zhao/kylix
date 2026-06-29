@@ -71,6 +71,9 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"orm": strToSet(
 		"NewDatabase", "NewORM", "NewQueryBuilder", "NewMigrationManager",
 	),
+	"db": strToSet(
+		"DbOpen", "DbOpenSQLite", "DbExec", "DbQueryRows", "DbQueryScalar", "DbClose",
+	),
 	"container":  strToSet("NewContainer"),
 	"config":     strToSet("NewConfig", "NewAppConfig"),
 	"autoconfig": strToSet("NewAutoConfig"),
@@ -133,6 +136,11 @@ var stdlibErrorFuncReturnTypes = map[string]string{
 	"JsonLinesDecode": "[]map[string]interface{}",
 	"JwtSign":         "string",
 	"JwtVerify":       "map[string]interface{}",
+	"DbOpen":          "*stdlib.Database",
+	"DbOpenSQLite":    "*stdlib.Database",
+	"DbExec":          "int64",
+	"DbQueryRows":     "[]map[string]interface{}",
+	"DbQueryScalar":   "string",
 }
 
 // stdlibErrorFuncs are stdlib functions that return (T, error) in Go.
@@ -154,6 +162,8 @@ var stdlibErrorFuncs = map[string]bool{
 	"TcpDial": true, "TcpListen": true, "UdpDial": true,
 	"DnsLookup": true, "DnsLookupCNAME": true,
 	"JwtSign": true, "JwtVerify": true,
+	"DbOpen": true, "DbOpenSQLite": true,
+	"DbExec": true, "DbQueryRows": true, "DbQueryScalar": true,
 }
 
 // stdlibProcedureFuncs are stdlib functions that return no value (procedures).

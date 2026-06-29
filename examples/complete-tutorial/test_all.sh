@@ -76,7 +76,8 @@ for dir in \
     13_stdlib_phase6 \
     14_body_binding \
     15_jwt \
-    16_openapi; do
+    16_openapi \
+    17_database; do
     run_single_file_dir "$dir"
 done
 

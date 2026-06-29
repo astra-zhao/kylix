@@ -1,0 +1,24 @@
+program DatabaseDemo;
+uses db;
+
+begin
+  // Open an in-memory SQLite database
+  var db := DbOpenSQLite(':memory:');
+
+  // Create a table
+  DbExec(db, 'CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)');
+
+  // Insert rows via parameterized query (? placeholders)
+  DbExec(db, 'INSERT INTO users (name, age) VALUES (?, ?)', 'alice', 30);
+  DbExec(db, 'INSERT INTO users (name, age) VALUES (?, ?)', 'bob', 25);
+
+  // Query a single value
+  var count := DbQueryScalar(db, 'SELECT COUNT(*) FROM users');
+  WriteLn('user count: ' + count);
+
+  var name := DbQueryScalar(db, 'SELECT name FROM users WHERE age = 30');
+  WriteLn('age 30 user: ' + name);
+
+  DbClose(db);
+  WriteLn('database demo OK');
+end.
