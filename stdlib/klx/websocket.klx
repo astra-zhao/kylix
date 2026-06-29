@@ -1,0 +1,21 @@
+unit websocket;
+
+// websocket — Minimal RFC 6455 WebSocket client + server (pure stdlib, Phase 7).
+// Supports text frames, ping/pong (auto-answered), close. Max message 1 MiB.
+
+type
+  TWsConn = class
+  end;
+
+// Connect to a WebSocket server (addr = "host:port", path starts with "/").
+function WsDial(addr: String; path: String): TWsConn;
+// Upgrade an accepted TCP connection (from net.TcpAccept) to WebSocket.
+function WsAccept(tcp: TTcpConn): TWsConn;
+// Send a text message.
+procedure WsSend(ws: TWsConn; msg: String);
+// Receive one text message (pings auto-answered; close returns error).
+function WsRecv(ws: TWsConn): String;
+// Send close frame and close the TCP connection.
+procedure WsClose(ws: TWsConn);
+
+end.

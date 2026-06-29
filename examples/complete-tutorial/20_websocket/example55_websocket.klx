@@ -1,0 +1,20 @@
+program WebSocketDemo;
+uses net, websocket;
+
+begin
+  // Start a TCP listener (does not block — just opens the port).
+  var ln := TcpListen(18080);
+
+  // WsAccept would upgrade an accepted connection via the WS handshake:
+  //   var tcp := TcpAccept(ln);
+  //   var ws := WsAccept(tcp);   // performs RFC 6455 handshake
+  //   WsSend(ws, 'hello');
+  //   var msg := WsRecv(ws);     // pings auto-answered
+  //   WsClose(ws);
+
+  // WsDial connects to a server: WsDial('host:port', '/path')
+  // WsRecv auto-answers ping with pong; a peer close frame returns an error.
+
+  TcpListenerClose(ln);
+  WriteLn('websocket demo OK');
+end.

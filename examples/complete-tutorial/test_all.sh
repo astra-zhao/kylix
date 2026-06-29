@@ -79,7 +79,8 @@ for dir in \
     16_openapi \
     17_database \
     18_cache \
-    19_http; do
+    19_http \
+    20_websocket; do
     run_single_file_dir "$dir"
 done
 

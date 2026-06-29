@@ -79,6 +79,9 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"cache": strToSet(
 		"NewCache",
 	),
+	"websocket": strToSet(
+		"WsDial", "WsAccept", "WsSend", "WsRecv", "WsClose",
+	),
 	"container":  strToSet("NewContainer"),
 	"config":     strToSet("NewConfig", "NewAppConfig"),
 	"autoconfig": strToSet("NewAutoConfig"),
@@ -120,6 +123,9 @@ var stdlibErrorFuncReturnTypes = map[string]string{
 	"HttpPostJSON":    "map[string]interface{}",
 	"HttpDoGet":       "*stdlib.THttpResponse",
 	"HttpDoPost":      "*stdlib.THttpResponse",
+	"WsDial":          "*stdlib.TWsConn",
+	"WsAccept":        "*stdlib.TWsConn",
+	"WsRecv":          "string",
 	"ListDir":         "[]string",
 	"ListFiles":       "[]string",
 	"ReadLines":       "[]string",
@@ -165,6 +171,7 @@ var stdlibErrorFuncs = map[string]bool{
 	"HttpGet":      true, "HttpPost": true, "HttpGetJSON": true,
 	"HttpPut": true, "HttpDelete": true, "HttpPostJSON": true,
 	"HttpDoGet": true, "HttpDoPost": true,
+	"WsDial": true, "WsAccept": true, "WsRecv": true,
 	"JsonDecode": true, "JsonDecodeMap": true, "JsonDecodeArray": true,
 	"JsonReadFile": true,
 	"AesEncrypt":   true, "AesDecrypt": true,

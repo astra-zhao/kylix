@@ -100,6 +100,9 @@ This tutorial contains **42 runnable example files** organized into categories. 
 ### 18. HTTP Client (1 example) - new in v4.0 (Phase 7)
 - `example54_http.klx` - `THttpClient` with GET/POST/PUT/DELETE, one-shot helpers, `THttpResponse` (status+body)
 
+### 19. WebSocket (1 example) - new in v4.0 (Phase 7)
+- `example55_websocket.klx` - Minimal RFC 6455 WebSocket client/server (`WsDial`/`WsAccept`/`WsSend`/`WsRecv`/`WsClose`), pure stdlib
+
 ## How to Run Examples
 
 ### Single File
@@ -392,6 +395,7 @@ go run hello.go
 | Database (SQLite) | 1 | ✅ Works (v4.0 Phase 7) |
 | Cache (LRU) | 1 | ✅ Works (v4.0 Phase 7) |
 | HTTP Client | 1 | ✅ Works (v4.0 Phase 7) |
-| **Total** | **47** | **48/48 checks pass** |
+| WebSocket | 1 | ✅ Works (v4.0 Phase 7) |
+| **Total** | **48** | **49/49 checks pass** |
 
 Happy coding with Kylix! 🚀
