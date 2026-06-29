@@ -9,7 +9,16 @@ type
     procedure SetHeader(key: String; value: String);
     function Get(path: String): String;
     function Post(path: String; contentType: String; body: String): String;
+    function Put(path: String; contentType: String; body: String): String;
+    function Delete(path: String): String;
     function StatusCode(path: String): Integer;
+  end;
+
+// THttpResponse — status code + body from HttpDo* helpers.
+type
+  THttpResponse = class
+    Status: Integer;
+    Body: String;
   end;
 
 // Constructor
@@ -19,5 +28,13 @@ function NewHttpClient(baseURL: String; timeoutMs: Integer): THttpClient;
 function HttpGet(url: String): String;
 function HttpPost(url: String; contentType: String; body: String): String;
 function HttpGetJSON(url: String): map[String]Variant;
+function HttpPostJSON(url: String; body: String): map[String]Variant;
+function HttpPut(url: String; contentType: String; body: String): String;
+function HttpDelete(url: String): String;
+
+// Response-object helpers (return status code + body together)
+function HttpDoGet(url: String): THttpResponse;
+function HttpDoPost(url: String; contentType: String; body: String): THttpResponse;
 
 end.
+

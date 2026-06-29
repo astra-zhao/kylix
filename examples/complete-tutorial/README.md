@@ -97,6 +97,9 @@ This tutorial contains **42 runnable example files** organized into categories. 
 ### 17. Cache (1 example) - new in v4.0 (Phase 7)
 - `example53_cache.klx` - Thread-safe LRU cache with `NewCache`/`Put`/`GetString`/`Has`/`Delete`/`Size`/`Clear`
 
+### 18. HTTP Client (1 example) - new in v4.0 (Phase 7)
+- `example54_http.klx` - `THttpClient` with GET/POST/PUT/DELETE, one-shot helpers, `THttpResponse` (status+body)
+
 ## How to Run Examples
 
 ### Single File
@@ -388,6 +391,7 @@ go run hello.go
 | OpenAPI / Swagger | 1 | ✅ Works (v3.3.0) |
 | Database (SQLite) | 1 | ✅ Works (v4.0 Phase 7) |
 | Cache (LRU) | 1 | ✅ Works (v4.0 Phase 7) |
-| **Total** | **46** | **47/47 checks pass** |
+| HTTP Client | 1 | ✅ Works (v4.0 Phase 7) |
+| **Total** | **47** | **48/48 checks pass** |
 
 Happy coding with Kylix! 🚀

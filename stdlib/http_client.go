@@ -79,6 +79,51 @@ func (c *THttpClient) Post(path, contentType, body string) (string, error) {
 	return string(respBody), nil
 }
 
+// Put sends an HTTP PUT request with a string body.
+func (c *THttpClient) Put(path, contentType, body string) (string, error) {
+	url := c.BaseURL + path
+	req, err := http.NewRequest("PUT", url, strings.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("HttpClient.Put: %w", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	for k, v := range c.Headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HttpClient.Put: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("HttpClient.Put (read): %w", err)
+	}
+	return string(respBody), nil
+}
+
+// Delete sends an HTTP DELETE request and returns the response body.
+func (c *THttpClient) Delete(path string) (string, error) {
+	url := c.BaseURL + path
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("HttpClient.Delete: %w", err)
+	}
+	for k, v := range c.Headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HttpClient.Delete: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("HttpClient.Delete (read): %w", err)
+	}
+	return string(respBody), nil
+}
+
 // StatusCode sends a GET request and returns only the HTTP status code.
 func (c *THttpClient) StatusCode(path string) (int, error) {
 	url := c.BaseURL + path
@@ -131,4 +176,91 @@ func HttpGetJSON(url string) (map[string]interface{}, error) {
 		return nil, err
 	}
 	return JsonDecodeMap(body)
+}
+
+// HttpPostJSON sends a POST request with a JSON body and decodes the JSON
+// response into a map.
+func HttpPostJSON(url, body string) (map[string]interface{}, error) {
+	resp, err := http.Post(url, "application/json", strings.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("HttpPostJSON: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("HttpPostJSON (read): %w", err)
+	}
+	return JsonDecodeMap(string(respBody))
+}
+
+// HttpPut sends a PUT request with a body and returns the response body.
+func HttpPut(url, contentType, body string) (string, error) {
+	req, err := http.NewRequest("PUT", url, strings.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("HttpPut: %w", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HttpPut: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("HttpPut (read): %w", err)
+	}
+	return string(respBody), nil
+}
+
+// HttpDelete sends a DELETE request and returns the response body.
+func HttpDelete(url string) (string, error) {
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("HttpDelete: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HttpDelete: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("HttpDelete (read): %w", err)
+	}
+	return string(respBody), nil
+}
+
+// THttpResponse captures both the status code and body of an HTTP response.
+type THttpResponse struct {
+	Status int
+	Body   string
+}
+
+// HttpDoGet performs a GET request and returns a THttpResponse with status
+// code and body. Use this when you need to inspect the status code.
+func HttpDoGet(url string) (*THttpResponse, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("HttpDoGet: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("HttpDoGet (read): %w", err)
+	}
+	return &THttpResponse{Status: resp.StatusCode, Body: string(body)}, nil
+}
+
+// HttpDoPost performs a POST request and returns a THttpResponse.
+func HttpDoPost(url, contentType, body string) (*THttpResponse, error) {
+	resp, err := http.Post(url, contentType, strings.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("HttpDoPost: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("HttpDoPost (read): %w", err)
+	}
+	return &THttpResponse{Status: resp.StatusCode, Body: string(respBody)}, nil
 }

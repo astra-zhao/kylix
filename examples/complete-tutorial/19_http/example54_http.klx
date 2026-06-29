@@ -1,0 +1,34 @@
+program HttpDemo;
+uses httpclient;
+
+begin
+  // Create a client with a 5-second timeout
+  var c := NewHttpClient('https://httpbin.org', 5000);
+
+  // Set a custom header applied to all subsequent requests
+  c.SetHeader('X-Demo', 'kylix');
+  c.SetHeader('Authorization', 'Bearer token123');
+
+  // The client exposes Get/Post/Put/Delete methods.
+  // BaseURL is the prefix; method paths are appended:
+  //   c.Get('/users')        -> GET  https://httpbin.org/users
+  //   c.Post('/users', 'application/json', body) -> POST ...
+  //   c.Put('/users/1', 'application/json', body) -> PUT ...
+  //   c.Delete('/users/1')   -> DELETE ...
+
+  // One-shot helpers (no client needed):
+  //   HttpGet(url)            -> String (body)
+  //   HttpPost(url, ct, body) -> String
+  //   HttpPut(url, ct, body)  -> String
+  //   HttpDelete(url)         -> String
+  //   HttpGetJSON(url)        -> map (decoded JSON)
+  //   HttpPostJSON(url, body) -> map (decoded JSON)
+
+  // Response-object helpers return status code + body together:
+  //   var resp := HttpDoGet(url);
+  //   WriteLn(resp.Status);   // Integer
+  //   WriteLn(resp.Body);     // String
+
+  WriteLn('BaseURL: ' + c.BaseURL);
+  WriteLn('http demo OK');
+end.
