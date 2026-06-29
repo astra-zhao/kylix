@@ -1,12 +1,11 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-06-26  
-> 当前版本: v3.2.0-dev 🚧  
+> 最后更新: 2026-06-29  
+> 当前版本: v3.3.0 ✅  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**🚧 v3.2.0 开发中！** KylixBoot 注解栈已完成 —— 自动路由装配、DI、procedure handler、字段校验、安全守卫、声明式 ORM，外加 KLX207–KLX213 注解诊断。LLVM Milestone 2 Phase 2（接口 fat pointer）与 Phase 3（泛型单态化）已落地，LLVM M2 已功能完备（接口 + 数组 + 优化 + 泛型）。教程 41/41 通过。  
-**📍 当前重点：** v3.2.0 功能开发已基本完成（注解栈 + LLVM M2 + stdlib Phase 6 + registry 脚手架），下一阶段为正式发布 v3.2.0。
+**✅ v3.3.0 已发布！** Body Binding + JWT + OpenAPI 3.1 + 包管理器集成 + 类型检查器 MVP，教程 45/45 通过，16 包全部测试通过。
 
 ---
 
@@ -25,8 +24,9 @@
 | **v2.6.0** | 性能与优化 (并行编译/DCE/LSP基准) | ✅ 完成 | v2.6.0 |
 | **v3.0.0** | LLVM 后端 + 包注册中心 + WASI | ✅ alpha | 2026-06-21 |
 | **v3.1.0** | KylixBoot 框架 + 注解语法 + LLVM 数组 + 编译器修复 | ✅ 完成 | 2026-06-23 |
-| **v3.2.0** | KylixBoot 注解栈（路由/DI/校验/安全/ORM）+ 诊断 | 🚧 开发中（注解栈完成） | 2026-06-26 |
-| **v4.0.0** | 自研运行时 + 完全脱离 Go | 📋 长期 | 2027+ |
+| **v3.2.0** | KylixBoot 注解栈（路由/DI/校验/安全/ORM）+ 诊断 | ✅ 完成 | 2026-06-26 |
+| **v3.3.0** | Body Binding + JWT + OpenAPI + 包管理器集成 + 类型检查器 | ✅ 完成 | 2026-06-29 |
+| **v4.0.0** | LLVM M3 + stdlib Phase 7 + IDE 插件（脱离 Go 长期目标） | 📋 规划中 | 2026 Q3 |
 
 ---
 
@@ -163,51 +163,44 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 - [ ] `encoding` — Base64/Hex/CSV/URL/JSON-Lines
 - [ ] `os` — 进程管理、信号、管道、环境变量
 
-## 📋 v4.0.0 — 完全独立运行时（脱离 Go）
+## 📋 v4.0.0 — LLVM M3 + stdlib Phase 7 + IDE 插件
 
-> 预计: 2027 | 工作量: 6+ 月
+> 预计: 2026 Q3 | 工作量: 2–3 月
 
 ### 目标
 
-Kylix 彻底脱离 Go 工具链，成为完全自主的编译型语言：
+三条并行主线：LLVM 后端成熟化、stdlib 扩展、开发者工具链。Go 后端持续保留；脱离 Go 是 v5.0+ 的长期目标。
 
-```
-Kylix 源码 (.klx)
-    ↓  kylix compile
-LLVM IR (.ll)
-    ↓  llc / lld
-原生二进制
-```
+### 主线 1: LLVM 后端 Milestone 3
 
-### 任务 1: 自研运行时 (KylixRT)
-
-- [ ] 垃圾回收器（引用计数 + 标记清除）
-- [ ] 字符串运行时（引用计数字符串，零拷贝切片）
-- [ ] 动态数组运行时（增长策略）
-- [ ] 接口运行时（fat pointer + 类型擦除）
-- [ ] 异常运行时（stack unwinding via LLVM EH）
-- [ ] 并发原语（goroutine 等价 → 协程）
-
-### 任务 2: LLVM 后端 Milestone 3 — 完整 Kylix 语言
-
-- [ ] 泛型完整实现（约束 + 单态化 + 特化）
+- [ ] 异常处理 codegen（try/except/finally → LLVM EH）
 - [ ] 字符串插值 codegen（`${expr}` → LLVM IR）
 - [ ] 闭包 codegen（捕获变量的内存布局）
-- [ ] async/await codegen（stackful 协程）
-- [ ] 完整 Pascal 运行时（Set 类型、string 类型、Real）
+- [ ] 全量自举测试（Go 后端 vs LLVM 后端输出比对）
+- [ ] 优化通道：循环展开、内联、常量折叠
 
-### 任务 3: 自举编译器 v2.0
+### 主线 2: stdlib Phase 7
 
-- [ ] 用 Kylix 重写 LLVM 后端（`generator_llvm.klx`）
-- [ ] 编译器能编译自己（完整自举）
-- [ ] 性能对比：Kylix v4 vs Go 参考编译器
+- [ ] `http` 模块：HTTP 客户端（GET/POST/PUT/DELETE，连接池，超时）
+- [ ] `httpserver` 模块：高性能 HTTP 服务器（纯 stdlib，不依赖 net/http wrapper）
+- [ ] `db` 模块：通用数据库连接池（支持 MySQL / PostgreSQL / SQLite）
+- [ ] `cache` 模块：内存 LRU 缓存 + Redis 适配器
+- [ ] `websocket` 模块：WebSocket 服务端支持
 
-### 任务 4: 完整 IDE 支持
+### 主线 3: IDE 插件
 
-- [ ] DAP 调试适配器（KylixRT 原生调试）
-- [ ] VS Code 扩展 v2（语义高亮 + 类型推导显示）
-- [ ] IntelliJ 插件
-- [ ] Language Server 重写（更快的增量分析）
+- [ ] **VS Code 扩展**：语法高亮 + 跳转定义 + 错误提示（via LSP）
+- [ ] **JetBrains 插件**：IntelliJ / GoLand 支持
+- [ ] LSP 增强：补全精度提升、重构支持（改名、提取函数）
+- [ ] DAP 调试适配器（配合 VS Code 断点调试）
+
+### 长期愿景（v5.0+）
+
+自研运行时 KylixRT，完全脱离 Go 工具链：
+```
+.klx → LLVM IR → 原生二进制（无 Go 依赖）
+```
+前提：LLVM 后端能编译全部 Kylix stdlib（M3 完成后评估）。
 
 ---
 

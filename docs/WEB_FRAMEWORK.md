@@ -651,12 +651,180 @@ end.
 
 ### 未来增强
 
-- [ ] 认证中间件（JWT、OAuth）
-- [ ] 数据库 ORM 集成
+- [x] ~~认证中间件（JWT、OAuth）~~ ✅ v3.3.0 已完成
+- [ ] 数据库 ORM 集成（v4.0）
 - [ ] WebSocket 支持
-- [ ] 模板引擎
-- [ ] 文件上传处理
+- [x] ~~API 文档生成器~~ ✅ v3.3.0 已完成（OpenAPI 3.1）
 - [ ] 速率限制中间件
 - [ ] CORS 中间件
-- [ ] 请求验证
-- [ ] API 文档生成器
+- [x] ~~请求验证~~ ✅ v3.2.0 已完成（[Required]/[Email]/[Min] 等）
+- [ ] 文件上传处理
+
+---
+
+## KylixBoot 框架（v3.2.0+）
+
+v3.2.0 引入了 **KylixBoot**，Spring Boot 风格的注解驱动 Web 框架，通过编译器代码生成实现零运行时反射。
+
+### 自动路由装配
+
+```pascal
+program UserAPI;
+uses boot;
+
+[Controller('/api/users')]
+type
+  TUserController = class
+    [Get('/')]
+    function ListUsers(req: TRequest): TResponse;
+    begin
+      result := BootJSON(200, nil);
+    end;
+
+    [Post('/')]
+    function CreateUser(req: TRequest): TResponse;
+    begin
+      result := BootText(201, 'created');
+    end;
+  end;
+
+begin
+  BootRun(8080);
+end.
+```
+
+### 请求体绑定（v3.3.0）
+
+`[Body(TEntity)]` 注解自动绑定并验证 JSON 请求体：
+
+```pascal
+[Entity('users')]
+type
+  TCreateUser = class
+    [Required]
+    [Email]
+    Email: String;
+    [Required]
+    [MinLen(8)]
+    Password: String;
+  end;
+
+[Controller('/api')]
+type
+  TUserController = class
+    [Post('/users')]
+    [Body(TCreateUser)]
+    function CreateUser(req: TRequest): TResponse;
+    begin
+      // 编译器自动生成绑定 + 验证代码
+      result := BootText(201, 'created');
+    end;
+  end;
+```
+
+编译器生成的 Go 代码：
+```go
+stdlib.BootPOST("/api/users", func(req *stdlib.BootRequest) *stdlib.BootResponse {
+    var __body TCreateUser
+    if err := stdlib.BootReadJSON(req, &__body); err != nil {
+        return stdlib.BootJSON(400, map[string]string{"error": "invalid JSON"})
+    }
+    if !__body.IsValid() {
+        return stdlib.BootJSON(400, __body.Validate())
+    }
+    return __kylix_ctrl_TUserController.CreateUser(req)
+})
+```
+
+### JWT 认证（v3.3.0）
+
+```pascal
+uses boot, jwt;
+
+[Controller('/api')]
+type
+  TAuthController = class
+    [Post('/login')]
+    function Login(req: TRequest): TResponse;
+    begin
+      var token := JwtSign('my-secret', 'user42', 3600, nil);
+      result := BootText(200, token);
+    end;
+
+    [Get('/me')]
+    [Authenticated]
+    function Me(req: TRequest): TResponse;
+    begin
+      result := BootText(200, 'authenticated!');
+    end;
+  end;
+
+begin
+  BootRegisterJwtAuth('my-secret');  // 一键接入 [Authenticated]
+  BootRun(8080);
+end.
+```
+
+### OpenAPI 3.1 自动生成（v3.3.0）
+
+```bash
+# 从源码生成 openapi.yaml
+kylix doc --openapi --title "My API" --api-version 1.0.0 main.klx
+
+# 输出到标准输出
+kylix doc --openapi --stdout main.klx
+```
+
+生成结果示例：
+```yaml
+openapi: "3.1.0"
+info:
+  title: My API
+  version: 1.0.0
+paths:
+  /api/users:
+    post:
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TCreateUser'
+components:
+  schemas:
+    TCreateUser:
+      type: object
+      required: [Email, Password]
+      properties:
+        Email: {type: string, format: email}
+        Password: {type: string, minLength: 8}
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+```
+
+### 支持的注解一览
+
+| 注解 | 作用 | 级别 |
+|------|------|------|
+| `[Controller('/path')]` | 定义 HTTP 控制器基路径 | class |
+| `[Get('/path')]` | GET 路由 | method |
+| `[Post('/path')]` | POST 路由 | method |
+| `[Put('/path')]` | PUT 路由 | method |
+| `[Delete('/path')]` | DELETE 路由 | method |
+| `[Body(TEntity)]` | JSON 请求体绑定 + 验证 | method |
+| `[Authenticated]` | 要求已登录 | method |
+| `[Role('admin')]` | 要求指定角色 | method |
+| `[Service]` | 注册为 DI 服务 | class |
+| `[Inject]` | 注入依赖 | field |
+| `[Required]` | 字段必填 | field |
+| `[Email]` | Email 格式验证 | field |
+| `[Min(n)]` / `[Max(n)]` | 数值范围 | field |
+| `[MinLen(n)]` / `[MaxLen(n)]` | 字符串长度 | field |
+| `[Entity('table')]` | ORM 实体映射 | class |
+| `[Column('name')]` | 列名映射 | field |
+| `[PrimaryKey]` | 主键 | field |
