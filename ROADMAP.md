@@ -184,7 +184,8 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 - [ ] `http` 模块：HTTP 客户端（GET/POST/PUT/DELETE，连接池，超时）
 - [ ] `httpserver` 模块：高性能 HTTP 服务器（纯 stdlib，不依赖 net/http wrapper）
 - [x] `db` 模块：数据库便捷封装 + 连接池（SQLite/MySQL/PostgreSQL，参数化查询）✅ v4.0 Phase 7
-- [ ] `cache` 模块：内存 LRU 缓存 + Redis 适配器
+- [x] `cache` 模块：内存 LRU 缓存 + TTL（线程安全，Sweep 惰性回收）✅ v4.0 Phase 7
+- [ ] `cache` Redis 适配器（远程缓存，依赖 redis client）
 - [ ] `websocket` 模块：WebSocket 服务端支持
 
 ### 主线 3: IDE 插件

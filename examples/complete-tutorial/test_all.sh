@@ -77,7 +77,8 @@ for dir in \
     14_body_binding \
     15_jwt \
     16_openapi \
-    17_database; do
+    17_database \
+    18_cache; do
     run_single_file_dir "$dir"
 done
 

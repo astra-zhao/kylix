@@ -94,6 +94,9 @@ This tutorial contains **42 runnable example files** organized into categories. 
 ### 16. Database (1 example) - new in v4.0 (Phase 7)
 - `example52_database.klx` - SQLite in-memory DB with `DbOpenSQLite`/`DbExec`/`DbQueryScalar`, parameterized queries
 
+### 17. Cache (1 example) - new in v4.0 (Phase 7)
+- `example53_cache.klx` - Thread-safe LRU cache with `NewCache`/`Put`/`GetString`/`Has`/`Delete`/`Size`/`Clear`
+
 ## How to Run Examples
 
 ### Single File
@@ -384,6 +387,7 @@ go run hello.go
 | JWT Authentication | 1 | ✅ Works (v3.3.0) |
 | OpenAPI / Swagger | 1 | ✅ Works (v3.3.0) |
 | Database (SQLite) | 1 | ✅ Works (v4.0 Phase 7) |
-| **Total** | **45** | **46/46 checks pass** |
+| Cache (LRU) | 1 | ✅ Works (v4.0 Phase 7) |
+| **Total** | **46** | **47/47 checks pass** |
 
 Happy coding with Kylix! 🚀

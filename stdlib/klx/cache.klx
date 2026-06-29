@@ -1,0 +1,22 @@
+unit cache;
+
+// cache — Thread-safe in-memory LRU cache with optional TTL (Phase 7).
+// Get/Put/Delete are O(1). Expired entries are evicted lazily on access.
+
+type
+  TCache = class
+    procedure Put(key: String; value: Variant);
+    procedure PutWithTTL(key: String; value: Variant; ttlMs: Integer);
+    function Get(key: String): Variant;
+    function GetString(key: String): String;
+    function Has(key: String): Boolean;
+    procedure Delete(key: String);
+    function Size: Integer;
+    procedure Clear;
+    function Sweep: Integer;
+  end;
+
+// Create an LRU cache. capacity < 1 defaults to 16. ttlMs <= 0 = no expiry.
+function NewCache(capacity: Integer; ttlMs: Integer): TCache;
+
+end.

@@ -1,0 +1,34 @@
+program CacheDemo;
+uses cache;
+
+begin
+  // Create an LRU cache: capacity 4, no default TTL
+  var c := NewCache(4, 0);
+
+  // Put some values
+  c.Put('name', 'alice');
+  c.Put('role', 'admin');
+
+  // Read back as string
+  WriteLn('name: ' + c.GetString('name'));
+  WriteLn('role: ' + c.GetString('role'));
+
+  // Has / missing
+  if c.Has('name') then
+    WriteLn('has name: yes');
+  WriteLn('missing: ' + c.GetString('missing'));
+
+  // Size (integer)
+  WriteLn(c.Size());
+
+  // Delete
+  c.Delete('role');
+  if not c.Has('role') then
+    WriteLn('role deleted');
+
+  // Clear
+  c.Clear();
+  WriteLn(c.Size());
+
+  WriteLn('cache demo OK');
+end.

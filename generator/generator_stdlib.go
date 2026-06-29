@@ -74,6 +74,9 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"db": strToSet(
 		"DbOpen", "DbOpenSQLite", "DbExec", "DbQueryRows", "DbQueryScalar", "DbClose",
 	),
+	"cache": strToSet(
+		"NewCache",
+	),
 	"container":  strToSet("NewContainer"),
 	"config":     strToSet("NewConfig", "NewAppConfig"),
 	"autoconfig": strToSet("NewAutoConfig"),
