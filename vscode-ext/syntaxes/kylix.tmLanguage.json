@@ -7,6 +7,7 @@
     { "include": "#numbers" },
     { "include": "#keywords" },
     { "include": "#types" },
+    { "include": "#annotations" },
     { "include": "#functions" },
     { "include": "#operators" }
   ],
@@ -91,7 +92,34 @@
       "patterns": [
         {
           "name": "support.function.builtin.kylix",
-          "match": "\\b(WriteLn|Write|ReadLn|Read|Length|Copy|Concat|Pos|Delete|Insert|UpperCase|LowerCase|Trim|IntToStr|StrToInt|Ord|Chr|Sqr|Sqrt|Abs|Sin|Cos|Tan|Ln|Exp|Round|Trunc|Frac|Random|Randomize|Halt|Succ|Pred|Inc|Dec)\\b"
+          "match": "\\b(WriteLn|Write|ReadLn|Read|Length|Copy|Concat|Pos|Delete|Insert|UpperCase|LowerCase|Trim|IntToStr|StrToInt|StrToFloat|FloatToStr|Ord|Chr|Sqr|Sqrt|Abs|Sin|Cos|Tan|Ln|Exp|Round|Trunc|Frac|Random|Randomize|Halt|Succ|Pred|Inc|Dec|Append|SetLength)\\b"
+        },
+        {
+          "name": "support.function.stdlib.kylix",
+          "match": "\\b(JsonEncode|JsonDecode|JsonGetString|JsonGetInt|Sha256|Md5|HmacSha256|BCryptHash|Base64Encode|Base64Decode|HexEncode|HttpSig|JwtSign|JwtVerify|JwtSubject|DbOpen|DbOpenSQLite|DbExec|DbQueryRows|DbQueryScalar|DbClose|NewCache|HttpGet|HttpPost|HttpPut|HttpDelete|HttpGetJSON|HttpPostJSON|HttpDoGet|HttpDoPost|NewHttpClient|TcpDial|TcpListen|DnsLookup|NewServer|NewDatabase|BootRun|BootGET|BootPOST|BootText|BootJSON|BootRegisterJwtAuth)\\b"
+        }
+      ]
+    },
+    "annotations": {
+      "patterns": [
+        {
+          "name": "meta.annotation.kylix",
+          "begin": "\\[(?=[A-Z][A-Za-z]*)",
+          "end": "\\]",
+          "patterns": [
+            {
+              "name": "entity.name.function.annotation.kylix",
+              "match": "\\b[A-Z][A-Za-z0-9]*\\b"
+            },
+            {
+              "name": "string.quoted.single.kylix",
+              "match": "'[^']*'"
+            },
+            {
+              "name": "constant.numeric.kylix",
+              "match": "\\b\\d+\\b"
+            }
+          ]
         }
       ]
     },

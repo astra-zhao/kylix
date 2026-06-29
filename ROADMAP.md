@@ -190,7 +190,7 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 
 ### 主线 3: IDE 插件
 
-- [ ] **VS Code 扩展**：语法高亮 + 跳转定义 + 错误提示（via LSP）
+- [x] **VS Code 扩展 v1.1**：语法高亮（含 KylixBoot 注解 + stdlib 函数）+ LSP 集成 + 编译/运行命令 + 快捷键 + 状态栏 + 编译器路径解析 ✅ v4.0
 - [ ] **JetBrains 插件**：IntelliJ / GoLand 支持
 - [ ] LSP 增强：补全精度提升、重构支持（改名、提取函数）
 - [ ] DAP 调试适配器（配合 VS Code 断点调试）

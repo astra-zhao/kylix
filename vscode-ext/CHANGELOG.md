@@ -1,5 +1,33 @@
 # 更新日志
 
+## [1.1.0] - 2026-06-30
+
+### ✨ 新增功能
+
+#### 语法高亮增强
+- ✅ **KylixBoot 注解高亮**：`[Controller]`/`[Get]`/`[Post]`/`[Body]`/`[Authenticated]`/`[Entity]`/`[Required]` 等注解中的名称、字符串参数、数字参数独立着色
+- ✅ **stdlib 函数高亮**：新增 Phase 6/7 标准库函数识别（`JwtSign`/`DbOpen`/`NewCache`/`HttpGet`/`Sha256`/`BootRun` 等 30+ 函数）
+
+#### 命令与快捷键
+- ✅ `Kylix: Compile File` 命令（`Ctrl+Shift+B` / `Cmd+Shift+B`）——在集成终端编译当前 `.klx`
+- ✅ `Kylix: Run File` 命令（`F5`）——编译并运行当前文件
+- ✅ 编辑器标题栏运行按钮 + 右键菜单（编译/运行）
+
+#### 编译器路径解析
+- ✅ `kylix.compiler.path` 配置项优先
+- ✅ `KYLIX_PATH` 环境变量回退
+- ✅ 默认 `kylix`（假定在 PATH 上）
+
+#### 状态栏指示
+- ✅ 状态栏显示 LSP 连接状态（启动中 / 就绪 / 失败）
+- ✅ 启动失败时给出明确的路径配置提示
+
+### 🐛 修复
+- 修复 LSP 服务器重复启动 bug：旧版本手动 `spawn` 进程后 `LanguageClient` 又启动了第二个，现在由 `LanguageClient` 统一管理进程生命周期
+- 修复文件路径含空格时编译命令出错（路径加引号转义）
+
+---
+
 ## [1.0.0] - 2026-05-31
 
 ### ✨ 新增功能

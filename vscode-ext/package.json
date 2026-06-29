@@ -2,7 +2,7 @@
   "name": "kylix-vscode",
   "displayName": "Kylix Language Support",
   "description": "Language support for Kylix (Modern Pascal)",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "publisher": "kylix",
   "repository": {
     "type": "git",
@@ -33,13 +33,59 @@
       "scopeName": "source.kylix",
       "path": "./syntaxes/kylix.tmLanguage.json"
     }],
+    "commands": [
+      {
+        "command": "kylix.compile",
+        "title": "Kylix: Compile File",
+        "icon": "$(symbol-keyword)"
+      },
+      {
+        "command": "kylix.run",
+        "title": "Kylix: Run File",
+        "icon": "$(play)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "kylix.compile",
+        "key": "ctrl+shift+b",
+        "mac": "cmd+shift+b",
+        "when": "editorTextFocus && resourceLangId == kylix"
+      },
+      {
+        "command": "kylix.run",
+        "key": "f5",
+        "when": "editorTextFocus && resourceLangId == kylix"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "kylix.run",
+          "when": "resourceLangId == kylix",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "kylix.compile",
+          "when": "resourceLangId == kylix",
+          "group": "kylix@1"
+        },
+        {
+          "command": "kylix.run",
+          "when": "resourceLangId == kylix",
+          "group": "kylix@2"
+        }
+      ]
+    },
     "configuration": {
       "title": "Kylix",
       "properties": {
         "kylix.compiler.path": {
           "type": "string",
           "default": "kylix",
-          "description": "Path to the Kylix compiler executable"
+          "description": "Path to the Kylix compiler executable (or set KYLIX_PATH env var)"
         },
         "kylix.lsp.enabled": {
           "type": "boolean",
@@ -50,3 +96,4 @@
     }
   }
 }
+
