@@ -1,0 +1,51 @@
+program OpenAPIDemo;
+uses boot;
+
+[Entity('users')]
+type
+  TCreateUser = class
+    [Required]
+    [Email]
+    Email: String;
+    [Required]
+    [MinLen(8)]
+    Password: String;
+    [Min(18)]
+    Age: Integer;
+  end;
+
+[Controller('/api/v1')]
+type
+  TUserController = class
+    [Get('/users')]
+    [Authenticated]
+    function ListUsers(req: TRequest): TResponse;
+    begin
+      result := BootJSON(200, nil);
+    end;
+
+    [Post('/users')]
+    [Body(TCreateUser)]
+    function CreateUser(req: TRequest): TResponse;
+    begin
+      result := BootText(200, 'created');
+    end;
+
+    [Get('/users/:id')]
+    [Authenticated]
+    function GetUser(req: TRequest): TResponse;
+    begin
+      result := BootJSON(200, nil);
+    end;
+
+    [Delete('/users/:id')]
+    [Role('admin')]
+    function DeleteUser(req: TRequest): TResponse;
+    begin
+      result := BootJSON(200, nil);
+    end;
+  end;
+
+begin
+  WriteLn('OpenAPI demo OK');
+end.

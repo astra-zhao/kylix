@@ -75,7 +75,8 @@ for dir in \
     12_special_features \
     13_stdlib_phase6 \
     14_body_binding \
-    15_jwt; do
+    15_jwt \
+    16_openapi; do
     run_single_file_dir "$dir"
 done
 

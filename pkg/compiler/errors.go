@@ -42,10 +42,10 @@ const (
 	ErrInvalidValidation   = "KLX211"
 	ErrInvalidSecurity     = "KLX212"
 	ErrInvalidORM          = "KLX213"
-	ErrBodyBinding         = "KLX301"
+	ErrBodyBinding = "KLX214"
 
 	// Interface / contract errors
-	ErrMissingMethod    = "KLX301"
+	ErrMissingMethod = "KLX301"
 	ErrMethodSignature  = "KLX302"
 	ErrUnknownInterface = "KLX303"
 

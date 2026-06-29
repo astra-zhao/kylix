@@ -4,6 +4,105 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v3.3.0 (2026-06-29) — KylixBoot Framework: Body Binding + JWT + OpenAPI
+
+### Highlights
+
+- **`[Body(TEntity)]` request body binding** — annotate a POST/PUT route with `[Body(TCreateUser)]`; the compiler auto-generates JSON deserialization + `IsValid()` / `Validate()` checks before calling the controller method. Diagnostic `KLX214` catches misuse at compile time.
+- **JWT HS256 stdlib** — `uses jwt;` gives you `JwtSign`, `JwtVerify`, `JwtSubject`, `JwtGetString`, `JwtGetInt`. `BootRegisterJwtAuth('secret')` wires JWT validation into the `[Authenticated]` guard with one call.
+- **OpenAPI 3.1 auto-generation** — `kylix doc --openapi [files...]` scans `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]`/`[Entity]`/`[Body]`/`[Authenticated]`/`[Role]` annotations and emits a complete `openapi.yaml` with path items, request bodies, schemas, and Bearer security scheme.
+- **Package manager compiler integration** — `kylix build` automatically discovers and compiles `.klx` files from `packages/*/` subdirectories. `kylix add http` → `uses http;` now works without manual path configuration.
+- **Type checker already complete** — `pkg/compiler/typecheck.go` (862 lines) validates undeclared variables/functions, function call arity, assignment type compatibility, generic constraints, interface implementations, and type alias cycles. 7 tests in `typecheck_test.go`.
+- **Test coverage improvements** — new `packages_test.go` validates package discovery and deduplication. All 16 packages pass tests.
+- **Tutorial 45/45 examples pass**. New examples: `14_body_binding`, `15_jwt`, `16_openapi`.
+- **Error code fix** — `ErrBodyBinding` moved from `KLX301` (collision) to `KLX214`.
+
+### `[Body(TEntity)]` Body Binding
+
+```pascal
+[Post('/users')]
+[Body(TCreateUser)]
+function CreateUser(req: TRequest): TResponse;
+begin
+  result := BootText(200, 'created');
+end;
+```
+
+Generated Go:
+```go
+stdlib.BootPOST("/api/users", func(req *stdlib.BootRequest) *stdlib.BootResponse {
+    var __body TCreateUser
+    if err := stdlib.BootReadJSON(req, &__body); err != nil {
+        return stdlib.BootJSON(400, map[string]string{"error": "invalid JSON"})
+    }
+    if !__body.IsValid() {
+        return stdlib.BootJSON(400, __body.Validate())
+    }
+    return __kylix_ctrl_TUserController.CreateUser(req)
+})
+```
+
+### JWT HS256
+
+```pascal
+uses boot, jwt;
+
+begin
+  BootRegisterJwtAuth('my-secret');  // wires JWT into [Authenticated]
+  var token := JwtSign('my-secret', 'user42', 3600, nil);
+  var claims := JwtVerify('my-secret', token);
+  WriteLn(JwtSubject(claims));  // user42
+end.
+```
+
+Pure Go stdlib implementation — no external dependencies.
+
+### OpenAPI 3.1 Generation
+
+```bash
+kylix doc --openapi --title "My API" --api-version 1.0.0 api.klx
+```
+
+Output `docs/api/openapi.yaml`:
+```yaml
+openapi: "3.1.0"
+info:
+  title: My API
+  version: 1.0.0
+paths:
+  /api/v1/users:
+    post:
+      operationId: TUserController_CreateUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TCreateUser'
+      responses:
+        "200":
+          description: OK
+components:
+  schemas:
+    TCreateUser:
+      type: object
+      required: [Email, Password]
+      properties:
+        Email:
+          type: string
+          format: email
+        Password:
+          type: string
+          minLength: 8
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+```
+
+---
+
 ## v3.2.0 (2026-06-29) — KylixBoot Annotation Stack + LLVM M2 Complete + stdlib Phase 6
 
 > 🎉 **Major release.** Pre-built binaries for Linux/macOS/Windows are attached to this GitHub release.

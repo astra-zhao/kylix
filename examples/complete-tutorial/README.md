@@ -85,6 +85,12 @@ This tutorial contains **42 runnable example files** organized into categories. 
 ### 13. Request Body Binding (1 example) - new in v3.3.0
 - `example49_body_binding.klx` - `[Body(TEntity)]` JSON request body binding with `Validate()`/`IsValid()` checks
 
+### 14. JWT Authentication (1 example) - new in v3.3.0
+- `example50_jwt_auth.klx` - `JwtSign`/`JwtVerify` + `BootRegisterJwtAuth` for `[Authenticated]` route guards
+
+### 15. OpenAPI / Swagger (1 example) - new in v3.3.0
+- `example51_openapi.klx` - `[Controller]`/`[Get]`/`[Post]`/`[Body]`/`[Authenticated]`/`[Role]` → OpenAPI 3.1 YAML via `kylix doc --openapi`
+
 ## How to Run Examples
 
 ### Single File
@@ -102,6 +108,21 @@ cd examples/complete-tutorial/11_modules
 kylix build math_helper.klx example33_use_module.klx
 go run main.go
 ```
+
+### Using Package Manager (v3.3.0+)
+
+Kylix 自动发现 `packages/` 目录下的单元文件：
+
+```bash
+# 安装第三方包
+kylix add github.com/user/http
+
+# 编译时自动包含 packages/ 中的单元
+kylix build main.klx
+# 等价于：kylix build main.klx packages/http/http.klx
+```
+
+`uses http;` 会自动找到 `packages/http/http.klx`，无需手动指定路径。
 
 ### All Examples in a Category
 
@@ -357,6 +378,8 @@ go run hello.go
 | Annotations / Auto-wire / DI / Procedure handlers / Validation / Security / ORM | 7 | ✅ Works (v3.1.0+ / v3.2.0) |
 | stdlib Phase 6 (crypto / encoding) | 1 | ✅ Works (v3.2.0) |
 | Request Body Binding | 1 | ✅ Works (v3.3.0) |
-| **Total** | **42** | **43/43 checks pass** |
+| JWT Authentication | 1 | ✅ Works (v3.3.0) |
+| OpenAPI / Swagger | 1 | ✅ Works (v3.3.0) |
+| **Total** | **44** | **45/45 checks pass** |
 
 Happy coding with Kylix! 🚀

@@ -119,6 +119,10 @@ var translations = map[string]map[Lang]string{
 		LangEn: "function '%s' missing return type",
 		LangZh: "函数 '%s' 缺少返回类型",
 	},
+	"KLX214": {
+		LangEn: "[Body] annotation error: %s",
+		LangZh: "[Body] 注解错误: %s",
+	},
 	"KLX301": {
 		LangEn: "class %q implements %q but is missing method %q",
 		LangZh: "类 %q 声明实现了 %q 但缺少方法 %q",

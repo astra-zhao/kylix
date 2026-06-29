@@ -395,7 +395,12 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("no source files provided")
 	}
 
-	// Append .klx unit files from package search directories.
+	// Append .klx unit files from package search directories (deduplicated).
+	existingFiles := make(map[string]bool, len(files))
+	for _, f := range files {
+		abs, _ := filepath.Abs(f)
+		existingFiles[abs] = true
+	}
 	for _, dir := range opts.PackageSearchDirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -403,7 +408,12 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 		}
 		for _, e := range entries {
 			if !e.IsDir() && strings.HasSuffix(e.Name(), ".klx") {
-				files = append(files, filepath.Join(dir, e.Name()))
+				candidate := filepath.Join(dir, e.Name())
+				abs, _ := filepath.Abs(candidate)
+				if !existingFiles[abs] {
+					files = append(files, candidate)
+					existingFiles[abs] = true
+				}
 			}
 		}
 	}

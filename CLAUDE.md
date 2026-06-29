@@ -1,100 +1,117 @@
-# Kylix Project Context
+# Kylix 项目上下文
 
-Kylix is a modern Pascal-to-Go transpiler. The compiler is written in Go and targets Go output.
+Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代码。
 
-## Current State: v1.5.0 (2026-06-14)
+**重要：始终用中文回答用户。**
 
-- Phase 6–10 complete: v2.0 核心特性全部就绪
-- 增量编译：55× 加速（v1.4.0）
-- LSP 实时诊断：parse 错误 + 接口验证（v1.3.2）
-- stdlib Kylix 化：4 个 `.klx` 声明文件，LSP 自动加载（v1.5.0）
-- 包管理器：`kylix add/install/remove`，支持 git + 本地路径（v1.5.0）
-- All Go tests pass (152 tests across 8 packages)
-- All source files ≤ 1000 lines (refactored in v1.2.3)
-- Interface implementation validated at compile time (v1.3.0)
-- Kylix-layer error reporting via //line directives (v1.3.0)
-- Real Go 1.18+ generics generated for generic classes/functions (v1.3.0)
+## 当前状态：v3.3.0（2026-06-28）
 
-## Key Documents
+- v3.3.0：KylixBoot 框架完善 —— Body 绑定 + JWT + OpenAPI 3.1 自动生成
+- v3.2.0：KylixBoot 注解栈 + LLVM M2 完整 + stdlib Phase 6
+- v3.1.x：接口验证、Kylix 层错误报告、真正的泛型、增量编译（55× 加速）
+- v1.5.0：stdlib `.klx` 声明文件 + 包管理器
+- 所有 Go 测试通过（16 个包）
+- 教程 45/45 测试通过（`examples/complete-tutorial/`）
+- 所有源文件 ≤ 1000 行
 
-- [ROADMAP.md](ROADMAP.md) — Development roadmap through v2.0.0
-- [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) — Known issues and improvement backlog
-- [TASKS.md](TASKS.md) — Detailed task breakdown
-- [CHANGELOG.md](CHANGELOG.md) — Version history
+## 关键文档
 
-## Architecture
+- [ROADMAP.md](ROADMAP.md) — 开发路线图（直到 v4.0）
+- [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) — 已知问题与改进积压
+- [TASKS.md](TASKS.md) — 详细任务分解
+- [CHANGELOG.md](CHANGELOG.md) — 版本历史
 
-- `token/token.go` — Token type definitions and keyword map
-- `lexer/lexer.go` — Lexical analyzer (character → token stream)
-- `ast/ast.go` — AST node definitions (interfaces + concrete types)
-- `parser/parser.go` — Pratt parser core; `parser_decl.go` declarations; `parser_stmt.go` statements; `parser_expr.go` expressions
-- `generator/generator.go` — Generator core + pre-scan; `generator_types.go` type/func codegen; `generator_stmt.go` statement codegen; `generator_expr.go` expression codegen
-- `cmd/kylix/main.go` — CLI entry point
-- `pkg/compiler/` — Compilation API + incremental cache
-- `pkg/pkgmgr/` — Package manager (add/install/remove)
-- `pkg/repl/` — Interactive REPL
+## 架构
+
+- `token/token.go` — Token 类型定义和关键字映射
+- `lexer/lexer.go` — 词法分析器（字符 → token 流）
+- `ast/ast.go` — AST 节点定义（接口 + 具体类型）
+- `parser/parser.go` — Pratt 解析器核心；`parser_decl.go` 声明；`parser_stmt.go` 语句；`parser_expr.go` 表达式
+- `generator/generator.go` — 生成器核心 + 预扫描；`generator_types.go` 类型/函数代码生成；`generator_stmt.go` 语句代码生成；`generator_expr.go` 表达式代码生成
+- `generator/generator_boot_annotations.go` — KylixBoot 注解扫描 + 自动装配代码生成
+- `generator/generator_validation_annotations.go` — 字段校验注解代码生成（`[Required]`/`[Email]` 等）
+- `cmd/kylix/main.go` — CLI 入口（版本 3.3.0）
+- `pkg/compiler/` — 编译 API + 增量缓存
+- `pkg/compiler/annotations.go` — KylixBoot 注解诊断（KLX207–KLX214）
+- `pkg/openapi/openapi.go` — OpenAPI 3.1 YAML 生成器
+- `pkg/pkgmgr/` — 包管理器（add/install/remove）
+- `pkg/repl/` — 交互式 REPL
 - `pkg/lsp/` — Language Server Protocol
-- `stdlib/` — Go standard library (web, orm, template, exceptions, etc.)
-- `stdlib/klx/` — Kylix declaration files for LSP completion
+- `stdlib/` — Go 标准库封装（web, orm, template, exceptions, jwt 等）
+- `stdlib/klx/` — LSP 补全用的 Kylix 声明文件
 
-## Completed Phases
+## 已完成阶段
 
-### Phase 6 → v1.0.2
-- String interpolation, exception types, multi-return, properties
-- Nested record fix, array range fix, memory leak fix
+### Phase 6–10 → v1.0.2–v1.5.0
+- 字符串插值、异常类型、多返回值、属性
+- Map 类型、Variant 类型、动态数组
+- 枚举、切片、单元文件系统、多文件编译
+- 自举验证完成（Self-hosted compiler）
+- 接口验证、Kylix 层错误报告、真正的泛型（Go 1.18+）
+- 增量编译（55× 加速）
+- stdlib `.klx` 声明 + 包管理器
 
-### Phase 7 → v1.0.3
-- Map type: `map[K]V` → Go `map[K]V`, auto-init
-- Variant type: `variant ... end` → Go interface + struct
-- Dynamic arrays: `append(arr, elem)`, `SetLength(arr, n)`
-- web_fullstack.klx rewritten in proper Kylix syntax
+### v3.1.x → KylixBoot 框架 + LLVM M2 Phase 1
+- `[Controller]`/`[Get]`/`[Post]` 路由自动装配
+- `[Service]`/`[Component]`/`[Inject]` DI 自动装配
+- `[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]` 字段校验
+- `[Authenticated]`/`[Role]` 路由安全守卫
+- `[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]` ORM 注解
+- 注解诊断 KLX207–KLX213
 
-### Phase 8 → v1.1.2
-- Enum type, slice expressions, unit file system, multi-file compilation
-- Self-hosted compiler passes 15/15 examples
+### v3.2.0 → LLVM M2 完整 + stdlib Phase 6
+- LLVM 后端 M2：接口胖指针、成员/方法分发、泛型类单态化
+- stdlib `net`（TCP/UDP/DNS）、`crypto`（SHA/AES/BCrypt）、`encoding`（Base64/Hex/CSV）
+- 注解栈全部完成，教程 42/42
 
-### Phase 9 → v1.2.0
-- Bootstrap verification complete
+### v3.3.0 → KylixBoot 框架完善（2026-06-28）
+- `[Body(TEntity)]`：POST/PUT 路由的 JSON 请求体自动绑定 + IsValid()/Validate() 校验
+- `jwt` stdlib：JwtSign/JwtVerify/JwtSubject + BootRegisterJwtAuth 一键接入 `[Authenticated]`
+- `kylix doc --openapi`：从注解自动生成 OpenAPI 3.1 YAML（路径、schema、安全方案）
+- 错误码修正：ErrBodyBinding 从 KLX301（冲突）改为 KLX214
+- 教程 45/45 通过（新增 14_body_binding、15_jwt、16_openapi）
 
-### Phase 10 → v1.3.0–v1.5.0 (v2.0 core features)
-- v1.3.0: Interface validation, Kylix-layer errors, real generics
-- v1.3.1: Multi-return full coverage
-- v1.3.2: LSP real-time diagnostics
-- v1.4.0: Incremental compilation (55× speedup)
-- v1.5.0: stdlib `.klx` declarations + package manager
+## 下一步：v3.3.0 收尾
 
-## Next: Phase 11 — v2.0 engineering quality
+**已完成 ✅**
+- 类型检查层 MVP：`pkg/compiler/typecheck.go`（862 行）完整实现
+- 包管理器编译器集成：`CompileProject` 自动发现 `packages/*/` 并去重
+- 测试覆盖提升：新增 `packages_test.go`，所有关键包已有测试
 
-**Priority 1: Correctness fixes (see TECHNICAL_DEBT.md)**
-- `CompileFile` incremental cache integration
-- `topoSortWithFiles` file path alignment fix
-- `GenerateBody` exception types output stability
+**剩余工作**
+- CompileFile 单文件模式的跨单元依赖自动解析（可选，非阻塞）
+- 文档更新：tutorial README 提及包管理器用法
+- 性能优化：大型项目的增量编译缓存验证
 
-**Priority 2: Feature gaps**
-- Type checking layer (MVP: assignment type mismatch, undeclared vars, arity check)
-- Package manager integration into compiler search path
-- `kylix add` git install logic fix
+**v4.0 规划**
+- LLVM M3：完整类型系统 + 优化通道
+- stdlib Phase 7：http client/server + 数据库连接池
+- IDE 插件：VSCode/JetBrains 语法高亮 + 跳转
 
-**Priority 3: Test coverage**
-- `pkg/pkgmgr` — 0 → 5+ tests
-- `pkg/compiler/cache.go` — 0 → 3+ tests
-- `pkg/lsp` stdlib loading — 0 → 2+ tests
-- `stdlib/klx/*.klx` parseability — 0 → 1 test
-- parser generics/multi-return — 0 → 3+ tests
+## 关键约束
 
-**Target:** 60%+ test coverage on critical paths before v2.0.0 release
+- Go 后端保持不变（Kylix → Go → binary）
+- AST 节点使用 class（不用 variant records）
+- **未经用户明确许可，绝不 commit/push**
+- **每个源文件不超过 1000 行**：大文件按功能拆分
+- build=`go build -o /tmp/kylix_bin ./cmd/kylix/ && KYLIX=/tmp/kylix_bin bash examples/complete-tutorial/test_all.sh 2>&1 | tail -8`
+- test=`go test $(go list ./... | grep -v '/examples') 2>&1 | grep -E "^ok|FAIL"`
 
-## Key Constraints
+## 已知问题（v3.3.0）
 
-- Go backend stays the same (Kylix → Go → binary)
-- AST nodes use classes (not variant records)
-- Never commit/push without explicit user permission
-- **每个源文件不超过 1000 行**：大文件按功能拆分（例如 parser_decl.go / parser_stmt.go / parser_expr.go）
-- build=go build -o /tmp/kylix_bin ./cmd/kylix/ && /tmp/kylix_bin build src/token.klx src/ast.klx src/error.klx src/lexer.klx src/parser.klx src/generator.klx src/main.klx && go build -o /tmp/kylix_self . && echo "Self-hosted compiler rebuilt OK"
+详见 [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)。最优先修复的 3 项：
+1. 包管理器未集成到编译器搜索路径（2.4）
+2. `topoSortWithFiles` 文件路径对齐 bug（1.2）
+3. `pkg/pkgmgr` + `pkg/compiler/cache` 零测试覆盖（3.1）
 
-## Known Issues (v1.5.0)
+## 教程结构（examples/complete-tutorial/）
 
-See [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) for the complete list. Top 3 to fix first:
-1. Package manager not integrated into compiler search path (2.4)
-2. `topoSortWithFiles` file path alignment bug (1.2)
-3. `pkg/pkgmgr` + `pkg/compiler/cache` have zero tests (3.1)
+| 目录 | 示例数 | 状态 |
+|------|--------|------|
+| 01_basics ~ 11_modules | 32 | ✅ 全部通过 |
+| 12_special_features | 7 | ✅ v3.2.0 |
+| 13_stdlib_phase6 | 1 | ✅ v3.2.0 |
+| 14_body_binding | 1 | ✅ v3.3.0 |
+| 15_jwt | 1 | ✅ v3.3.0 |
+| 16_openapi | 1 | ✅ v3.3.0 |
+| **合计** | **44 文件** | **45/45 通过** |
