@@ -30,23 +30,25 @@
 
 ---
 
-## 📊 累计统计 (v3.2.0-dev)
+## 📊 累计统计 (v4.0-dev)
 
 | 指标 | 数量 |
 |------|------|
-| Go 测试包 | 15+ 个（全部通过）|
-| Go 级测试 | ~330+ |
-| Kylix 级 stdlib 测试 | 117 个（10 模块）|
-| 纯 Kylix stdlib 函数 | 90+ |
+| Go 测试包 | 16 个（全部通过）|
+| Go 级测试 | ~350+ |
+| Kylix 级 stdlib 测试 | 140+ 个（14 模块）|
+| 纯 Kylix stdlib 函数 | 110+ |
 | CLI 命令 | 19 个 |
-| 教程示例 | 34 个（32 完全工作，~94%）|
+| 教程示例 | 55+ 个（含 stdlib Phase 7 新增）|
 | 原生构建目标 | 5 (linux/darwin/windows × amd64/arm64) |
 | WASM 目标 | 2 (Go 标准 + TinyGo) |
 | WASI 目标 | 2 (Go wasip1 + TinyGo) |
-| LLVM 后端 | ✅ Milestone 2 Phase 1（数组 + 优化）|
-| LLVM 测试 | 30 个（含 6 个数组测试）|
+| LLVM 后端 | ✅ Milestone 3（异常 + 控制流 + 表达式完整覆盖）|
+| LLVM 测试 | 73 个（含异常 20 个 + 控制流 5 个）|
+| LLVM 教程编译通过率 | 14/15（93%，lambda 预期失败）|
 | KylixBoot 测试 | 23 个 |
 | 包注册中心 | ✅ REST API + Web 前端 |
+| VS Code 扩展 | ✅ v1.1（语法高亮 + LSP + 代码片段 25 个）|
 
 ---
 
@@ -173,11 +175,18 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 
 ### 主线 1: LLVM 后端 Milestone 3
 
-- [x] 异常处理 codegen（try/except/finally + raise → setjmp/longjmp + 全局异常槽）✅ v4.0 M3
+- [x] 异常处理 codegen（try/except/finally + raise → setjmp/longjmp + 全局异常槽 + on E: Type 子类型匹配）✅ v4.0 M3
 - [x] 字符串插值 codegen（`${expr}` → malloc 缓冲 + strcat/snprintf）✅ v4.0 M3
-- [ ] 闭包 codegen（捕获变量的内存布局）— lambda 当前生成 stub，Go 后端完整支持
+- [x] 控制流语句补全（break/continue/case/match/foreach + 循环标签保存/恢复）✅ v4.0 M3
+- [x] 表达式覆盖提升（WriteLn 多参数/零参数、ArrayLiteral、SliceExpression、TupleLiteral、AwaitExpression）✅ v4.0 M3
+- [x] 关键 bug 修复（多变量声明、类型自动转换 i1↔i64↔double、__kylix_is_subtype SSA dominance）✅ v4.0 M3
+- [x] 元组 LHS 赋值 stub（多返回值 `(q, r) := func()` 降级为注释，IR 仍合法）✅ v4.0 M3
+- [x] **14/15 基础教程通过 LLVM 编译到原生二进制**（example15_lambda 因闭包架构限制预期失败）✅ v4.0 M3
+- [ ] 闭包 codegen（捕获变量的内存布局 + 环境结构体）— lambda 当前生成 null ptr stub
+- [ ] 完整多返回值（函数返回结构体 + extractvalue 拆包）
+- [ ] inherited 语句（父类方法调用 + vtable 遍历）
 - [ ] 全量自举测试（Go 后端 vs LLVM 后端输出比对）
-- [ ] 优化通道：循环展开、内联、常量折叠
+- [ ] 优化通道：循环展开、内联、常量折叠（--llvm-opt 基础已就绪）
 
 ### 主线 2: stdlib Phase 7
 
@@ -192,6 +201,7 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 ### 主线 3: IDE 插件
 
 - [x] **VS Code 扩展 v1.1**：语法高亮（含 KylixBoot 注解 + stdlib 函数）+ LSP 集成 + 编译/运行命令 + 快捷键 + 状态栏 + 编译器路径解析 ✅ v4.0
+- [x] **VS Code 代码片段**：25 个片段（program/unit、function/procedure、class/record、控制流、try/except、WriteLn、KylixBoot controller/routes、ORM entity）✅ v4.0
 - [ ] **JetBrains 插件**：IntelliJ / GoLand 支持
 - [ ] LSP 增强：补全精度提升、重构支持（改名、提取函数）
 - [ ] DAP 调试适配器（配合 VS Code 断点调试）

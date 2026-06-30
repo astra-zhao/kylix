@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-3.2.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-4.0--dev-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🎉 **v3.2.0-dev**: 完整 KylixBoot 注解栈 —— 自动路由装配（`[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]`）、依赖注入（`[Service]`/`[Component]`/`[Inject]`）、procedure 风格 handler、字段校验（`[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]`）、按路由安全控制（`[Authenticated]`/`[Role]`）、声明式 ORM（`[Entity]`/`[Column]`/`[Repository]`/`[Query]`）。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v4.0-dev**: LLVM M3 后端完善 —— 完整异常处理（try/except/finally/on/raise + setjmp/longjmp）、控制流补全（break/continue/case/match/foreach）、多变量声明、类型自动转换。**14/15 基础教程通过 LLVM 编译到原生二进制**。stdlib Phase 7（db/cache/http/websocket 模块）+ VS Code 代码片段（25个）。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 特性
 
@@ -46,7 +46,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 - **调试器**: `kylix debug` 集成 Delve (v2.3.0)
 - **WebAssembly**: `kylix build --wasm` 编译为 .wasm (v2.3.0)
 - **WASI**: `kylix build --wasi` 编译为 WASI 目标 (v3.0.0-alpha)
-- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链 (v3.0.0-alpha)
+- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链。**M3 里程碑**：完整异常处理（try/except/finally/on/raise）、控制流（break/continue/case/match/foreach）、多变量声明、类型自动转换。**14/15 基础教程编译到原生二进制** (v4.0-dev)
 - **KylixBoot 框架**: Spring Boot 式注解驱动的 Web 应用 (v3.1.0)
 - **注解自动装配**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` 自动路由注册 (v3.2.0)
 - **依赖注入**: `[Service]`/`[Component]`/`[Inject]` 编译期自动装配 (v3.2.0)

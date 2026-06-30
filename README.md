@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-3.3.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.0--dev-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
-> 🎉 **v3.3.0**: KylixBoot 框架完善 —— `[Body(TEntity)]` JSON 请求体自动绑定、JWT HS256 认证（`uses jwt`）、OpenAPI 3.1 自动生成（`kylix doc --openapi`）、包管理器编译器集成、类型检查器 MVP（862 行），增量编译 2.9x 加速验证，教程 45/45 通过。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v4.0-dev**: LLVM M3 backend完善 —— 完整异常处理（try/except/finally/on/raise + setjmp/longjmp）、控制流补全（break/continue/case/match/foreach）、多变量声明、类型自动转换。**14/15 基础教程通过 LLVM 编译到原生二进制**。stdlib Phase 7（db/cache/http/websocket 模块）+ VS Code 代码片段（25个）。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## Features
 
@@ -43,7 +43,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 - **LSP Server**: Full IDE support with completion, hover, diagnostics, and signature help
 - **Package Manager**: `kylix add`, `kylix remove`, `kylix publish` for dependency management
 - **WASI**: `kylix build --wasi` — compile to WebAssembly System Interface (v3.0.0-alpha)
-- **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain (v3.0.0-alpha)
+- **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain. **M3 milestone**: complete exception handling (try/except/finally/on/raise), control flow (break/continue/case/match/foreach), multi-variable declarations, type coercion. **14/15 basic tutorials compile to native binary** (v4.0-dev)
 - **KylixBoot Framework**: Spring Boot–style annotation-driven web apps (v3.1.0)
 - **Annotation Auto-Wiring**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` auto route registration (v3.2.0)
 - **Dependency Injection**: `[Service]`/`[Component]`/`[Inject]` compile-time auto-wiring (v3.2.0)
