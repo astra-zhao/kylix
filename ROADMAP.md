@@ -1,11 +1,11 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-06-29  
-> 当前版本: v3.3.0 ✅  
+> 最后更新: 2026-06-30  
+> 当前版本: v4.0-dev 🚧  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**✅ v3.3.0 已发布！** Body Binding + JWT + OpenAPI 3.1 + 包管理器集成 + 类型检查器 MVP，教程 45/45 通过，16 包全部测试通过。
+**🚧 v4.0-dev 开发中！** LLVM M3 完整异常处理 + 控制流补全 + 表达式覆盖，14/15 基础教程通过 LLVM 编译。stdlib Phase 7（db/cache/http/websocket）+ VS Code 代码片段就绪。详见 [CHANGELOG.md](CHANGELOG.md) 与 [VERSION_PLAN.md](VERSION_PLAN.md)。
 
 ---
 
@@ -26,7 +26,10 @@
 | **v3.1.0** | KylixBoot 框架 + 注解语法 + LLVM 数组 + 编译器修复 | ✅ 完成 | 2026-06-23 |
 | **v3.2.0** | KylixBoot 注解栈（路由/DI/校验/安全/ORM）+ 诊断 | ✅ 完成 | 2026-06-26 |
 | **v3.3.0** | Body Binding + JWT + OpenAPI + 包管理器集成 + 类型检查器 | ✅ 完成 | 2026-06-29 |
-| **v4.0.0** | LLVM M3 + stdlib Phase 7 + IDE 插件（脱离 Go 长期目标） | 📋 规划中 | 2026 Q3 |
+| **v4.0.0** | LLVM M3（异常/控制流/表达式）+ stdlib Phase 7 + VS Code v1.1 | 🚧 开发中（M3 完成，待发布） | 2026-07 |
+| **v4.1.0** | LLVM M4 高级特性（闭包/多返回值/inherited/优化） | 📋 规划中 | 2026 Q3 |
+| **v4.2.0** | LLVM 工具链深化（增量编译/调试符号/交叉编译）+ stdlib Phase 8 | 📋 规划中 | 2026 Q4 |
+| **v5.0.0** | 自研运行时 KylixRT + 自举编译器 + 完全脱离 Go | 📋 长期 | 2027+ |
 
 ---
 
@@ -165,9 +168,9 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 - [ ] `encoding` — Base64/Hex/CSV/URL/JSON-Lines
 - [ ] `os` — 进程管理、信号、管道、环境变量
 
-## 📋 v4.0.0 — LLVM M3 + stdlib Phase 7 + IDE 插件
+## 🚧 v4.0.0 — LLVM M3 + stdlib Phase 7 + IDE 插件
 
-> 预计: 2026 Q3 | 工作量: 2–3 月
+> 预计: 2026-07 | 状态: M3 开发完成，待测试验证后发布
 
 ### 目标
 
@@ -182,11 +185,8 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 - [x] 关键 bug 修复（多变量声明、类型自动转换 i1↔i64↔double、__kylix_is_subtype SSA dominance）✅ v4.0 M3
 - [x] 元组 LHS 赋值 stub（多返回值 `(q, r) := func()` 降级为注释，IR 仍合法）✅ v4.0 M3
 - [x] **14/15 基础教程通过 LLVM 编译到原生二进制**（example15_lambda 因闭包架构限制预期失败）✅ v4.0 M3
-- [ ] 闭包 codegen（捕获变量的内存布局 + 环境结构体）— lambda 当前生成 null ptr stub
-- [ ] 完整多返回值（函数返回结构体 + extractvalue 拆包）
-- [ ] inherited 语句（父类方法调用 + vtable 遍历）
-- [ ] 全量自举测试（Go 后端 vs LLVM 后端输出比对）
-- [ ] 优化通道：循环展开、内联、常量折叠（--llvm-opt 基础已就绪）
+
+> 闭包、完整多返回值、inherited、优化通道属 v4.1.0（M4），见下文。
 
 ### 主线 2: stdlib Phase 7
 
@@ -206,13 +206,129 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 - [ ] LSP 增强：补全精度提升、重构支持（改名、提取函数）
 - [ ] DAP 调试适配器（配合 VS Code 断点调试）
 
+---
+
+## 📋 v4.1.0 — LLVM M4 高级特性
+
+> 预计: 2026 Q3 | 工作量: 6–8 周 | 详细计划见 [docs/v4.1.0-plan.md](docs/v4.1.0-plan.md)
+
+### 目标
+
+LLVM 后端达到与 Go 后端的功能对等（常见用例）。目标：25+/35 教程通过 LLVM 编译，120+ 测试，性能接近 Go 后端。
+
+### Priority 1: 闭包/Lambda 支持（Week 1–3）
+
+当前 lambda 生成 null ptr stub，导致 example15_lambda 编译失败。
+
+- [ ] 捕获变量分析（AST walker 构建 capture list）
+- [ ] 环境结构体生成（`%__env_f = type { i64, ptr }`）
+- [ ] 函数指针降级（lambda body → 命名函数 `@__lambda_f(ptr %env, args)`）
+- [ ] 闭包结构体（`{func_ptr, env_ptr}` pair）+ 调用约定
+- [ ] 多变量捕获、嵌套闭包、可变捕获
+- [ ] 15+ 测试 + example15_lambda.klx 通过
+
+### Priority 2: 完整多返回值（Week 4）
+
+当前 `(q, r) := func()` 生成静默注释，变量未初始化。
+
+- [ ] 函数返回结构体类型（`%__ret_DivMod = type { i64, i64 }`）
+- [ ] insertvalue 构建返回值
+- [ ] extractvalue 在调用端拆包赋值
+- [ ] 8+ 测试 + example16_multireturn.klx 正确运行
+
+### Priority 3: inherited 关键字（Week 5）
+
+父类方法调用不支持。
+
+- [ ] 类层次遍历查找父类方法实现
+- [ ] 生成直接函数调用（绕过 vtable）
+- [ ] 正确传递 this 指针
+- [ ] 6+ 测试 + 继承链教程通过
+
+### Priority 4: 优化通道（Week 6）
+
+LLVM 代码比 Go 慢 2–5x，无优化。
+
+- [ ] `--llvm-opt` flag（O1/O2/O3 级别）
+- [ ] 运行 LLVM opt 工具（内联、循环展开、DCE）
+- [ ] 基准测试（Fibonacci、素数筛、字符串操作）
+- [ ] 目标：O2 优化下性能在 Go 后端 1.5x 以内，至少 30% 提速
+
+### 成功指标
+
+| 指标 | v4.0.0 | v4.1.0 目标 |
+|------|--------|-------------|
+| LLVM 教程通过率 | 14/15 (93%) | 25+/35 (71%+) |
+| LLVM 测试数量 | 73 | 120+ |
+| Lambda 支持 | ❌ | ✅ |
+| 多返回值 | Stub | ✅ |
+| 优化性能 | 2–5x 慢于 Go | 1.5x |
+
+---
+
+## 📋 v4.2.0 — LLVM 工具链深化 + stdlib Phase 8
+
+> 预计: 2026 Q4 | 工作量: 2–3 月
+
+### 目标
+
+LLVM 后端工具链成熟化，补充 stdlib 常用模块，提升开发者体验。
+
+### 主线 1: LLVM 工具链
+
+- [ ] **增量编译**：缓存 LLVM IR 每模块，只重编变更文件，链接预编译 .o
+- [ ] **调试符号**：发出 DWARF 调试信息，支持 GDB/LLDB 单步（`kylix build --backend=llvm -g`）
+- [ ] **交叉编译**：无需本机安装 LLVM 的目标构建（预编译 IR + 链接器）
+- [ ] **LLVM stdlib Phase 1**：用 LLVM 编译核心 stdlib 模块（strutil/mathutil/sysutil，纯 Kylix 无 Go wrapper）
+
+### 主线 2: stdlib Phase 8
+
+- [ ] `logging` 模块：结构化日志（leveled + JSON 输出）
+- [ ] `profiling` 模块：CPU/内存 profiling
+- [ ] `reflection` 模块：运行时类型信息（基础 RTTI）
+- [ ] `httpserver` 模块：高性能 HTTP 服务器（与 web/KylixBoot 分工明确）
+- [ ] `cache` Redis 适配器（远程缓存）
+
+### 主线 3: IDE 与生态
+
+- [ ] **JetBrains 插件**：IntelliJ / GoLand 支持
+- [ ] LSP 增强：补全精度提升、重构支持
+- [ ] DAP 调试适配器（配合 VS Code 断点调试）
+- [ ] 包注册中心部署上线（kylix.top/packages）
+
+---
+
 ### 长期愿景（v5.0+）
 
+> 预计: 2027+ | 工作量: 6–12 月 | 完全脱离 Go 依赖
+
 自研运行时 KylixRT，完全脱离 Go 工具链：
+
 ```
 .klx → LLVM IR → 原生二进制（无 Go 依赖）
 ```
-前提：LLVM 后端能编译全部 Kylix stdlib（M3 完成后评估）。
+
+**前提**：LLVM 后端能编译全部 Kylix stdlib（M3/M4 完成后评估）。
+
+#### 核心工作
+
+- [ ] **自研运行时 KylixRT**
+  - 垃圾回收器（标记-清扫 或 集成 Boehm GC）
+  - 字符串/动态数组/映射（纯 C 实现，替代 Go string/slice/map）
+  - 协程库或线程池（替代 goroutine）
+- [ ] **stdlib 纯 Kylix 重写**
+  - 移除所有 `stdlib/*.go` 包装文件
+  - 用 Kylix + C FFI 重写核心功能
+- [ ] **自举编译器**
+  - Kylix 编译器用 Kylix 重写（当前是 Go）
+  - `kylix compile kylix_compiler.klx --backend=llvm`
+  - 生成的编译器可编译自己
+
+#### 里程碑标准
+
+- ✅ LLVM 后端可编译所有 stdlib 模块
+- ✅ LLVM 后端可编译 Kylix 编译器自身
+- ✅ 生成的二进制零 Go 依赖（完全独立）
 
 ---
 
@@ -244,18 +360,19 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 
 ## 🎓 社区与生态
 
-### 近期 (v3.1)
-- [ ] 发布 v3.0.0-alpha 公告
-- [ ] 创建 Discord 社区
-- [ ] 完整教程 v2（29→50+ 示例）
-- [ ] Spring Boot 式框架预览
+### 近期 (v4.0)
+- [ ] 发布 v4.0.0 公告（LLVM M3 生产可用）
+- [ ] VS Code 扩展发布到 Marketplace
+- [ ] 完整教程（55+ 示例，含 Phase 7）
+- [ ] LLVM 后端使用指南（docs/llvm-backend.md）
 
-### 中期 (v3.2)
+### 中期 (v4.1–v4.2)
 - [ ] 包注册中心 kylix.top/packages 上线
 - [ ] GitHub Actions Kylix 模板
+- [ ] JetBrains 插件（IntelliJ/GoLand）
 - [ ] 企业级项目模板库
 
-### 长期 (v4.0)
+### 长期 (v5.0+)
 - [ ] 会议演讲 / 工作坊
 - [ ] 企业赞助 / 基金会
 - [ ] 学术论文（类型系统 + LLVM 后端设计）
@@ -266,8 +383,12 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 
 1. **KylixBoot 框架策略**: 第一阶段用代码生成实现注解语义（无运行时反射），第二阶段等 LLVM 后端成熟后迁移到编译时属性处理。
 
-2. **LLVM 后端分阶段策略**: M1（基础）→ M2（完整语言）→ M3（优化）三阶段，Go 后端始终保留作 fallback。
+2. **LLVM 后端分阶段策略**: M1（基础）→ M2（完整语言）→ M3（异常/控制流/表达式）→ M4（闭包/多返回值/优化）。Go 后端始终保留作 fallback 与快速开发路径。
 
-3. **v4.0 脱离 Go 的时机**: 等 LLVM 后端能编译 Kylix 标准库（所有 stdlib）之后再正式宣布 Go 独立。不提前承诺。
+3. **LLVM 异常处理路线决策（v4.0 M3）**: 选择路线 C（全局异常槽 + setjmp/longjmp + 类型 ID），而非 Itanium C++ EH ABI（invoke/landingpad/resume + __cxa_*）。理由：手写 IR 文本下 C++ ABI 极易错位，且需链接 libc++abi 违反"仅依赖 libc"约束。setjmp/longjmp 全是 call/load/store/br/icmp，IR 字符串拼接可行；finally 用代码复制（3 份）保证确定性。
 
-4. **编译器 bug 修复优先级**: `uses` 在 program 中的符号注入 > `var p: TClass` 类型推导 > 字符串插值 > match codegen > lambda 返回类型。
+4. **双后端并存策略**: Go 后端（默认，工具链成熟、快速开发）与 LLVM 后端（opt-in，原生二进制、体积小）长期并存。不追求单一后端淘汰，按场景选用。
+
+5. **v5.0 脱离 Go 的时机**: 等 LLVM 后端能编译 Kylix 标准库（所有 stdlib）+ 编译器自身之后再正式宣布 Go 独立。不提前承诺。
+
+6. **编译器 bug 修复优先级**: `uses` 在 program 中的符号注入 > `var p: TClass` 类型推导 > 字符串插值 > match codegen > lambda 返回类型。
