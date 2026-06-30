@@ -4,14 +4,15 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 
 **重要：始终用中文回答用户。**
 
-## 当前状态：v4.0 开发中（2026-06-30）
+## 当前状态：v4.0.0（2026-07-01）
 
-- v4.0 三主线推进中：stdlib Phase 7（db/cache/http/websocket ✅）+ IDE 插件（VS Code v1.1 ✅）+ LLVM M3（异常处理/字符串插值/字段继承 ✅）
+- v4.0.0 已发布：LLVM M3（异常处理/字符串插值/控制流/表达式覆盖 ✅）+ stdlib Phase 7（db/cache/http/websocket ✅）+ IDE 插件（VS Code v1.1 ✅）
 - v3.3.0：KylixBoot 框架完善 —— Body 绑定 + JWT + OpenAPI 3.1 自动生成
 - v3.2.0：KylixBoot 注解栈 + LLVM M2 完整 + stdlib Phase 6
 - v1.5.0：stdlib `.klx` 声明文件 + 包管理器
-- 所有 Go 测试通过（16 个包，LLVM 后端 68 测试）
-- 教程 49/49 测试通过（`examples/complete-tutorial/`）
+- 所有 Go 测试通过（16 个包，LLVM 后端 73 测试）
+- 教程 49/49 测试通过（Go 后端，`examples/complete-tutorial/`）
+- LLVM 后端 14/15 基础教程编译通过（example15_lambda 因闭包架构限制预期失败）
 - 所有源文件 ≤ 1000 行
 
 ## 关键文档

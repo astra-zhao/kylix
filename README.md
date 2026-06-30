@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-4.0--dev-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
-> 🎉 **v4.0-dev**: LLVM M3 backend完善 —— 完整异常处理（try/except/finally/on/raise + setjmp/longjmp）、控制流补全（break/continue/case/match/foreach）、多变量声明、类型自动转换。**14/15 基础教程通过 LLVM 编译到原生二进制**。stdlib Phase 7（db/cache/http/websocket 模块）+ VS Code 代码片段（25个）。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v4.0.0**: LLVM M3 后端完善 —— 完整异常处理（try/except/finally/on/raise）、控制流补全（break/continue/case/match/foreach）、多变量声明、类型自动转换。**14/15 基础教程通过 LLVM 编译到原生二进制**。stdlib Phase 7（db/cache/http/websocket 模块）+ VS Code 代码片段（25个）。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## Features
 

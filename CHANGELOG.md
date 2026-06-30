@@ -4,9 +4,9 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v4.0 (开发中) — LLVM M3 + stdlib Phase 7 + IDE 插件
+## v4.0.0 (2026-07-01) — LLVM M3 + stdlib Phase 7 + IDE 插件
 
-> 三主线并行推进。版本号待发布时确定。
+> 🎉 **正式发布**。LLVM 后端 M3 里程碑：完整异常处理 + 控制流覆盖 + 表达式补全。stdlib Phase 7（db/cache/http/websocket）+ VS Code 代码片段。
 
 ### stdlib Phase 7
 

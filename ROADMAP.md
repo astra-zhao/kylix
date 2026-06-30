@@ -1,11 +1,11 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-06-30  
-> 当前版本: v4.0-dev 🚧  
+> 最后更新: 2026-07-01  
+> 当前版本: v4.0.0 ✅  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**🚧 v4.0-dev 开发中！** LLVM M3 完整异常处理 + 控制流补全 + 表达式覆盖，14/15 基础教程通过 LLVM 编译。stdlib Phase 7（db/cache/http/websocket）+ VS Code 代码片段就绪。详见 [CHANGELOG.md](CHANGELOG.md) 与 [VERSION_PLAN.md](VERSION_PLAN.md)。
+**✅ v4.0.0 已发布！** LLVM M3 完整异常处理 + 控制流补全 + 表达式覆盖，14/15 基础教程通过 LLVM 编译。stdlib Phase 7（db/cache/http/websocket）+ VS Code 代码片段就绪。详见 [CHANGELOG.md](CHANGELOG.md) 与 [VERSION_PLAN.md](VERSION_PLAN.md)。
 
 ---
 
@@ -26,7 +26,7 @@
 | **v3.1.0** | KylixBoot 框架 + 注解语法 + LLVM 数组 + 编译器修复 | ✅ 完成 | 2026-06-23 |
 | **v3.2.0** | KylixBoot 注解栈（路由/DI/校验/安全/ORM）+ 诊断 | ✅ 完成 | 2026-06-26 |
 | **v3.3.0** | Body Binding + JWT + OpenAPI + 包管理器集成 + 类型检查器 | ✅ 完成 | 2026-06-29 |
-| **v4.0.0** | LLVM M3（异常/控制流/表达式）+ stdlib Phase 7 + VS Code v1.1 | 🚧 开发中（M3 完成，待发布） | 2026-07 |
+| **v4.0.0** | LLVM M3（异常/控制流/表达式）+ stdlib Phase 7 + VS Code v1.1 | ✅ 完成 | 2026-07-01 |
 | **v4.1.0** | LLVM M4 高级特性（闭包/多返回值/inherited/优化） | 📋 规划中 | 2026 Q3 |
 | **v4.2.0** | LLVM 工具链深化（增量编译/调试符号/交叉编译）+ stdlib Phase 8 | 📋 规划中 | 2026 Q4 |
 | **v5.0.0** | 自研运行时 KylixRT + 自举编译器 + 完全脱离 Go | 📋 长期 | 2027+ |
@@ -168,9 +168,9 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 - [ ] `encoding` — Base64/Hex/CSV/URL/JSON-Lines
 - [ ] `os` — 进程管理、信号、管道、环境变量
 
-## 🚧 v4.0.0 — LLVM M3 + stdlib Phase 7 + IDE 插件
+## ✅ v4.0.0 — LLVM M3 + stdlib Phase 7 + IDE 插件
 
-> 预计: 2026-07 | 状态: M3 开发完成，待测试验证后发布
+> 发布: 2026-07-01 | 状态: 已发布
 
 ### 目标
 
