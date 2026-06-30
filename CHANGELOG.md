@@ -4,6 +4,38 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v4.0 (开发中) — LLVM M3 + stdlib Phase 7 + IDE 插件
+
+> 三主线并行推进。版本号待发布时确定。
+
+### stdlib Phase 7
+
+- **`db` 模块** — 数据库便捷封装 + 连接池（SQLite/MySQL/PostgreSQL），参数化查询（`?` 占位符）防注入。`DbOpen`/`DbOpenSQLite`/`DbExec`/`DbQueryRows`/`DbQueryScalar`/`DbClose`。5 测试 + 教程 example52。
+- **`cache` 模块** — 线程安全 LRU 缓存 + TTL（`container/list`+`map`，O(1)），`Sweep` 惰性回收过期条目。9 测试 + 教程 example53。
+- **`http` 模块增强** — 新增 `HttpPut`/`HttpDelete`/`HttpPostJSON` + `THttpResponse`（Status+Body）响应对象 + `HttpDoGet`/`HttpDoPost` + `THttpClient.Put`/`Delete`。6 测试 + 教程 example54。
+- **`websocket` 模块** — 纯 stdlib RFC 6455 实现（客户端+服务端，握手/文本帧/ping 自动 pong/close）。`WsDial`/`WsAccept`/`WsSend`/`WsRecv`/`WsClose`。6 测试 + 教程 example55。
+- **LSP 声明补全** — 9 个 stdlib 模块补 `.klx` 声明（web/orm/template/config/container/middleware/validation/autoconfig/exceptions），编辑器补全覆盖完整。
+
+### IDE 插件
+
+- **VS Code 扩展 v1.1** — KylixBoot 注解高亮 + stdlib 函数高亮 + `Kylix: Compile/Run` 命令（快捷键）+ 状态栏 LSP 指示 + 编译器路径解析（config/env/PATH）。修复 LSP 重复启动 bug。
+
+### LLVM 后端 M3
+
+- **异常处理** — try/except/finally + raise + on E: Type do + 裸 raise 重抛 + 嵌套 try。路线 C：全局异常槽 + setjmp/longjmp 携带类型信息（避开 Itanium C++ EH ABI）。注入 Exception class + `@__kylix_is_subtype` 运行时子类型匹配。20 测试。
+- **字符串插值** — `${expr}` → malloc 缓冲 + strcat/snprintf。5 测试。
+- **带参构造修复** — `T.Create(args)` 不再生成 "unsupported receiver"，正确产生对象 + Message 字段初始化。
+- **类字段继承** — 子类 struct 布局包含父类字段（`TFooError = class(Exception)` 继承 Message）。
+- **lambda** — 显式 stub 标记（闭包支持推迟，Go 后端完整支持）。
+
+### 测试
+
+- 教程 49/49 通过（新增 17_database/18_cache/19_http/20_websocket）。
+- LLVM 后端测试 44 → 68。
+- 16 个包全部测试通过。
+
+---
+
 ## v3.3.0 (2026-06-29) — KylixBoot Framework: Body Binding + JWT + OpenAPI
 
 ### Highlights

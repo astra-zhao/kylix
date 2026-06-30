@@ -4,14 +4,14 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 
 **重要：始终用中文回答用户。**
 
-## 当前状态：v3.3.0（2026-06-28）
+## 当前状态：v4.0 开发中（2026-06-30）
 
+- v4.0 三主线推进中：stdlib Phase 7（db/cache/http/websocket ✅）+ IDE 插件（VS Code v1.1 ✅）+ LLVM M3（异常处理/字符串插值/字段继承 ✅）
 - v3.3.0：KylixBoot 框架完善 —— Body 绑定 + JWT + OpenAPI 3.1 自动生成
 - v3.2.0：KylixBoot 注解栈 + LLVM M2 完整 + stdlib Phase 6
-- v3.1.x：接口验证、Kylix 层错误报告、真正的泛型、增量编译（55× 加速）
 - v1.5.0：stdlib `.klx` 声明文件 + 包管理器
-- 所有 Go 测试通过（16 个包）
-- 教程 45/45 测试通过（`examples/complete-tutorial/`）
+- 所有 Go 测试通过（16 个包，LLVM 后端 68 测试）
+- 教程 49/49 测试通过（`examples/complete-tutorial/`）
 - 所有源文件 ≤ 1000 行
 
 ## 关键文档
@@ -114,4 +114,8 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 | 14_body_binding | 1 | ✅ v3.3.0 |
 | 15_jwt | 1 | ✅ v3.3.0 |
 | 16_openapi | 1 | ✅ v3.3.0 |
-| **合计** | **44 文件** | **45/45 通过** |
+| 17_database | 1 | ✅ v4.0 |
+| 18_cache | 1 | ✅ v4.0 |
+| 19_http | 1 | ✅ v4.0 |
+| 20_websocket | 1 | ✅ v4.0 |
+| **合计** | **48 文件** | **49/49 通过** |
