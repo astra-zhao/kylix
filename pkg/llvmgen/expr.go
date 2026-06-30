@@ -98,6 +98,9 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 	case *ast.TypeCastExpression:
 		return g.emitAsExpr(e)
 
+	case *ast.StringInterpolation:
+		return g.emitStringInterpolation(e)
+
 	default:
 		// Unknown expression — emit zero
 		r := g.tmp()
@@ -617,3 +620,59 @@ func (g *Generator) emitAsExpr(e *ast.TypeCastExpression) (string, string, error
 	return r, "ptr", nil
 }
 
+
+// emitStringInterpolation lowers a `'...${expr}...'` interpolation to a heap
+// buffer built by strcat (for string parts) and snprintf (for integers). The
+// result is a ptr to a null-terminated string.
+//
+// Conservative: only String and Integer expression parts are formatted; other
+// types are skipped (the substring is omitted). Buffer is a fixed 256 bytes.
+func (g *Generator) emitStringInterpolation(e *ast.StringInterpolation) (string, string, error) {
+	const bufSize = 256
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", buf, bufSize))
+	// Initialize to empty string (NUL terminator).
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", buf))
+
+	// "%ld\0" format constant for integer formatting.
+	ldFmt := g.addString("%ld")
+	ldFmtPtr := g.ptrTo(ldFmt, 4)
+
+	for _, part := range e.Parts {
+		switch p := part.(type) {
+		case *ast.StringLiteral:
+			strPtr := g.ptrTo(g.addString(p.Value), len(p.Value)+1)
+			g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, strPtr))
+		default:
+			reg, t, err := g.emitExpr(part)
+			if err != nil {
+				return "", "", err
+			}
+			switch t {
+			case "ptr":
+				g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, reg))
+			case "i64":
+				pos := g.tmp()
+				g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", pos, buf))
+				dst := g.tmp()
+				g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, buf, pos))
+				rest := g.tmp()
+				g.line(fmt.Sprintf("  %s = sub i64 %d, %s", rest, bufSize, pos))
+				g.line(fmt.Sprintf("  %s = call i32 @snprintf(ptr %s, i64 %s, ptr %s, i64 %s)",
+					g.tmp(), dst, rest, ldFmtPtr, reg))
+			case "double":
+				fFmt := g.addString("%f")
+				fFmtPtr := g.ptrTo(fFmt, 3)
+				pos := g.tmp()
+				g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", pos, buf))
+				dst := g.tmp()
+				g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, buf, pos))
+				rest := g.tmp()
+				g.line(fmt.Sprintf("  %s = sub i64 %d, %s", rest, bufSize, pos))
+				g.line(fmt.Sprintf("  %s = call i32 @snprintf(ptr %s, i64 %s, ptr %s, double %s)",
+					g.tmp(), dst, rest, fFmtPtr, reg))
+			}
+		}
+	}
+	return buf, "ptr", nil
+}
