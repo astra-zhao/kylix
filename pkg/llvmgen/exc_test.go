@@ -234,3 +234,32 @@ func TestExc_NoRaiseNoLongjmp(t *testing.T) {
 	assertExcNotContains(t, ir, "call void @longjmp")
 	assertExcNotContains(t, ir, "call i32 @setjmp")
 }
+
+// ===== inherited fields (Exception subclass layout) =====
+
+func TestExc_SubclassInheritsMessageField(t *testing.T) {
+	// TFooError = class(Exception) must include the inherited Message field
+	// in its LLVM struct layout, so E.Message access is in-bounds.
+	ir := generateExcIR(t, `program p;
+type
+  TFooError = class(Exception) Code: Integer; end;
+begin
+  raise TFooError.Create('bad');
+end.`)
+	// Layout: { ptr vtable, ptr Message, i64 Code }
+	assertExcContains(t, ir, "%TFooError = type { ptr, ptr, i64 }")
+	// raise TFooError.Create('bad') stores 'bad' into the Message field (index 1).
+	assertExcContains(t, ir, "getelementptr inbounds %TFooError, ptr")
+	assertExcContains(t, ir, "i32 0, i32 1")
+}
+
+func TestExc_ExceptionCreateStoresMessage(t *testing.T) {
+	// Exception.Create('msg') stores the message into the Message field.
+	ir := generateExcIR(t, `program p;
+begin
+  raise Exception.Create('boom');
+end.`)
+	// Exception layout: { ptr vtable, ptr Message }; Message is index 1.
+	assertExcContains(t, ir, "getelementptr inbounds %Exception, ptr")
+	assertExcContains(t, ir, "i32 0, i32 1")
+}

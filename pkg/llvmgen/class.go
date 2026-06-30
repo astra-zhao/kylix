@@ -69,6 +69,8 @@ func (g *Generator) emitClassDecl(decl *ast.ClassDecl) error {
 }
 
 // buildClassInfo extracts field/method metadata from a ClassDecl.
+// Inherited fields from the parent class are prepended so that subclass
+// instances include the parent's layout (e.g. TFooError inherits Exception.Message).
 func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 	info := &ClassInfo{
 		Name:       decl.Name,
@@ -76,8 +78,21 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 		Interfaces: decl.Interfaces,
 	}
 
-	// Fields: index 0 = vtable ptr
+	// Fields: index 0 = vtable ptr. Inherited parent fields come first
+	// (preserving the parent's layout), then this class's own fields.
 	idx := 1
+	if decl.Parent != "" {
+		if parent, ok := g.classes[decl.Parent]; ok {
+			for _, f := range parent.Fields {
+				info.Fields = append(info.Fields, FieldInfo{
+					Name:     f.Name,
+					LLVMType: f.LLVMType,
+					Index:    idx,
+				})
+				idx++
+			}
+		}
+	}
 	for _, f := range decl.Fields {
 		if len(f.Names) == 0 {
 			continue
