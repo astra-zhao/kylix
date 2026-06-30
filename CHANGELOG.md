@@ -22,11 +22,16 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ### LLVM 后端 M3
 
-- **异常处理** — try/except/finally + raise + on E: Type do + 裸 raise 重抛 + 嵌套 try。路线 C：全局异常槽 + setjmp/longjmp 携带类型信息（避开 Itanium C++ EH ABI）。注入 Exception class + `@__kylix_is_subtype` 运行时子类型匹配。20 测试。
+- **异常处理完整实现** — try/except/finally + raise + on E: Type do + 裸 raise 重抛 + 嵌套 try。路线 C：全局异常槽 + setjmp/longjmp 携带类型信息（避开 Itanium C++ EH ABI）。注入 Exception class + `@__kylix_is_subtype` 运行时子类型匹配。finally 复制 3 份（正常/异常/重抛路径）确保确定性执行。20 个 IR 片段测试。
+- **控制流语句补全** — break/continue（保存/恢复循环标签）、case（LLVM switch 指令）、match（icmp eq 链 + OR 多模式）、foreach（strlen bound + getelementptr）。5 个测试。
+- **表达式覆盖提升** — WriteLn 多参数（emitWriteLnMulti: 512B buffer + strcat/snprintf）、WriteLn 零参数（空行）、ArrayLiteral（malloc heap buffer）、SliceExpression（基础覆盖）、TupleLiteral（返回首元素）、AwaitExpression（同步降级）。
+- **关键 bug 修复** — 多变量声明（`var a, b: Boolean` 只 alloca 第一个变量）、类型自动转换（i1↔i64 via zext/icmp，i64↔double via sitofp/fptosi）、__kylix_is_subtype SSA dominance（phi 节点使用未定义值）。
+- **元组 LHS 赋值 stub** — `(q, r) := DivMod(...)` 降级为静默注释，IR 仍合法（完整多返回值需结构体返回类型 + extractvalue，推迟）。
 - **字符串插值** — `${expr}` → malloc 缓冲 + strcat/snprintf。5 测试。
 - **带参构造修复** — `T.Create(args)` 不再生成 "unsupported receiver"，正确产生对象 + Message 字段初始化。
 - **类字段继承** — 子类 struct 布局包含父类字段（`TFooError = class(Exception)` 继承 Message）。
-- **lambda** — 显式 stub 标记（闭包支持推迟，Go 后端完整支持）。
+- **VS Code 代码片段** — 25 个片段（program/unit、function/procedure、class/record、控制流、try/except、WriteLn、KylixBoot controller/routes、ORM entity）。CHANGELOG 声称有但文件缺失，现已补全。
+- **教程编译验证** — 14/15 基础教程（01-03）通过 LLVM 后端编译到可执行文件（example15_lambda 因闭包架构限制预期失败）。
 
 ### 测试
 
