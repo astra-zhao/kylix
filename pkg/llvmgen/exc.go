@@ -179,7 +179,7 @@ entry:
   %%eq = icmp eq i32 %%child, %%parent
   br i1 %%eq, label %%ret_true, label %%loop
 loop:
-  %%c = phi i32 [ %%child, %%entry ], [ %%par, %%loop_next ]
+  %%c = phi i32 [ %%child, %%entry ], [ %%c_next, %%loop_next ]
   %%i = phi i64 [ 0, %%entry ], [ %%i_next, %%loop_next ]
   %%oob = icmp eq i64 %%i, %d
   br i1 %%oob, label %%ret_false, label %%body
@@ -193,8 +193,11 @@ found:
   %%pid_ptr = getelementptr inbounds %%__kylix_edge, ptr %%slot, i64 0, i32 1
   %%par = load i32, ptr %%pid_ptr
   %%match = icmp eq i32 %%par, %%parent
-  br i1 %%match, label %%ret_true, label %%loop_next
+  br i1 %%match, label %%ret_true, label %%update
+update:
+  br label %%loop_next
 loop_next:
+  %%c_next = phi i32 [ %%c, %%body ], [ %%par, %%update ]
   %%i_next = add i64 %%i, 1
   br label %%loop
 ret_true:
