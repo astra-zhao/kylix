@@ -274,6 +274,44 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 	return allocReg, nil
 }
 
+// initConstructorArgs applies constructor arguments to a freshly-allocated
+// object. Currently handles the common Pascal pattern where the first arg
+// initializes a String field named "Message" (e.g. Exception.Create('msg')).
+// Other args/fields are ignored — a conservative default that produces a valid
+// object pointer without a full constructor-method call.
+func (g *Generator) initConstructorArgs(className, objReg string, args []ast.Expression) {
+	if len(args) == 0 {
+		return
+	}
+	info, ok := g.classes[className]
+	if !ok {
+		return
+	}
+	// Find a String-typed Message field (case-insensitive).
+	msgIdx := -1
+	for i, f := range info.Fields {
+		if strings.EqualFold(f.Name, "Message") && f.LLVMType == "ptr" {
+			msgIdx = i
+			break
+		}
+	}
+	if msgIdx < 0 {
+		return
+	}
+	// Evaluate the first argument as a string pointer and store it.
+	argReg, argType, err := g.emitExpr(args[0])
+	if err != nil {
+		return
+	}
+	if argType != "ptr" {
+		return // not a string; skip rather than emit a bad store
+	}
+	fieldPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds %%%s, ptr %s, i32 0, i32 %d",
+		fieldPtr, className, objReg, info.Fields[msgIdx].Index))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", argReg, fieldPtr))
+}
+
 // emitVirtualCall generates a vtable method dispatch.
 func (g *Generator) emitVirtualCall(className, objReg, methodName string, argRegs []string, argTypes []string) (string, string, error) {
 	info, ok := g.classes[className]

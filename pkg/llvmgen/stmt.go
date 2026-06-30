@@ -448,11 +448,16 @@ func (g *Generator) emitRepeat(s *ast.RepeatStatement) error {
 }
 
 // raiseExceptionTypeName extracts the exception class name from a raise
-// expression. Handles `T.Create(...)` (constructor) and a bare class instance
-// variable. Returns "" if the type cannot be determined (→ generic ID 0).
+// expression. Handles `T.Create(...)` (constructor, both no-arg MemberExpression
+// and arg-bearing CallExpression forms) and a bare class instance variable.
+// Returns "" if the type cannot be determined (→ generic ID 0).
 func raiseExceptionTypeName(expr ast.Expression) string {
 	if expr == nil {
 		return ""
+	}
+	// Unwrap call: raise T.Create('msg') → CallExpression{Function: MemberExpression}.
+	if call, ok := expr.(*ast.CallExpression); ok {
+		return raiseExceptionTypeName(call.Function)
 	}
 	if m, ok := expr.(*ast.MemberExpression); ok && m.Member == "Create" {
 		if ident, ok := m.Object.(*ast.Identifier); ok {

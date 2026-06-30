@@ -472,6 +472,36 @@ func (g *Generator) loadObjectPtr(obj ast.Expression, typeName string) (string, 
 // vtable). Interface receivers indirect through the per-class interface vtable
 // stored in the fat pointer.
 func (g *Generator) emitMethodCall(member *ast.MemberExpression, args []ast.Expression) (string, string, error) {
+	// Constructor call with arguments: TFoo.Create('msg') or TBox<Integer>.Create(x).
+	// The no-arg form is handled in emitMember; this branch covers the call form
+	// (CallExpression wrapping a MemberExpression). Routes through emitConstructor
+	// so a real object pointer is produced instead of an "unsupported receiver" stub.
+	if member.Member == "Create" {
+		if ident, ok := member.Object.(*ast.Identifier); ok {
+			if _, known := g.classes[ident.Value]; known {
+				reg, err := g.emitConstructor(ident.Value)
+				if err != nil {
+					return "", "", err
+				}
+				g.initConstructorArgs(ident.Value, reg, args)
+				return reg, "ptr", nil
+			}
+		}
+		if gt, ok := member.Object.(*ast.GenericType); ok {
+			mangled := mangleGeneric(gt.Base, gt.TypeParams)
+			if mangled != "" {
+				if _, known := g.classes[mangled]; known {
+					reg, err := g.emitConstructor(mangled)
+					if err != nil {
+						return "", "", err
+					}
+					g.initConstructorArgs(mangled, reg, args)
+					return reg, "ptr", nil
+				}
+			}
+		}
+	}
+
 	kind, typeName := g.receiverKind(member.Object)
 	argRegs := make([]string, 0, len(args))
 	argTypes := make([]string, 0, len(args))
