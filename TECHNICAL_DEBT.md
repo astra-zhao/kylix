@@ -1,7 +1,7 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-06-23
-> 当前版本: v3.1.0
+> 最后更新: 2026-06-30
+> 当前版本: v4.0 开发中
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
@@ -71,33 +71,32 @@
 
 `CompileOpts.OptLevel` + `--llvm-opt=0/1/2/3` CLI 标志；`llc -O=N`。
 
+### ✅ 6.1 接口未支持 → v3.2.0 M2 Phase 2 修复
+
+`pkg/llvmgen/interface.go`（~230 行）：fat pointer（`{ ptr vtable, ptr data }`）、每接口方法 thunk、`is`/`as` 断言。23 个测试。
+
+---
+
+### ✅ 6.2 泛型无单态化 → v3.2.0 M2 Phase 3 修复
+
+`pkg/llvmgen/monomorph.go`（~270 行）：`collectInstantiations` AST walker + 类型参数替换 + mangling（`TBox<Integer>` → `TBox_Integer`）。6 个 IR 测试。
+
+---
+
+### ✅ 6.4 不支持异常（try/catch）→ v4.0 M3 修复
+
+**已修复：** `pkg/llvmgen/exc.go` + `stmt.go` 的 `emitTry`/`emitRaise` 实现完整 Pascal 异常语义：
+- 路线 C：全局异常槽 + setjmp/longjmp 携带类型信息（避开 Itanium C++ EH ABI）
+- try/except/finally + on E: Type do 类型化捕获 + raise + 裸 raise 重抛 + 嵌套 try
+- 注入 Exception class + `@__kylix_is_subtype` 运行时子类型匹配
+- finally 复制 3 份保证确定性执行
+- 20 个 IR 片段测试
+
+附带修复：字符串插值 codegen、带参构造 `T.Create(args)`、类字段继承（子类 struct 包含父类字段）。
+
+---
+
 ### 6.1 接口未支持
-
-**影响：** `class X implements IFoo` 无法通过 LLVM 后端编译。
-
-**方案：** fat pointer（数据指针 + vtable 指针），每个接口方法生成 thunk。
-
-**工作量：** 1–2 周（v3.2 Phase 2）
-
----
-
-### 6.2 泛型无单态化
-
-**影响：** 泛型类/函数（`TBox<T>`）无法通过 LLVM 后端编译。
-
-**方案：** 在 codegen 前对每个具体类型参数执行 AST 克隆 + 替换（单态化）。
-
-**工作量：** 2–3 周（v3.2 Phase 3）
-
----
-
-### 6.4 不支持异常（try/catch）
-
-**影响：** 含 `try/except/finally` 的程序无法通过 LLVM 后端编译。
-
-**方案：** 使用 LLVM `landingpad` + `invoke` 指令，或映射到 `setjmp/longjmp`（简单方案）。
-
-**工作量：** 1–2 周（v3.2+）
 
 ---
 
