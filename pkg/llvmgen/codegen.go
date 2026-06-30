@@ -36,6 +36,10 @@ type Generator struct {
 	nextExcTypeID       int            // next ID to assign (starts at 2; 1 reserved for Exception)
 	inExceptHandler     bool           // true while emitting an except/on handler body (bare raise)
 	exceptionInjected   bool           // guards against double-injecting the Exception class
+
+	// Loop control: break/continue targets for the innermost loop.
+	breakLabel    string // label to jump to on 'break'
+	continueLabel string // label to jump to on 'continue'
 }
 
 type stringConst struct {
