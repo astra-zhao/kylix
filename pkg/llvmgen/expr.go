@@ -110,6 +110,52 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 		g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; lambda/closure unsupported in LLVM backend", r))
 		return r, "ptr", nil
 
+	case *ast.ArrayLiteral:
+		// Array literals — allocate a heap buffer and store each element.
+		// Conservative: uses i64 element type for all literals.
+		n := len(e.Elements)
+		size := int64(8 * (n + 1)) // +1 for length word
+		buf := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", buf, size))
+		// store length at index 0
+		lenPtr := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i64, ptr %s, i64 0", lenPtr, buf))
+		g.line(fmt.Sprintf("  store i64 %d, ptr %s", int64(n), lenPtr))
+		for i, elem := range e.Elements {
+			v, _, err := g.emitExpr(elem)
+			if err != nil {
+				return "", "", err
+			}
+			ep := g.tmp()
+			g.line(fmt.Sprintf("  %s = getelementptr inbounds i64, ptr %s, i64 %d", ep, buf, int64(i+1)))
+			g.line(fmt.Sprintf("  store i64 %s, ptr %s", v, ep))
+		}
+		return buf, "ptr", nil
+
+	case *ast.SliceExpression:
+		// Slice expressions (arr[lo..hi]) — emit the base pointer for now;
+		// proper slice struct construction is deferred.
+		base, _, err := g.emitExpr(e.Left)
+		if err != nil {
+			return "", "", err
+		}
+		return base, "ptr", nil
+
+	case *ast.TupleLiteral:
+		// Tuple literals for multi-return — return the first element as a
+		// conservative fallback (multi-return lowering is complex in LLVM SSA).
+		if len(e.Elements) == 0 {
+			r := g.tmp()
+			g.line(fmt.Sprintf("  %s = add i64 0, 0 ; empty tuple", r))
+			return r, "i64", nil
+		}
+		return g.emitExpr(e.Elements[0])
+
+	case *ast.AwaitExpression:
+		// Async/await is not supported in the LLVM backend. Emit the inner
+		// expression synchronously so surrounding code still type-checks.
+		return g.emitExpr(e.Expression)
+
 	default:
 		// Unknown expression — emit zero
 		r := g.tmp()
@@ -272,14 +318,36 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		funcName = ident.Value
 	}
 
-	// Built-in: WriteLn(s)
-	if funcName == "WriteLn" && len(e.Arguments) == 1 {
-		return g.emitWriteLn(e.Arguments[0])
+	// Built-in: WriteLn — 0, 1, or multiple arguments.
+	if funcName == "WriteLn" {
+		if len(e.Arguments) == 0 {
+			// Empty WriteLn → puts("") → newline.
+			emptyReg := g.addString("")
+			emptyPtr := g.ptrTo(emptyReg, 1)
+			r := g.tmp()
+			g.line(fmt.Sprintf("  %s = call i32 @puts(ptr noundef %s)", r, emptyPtr))
+			return "0", "void", nil
+		}
+		if len(e.Arguments) == 1 {
+			return g.emitWriteLn(e.Arguments[0])
+		}
+		// Multiple args: build interpolation buffer and puts it.
+		return g.emitWriteLnMulti(e.Arguments)
 	}
 
-	// Built-in: Write(s)
-	if funcName == "Write" && len(e.Arguments) == 1 {
-		return g.emitWrite(e.Arguments[0])
+	// Built-in: Write — 1 or multiple arguments (no newline).
+	if funcName == "Write" {
+		if len(e.Arguments) == 1 {
+			return g.emitWrite(e.Arguments[0])
+		}
+		if len(e.Arguments) > 1 {
+			for _, arg := range e.Arguments {
+				if _, _, err := g.emitWrite(arg); err != nil {
+					return "", "", err
+				}
+			}
+			return "0", "void", nil
+		}
 	}
 
 	// Built-in: IntToStr(n)
@@ -684,4 +752,50 @@ func (g *Generator) emitStringInterpolation(e *ast.StringInterpolation) (string,
 		}
 	}
 	return buf, "ptr", nil
+}
+
+// emitWriteLnMulti prints multiple arguments (like WriteLn('x=', n, '!')) by
+// building a string buffer via the interpolation infrastructure and puts-ing it.
+func (g *Generator) emitWriteLnMulti(args []ast.Expression) (string, string, error) {
+	const bufSize = 512
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", buf, bufSize))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", buf))
+
+	ldFmt := g.addString("%ld")
+	ldFmtPtr := g.ptrTo(ldFmt, 4)
+
+	for _, arg := range args {
+		reg, t, err := g.emitExpr(arg)
+		if err != nil {
+			return "", "", err
+		}
+		switch t {
+		case "ptr":
+			g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, reg))
+		case "i64":
+			pos := g.tmp()
+			g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", pos, buf))
+			dst := g.tmp()
+			g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, buf, pos))
+			rest := g.tmp()
+			g.line(fmt.Sprintf("  %s = sub i64 %d, %s", rest, bufSize, pos))
+			g.line(fmt.Sprintf("  %s = call i32 @snprintf(ptr %s, i64 %s, ptr %s, i64 %s)",
+				g.tmp(), dst, rest, ldFmtPtr, reg))
+		case "double":
+			fFmt := g.addString("%f")
+			fFmtPtr := g.ptrTo(fFmt, 3)
+			pos := g.tmp()
+			g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", pos, buf))
+			dst := g.tmp()
+			g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, buf, pos))
+			rest := g.tmp()
+			g.line(fmt.Sprintf("  %s = sub i64 %d, %s", rest, bufSize, pos))
+			g.line(fmt.Sprintf("  %s = call i32 @snprintf(ptr %s, i64 %s, ptr %s, double %s)",
+				g.tmp(), dst, rest, fFmtPtr, reg))
+		}
+	}
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @puts(ptr noundef %s)", r, buf))
+	return "0", "void", nil
 }
