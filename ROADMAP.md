@@ -173,7 +173,7 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 
 ### 主线 1: LLVM 后端 Milestone 3
 
-- [ ] 异常处理 codegen（try/except/finally → LLVM EH）
+- [x] 异常处理 codegen（try/except/finally + raise → setjmp/longjmp + 全局异常槽）✅ v4.0 M3
 - [ ] 字符串插值 codegen（`${expr}` → LLVM IR）
 - [ ] 闭包 codegen（捕获变量的内存布局）
 - [ ] 全量自举测试（Go 后端 vs LLVM 后端输出比对）

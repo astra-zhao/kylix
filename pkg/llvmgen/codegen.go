@@ -30,6 +30,12 @@ type Generator struct {
 	program          *ast.Program              // current AST root (for cross-pass access)
 	funcName         string                    // current function being generated
 	strings          []stringConst             // string constants (emitted at module level)
+
+	// Exception handling (M3): global exception slot + setjmp/longjmp.
+	exceptionTypeIDs    map[string]int // exception class name → runtime type ID (Exception=1)
+	nextExcTypeID       int            // next ID to assign (starts at 2; 1 reserved for Exception)
+	inExceptHandler     bool           // true while emitting an except/on handler body (bare raise)
+	exceptionInjected   bool           // guards against double-injecting the Exception class
 }
 
 type stringConst struct {
@@ -41,14 +47,16 @@ type stringConst struct {
 // NewGenerator creates a new LLVM IR generator.
 func NewGenerator(moduleName string) *Generator {
 	return &Generator{
-		module:           moduleName,
-		locals:           make(map[string]string),
-		classes:          make(map[string]*ClassInfo),
-		interfaces:       make(map[string]*InterfaceInfo),
-		genericTemplates: make(map[string]*ast.ClassDecl),
-		instantiations:   make(map[string]bool),
-		localTypes:       make(map[string]string),
-		arrayInfo:        make(map[string]*arrayInfo),
+		module:            moduleName,
+		locals:            make(map[string]string),
+		classes:           make(map[string]*ClassInfo),
+		interfaces:        make(map[string]*InterfaceInfo),
+		genericTemplates:  make(map[string]*ast.ClassDecl),
+		instantiations:    make(map[string]bool),
+		localTypes:        make(map[string]string),
+		arrayInfo:         make(map[string]*arrayInfo),
+		exceptionTypeIDs:  make(map[string]int),
+		nextExcTypeID:     2, // 1 reserved for Exception itself
 	}
 }
 
@@ -70,6 +78,11 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	// Emit runtime declarations (libc functions we'll call)
 	g.emitRuntimeDecls()
 
+	// Inject the built-in Exception class before user decls so that user
+	// exception classes (Parent="Exception") resolve against it, and so
+	// `on E: Exception do` / `E.Message` work without special-casing.
+	g.injectExceptionClass()
+
 	// Emit declarations and function bodies
 	for _, decl := range prog.Declarations {
 		if err := g.emitDecl(decl); err != nil {
@@ -82,6 +95,13 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	if err := g.collectInstantiations(prog); err != nil {
 		return err
 	}
+
+	// Exception runtime: assign type IDs, emit the global exception slot and
+	// the __kylix_is_subtype helper. Done after decls so all exception classes
+	// (user + injected) are registered in g.classes.
+	g.collectExceptionTypes()
+	g.emitExceptionGlobals()
+	g.emitExceptionRuntime()
 
 	// Emit main function from top-level statements
 	if len(prog.Statements) > 0 || prog.Name != "" {
@@ -116,6 +136,10 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i32 @strcmp(ptr noundef, ptr noundef)")
 	g.line("declare i64 @atoll(ptr noundef)")
 	g.line("declare i32 @snprintf(ptr noundef, i64 noundef, ptr noundef, ...)")
+	g.line("; ===== Exception handling runtime (setjmp/longjmp) =====")
+	g.line("declare i32 @setjmp(ptr)")
+	g.line("declare void @longjmp(ptr, i32)")
+	g.line("declare void @exit(i32)")
 	g.line("")
 }
 
