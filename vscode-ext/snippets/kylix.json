@@ -1,0 +1,171 @@
+{
+  "Program": {
+    "prefix": "prog",
+    "body": [
+      "program ${1:Name};",
+      "uses ${2:boot};",
+      "",
+      "begin",
+      "\t${0:WriteLn('Hello, Kylix!');}",
+      "end."
+    ],
+    "description": "Program skeleton"
+  },
+  "Function": {
+    "prefix": "func",
+    "body": [
+      "function ${1:Name}(${2:params}): ${3:ReturnType};",
+      "begin",
+      "\tresult := ${0:...};",
+      "end;"
+    ],
+    "description": "Function declaration"
+  },
+  "Procedure": {
+    "prefix": "proc",
+    "body": [
+      "procedure ${1:Name}(${2:params});",
+      "begin",
+      "\t${0}",
+      "end;"
+    ],
+    "description": "Procedure declaration"
+  },
+  "Class": {
+    "prefix": "class",
+    "body": [
+      "${1:TName} = class",
+      "\t${2:Field}: ${3:Type};",
+      "\tprocedure ${4:Method};",
+      "end;"
+    ],
+    "description": "Class declaration"
+  },
+  "Record": {
+    "prefix": "record",
+    "body": [
+      "${1:TName} = record",
+      "\t${2:Field}: ${3:Type};",
+      "end;"
+    ],
+    "description": "Record type"
+  },
+  "If": {
+    "prefix": "if",
+    "body": ["if ${1:cond} then", "begin", "\t${0}", "end;"],
+    "description": "If statement"
+  },
+  "IfElse": {
+    "prefix": "ifelse",
+    "body": ["if ${1:cond} then", "begin", "\t${2}", "end", "else", "begin", "\t${0}", "end;"],
+    "description": "If-else statement"
+  },
+  "For": {
+    "prefix": "for",
+    "body": ["for ${1:i} := ${2:1} to ${3:n} do", "begin", "\t${0}", "end;"],
+    "description": "For loop"
+  },
+  "While": {
+    "prefix": "while",
+    "body": ["while ${1:cond} do", "begin", "\t${0}", "end;"],
+    "description": "While loop"
+  },
+  "Repeat": {
+    "prefix": "repeat",
+    "body": ["repeat", "\t${0}", "until ${1:cond};"],
+    "description": "Repeat-until loop"
+  },
+  "ForEach": {
+    "prefix": "foreach",
+    "body": ["for ${1:item} in ${2:collection} do", "begin", "\t${0}", "end;"],
+    "description": "For-in loop"
+  },
+  "TryExcept": {
+    "prefix": "try",
+    "body": ["try", "\t${1}", "except", "\tWriteLn('caught');", "end;"],
+    "description": "Try-except block"
+  },
+  "TryFinally": {
+    "prefix": "tryfinally",
+    "body": ["try", "\t${1}", "finally", "\t${0}", "end;"],
+    "description": "Try-finally block"
+  },
+  "TryOn": {
+    "prefix": "tryon",
+    "body": ["try", "\t${1}", "except", "\ton E: Exception do", "\t\tWriteLn(E.Message);", "end;"],
+    "description": "Try with on-clause"
+  },
+  "Var": {
+    "prefix": "var",
+    "body": ["var ${1:name}: ${2:Type};"],
+    "description": "Variable declaration"
+  },
+  "Const": {
+    "prefix": "const",
+    "body": ["const ${1:NAME} = ${0:value};"],
+    "description": "Constant declaration"
+  },
+  "Array": {
+    "prefix": "array",
+    "body": ["var ${1:arr}: array[0..${2:n}] of ${3:Integer};"],
+    "description": "Fixed array"
+  },
+  "Map": {
+    "prefix": "map",
+    "body": ["var ${1:m}: map[String]${2:Integer};"],
+    "description": "Map type"
+  },
+  "Writeln": {
+    "prefix": "writeln",
+    "body": ["WriteLn(${0:'text'});"],
+    "description": "WriteLn call"
+  },
+  "Readln": {
+    "prefix": "readln",
+    "body": ["ReadLn(${0:name});"],
+    "description": "ReadLn call"
+  },
+  "Controller": {
+    "prefix": "controller",
+    "body": [
+      "[Controller('${1:/api}')]",
+      "type",
+      "  ${2:TName}Controller = class",
+      "    [Get('${3:/}')]",
+      "    function ${4:Index}(req: TRequest): TResponse;",
+      "    begin",
+      "      result := BootJSON(200, nil);",
+      "    end;",
+      "  end;"
+    ],
+    "description": "KylixBoot controller"
+  },
+  "RouteGet": {
+    "prefix": "routeget",
+    "body": ["[Get('${1:/path}')]", "function ${2:Name}(req: TRequest): TResponse;", "begin", "\tresult := BootJSON(200, nil);", "end;"],
+    "description": "GET route handler"
+  },
+  "RoutePost": {
+    "prefix": "routepost",
+    "body": ["[Post('${1:/path}')]", "function ${2:Name}(req: TRequest): TResponse;", "begin", "\tresult := BootText(200, 'created');", "end;"],
+    "description": "POST route handler"
+  },
+  "Entity": {
+    "prefix": "entity",
+    "body": [
+      "[Entity('${1:table}')]",
+      "type",
+      "  ${2:TName} = class",
+      "    [Required]",
+      "    [Column('${3:col}')]",
+      "    ${4:Field}: ${5:String};",
+      "  end;"
+    ],
+    "description": "ORM entity"
+  },
+  "Unit": {
+    "prefix": "unit",
+    "body": ["unit ${1:Name};", "", "interface", "", "implementation", "", "end."],
+    "description": "Unit file skeleton"
+  }
+}

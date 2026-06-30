@@ -33,6 +33,10 @@
       "scopeName": "source.kylix",
       "path": "./syntaxes/kylix.tmLanguage.json"
     }],
+    "snippets": [{
+      "language": "kylix",
+      "path": "./snippets/kylix.json"
+    }],
     "commands": [
       {
         "command": "kylix.compile",
