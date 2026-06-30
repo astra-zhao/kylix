@@ -1,0 +1,20 @@
+unit orm;
+
+// orm — database ORM, query builder, and migration manager.
+
+type
+  TDatabase = class
+  end;
+  TORM = class
+  end;
+  TQueryBuilder = class
+  end;
+  TMigrationManager = class
+  end;
+
+function NewDatabase(config: Variant): TDatabase;
+function NewORM(db: TDatabase): TORM;
+function NewQueryBuilder(db: TDatabase): TQueryBuilder;
+function NewMigrationManager(db: TDatabase): TMigrationManager;
+
+end.

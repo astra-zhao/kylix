@@ -1,0 +1,14 @@
+unit validation;
+
+// validation — request/field validation.
+
+type
+  TValidator = class
+  end;
+  TRequestValidator = class
+  end;
+
+function NewValidator(): TValidator;
+function NewRequestValidator(): TRequestValidator;
+
+end.

@@ -1,0 +1,16 @@
+unit web;
+
+// web — HTTP server for Kylix programs (stdlib wrapper around net/http).
+
+type
+  TRequest = class
+  end;
+  TResponse = class
+  end;
+  TServer = class
+  end;
+
+// Create a server listening on the given port.
+function NewServer(port: Integer): TServer;
+
+end.

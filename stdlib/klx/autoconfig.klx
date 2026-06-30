@@ -1,0 +1,11 @@
+unit autoconfig;
+
+// autoconfig — auto-configuration loader.
+
+type
+  TAutoConfig = class
+  end;
+
+function NewAutoConfig(): TAutoConfig;
+
+end.

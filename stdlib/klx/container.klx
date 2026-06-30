@@ -1,0 +1,11 @@
+unit container;
+
+// container — dependency injection container.
+
+type
+  TContainer = class
+  end;
+
+function NewContainer(): TContainer;
+
+end.

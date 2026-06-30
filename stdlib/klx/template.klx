@@ -1,0 +1,14 @@
+unit template;
+
+// template — HTML/template rendering engine.
+
+type
+  TTemplateEngine = class
+  end;
+  TView = class
+  end;
+
+function NewTemplateEngine(): TTemplateEngine;
+function NewView(engine: TTemplateEngine; name: String): TView;
+
+end.

@@ -1,0 +1,15 @@
+unit middleware;
+
+// middleware — HTTP middleware constructors (CORS, logging, recovery, auth, rate limit).
+
+function NewCORSMiddleware(): Variant;
+function NewLoggingMiddleware(): Variant;
+function NewRecoveryMiddleware(): Variant;
+function NewAuthMiddleware(): Variant;
+function NewRateLimitMiddleware(): Variant;
+function LoggerMiddleware(): Variant;
+function NewRequestIDMiddleware(): Variant;
+function GetRequestID(): String;
+function GetAuthToken(): String;
+
+end.

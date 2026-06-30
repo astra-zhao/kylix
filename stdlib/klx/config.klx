@@ -1,0 +1,14 @@
+unit config;
+
+// config — application configuration (env + file).
+
+type
+  TConfig = class
+  end;
+  TAppConfig = class
+  end;
+
+function NewConfig(): TConfig;
+function NewAppConfig(): TAppConfig;
+
+end.

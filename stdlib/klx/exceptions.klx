@@ -1,0 +1,21 @@
+unit exceptions;
+
+// exceptions — built-in exception types (raised via `raise`, caught via `on E: Type do`).
+
+type
+  Exception = class
+    Message: String;
+  end;
+
+  EConvertError = class(Exception) end;
+  ERangeError = class(Exception) end;
+  EFileNotFound = class(Exception) end;
+  EArgumentException = class(Exception) end;
+
+function NewException(msg: String): Exception;
+function NewConvertError(msg: String): EConvertError;
+function NewRangeError(msg: String): ERangeError;
+function NewFileNotFound(msg: String): EFileNotFound;
+function NewArgumentException(msg: String): EArgumentException;
+
+end.
