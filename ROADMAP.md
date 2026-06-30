@@ -175,7 +175,7 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 
 - [x] 异常处理 codegen（try/except/finally + raise → setjmp/longjmp + 全局异常槽）✅ v4.0 M3
 - [x] 字符串插值 codegen（`${expr}` → malloc 缓冲 + strcat/snprintf）✅ v4.0 M3
-- [ ] 闭包 codegen（捕获变量的内存布局）
+- [ ] 闭包 codegen（捕获变量的内存布局）— lambda 当前生成 stub，Go 后端完整支持
 - [ ] 全量自举测试（Go 后端 vs LLVM 后端输出比对）
 - [ ] 优化通道：循环展开、内联、常量折叠
 

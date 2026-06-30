@@ -101,6 +101,15 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 	case *ast.StringInterpolation:
 		return g.emitStringInterpolation(e)
 
+	case *ast.LambdaExpression:
+		// Closures require an environment struct + boxing — out of scope for
+		// LLVM M3. Emit a null pointer stub so surrounding code still compiles.
+		// The Go backend fully supports lambdas; LLVM backend support is tracked
+		// in ROADMAP under LLVM M3 (closures).
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; lambda/closure unsupported in LLVM backend", r))
+		return r, "ptr", nil
+
 	default:
 		// Unknown expression — emit zero
 		r := g.tmp()
