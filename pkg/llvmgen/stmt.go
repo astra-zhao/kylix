@@ -173,6 +173,37 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 	// expression first to determine its LLVM type, then emit the alloca with the
 	// correct type, then store the value.
 	if s.Type == nil && s.Value != nil && s.Inferred {
+		// Lambda inference: emitLambda returns an alloca holding the closure
+		// pair directly — use it as the variable's own storage (no separate
+		// alloca + store). Mark as a closure for indirect-call codegen.
+		if lam, ok := s.Value.(*ast.LambdaExpression); ok {
+			closureReg, _, err := g.emitLambda(lam)
+			if err != nil {
+				return err
+			}
+			retT := "void"
+			if lam.ReturnType != nil {
+				retT = LLVMType(typeExprName(lam.ReturnType))
+			} else if _, isBlock := lam.Body.(*ast.BlockStatement); !isBlock {
+				retT = "i64"
+			}
+			var paramTypes []string
+			for _, p := range lam.Parameters {
+				pt := "i64"
+				if p.Type != nil {
+					pt = LLVMType(typeExprName(p.Type))
+				}
+				paramTypes = append(paramTypes, pt)
+			}
+			for _, name := range s.Names {
+				g.locals[name] = closureReg
+				g.closureLocals[name] = true
+				g.closureSigs[name] = retT
+				g.closureParams[name] = paramTypes
+			}
+			return nil
+		}
+
 		// Evaluate the RHS to get its type.
 		valReg, llvmType, err := g.emitExpr(s.Value)
 		if err != nil {

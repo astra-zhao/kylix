@@ -43,6 +43,14 @@ type Generator struct {
 	// Loop control: break/continue targets for the innermost loop.
 	breakLabel    string // label to jump to on 'break'
 	continueLabel string // label to jump to on 'continue'
+
+	// Lambda/closure support (M4): lambdas are lowered to named functions with
+	// an environment struct. lambdaQueue collects bodies to emit at module end.
+	lambdaCount   int                    // next lambda id (@__lambda_0, _1, ...)
+	lambdaQueue   []pendingLambda        // deferred lambda function bodies
+	closureLocals map[string]bool        // local var names holding a closure value
+	closureSigs   map[string]string      // closure local var name → LLVM return type
+	closureParams map[string][]string    // closure local var name → LLVM param types
 }
 
 type stringConst struct {
@@ -67,6 +75,9 @@ func NewGenerator(moduleName string) *Generator {
 		arrayInfo:         make(map[string]*arrayInfo),
 		exceptionTypeIDs:  make(map[string]int),
 		nextExcTypeID:     2, // 1 reserved for Exception itself
+		closureLocals:     make(map[string]bool),
+		closureSigs:       make(map[string]string),
+		closureParams:     make(map[string][]string),
 	}
 }
 
@@ -137,6 +148,12 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 		if err := g.emitMain(prog.Statements); err != nil {
 			return err
 		}
+	}
+
+	// Emit deferred lambda function bodies (collected during expression
+	// emission — they can't be defined inline mid-expression).
+	if err := g.emitPendingLambdas(); err != nil {
+		return err
 	}
 
 	// Emit string constants at the end

@@ -102,13 +102,9 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 		return g.emitStringInterpolation(e)
 
 	case *ast.LambdaExpression:
-		// Closures require an environment struct + boxing — out of scope for
-		// LLVM M3. Emit a null pointer stub so surrounding code still compiles.
-		// The Go backend fully supports lambdas; LLVM backend support is tracked
-		// in ROADMAP under LLVM M3 (closures).
-		r := g.tmp()
-		g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; lambda/closure unsupported in LLVM backend", r))
-		return r, "ptr", nil
+		// Lambdas lower to a named function + env struct + closure pair.
+		// See lambda.go for the full lowering.
+		return g.emitLambda(e)
 
 	case *ast.ArrayLiteral:
 		// Array literals — allocate a heap buffer and store each element.
@@ -199,6 +195,12 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 	rv, rt, err := g.emitExpr(e.Right)
 	if err != nil {
 		return "", "", err
+	}
+
+	// String concatenation: `+` on two ptr (string) operands → malloc + strcat.
+	// (Pascal `+` on strings concatenates; numeric `+` adds.)
+	if e.Operator == "+" && (lt == "ptr" || rt == "ptr") {
+		return g.emitStringConcat(lv, rv), "ptr", nil
 	}
 
 	// Coerce mixed int/double operands to a common type (double wins) so
@@ -322,6 +324,16 @@ func (g *Generator) emitPrefix(e *ast.PrefixExpression) (string, string, error) 
 	}
 }
 
+// emitStringConcat concatenates two string pointers (ptr operands) into a
+// freshly malloc'd buffer via strcpy + strcat, returning the result ptr.
+func (g *Generator) emitStringConcat(lv, rv string) string {
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 512)", buf))
+	g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", buf, lv))
+	g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", buf, rv))
+	return buf
+}
+
 // emitCall generates a function call expression.
 func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 	// obj.Method(args) — method dispatch on a class or interface receiver.
@@ -332,6 +344,12 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 	funcName := ""
 	if ident, ok := e.Function.(*ast.Identifier); ok {
 		funcName = ident.Value
+	}
+
+	// Closure call: callee is a local variable holding a closure value.
+	// Indirect-call through {func_ptr, env_ptr} (see lambda.go).
+	if funcName != "" && g.closureLocals[funcName] {
+		return g.emitClosureCall(funcName, e.Arguments)
 	}
 
 	// Built-in: WriteLn — 0, 1, or multiple arguments.
@@ -726,6 +744,67 @@ func (g *Generator) emitInterfaceCall(varName, ifaceName, methodName string, arg
 	result := g.tmp()
 	g.line(fmt.Sprintf("  %s = call %s %s(%s)", result, fnType, fnPtr, strings.Join(callArgs, ", ")))
 	return result, slot.RetType, nil
+}
+
+// emitClosureCall indirect-calls a closure stored in a local variable. The
+// closure value is { func_ptr, env_ptr }; the call passes env as the first
+// argument. Param/return types come from the lambda's recorded signature.
+func (g *Generator) emitClosureCall(varName string, args []ast.Expression) (string, string, error) {
+	allocaReg, ok := g.locals[varName]
+	if !ok {
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; undefined closure %s", r, varName))
+		return r, "i64", nil
+	}
+
+	// Load the closure pair { ptr, ptr }.
+	closureVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load { ptr, ptr }, ptr %s", closureVal, allocaReg))
+	fptr := g.tmp()
+	g.line(fmt.Sprintf("  %s = extractvalue { ptr, ptr } %s, 0", fptr, closureVal))
+	eptr := g.tmp()
+	g.line(fmt.Sprintf("  %s = extractvalue { ptr, ptr } %s, 1", eptr, closureVal))
+
+	// Evaluate arguments, coercing each to the lambda's declared param type.
+	paramTypes := g.closureParams[varName]
+	retType := g.closureSigs[varName]
+	if retType == "" {
+		retType = "void"
+	}
+
+	var argRegs []string
+	var argTypes []string
+	for i, arg := range args {
+		r, t, err := g.emitExpr(arg)
+		if err != nil {
+			return "", "", err
+		}
+		if i < len(paramTypes) && paramTypes[i] != t {
+			r, t = g.coerceValue(r, t, paramTypes[i])
+		}
+		argRegs = append(argRegs, r)
+		argTypes = append(argTypes, t)
+	}
+
+	// Function type signature: retType (ptr env, paramTypes...).
+	sigParams := []string{"ptr"}
+	sigParams = append(sigParams, paramTypes...)
+	fnType := fmt.Sprintf("%s (%s)", retType, strings.Join(sigParams, ", "))
+
+	callArgs := []string{"ptr " + eptr}
+	for i, r := range argRegs {
+		callArgs = append(callArgs, argTypes[i]+" "+r)
+	}
+
+	if retType == "void" {
+		// Indirect call: `call <fnptrty> %ptr(args)` — fnptrty includes the return type.
+		g.line(fmt.Sprintf("  call %s %s(%s)", fnType, fptr, strings.Join(callArgs, ", ")))
+		return "0", "void", nil
+	}
+	result := g.tmp()
+	// Indirect call: `call <fnptrty> %ptr(args)` — fnptrty includes the return type.
+	g.line(fmt.Sprintf("  %s = call %s %s(%s)", result, fnType, fptr, strings.Join(callArgs, ", ")))
+	return result, retType, nil
 }
 
 // emitIsExpr lowers `obj is IFoo` to a compile-time i1: 1 if the object's
