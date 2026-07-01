@@ -49,6 +49,8 @@ func (g *Generator) emitStatement(node ast.Statement) error {
 		return g.emitBreak()
 	case *ast.ContinueStatement:
 		return g.emitContinue()
+	case *ast.InheritedStatement:
+		return g.emitInherited(s)
 	default:
 		return nil
 	}

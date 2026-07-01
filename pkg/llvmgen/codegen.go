@@ -51,6 +51,11 @@ type Generator struct {
 	closureLocals map[string]bool        // local var names holding a closure value
 	closureSigs   map[string]string      // closure local var name → LLVM return type
 	closureParams map[string][]string    // closure local var name → LLVM param types
+
+	// inherited: tracks the method currently being generated so `inherited`
+	// can resolve the parent-class method to call.
+	curClassName  string
+	curMethodName string
 }
 
 type stringConst struct {

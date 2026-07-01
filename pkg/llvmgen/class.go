@@ -184,9 +184,13 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	savedLocals := g.locals
 	savedTypes := g.localTypes
 	savedFunc := g.funcName
+	savedClass := g.curClassName
+	savedMethod := g.curMethodName
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
 	g.funcName = className + "_" + method.Name
+	g.curClassName = className
+	g.curMethodName = method.Name
 
 	// Register `self` pointer
 	g.locals["self"] = "%self"
@@ -194,15 +198,27 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	// Register method params
 	for _, p := range method.Parameters {
 		llvmT := "i64"
+		kylixType := ""
 		if p.Type != nil {
-			llvmT = LLVMType(typeExprName(p.Type))
+			kylixType = typeExprName(p.Type)
+			llvmT = LLVMType(kylixType)
 		}
-		allocaReg := fmt.Sprintf("%%v_%s_int", p.Name)
+		// Suffix by type so emitIdentLoad infers the load type correctly.
+		suffix := "_int"
+		switch llvmT {
+		case "i1":
+			suffix = "_bool"
+		case "double":
+			suffix = "_real"
+		case "ptr":
+			suffix = "_str"
+		}
+		allocaReg := fmt.Sprintf("%%v_%s%s", p.Name, suffix)
 		g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, llvmT))
 		g.line(fmt.Sprintf("  store %s %%%s, ptr %s", llvmT, p.Name, allocaReg))
 		g.locals[p.Name] = allocaReg
-		if p.Type != nil {
-			g.localTypes[p.Name] = typeExprName(p.Type)
+		if kylixType != "" {
+			g.localTypes[p.Name] = kylixType
 		}
 	}
 
@@ -235,6 +251,8 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	g.locals = savedLocals
 	g.localTypes = savedTypes
 	g.funcName = savedFunc
+	g.curClassName = savedClass
+	g.curMethodName = savedMethod
 	return nil
 }
 
@@ -384,4 +402,88 @@ func (g *Generator) emitVirtualCall(className, objReg, methodName string, argReg
 	fnType := fmt.Sprintf("%s (%s)", meth.RetType, strings.Join(paramTypes, ", "))
 	g.line(fmt.Sprintf("  %s = call %s %s(%s)", result, fnType, fnPtr, strings.Join(callArgs, ", ")))
 	return result, meth.RetType, nil
+}
+
+// findMethodInHierarchy walks the parent chain from className looking for a
+// method named methodName. Returns the defining class and method info, or
+// ("", nil) if not found.
+func (g *Generator) findMethodInHierarchy(className, methodName string) (string, *MethodInfo) {
+	visited := map[string]bool{}
+	for c := className; c != "" && !visited[c]; c = g.classes[c].Parent {
+		visited[c] = true
+		info, ok := g.classes[c]
+		if !ok {
+			break
+		}
+		for i := range info.Methods {
+			if info.Methods[i].Name == methodName {
+				return c, &info.Methods[i]
+			}
+		}
+	}
+	return "", nil
+}
+
+// emitInherited handles `inherited;` and `inherited MethodName(args)`.
+// It calls the parent class's method implementation directly (no vtable
+// dispatch), passing `self` as the receiver.
+func (g *Generator) emitInherited(s *ast.InheritedStatement) error {
+	methodName := g.curMethodName
+	var argExprs []ast.Expression
+
+	if s.Expr != nil {
+		// `inherited MethodName(args)` — Expr is a CallExpression.
+		if call, ok := s.Expr.(*ast.CallExpression); ok {
+			if ident, ok := call.Function.(*ast.Identifier); ok {
+				methodName = ident.Value
+			}
+			argExprs = call.Arguments
+		}
+	}
+
+	// Find the method in the parent chain (skip the current class itself).
+	parentClass := ""
+	if info, ok := g.classes[g.curClassName]; ok {
+		parentClass = info.Parent
+	}
+	defClass, meth := g.findMethodInHierarchy(parentClass, methodName)
+	if meth == nil {
+		g.line(fmt.Sprintf("  ; inherited: method %s not found in parent chain of %s",
+			methodName, g.curClassName))
+		return nil
+	}
+
+	// Evaluate arguments, coercing to the method's declared param types.
+	var argRegs []string
+	var argTypes []string
+	for i, arg := range argExprs {
+		r, t, err := g.emitExpr(arg)
+		if err != nil {
+			return err
+		}
+		if i < len(meth.Params) && meth.Params[i] != t {
+			r, t = g.coerceValue(r, t, meth.Params[i])
+		}
+		argRegs = append(argRegs, r)
+		argTypes = append(argTypes, t)
+	}
+
+	// Direct call to @ParentClass_MethodName(ptr %self, args).
+	var callArgs []string
+	callArgs = append(callArgs, "ptr %self")
+	for i, r := range argRegs {
+		callArgs = append(callArgs, argTypes[i]+" "+r)
+	}
+	fnName := fmt.Sprintf("@%s_%s", defClass, methodName)
+	if meth.RetType == "void" {
+		g.line(fmt.Sprintf("  call void %s(%s)", fnName, strings.Join(callArgs, ", ")))
+		return nil
+	}
+	result := g.tmp()
+	g.line(fmt.Sprintf("  %s = call %s %s(%s)", result, meth.RetType, fnName, strings.Join(callArgs, ", ")))
+	// Store the result into %result so the surrounding method returns it.
+	if g.locals["result"] != "" {
+		g.line(fmt.Sprintf("  store %s %s, ptr %%result", meth.RetType, result))
+	}
+	return nil
 }
