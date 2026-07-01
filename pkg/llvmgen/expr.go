@@ -165,6 +165,12 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 }
 
 func (g *Generator) emitIdentLoad(name string) (string, string, error) {
+	// Check if it's a constant first — constants are resolved by re-evaluating
+	// their literal value expression inline (no storage allocated).
+	if constExpr, ok := g.constants[name]; ok {
+		return g.emitExpr(constExpr)
+	}
+
 	allocaReg, ok := g.locals[name]
 	if !ok {
 		r := g.tmp()
@@ -190,9 +196,19 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	rv, _, err := g.emitExpr(e.Right)
+	rv, rt, err := g.emitExpr(e.Right)
 	if err != nil {
 		return "", "", err
+	}
+
+	// Coerce mixed int/double operands to a common type (double wins) so
+	// arithmetic/comparison ops never mix i64 and double operands.
+	if lt != rt {
+		if lt == "double" && rt == "i64" {
+			rv, rt = g.coerceValue(rv, rt, "double")
+		} else if lt == "i64" && rt == "double" {
+			lv, lt = g.coerceValue(lv, lt, "double")
+		}
 	}
 
 	r := g.tmp()
@@ -361,24 +377,77 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 	}
 
 	// Generic function call
+	sig := g.funcSigs[funcName]
+
 	var argRegs []string
 	var argTypes []string
-	for _, arg := range e.Arguments {
+	for i, arg := range e.Arguments {
 		r, t, err := g.emitExpr(arg)
 		if err != nil {
 			return "", "", err
+		}
+		// Coerce the argument to match the declared parameter type (e.g. an
+		// Integer literal passed to a Real parameter needs sitofp).
+		if sig != nil && i < len(sig.Parameters) && sig.Parameters[i].Type != nil {
+			wantT := LLVMType(typeExprName(sig.Parameters[i].Type))
+			if wantT != t {
+				r, t = g.coerceValue(r, t, wantT)
+			}
 		}
 		argRegs = append(argRegs, r)
 		argTypes = append(argTypes, t)
 	}
 
-	result := g.tmp()
+	retType := "i64"
+	if multiTypes := g.multiRetTypes[funcName]; len(multiTypes) > 0 {
+		// Multi-return function: returns a struct.
+		retType = fmt.Sprintf("%%__ret_%s", funcName)
+	} else if sig != nil && sig.ReturnType != nil {
+		retType = LLVMType(typeExprName(sig.ReturnType))
+	} else if sig != nil {
+		retType = "void"
+	}
+
 	var argList []string
 	for i, r := range argRegs {
 		argList = append(argList, argTypes[i]+" "+r)
 	}
-	g.line(fmt.Sprintf("  %s = call i64 @%s(%s)", result, funcName, strings.Join(argList, ", ")))
-	return result, "i64", nil
+	if retType == "void" {
+		g.line(fmt.Sprintf("  call void @%s(%s)", funcName, strings.Join(argList, ", ")))
+		return "0", "void", nil
+	}
+	result := g.tmp()
+	g.line(fmt.Sprintf("  %s = call %s @%s(%s)", result, retType, funcName, strings.Join(argList, ", ")))
+	return result, retType, nil
+}
+
+// coerceValue converts a value register from one LLVM type to another,
+// emitting the appropriate cast instruction. Used when an argument's
+// evaluated type doesn't match the declared parameter type (e.g. an integer
+// literal passed to a Real parameter).
+func (g *Generator) coerceValue(reg, fromT, toT string) (string, string) {
+	if fromT == toT {
+		return reg, fromT
+	}
+	cast := g.tmp()
+	switch {
+	case fromT == "i64" && toT == "double":
+		g.line(fmt.Sprintf("  %s = sitofp i64 %s to double", cast, reg))
+		return cast, "double"
+	case fromT == "double" && toT == "i64":
+		g.line(fmt.Sprintf("  %s = fptosi double %s to i64", cast, reg))
+		return cast, "i64"
+	case fromT == "i1" && toT == "i64":
+		g.line(fmt.Sprintf("  %s = zext i1 %s to i64", cast, reg))
+		return cast, "i64"
+	case fromT == "i64" && toT == "i1":
+		g.line(fmt.Sprintf("  %s = icmp ne i64 %s, 0", cast, reg))
+		return cast, "i1"
+	default:
+		// No known conversion (e.g. ptr↔i64 for class/interface args) — pass
+		// through unchanged rather than emitting an invalid cast.
+		return reg, fromT
+	}
 }
 
 // emitWriteLn generates a puts() or printf() call for WriteLn.
@@ -402,8 +471,8 @@ func (g *Generator) emitWriteLn(arg ast.Expression) (string, string, error) {
 		g.line(fmt.Sprintf("  %s = call i32 (ptr, ...) @printf(ptr noundef %s, i64 %s)", r, fmtPtr, v))
 		return "0", "void", nil
 	case "double":
-		fmtReg := g.addString("%f\n")
-		fmtPtr := g.ptrTo(fmtReg, len("%f\n")+1)
+		fmtReg := g.addString("%.15g\n")
+		fmtPtr := g.ptrTo(fmtReg, len("%.15g\n")+1)
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = call i32 (ptr, ...) @printf(ptr noundef %s, double %s)", r, fmtPtr, v))
 		return "0", "void", nil
@@ -735,19 +804,28 @@ func (g *Generator) emitStringInterpolation(e *ast.StringInterpolation) (string,
 				g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, buf, pos))
 				rest := g.tmp()
 				g.line(fmt.Sprintf("  %s = sub i64 %d, %s", rest, bufSize, pos))
-				g.line(fmt.Sprintf("  %s = call i32 @snprintf(ptr %s, i64 %s, ptr %s, i64 %s)",
+				g.line(fmt.Sprintf("  %s = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 %s, ptr %s, i64 %s)",
 					g.tmp(), dst, rest, ldFmtPtr, reg))
 			case "double":
-				fFmt := g.addString("%f")
-				fFmtPtr := g.ptrTo(fFmt, 3)
+				fFmt := g.addString("%.15g")
+				fFmtPtr := g.ptrTo(fFmt, 6)
 				pos := g.tmp()
 				g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", pos, buf))
 				dst := g.tmp()
 				g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, buf, pos))
 				rest := g.tmp()
 				g.line(fmt.Sprintf("  %s = sub i64 %d, %s", rest, bufSize, pos))
-				g.line(fmt.Sprintf("  %s = call i32 @snprintf(ptr %s, i64 %s, ptr %s, double %s)",
+				g.line(fmt.Sprintf("  %s = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 %s, ptr %s, double %s)",
 					g.tmp(), dst, rest, fFmtPtr, reg))
+			case "i1":
+				// Boolean: append "true" or "false" string
+				trueStr := g.addString("true")
+				falseStr := g.addString("false")
+				truePtr := g.ptrTo(trueStr, 5)
+				falsePtr := g.ptrTo(falseStr, 6)
+				selected := g.tmp()
+				g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", selected, reg, truePtr, falsePtr))
+				g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, selected))
 			}
 		}
 	}
@@ -765,7 +843,14 @@ func (g *Generator) emitWriteLnMulti(args []ast.Expression) (string, string, err
 	ldFmt := g.addString("%ld")
 	ldFmtPtr := g.ptrTo(ldFmt, 4)
 
-	for _, arg := range args {
+	for i, arg := range args {
+		// Insert a space between consecutive arguments (matching fmt.Println).
+		if i > 0 {
+			spaceStr := g.addString(" ")
+			spacePtr := g.ptrTo(spaceStr, 2)
+			g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, spacePtr))
+		}
+
 		reg, t, err := g.emitExpr(arg)
 		if err != nil {
 			return "", "", err
@@ -780,19 +865,28 @@ func (g *Generator) emitWriteLnMulti(args []ast.Expression) (string, string, err
 			g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, buf, pos))
 			rest := g.tmp()
 			g.line(fmt.Sprintf("  %s = sub i64 %d, %s", rest, bufSize, pos))
-			g.line(fmt.Sprintf("  %s = call i32 @snprintf(ptr %s, i64 %s, ptr %s, i64 %s)",
+			g.line(fmt.Sprintf("  %s = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 %s, ptr %s, i64 %s)",
 				g.tmp(), dst, rest, ldFmtPtr, reg))
 		case "double":
-			fFmt := g.addString("%f")
-			fFmtPtr := g.ptrTo(fFmt, 3)
+			fFmt := g.addString("%.15g")
+			fFmtPtr := g.ptrTo(fFmt, 6)
 			pos := g.tmp()
 			g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", pos, buf))
 			dst := g.tmp()
 			g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, buf, pos))
 			rest := g.tmp()
 			g.line(fmt.Sprintf("  %s = sub i64 %d, %s", rest, bufSize, pos))
-			g.line(fmt.Sprintf("  %s = call i32 @snprintf(ptr %s, i64 %s, ptr %s, double %s)",
+			g.line(fmt.Sprintf("  %s = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 %s, ptr %s, double %s)",
 				g.tmp(), dst, rest, fFmtPtr, reg))
+		case "i1":
+			// Boolean: append "true" or "false" string
+			trueStr := g.addString("true")
+			falseStr := g.addString("false")
+			truePtr := g.ptrTo(trueStr, 5)
+			falsePtr := g.ptrTo(falseStr, 6)
+			selected := g.tmp()
+			g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", selected, reg, truePtr, falsePtr))
+			g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, selected))
 		}
 	}
 	r := g.tmp()

@@ -21,6 +21,9 @@ type Generator struct {
 	tmpCount   int             // SSA register counter (%t0, %t1, …)
 	labelCount int             // basic block label counter
 	locals           map[string]string         // var name → alloca register (%v_name)
+	constants        map[string]ast.Expression // const name → value expression (literal)
+	funcSigs         map[string]*ast.FunctionDecl // function name → declaration (param/return types)
+	multiRetTypes    map[string][]string       // function name → LLVM types for multi-return (nil for single/void)
 	classes          map[string]*ClassInfo     // class name → compiled class metadata
 	interfaces       map[string]*InterfaceInfo // interface name → metadata
 	genericTemplates map[string]*ast.ClassDecl // base name → generic class template
@@ -53,6 +56,9 @@ func NewGenerator(moduleName string) *Generator {
 	return &Generator{
 		module:            moduleName,
 		locals:            make(map[string]string),
+		constants:         make(map[string]ast.Expression),
+		funcSigs:          make(map[string]*ast.FunctionDecl),
+		multiRetTypes:     make(map[string][]string),
 		classes:           make(map[string]*ClassInfo),
 		interfaces:        make(map[string]*InterfaceInfo),
 		genericTemplates:  make(map[string]*ast.ClassDecl),
@@ -86,6 +92,25 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	// exception classes (Parent="Exception") resolve against it, and so
 	// `on E: Exception do` / `E.Message` work without special-casing.
 	g.injectExceptionClass()
+
+	// Pre-register all function/const signatures for forward references.
+	// Multi-return struct types are emitted here (in declaration order) so
+	// map iteration order never affects generated IR.
+	for _, decl := range prog.Declarations {
+		if cd, ok := decl.(*ast.ConstDecl); ok {
+			g.constants[cd.Name] = cd.Value
+		} else if fd, ok := decl.(*ast.FunctionDecl); ok && !fd.IsExternal {
+			g.funcSigs[fd.Name] = fd
+			if len(fd.ReturnTypes) > 0 {
+				var llvmTypes []string
+				for _, rt := range fd.ReturnTypes {
+					llvmTypes = append(llvmTypes, LLVMType(typeExprName(rt)))
+				}
+				g.multiRetTypes[fd.Name] = llvmTypes
+				g.line(fmt.Sprintf("%%__ret_%s = type { %s }", fd.Name, strings.Join(llvmTypes, ", ")))
+			}
+		}
+	}
 
 	// Emit declarations and function bodies
 	for _, decl := range prog.Declarations {
@@ -192,6 +217,9 @@ func (g *Generator) emitStringConsts() {
 
 func (g *Generator) emitDecl(node ast.Node) error {
 	switch d := node.(type) {
+	case *ast.ConstDecl:
+		// Already pre-registered in emitProgram; nothing else to emit.
+		return nil
 	case *ast.FunctionDecl:
 		if d.IsExternal {
 			return nil

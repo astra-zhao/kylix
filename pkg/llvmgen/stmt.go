@@ -60,9 +60,13 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 		return nil // forward declaration, skip
 	}
 
-	// Determine return type
+	// Determine return type: check multi-return first, then single, else void.
 	retType := "void"
-	if decl.ReturnType != nil {
+	isMultiRet := false
+	if multiTypes := g.multiRetTypes[decl.Name]; len(multiTypes) > 0 {
+		retType = fmt.Sprintf("%%__ret_%s", decl.Name)
+		isMultiRet = true
+	} else if decl.ReturnType != nil {
 		retType = LLVMType(typeExprName(decl.ReturnType))
 	}
 
@@ -88,20 +92,36 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	if retType != "void" {
 		g.line(fmt.Sprintf("  %%result = alloca %s, align 8", retType))
 		g.locals["result"] = "%result"
+		if isMultiRet {
+			// Mark result as a tuple so assignment can detect it.
+			g.localTypes["result"] = "__tuple__"
+		}
 	}
 
 	// Allocate parameters as locals
 	for _, p := range decl.Parameters {
 		llvmT := "i64"
+		kylixType := ""
 		if p.Type != nil {
-			llvmT = LLVMType(typeExprName(p.Type))
+			kylixType = typeExprName(p.Type)
+			llvmT = LLVMType(kylixType)
 		}
-		allocaReg := fmt.Sprintf("%%v_%s", p.Name)
+		// Use suffix convention so emitIdentLoad can infer type from alloca name.
+		suffix := "_int"
+		switch llvmT {
+		case "i1":
+			suffix = "_bool"
+		case "double":
+			suffix = "_real"
+		case "ptr":
+			suffix = "_str"
+		}
+		allocaReg := fmt.Sprintf("%%v_%s%s", p.Name, suffix)
 		g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, llvmT))
 		g.line(fmt.Sprintf("  store %s %%%s, ptr %s", llvmT, p.Name, allocaReg))
 		g.locals[p.Name] = allocaReg
-		if p.Type != nil {
-			g.localTypes[p.Name] = typeExprName(p.Type)
+		if kylixType != "" {
+			g.localTypes[p.Name] = kylixType
 		}
 	}
 
@@ -111,6 +131,9 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 			if err := g.emitVarDecl(vd); err != nil {
 				return err
 			}
+		} else if cd, ok := ld.(*ast.ConstDecl); ok {
+			// Register local constant (resolved at use site)
+			g.constants[cd.Name] = cd.Value
 		}
 	}
 
@@ -146,12 +169,56 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 		return nil
 	}
 
-	// Emit alloca for each variable in the declaration.
+	// For type-inferred declarations (var x := expr), we need to evaluate the
+	// expression first to determine its LLVM type, then emit the alloca with the
+	// correct type, then store the value.
+	if s.Type == nil && s.Value != nil && s.Inferred {
+		// Evaluate the RHS to get its type.
+		valReg, llvmType, err := g.emitExpr(s.Value)
+		if err != nil {
+			return err
+		}
+
+		// Allocate variables with the inferred type.
+		for _, name := range s.Names {
+			suffix := "_int"
+			switch llvmType {
+			case "i1":
+				suffix = "_bool"
+			case "double":
+				suffix = "_real"
+			case "ptr":
+				suffix = "_str"
+			}
+			allocaReg := fmt.Sprintf("%%v_%s%s", name, suffix)
+			g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, llvmType))
+			g.line(fmt.Sprintf("  store %s %s, ptr %s", llvmType, valReg, allocaReg))
+			g.locals[name] = allocaReg
+		}
+		return nil
+	}
+
+	// Explicit type or no initializer: emit alloca for each variable.
 	for _, name := range s.Names {
 		if err := g.emitVarDeclSingle(name, s.Type); err != nil {
 			return err
 		}
 	}
+
+	// If an initializer is present (var x: T = expr, or x := expr with explicit
+	// type), emit assignment after alloca.
+	if s.Value != nil && !s.Inferred {
+		for _, name := range s.Names {
+			assignStmt := &ast.AssignmentStatement{
+				Name:  &ast.Identifier{Value: name},
+				Value: s.Value,
+			}
+			if err := g.emitAssign(assignStmt); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -241,6 +308,20 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 
 // emitAssign generates a store instruction.
 func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
+	// Case 1: Tuple destructuring `(a, b) := Func()` — LHS is TupleLiteral.
+	if tuple, ok := s.Name.(*ast.TupleLiteral); ok {
+		return g.emitTupleDestructure(tuple, s.Value)
+	}
+
+	// Case 2: `result := (a, b)` — assigning TupleLiteral to result in multi-return func.
+	if ident, ok := s.Name.(*ast.Identifier); ok && ident.Value == "result" {
+		if g.localTypes["result"] == "__tuple__" {
+			if tupleLit, ok := s.Value.(*ast.TupleLiteral); ok {
+				return g.emitTupleBuild(tupleLit)
+			}
+		}
+	}
+
 	// LHS may be an interface-typed local — handle boxing before evaluating value
 	// so we can pick the right per-class vtable.
 	if ident, ok := s.Name.(*ast.Identifier); ok {
@@ -274,11 +355,8 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 	if ident, ok := s.Name.(*ast.Identifier); ok {
 		varName = ident.Value
 	} else {
-		// Complex lvalue (tuple destructuring: (q, r) := func()) or other
-		// unsupported LHS forms. Multi-return lowering in LLVM requires
-		// struct return types + extractvalue — deferred. Emit a comment stub
-		// so the IR remains valid.
-		g.line(fmt.Sprintf("  ; complex lvalue assignment (tuple destructuring) deferred"))
+		// Unknown LHS form (not handled above).
+		g.line(fmt.Sprintf("  ; unhandled LHS %T", s.Name))
 		return nil
 	}
 
@@ -504,264 +582,79 @@ func (g *Generator) emitRepeat(s *ast.RepeatStatement) error {
 	return nil
 }
 
-// raiseExceptionTypeName extracts the exception class name from a raise
-// expression. Handles `T.Create(...)` (constructor, both no-arg MemberExpression
-// and arg-bearing CallExpression forms) and a bare class instance variable.
-// Returns "" if the type cannot be determined (→ generic ID 0).
-func raiseExceptionTypeName(expr ast.Expression) string {
-	if expr == nil {
-		return ""
-	}
-	// Unwrap call: raise T.Create('msg') → CallExpression{Function: MemberExpression}.
-	if call, ok := expr.(*ast.CallExpression); ok {
-		return raiseExceptionTypeName(call.Function)
-	}
-	if m, ok := expr.(*ast.MemberExpression); ok && m.Member == "Create" {
-		if ident, ok := m.Object.(*ast.Identifier); ok {
-			return ident.Value
+// emitTupleBuild handles `result := (a, b, ...)` inside a multi-return
+// function: evaluates each element and packs them into the `%__ret_FuncName`
+// struct via a chain of insertvalue instructions, then stores into %result.
+func (g *Generator) emitTupleBuild(tuple *ast.TupleLiteral) error {
+	structType := fmt.Sprintf("%%__ret_%s", g.funcName)
+	elemTypes := g.multiRetTypes[g.funcName]
+
+	// Build struct value via insertvalue chain: start with undef, insert each field.
+	accReg := "undef"
+	for i, elem := range tuple.Elements {
+		v, _, err := g.emitExpr(elem)
+		if err != nil {
+			return err
 		}
-	}
-	return typeExprName(expr)
-}
-
-// emitRaise generates IR for `raise <expr>` or bare `raise`.
-//
-//	raise Exc.Create('msg')  →  store obj+type into the global slot, longjmp
-//	raise                     →  re-throw the in-flight exception (longjmp outer)
-func (g *Generator) emitRaise(s *ast.RaiseStatement) error {
-	if s.Exception == nil {
-		// Bare raise: only valid inside an except handler. If we're not in one,
-		// fall back to raising a generic Exception (matches Go backend behavior).
-		if !g.inExceptHandler {
-			return g.emitRaiseGeneric()
+		elemT := "i64"
+		if i < len(elemTypes) {
+			elemT = elemTypes[i]
 		}
-		// Re-throw: the global slot still holds the current exception. Keep
-		// exc_active=true and longjmp to the outer handler.
-		return g.emitLongjmpToHandler()
+		next := g.tmp()
+		g.line(fmt.Sprintf("  %s = insertvalue %s %s, %s %s, %d", next, structType, accReg, elemT, v, i))
+		accReg = next
 	}
-
-	// Evaluate the exception expression → object pointer.
-	objReg, _, err := g.emitExpr(s.Exception)
-	if err != nil {
-		return err
-	}
-	typeName := raiseExceptionTypeName(s.Exception)
-	tid := g.excTypeID(typeName)
-
-	g.line(fmt.Sprintf("  store ptr %s, ptr @__kylix_exc_obj", objReg))
-	g.line(fmt.Sprintf("  store i32 %d, ptr @__kylix_exc_type", tid))
-	g.line("  store i1 true, ptr @__kylix_exc_active")
-	return g.emitLongjmpToHandler()
-}
-
-// emitRaiseGeneric raises a synthetic Exception with a default message, used
-// when bare `raise` appears outside any except handler.
-func (g *Generator) emitRaiseGeneric() error {
-	msg := g.addString("exception")
-	g.line(fmt.Sprintf("  store ptr %s, ptr @__kylix_exc_obj", msg))
-	g.line("  store i32 1, ptr @__kylix_exc_type") // Exception = ID 1
-	g.line("  store i1 true, ptr @__kylix_exc_active")
-	return g.emitLongjmpToHandler()
-}
-
-// emitLongjmpToHandler loads the current handler's jmpbuf and longjmps to it.
-// If no handler is installed (jmpbuf is null), the program exits with status 70
-// (EX_SOFTWARE) — an uncaught exception.
-func (g *Generator) emitLongjmpToHandler() error {
-	jb := g.tmp()
-	g.line(fmt.Sprintf("  %s = load ptr, ptr @__kylix_jmpbuf", jb))
-	nz := g.tmp()
-	g.line(fmt.Sprintf("  %s = icmp ne ptr %s, null", nz, jb))
-	hasLbl := g.label()
-	noLbl := g.label()
-	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", nz, hasLbl, noLbl))
-
-	g.line(fmt.Sprintf("%s:", hasLbl))
-	g.line(fmt.Sprintf("  call void @longjmp(ptr %s, i32 1)", jb))
-	g.line("  unreachable")
-
-	g.line(fmt.Sprintf("%s:", noLbl))
-	g.line("  call void @exit(i32 70)")
-	g.line("  unreachable")
+	g.line(fmt.Sprintf("  store %s %s, ptr %%result", structType, accReg))
 	return nil
 }
 
-// emitTry generates IR for try/except/finally.
-//
-// Control-flow shape:
-//
-//	setjmp → try_body (install handler, run body, pop, → finally_normal)
-//	       ↘ except_dispatch (pop, match on-clauses by type ID, → finally_exc
-//	                          or finally_reraise if uncaught)
-//
-//	finally is emitted up to three times (normal/exc/reraise) so it always
-//	runs — longjmp would otherwise skip cleanup. Nesting is supported by
-//	saving/restoring @__kylix_jmpbuf (a stack of handlers via an alloca slot).
-func (g *Generator) emitTry(s *ast.TryStatement) error {
-	// alloca for the setjmp buffer and for saving the outer handler pointer.
-	bufReg := g.tmp()
-	g.line(fmt.Sprintf("  %s = alloca [%d x i8], align 16", bufReg, excJmpBufSize))
-	bufptr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr [%d x i8], ptr %s, i64 0, i64 0", bufptr, excJmpBufSize, bufReg))
-	oldJBSlot := g.tmp()
-	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", oldJBSlot))
-
-	// setjmp: returns 0 on first call, non-zero when longjmp returns here.
-	rc := g.tmp()
-	g.line(fmt.Sprintf("  %s = call i32 @setjmp(ptr %s)", rc, bufptr))
-	isHandler := g.tmp()
-	g.line(fmt.Sprintf("  %s = icmp ne i32 %s, 0", isHandler, rc))
-	tryBodyLbl := g.label()
-	exceptLbl := g.label()
-	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isHandler, exceptLbl, tryBodyLbl))
-
-	// ── try body ──────────────────────────────────────────────
-	g.line(fmt.Sprintf("%s:", tryBodyLbl))
-	oldJB := g.tmp()
-	g.line(fmt.Sprintf("  %s = load ptr, ptr @__kylix_jmpbuf", oldJB))
-	g.line(fmt.Sprintf("  store ptr %s, ptr %s", oldJB, oldJBSlot))
-	g.line(fmt.Sprintf("  store ptr %s, ptr @__kylix_jmpbuf", bufptr))
-	g.line("  store i1 false, ptr @__kylix_exc_active")
-	if s.Body != nil {
-		for _, st := range s.Body.Statements {
-			if err := g.emitStatement(st); err != nil {
-				return err
-			}
-		}
-	}
-	// Pop handler, clear active, fall through to finally (normal path).
-	restoredJB := g.tmp()
-	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", restoredJB, oldJBSlot))
-	g.line(fmt.Sprintf("  store ptr %s, ptr @__kylix_jmpbuf", restoredJB))
-	g.line("  store i1 false, ptr @__kylix_exc_active")
-
-	finallyNormalLbl := g.label()
-	finallyExcLbl := g.label()
-	finallyReraiseLbl := g.label()
-	endLbl := g.label()
-
-	g.line(fmt.Sprintf("  br label %%%s", finallyNormalLbl))
-
-	// ── except dispatch ───────────────────────────────────────
-	g.line(fmt.Sprintf("%s:", exceptLbl))
-	// Pop the handler installed by try_body (restore outer).
-	restoredJB2 := g.tmp()
-	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", restoredJB2, oldJBSlot))
-	g.line(fmt.Sprintf("  store ptr %s, ptr @__kylix_jmpbuf", restoredJB2))
-
-	tid := g.tmp()
-	g.line(fmt.Sprintf("  %s = load i32, ptr @__kylix_exc_type", tid))
-
-	// Match on-clauses in order. Each emits a subtype check and branches to
-	// its body or the next check.
-	nextCheck := exceptLbl
-	matched := false
-	for _, on := range s.OnClauses {
-		onBodyLbl := g.label()
-		thisCheck := nextCheck
-		nextCheck = g.label()
-		wantID := g.excTypeID(typeExprName(on.Type))
-
-		m := g.tmp()
-		g.line(fmt.Sprintf("  %s = call i1 @__kylix_is_subtype(i32 %s, i32 %d)", m, tid, wantID))
-		// The check is emitted under the current "thisCheck" label (the first
-		// one reuses exceptLbl which we already emitted above).
-		if thisCheck != exceptLbl {
-			g.line(fmt.Sprintf("%s:", thisCheck))
-		}
-		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", m, onBodyLbl, nextCheck))
-
-		// on-body: bind E to the exception object, run body, clear active.
-		g.line(fmt.Sprintf("%s:", onBodyLbl))
-		if on.Variable != "" {
-			eAlloca := fmt.Sprintf("%%v_%s", on.Variable)
-			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", eAlloca))
-			obj := g.tmp()
-			g.line(fmt.Sprintf("  %s = load ptr, ptr @__kylix_exc_obj", obj))
-			g.line(fmt.Sprintf("  store ptr %s, ptr %s", obj, eAlloca))
-			g.locals[on.Variable] = eAlloca
-			if t := typeExprName(on.Type); t != "" {
-				g.localTypes[on.Variable] = t
-			}
-		}
-		g.inExceptHandler = true
-		if on.Body != nil {
-			for _, st := range on.Body.Statements {
-				if err := g.emitStatement(st); err != nil {
-					g.inExceptHandler = false
-					return err
-				}
-			}
-		}
-		g.inExceptHandler = false
-		g.line("  store i1 false, ptr @__kylix_exc_active")
-		g.line(fmt.Sprintf("  br label %%%s", finallyExcLbl))
-		matched = true
+// emitTupleDestructure handles `(a, b, ...) := Expr` where Expr is a call to
+// a multi-return function. Evaluates the call (which yields a struct value),
+// extracts each field via extractvalue, and stores into the corresponding
+// LHS variables (auto-declaring them if not already local).
+func (g *Generator) emitTupleDestructure(tuple *ast.TupleLiteral, rhs ast.Expression) error {
+	structVal, structType, err := g.emitExpr(rhs)
+	if err != nil {
+		return err
 	}
 
-	// After the last on-clause check, emit the fall-through label.
-	if len(s.OnClauses) > 0 {
-		g.line(fmt.Sprintf("%s:", nextCheck))
-	}
-
-	// No on-clause matched (or none present):
-	//   - a plain ExceptBlock handles everything → run it, → finally_exc
-	//   - otherwise the exception stays active → finally_reraise
-	if s.ExceptBlock != nil {
-		g.inExceptHandler = true
-		for _, st := range s.ExceptBlock.Statements {
-			if err := g.emitStatement(st); err != nil {
-				g.inExceptHandler = false
-				return err
-			}
-		}
-		g.inExceptHandler = false
-		g.line("  store i1 false, ptr @__kylix_exc_active")
-		g.line(fmt.Sprintf("  br label %%%s", finallyExcLbl))
-	} else {
-		// Uncaught: keep exc_active=true so the reraise path re-throws.
-		g.line(fmt.Sprintf("  br label %%%s", finallyReraiseLbl))
-	}
-	_ = matched
-
-	// ── finally: normal path (try body completed) ─────────────
-	g.line(fmt.Sprintf("%s:", finallyNormalLbl))
-	if s.FinallyBlock != nil {
-		for _, st := range s.FinallyBlock.Statements {
-			if err := g.emitStatement(st); err != nil {
-				return err
-			}
+	call, isCall := rhs.(*ast.CallExpression)
+	var elemTypes []string
+	if isCall {
+		if fnIdent, ok := call.Function.(*ast.Identifier); ok {
+			elemTypes = g.multiRetTypes[fnIdent.Value]
 		}
 	}
-	g.line(fmt.Sprintf("  br label %%%s", endLbl))
 
-	// ── finally: except handled path ──────────────────────────
-	g.line(fmt.Sprintf("%s:", finallyExcLbl))
-	if s.FinallyBlock != nil {
-		for _, st := range s.FinallyBlock.Statements {
-			if err := g.emitStatement(st); err != nil {
-				return err
-			}
+	for i, elem := range tuple.Elements {
+		ident, ok := elem.(*ast.Identifier)
+		if !ok {
+			continue // non-identifier tuple element (e.g. `_`) — skip binding
 		}
-	}
-	g.line(fmt.Sprintf("  br label %%%s", endLbl))
-
-	// ── finally: reraise path (uncaught exception) ────────────
-	g.line(fmt.Sprintf("%s:", finallyReraiseLbl))
-	if s.FinallyBlock != nil {
-		for _, st := range s.FinallyBlock.Statements {
-			if err := g.emitStatement(st); err != nil {
-				return err
-			}
+		elemT := "i64"
+		if i < len(elemTypes) {
+			elemT = elemTypes[i]
 		}
-	}
-	// Re-throw: longjmp to the outer handler (current @__kylix_jmpbuf).
-	outerJB := g.tmp()
-	g.line(fmt.Sprintf("  %s = load ptr, ptr @__kylix_jmpbuf", outerJB))
-	g.line(fmt.Sprintf("  call void @longjmp(ptr %s, i32 1)", outerJB))
-	g.line("  unreachable")
+		extracted := g.tmp()
+		g.line(fmt.Sprintf("  %s = extractvalue %s %s, %d", extracted, structType, structVal, i))
 
-	g.line(fmt.Sprintf("%s:", endLbl))
+		allocaReg, exists := g.locals[ident.Value]
+		if !exists {
+			suffix := "_int"
+			switch elemT {
+			case "i1":
+				suffix = "_bool"
+			case "double":
+				suffix = "_real"
+			case "ptr":
+				suffix = "_str"
+			}
+			allocaReg = fmt.Sprintf("%%v_%s%s", ident.Value, suffix)
+			g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, elemT))
+			g.locals[ident.Value] = allocaReg
+		}
+		g.line(fmt.Sprintf("  store %s %s, ptr %s", elemT, extracted, allocaReg))
+	}
 	return nil
 }
 

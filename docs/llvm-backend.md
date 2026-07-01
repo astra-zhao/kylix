@@ -120,11 +120,6 @@ Automatic insertion in assignments:
 
 ### ⚠️ Partial Support
 
-#### Multi-Return Values
-- **Functions can return tuples**: `function DivMod(...): (Integer, Integer)`
-- **Tuple LHS assignment is stubbed**: `(q, r) := DivMod(...)` generates comment placeholder
-- **Workaround**: Use record return types or out parameters
-
 #### Arrays
 - **Array literals**: `[1, 2, 3]` — basic heap allocation
 - **Array indexing**: `arr[i]` — read/write supported
