@@ -35,10 +35,11 @@ type FieldInfo struct {
 
 // MethodInfo describes a class method in the vtable.
 type MethodInfo struct {
-	Name      string
-	VtableIdx int
-	RetType   string
-	Params    []string
+	Name           string
+	VtableIdx      int
+	RetType        string
+	Params         []string
+	DefiningClass  string // class where this method's implementation lives (for vtable emit)
 }
 
 // emitClassDecl generates LLVM type + vtable + method definitions for a class.
@@ -111,8 +112,25 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 		}
 	}
 
-	// Methods: build vtable index
-	for i, m := range decl.Methods {
+	// Methods: build vtable. Inherited parent methods come first (so child
+	// vtable is a superset of parent's), then the child's own methods. A child
+	// method that overrides a parent method reuses the parent's vtable slot
+	// (the slot points to the child implementation).
+	if decl.Parent != "" {
+		if parent, ok := g.classes[decl.Parent]; ok {
+			for _, pm := range parent.Methods {
+				mi := MethodInfo{
+					Name:          pm.Name,
+					VtableIdx:     pm.VtableIdx,
+					RetType:       pm.RetType,
+					Params:        pm.Params,
+					DefiningClass: pm.DefiningClass, // inherited — still points to original definer
+				}
+				info.Methods = append(info.Methods, mi)
+			}
+		}
+	}
+	for _, m := range decl.Methods {
 		retType := "void"
 		if m.ReturnType != nil {
 			retType = LLVMType(typeExprName(m.ReturnType))
@@ -125,12 +143,27 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 			}
 			paramTypes = append(paramTypes, pt)
 		}
-		info.Methods = append(info.Methods, MethodInfo{
-			Name:      m.Name,
-			VtableIdx: i,
-			RetType:   retType,
-			Params:    paramTypes,
-		})
+		// Override: if a parent method with the same name exists, reuse its
+		// vtable slot but point to this child's implementation.
+		overrode := false
+		for i := range info.Methods {
+			if info.Methods[i].Name == m.Name {
+				info.Methods[i].RetType = retType
+				info.Methods[i].Params = paramTypes
+				info.Methods[i].DefiningClass = decl.Name
+				overrode = true
+				break
+			}
+		}
+		if !overrode {
+			info.Methods = append(info.Methods, MethodInfo{
+				Name:          m.Name,
+				VtableIdx:     len(info.Methods),
+				RetType:       retType,
+				Params:        paramTypes,
+				DefiningClass: decl.Name,
+			})
+		}
 	}
 
 	return info
@@ -148,16 +181,26 @@ func (g *Generator) emitStructType(info *ClassInfo) {
 }
 
 // emitVtable emits:  @TFoo_vtable = constant [N x ptr] [ ptr @TFoo_MethodA, ... ]
+// Inherited method slots point to the parent's implementation; overridden
+// slots point to the child's implementation (DefiningClass tracks this).
 func (g *Generator) emitVtable(info *ClassInfo, decl *ast.ClassDecl) {
 	if len(info.Methods) == 0 {
 		return
 	}
-	var ptrs []string
+	// Build vtable in vtable-index order.
+	slots := make([]string, len(info.Methods))
 	for _, m := range info.Methods {
-		ptrs = append(ptrs, fmt.Sprintf("ptr @%s_%s", info.Name, m.Name))
+		if m.VtableIdx >= len(slots) {
+			continue
+		}
+		defClass := m.DefiningClass
+		if defClass == "" {
+			defClass = info.Name
+		}
+		slots[m.VtableIdx] = fmt.Sprintf("ptr @%s_%s", defClass, m.Name)
 	}
 	g.line(fmt.Sprintf("@%s_vtable = constant [%d x ptr] [ %s ]",
-		info.Name, len(ptrs), strings.Join(ptrs, ", ")))
+		info.Name, len(slots), strings.Join(slots, ", ")))
 }
 
 // emitMethod emits a class method:  define <ret> @TFoo_Bar(ptr %self, ...) { ... }
@@ -194,6 +237,7 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 
 	// Register `self` pointer
 	g.locals["self"] = "%self"
+	g.localTypes["self"] = className
 
 	// Register method params
 	for _, p := range method.Parameters {
@@ -280,6 +324,26 @@ func (g *Generator) emitFieldAccess(className, selfReg, fieldName string) (strin
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 0, 0 ; field %s not found in %s", r, fieldName, className))
 	return r, "i64", nil
+}
+
+// emitFieldStore generates a getelementptr + store for writing to a field.
+// selfReg is the pointer to the struct, fieldName is the Kylix field name.
+// Returns the gep register (pointing to the field slot) and the field's LLVM
+// type so the caller can coerce and store the value.
+func (g *Generator) emitFieldStore(className, selfReg, fieldName string) (gepReg, fieldType string, err error) {
+	info, ok := g.classes[className]
+	if !ok {
+		return "", "i64", fmt.Errorf("unknown class %s", className)
+	}
+	for _, f := range info.Fields {
+		if f.Name == fieldName {
+			gep := g.tmp()
+			g.line(fmt.Sprintf("  %s = getelementptr inbounds %%%s, ptr %s, i32 0, i32 %d",
+				gep, className, selfReg, f.Index))
+			return gep, f.LLVMType, nil
+		}
+	}
+	return "", "i64", fmt.Errorf("field %s not found in %s", fieldName, className)
 }
 
 // emitConstructor generates a constructor call that allocates and initializes a class.
@@ -389,24 +453,25 @@ func (g *Generator) emitVirtualCall(className, objReg, methodName string, argReg
 		callArgs = append(callArgs, argTypes[i]+" "+r)
 	}
 
-	result := g.tmp()
-	if meth.RetType == "void" {
-		g.line(fmt.Sprintf("  call void %s(%s)", fnPtr, strings.Join(callArgs, ", ")))
-		return "0", "void", nil
-	}
-
-	// Build function type signature for indirect call
+	// Build function type signature for indirect call.
 	var paramTypes []string
 	paramTypes = append(paramTypes, "ptr") // self
 	paramTypes = append(paramTypes, meth.Params...)
 	fnType := fmt.Sprintf("%s (%s)", meth.RetType, strings.Join(paramTypes, ", "))
+
+	if meth.RetType == "void" {
+		g.line(fmt.Sprintf("  call %s %s(%s)", fnType, fnPtr, strings.Join(callArgs, ", ")))
+		return "0", "void", nil
+	}
+	result := g.tmp()
 	g.line(fmt.Sprintf("  %s = call %s %s(%s)", result, fnType, fnPtr, strings.Join(callArgs, ", ")))
 	return result, meth.RetType, nil
 }
 
 // findMethodInHierarchy walks the parent chain from className looking for a
-// method named methodName. Returns the defining class and method info, or
-// ("", nil) if not found.
+// method named methodName. Returns the defining class (where the
+// implementation actually lives, accounting for inherited vtable slots) and
+// method info, or ("", nil) if not found.
 func (g *Generator) findMethodInHierarchy(className, methodName string) (string, *MethodInfo) {
 	visited := map[string]bool{}
 	for c := className; c != "" && !visited[c]; c = g.classes[c].Parent {
@@ -417,7 +482,12 @@ func (g *Generator) findMethodInHierarchy(className, methodName string) (string,
 		}
 		for i := range info.Methods {
 			if info.Methods[i].Name == methodName {
-				return c, &info.Methods[i]
+				m := &info.Methods[i]
+				defClass := m.DefiningClass
+				if defClass == "" {
+					defClass = c
+				}
+				return defClass, m
 			}
 		}
 	}

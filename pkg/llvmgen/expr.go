@@ -629,6 +629,11 @@ func (g *Generator) loadObjectPtr(obj ast.Expression, typeName string) (string, 
 		g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; unknown receiver %s", r, ident.Value))
 		return r, "ptr", nil
 	}
+	// `self` is registered as "%self" (a function parameter, already a ptr);
+	// other locals are "%v_name" allocas that need a load to dereference.
+	if !strings.HasPrefix(alloca, "%v_") {
+		return alloca, "ptr", nil
+	}
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", r, alloca))
 	return r, "ptr", nil

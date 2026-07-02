@@ -212,6 +212,17 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 			return err
 		}
 
+		// Constructor inference: `var x := TFoo.Create` produces a ptr, but we
+		// must record the class name so later `x.Field` / `x.Method` resolve.
+		inferredClass := ""
+		if member, ok := s.Value.(*ast.MemberExpression); ok && member.Member == "Create" {
+			if ident, ok := member.Object.(*ast.Identifier); ok {
+				if _, known := g.classes[ident.Value]; known {
+					inferredClass = ident.Value
+				}
+			}
+		}
+
 		// Allocate variables with the inferred type.
 		for _, name := range s.Names {
 			suffix := "_int"
@@ -227,6 +238,9 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 			g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, llvmType))
 			g.line(fmt.Sprintf("  store %s %s, ptr %s", llvmType, valReg, allocaReg))
 			g.locals[name] = allocaReg
+			if inferredClass != "" {
+				g.localTypes[name] = inferredClass
+			}
 		}
 		return nil
 	}
@@ -383,6 +397,30 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		return nil
 	}
 
+	// Handle object field assignment: obj.Field := value
+	if member, ok := s.Name.(*ast.MemberExpression); ok {
+		kind, typeName := g.receiverKind(member.Object)
+		if kind == "class" {
+			objReg, _, err := g.loadObjectPtr(member.Object, typeName)
+			if err != nil {
+				return err
+			}
+			gepReg, fieldType, err := g.emitFieldStore(typeName, objReg, member.Member)
+			if err != nil {
+				return err
+			}
+			// Coerce the RHS to the field's declared type.
+			if t != fieldType {
+				v, t = g.coerceValue(v, t, fieldType)
+			}
+			g.line(fmt.Sprintf("  store %s %s, ptr %s", t, v, gepReg))
+			return nil
+		}
+		// Non-class member assignment — emit a comment and skip.
+		g.line(fmt.Sprintf("  ; unhandled member assignment %s.%s", typeName, member.Member))
+		return nil
+	}
+
 	// s.Name is Expression, extract identifier name
 	varName := ""
 	if ident, ok := s.Name.(*ast.Identifier); ok {
@@ -412,6 +450,11 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		actualType = "ptr"
 	} else if allocaReg == "%result" && t != "" {
 		actualType = t
+	} else if kylixT, ok := g.localTypes[varName]; ok {
+		// Class-typed local (alloca %v_name, no suffix) holds a ptr.
+		if _, isClass := g.classes[kylixT]; isClass {
+			actualType = "ptr"
+		}
 	}
 
 	// Type coercion: if RHS type doesn't match the alloca type, cast it.
