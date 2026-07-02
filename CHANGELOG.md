@@ -4,6 +4,41 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v4.1.0 (2026-07-02) — LLVM M4 高级特性
+
+> 🎉 **正式发布**。LLVM 后端 M4 里程碑：Lambda/闭包、`inherited` 关键字、完整多返回值元组解构、OOP 字段/方法访问系统性修复（vtable 继承）、优化通道（`opt` + `llc -O<N>`）。
+
+### LLVM 后端 M4
+
+- **Lambda/闭包支持** — 无捕获 procedure、有返回值函数、捕获外层变量（环境结构体快照）。闭包值 = `{ptr func_ptr, ptr env_ptr}`，间接调用参考接口调用模式。`example15_lambda.klx` 通过，与 Go 后端输出一致。新增 `pkg/llvmgen/lambda.go`。
+- **`inherited` 关键字** — `inherited;` 和 `inherited Method(args);` 语句形式支持，查找方法定义类（DefiningClass）绕过 vtable 直接调用父类实现。修复多层继承链下调用错误父类方法的 bug。
+- **完整多返回值元组解构** — `(q, r) := DivMod(17, 5);` 正确工作（此前为静默注释 stub）。
+- **OOP 字段/方法访问系统性修复（04_oop 章节 0/4 → 4/4）**：
+  - vtable 继承缺失修复：子类 vtable 现在包含继承自父类的方法槽位
+  - vtable 函数指针错位修复：继承方法槽位正确指向父类实现（`DefiningClass_MethodName`）
+  - 虚方法 void 返回调用崩溃修复（SIGBUS/SIGSEGV）：间接调用补全完整函数类型签名
+  - `self.Field` 访问崩溃修复：区分 `self` 参数（直接值）与普通局部变量 alloca（需 load）
+  - 显式类型变量赋值类型不匹配修复：`var cat: TAnimal; cat := TAnimal.Create` 场景 `emitAssign` 正确推断 `actualType=ptr`
+- **优化通道（`--llvm-opt`）** — 集成独立 `opt` 工具（IR 级优化：mem2reg/内联/循环归纳/DCE）+ `llc -O<N>`（codegen 级优化）两阶段流水线。`opt` 未安装时优雅降级为仅 `llc -O<N>`。修复 LLVM 22 新式 pass manager 命令行语法（`-O=N` → `--O<N>`）。
+  - 基准测试（`benchmarks/llvm/`）：`loop_sum`（1亿次迭代）O2 优化 **20倍提速**（循环归纳为闭式常量表达式）；`fib(35)` 递归 O3 优化 1.7倍提速；`primes`（含取模，优化空间有限）基本持平。详见 [docs/llvm-performance.md](docs/llvm-performance.md)。
+
+### 测试与验证
+
+- LLVM 后端教程通过率：22/49 → **27/49**（01-04 章节全部 19 个教程通过，与 Go 后端输出逐字节一致）。
+- LLVM 后端测试：79 → 90+（新增 lambda/inherited/opt 测试）。
+- 16 个 Go 测试包全部通过。
+
+### 文档
+
+- [docs/llvm-backend.md](docs/llvm-backend.md) — 更新"Not Supported"/"Known Limitations"/"Roadmap"章节，移除已修复限制（Lambda/多返回值/inherited），补充优化通道说明。
+- [docs/llvm-performance.md](docs/llvm-performance.md)（新增）— 基准测试方法论与实测数据。
+
+### 已知限制（v4.1.0）
+
+- 表达式体 lambda（`function(x): T -> expr`）— parser 不识别返回类型后的 `->`，需用 block-bodied lambda 替代。
+- `inherited` 作表达式（`result := inherited F(x)`）— parser 仅支持语句形式。
+- stdlib 重度教程（08、13-20 章节）与注解框架（12 章节）仍需 Go 工具链 — LLVM stdlib 支持规划在 v4.2.0。
+
 ## v4.0.0 (2026-07-01) — LLVM M3 + stdlib Phase 7 + IDE 插件
 
 > 🎉 **正式发布**。LLVM 后端 M3 里程碑：完整异常处理 + 控制流覆盖 + 表达式补全。stdlib Phase 7（db/cache/http/websocket）+ VS Code 代码片段。

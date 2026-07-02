@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.1.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
-> 🎉 **v4.0.0**: LLVM M3 后端完善 —— 完整异常处理（try/except/finally/on/raise）、控制流补全（break/continue/case/match/foreach）、多变量声明、类型自动转换。**14/15 基础教程通过 LLVM 编译到原生二进制**。stdlib Phase 7（db/cache/http/websocket 模块）+ VS Code 代码片段（25个）。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v4.1.0**: LLVM M4 高级特性 —— Lambda/闭包（捕获变量+环境结构体）、`inherited` 关键字（父类方法链）、多返回值元组解构、OOP 字段/方法访问系统性修复（vtable 继承）、优化通道（`opt` + `llc -O<N>`，循环归纳达 20x 提速）。**27/49 教程通过 LLVM 编译**，01-04 章节（19文件）与 Go 后端输出逐字节一致。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## Features
 
