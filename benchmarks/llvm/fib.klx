@@ -1,0 +1,15 @@
+// fib.klx — Recursive Fibonacci benchmark for the LLVM backend.
+// Run: kylix build --backend=llvm [--llvm-opt=N] fib.klx && ./fib
+program FibBench;
+
+function Fib(n: Integer): Integer;
+begin
+  if n < 2 then
+    result := n
+  else
+    result := Fib(n - 1) + Fib(n - 2);
+end;
+
+begin
+  WriteLn(Fib(35));
+end.

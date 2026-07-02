@@ -18,9 +18,10 @@ import (
 type LLVMPaths struct {
 	LLC   string // llc binary path
 	Clang string // clang binary path
+	Opt   string // opt binary path (optional; IR-level optimization)
 }
 
-// FindLLVM looks for llc and clang in common install locations.
+// FindLLVM looks for llc, clang, and opt in common install locations.
 func FindLLVM() (*LLVMPaths, error) {
 	searchDirs := []string{
 		"/opt/homebrew/opt/llvm/bin", // Homebrew ARM
@@ -45,6 +46,7 @@ func FindLLVM() (*LLVMPaths, error) {
 
 	llc := find("llc")
 	clang := find("clang")
+	opt := find("opt") // optional; only needed for --llvm-opt
 
 	if llc == "" {
 		return nil, fmt.Errorf("llc not found; install LLVM (brew install llvm or apt install llvm)")
@@ -53,7 +55,7 @@ func FindLLVM() (*LLVMPaths, error) {
 		return nil, fmt.Errorf("clang not found; install clang (brew install llvm or apt install clang)")
 	}
 
-	return &LLVMPaths{LLC: llc, Clang: clang}, nil
+	return &LLVMPaths{LLC: llc, Clang: clang, Opt: opt}, nil
 }
 
 // CompileResult holds the output paths from LLVM compilation.
@@ -115,6 +117,25 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	irFile := base + ".ll"
 	if err := os.WriteFile(irFile, []byte(ir), 0644); err != nil {
 		return nil, fmt.Errorf("write IR: %w", err)
+	}
+
+	// opt: IR-level optimization (mem2reg, inline, loop opts, DCE, etc.).
+	// Runs before llc so the optimizer sees pristine IR. Only invoked when an
+	// optimization level is requested and the opt binary is available; falls
+	// back to llc's -O flag otherwise.
+	if opts.OptLevel != "" && llvmPaths.Opt != "" {
+		optLevel := opts.OptLevel
+		if optLevel != "1" && optLevel != "2" && optLevel != "3" {
+			optLevel = "2" // clamp s/z/default → O2
+		}
+		optIRFile := base + ".opt.ll"
+		// opt 22+ uses --O<N> (new pass manager's default<O<N>> alias).
+		optArgs := []string{"--O" + optLevel, irFile, "-o", optIRFile}
+		optCmd := exec.Command(llvmPaths.Opt, optArgs...)
+		if out, err := optCmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("opt failed: %w\n%s", err, out)
+		}
+		irFile = optIRFile // feed optimized IR to llc
 	}
 
 	// llc: .ll → .o with optional optimization level

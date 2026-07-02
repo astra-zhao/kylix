@@ -125,47 +125,39 @@ Automatic insertion in assignments:
 - **Array indexing**: `arr[i]` — read/write supported
 - **Slicing**: `arr[lo..hi]` — returns base pointer (incomplete)
 
-### ❌ Not Supported (Planned for M4)
+### ⚠️ Partial Support
 
-#### Lambda/Closures
-- **Current**: `var f := (x: Integer) -> x * x;` generates null pointer stub
-- **Error**: Calling lambda produces undefined reference
-- **Status**: Requires environment struct + capture analysis (M4 priority)
+#### Lambda/Closures (M4 ✅)
+- **Block-bodied** lambdas fully supported: `var f := procedure(x: T) begin ... end;`
+- **Captured variables** supported via environment struct (by-value snapshot)
+- **Expression-bodied** lambda (`function(x): T -> expr`) — not supported (parser limitation)
 
 #### Async/Await
 - **Current**: `await expr` executes synchronously (await keyword ignored)
 - **Status**: Async runtime requires coroutine infrastructure (long-term)
 
-#### Advanced OOP
-- **`inherited` keyword**: Parent class method calls not yet implemented
-- **Workaround**: Explicitly call parent methods by name if accessible
+#### Advanced OOP (M4 ✅)
+- **`inherited` keyword**: supported as a statement (`inherited;` and `inherited Method(args);`)
+- **`inherited` as expression** (`result := inherited F(x)`): not supported (parser limitation)
 
 ---
 
 ## Known Limitations
 
-### 1. Tutorial example15_lambda.klx Fails
-**Reason**: Lambda assigned to variable and called, but LLVM backend generates null pointer stub.
+### 1. Expression-bodied Lambda
+**Limitation**: `var sq := function(x: Integer): Integer -> x * x;` is not parsed (the parser doesn't recognize `->` after a return type in `procedure`/`function` lambdas).
 
-**Example**:
+**Workaround**: Use block-bodied lambdas:
 ```pascal
-var square := (x: Integer) -> x * x;
-WriteLn(square(5));  // Error: undefined reference to @square
-```
-
-**Workaround**: Use named functions instead:
-```pascal
-function Square(x: Integer): Integer;
+var sq := function(x: Integer): Integer;
 begin
   result := x * x;
 end;
-WriteLn(Square(5));  // Works
+WriteLn(sq(5));  // Works
 ```
 
-### 2. Multi-Return Tuple Destructuring
-**Limitation**: `(a, b) := func()` silently ignored (generates IR comment).
-
-**Example**:
+### 2. Multi-Return Tuple Destructuring (M4 ✅)
+**Status**: Fully supported since v4.1.0.
 ```pascal
 function DivMod(n, d: Integer): (Integer, Integer);
 begin
@@ -173,32 +165,20 @@ begin
 end;
 
 var q, r: Integer;
-(q, r) := DivMod(17, 5);  // Stub: q and r remain uninitialized
+(q, r) := DivMod(17, 5);  // Works: q=3, r=2
 ```
-
-**Workaround**: Use record return type:
-```pascal
-type TDivModResult = record
-  quotient: Integer;
-  remainder: Integer;
-end;
-
-function DivMod(n, d: Integer): TDivModResult;
-begin
-  result.quotient := n div d;
-  result.remainder := n mod d;
-end;
-
-var res := DivMod(17, 5);
-WriteLn(res.quotient, ' ', res.remainder);  // Works
-```
-
 ### 3. Optimization Level
-**Current**: Basic LLVM IR with no optimization passes.
+**Status**: ✅ Implemented in v4.1.0. `--llvm-opt=1/2/3` runs the standalone `opt` tool (IR-level: mem2reg, inlining, loop induction, DCE) before `llc -O<N>` (codegen-level). The `opt` step is where the biggest wins come from — Kylix's alloca/load/store style benefits greatly from mem2reg.
 
-**Impact**: Generated code may be 2-5x slower than Go backend or hand-written C.
+**Benchmark highlights** (see [docs/llvm-performance.md](llvm-performance.md)):
+- `loop_sum` (100M iterations): **20× speedup** at O2 (loop induced to closed-form)
+- `fib(35)` recursive: 1.7× speedup at O3
+- 01–04 tutorials produce byte-identical output optimized vs unoptimized
 
-**Roadmap**: `--llvm-opt` flag enables O2 optimization (inlining, loop unrolling, DCE).
+**Usage**:
+```bash
+kylix build --backend=llvm --llvm-opt=2 program.klx   # recommended
+```
 
 ---
 
@@ -305,12 +285,18 @@ call void @longjmp(ptr %jmp_buf, i32 1)
 
 ## Roadmap
 
-### M4 (v4.1.0) — Advanced Features
-- [ ] Lambda/closure support (captured variables in environment struct)
-- [ ] Complete multi-return tuple destructuring
-- [ ] `inherited` keyword (parent method dispatch)
-- [ ] Optimization passes (inlining, loop unrolling, DCE)
-- **Target**: 30/35 tutorials pass (add OOP + generics chapters)
+### M4 (v4.1.0) — Advanced Features ✅
+- [x] Lambda/closure support (captured variables in environment struct)
+- [x] Multi-return tuple destructuring (`(q, r) := func()`)
+- [x] `inherited` keyword (parent method dispatch)
+- [x] Optimization passes (`opt` + `llc -O<N>`, see [llvm-performance.md](llvm-performance.md))
+- [x] OOP field access & method dispatch (vtable inheritance)
+- **Result**: 01–04 tutorials (19 files) produce byte-identical output to the Go backend; 27/49 tutorials compile via LLVM.
+
+#### Known limitations in v4.1.0
+- Expression-bodied lambda (`function(x): T -> expr`) — parser doesn't recognize `->` after a return type; use block-bodied lambdas.
+- `inherited` as an expression (`result := inherited F(x)`) — parser treats `inherited` as a statement only.
+- stdlib-heavy tutorials (08, 13–20) still require the Go toolchain — LLVM stdlib support is v4.2.0.
 
 ### M5 (v5.0.0) — Go Independence
 - [ ] Self-hosting: Kylix compiler written in Kylix

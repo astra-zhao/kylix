@@ -1,0 +1,27 @@
+// primes.klx — Prime sieve benchmark for the LLVM backend.
+// Counts primes below 1,000,000.
+// Run: kylix build --backend=llvm [--llvm-opt=N] primes.klx && ./primes
+program PrimeBench;
+
+var
+  i, j, count, n: Integer;
+  isPrime: Boolean;
+
+begin
+  n := 1000000;
+  count := 0;
+  for i := 2 to n do
+  begin
+    isPrime := true;
+    j := 2;
+    while (j * j <= i) and isPrime do
+    begin
+      if (i mod j) = 0 then
+        isPrime := false;
+      j := j + 1;
+    end;
+    if isPrime then
+      count := count + 1;
+  end;
+  WriteLn(count);
+end.
