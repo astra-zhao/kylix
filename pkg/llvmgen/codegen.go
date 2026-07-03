@@ -226,6 +226,13 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i32 @regcomp(ptr noundef, ptr noundef, i32 noundef)")
 	g.line("declare i32 @regexec(ptr noundef, ptr noundef, i64 noundef, ptr, i32 noundef)")
 	g.line("declare void @regfree(ptr noundef)")
+	g.line("; ===== time.h (used by stdlib datetime) =====")
+	g.line("declare i64 @time(ptr)")
+	g.line("declare ptr @localtime(ptr)")
+	g.line("declare i64 @mktime(ptr)")
+	g.line("declare i64 @strftime(ptr, i64, ptr, ptr)")
+	g.line("; ===== LLVM intrinsics =====")
+	g.line("declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg)")
 	g.line("")
 }
 

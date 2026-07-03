@@ -24,9 +24,10 @@ import (
 // implementation for. A `module.Func()` call is dispatched here only when the
 // module is in this set AND was imported via `uses`.
 var knownStdlibModules = map[string]bool{
-	"sysutil": true,
-	"regex":   true,
-	// Future: jsonutil, datetime, net, crypto, encoding, ...
+	"sysutil":  true,
+	"regex":    true,
+	"datetime": true,
+	// Future: jsonutil, net, crypto, encoding, ...
 }
 
 // stdlibModuleFuncs maps each known stdlib module to the function names it
@@ -41,6 +42,10 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"regex": {
 		"IsEmail": true, "IsURL": true, "IsNumeric": true,
 		"IsAlpha": true, "IsAlphaNumeric": true, "IsIP": true,
+	},
+	"datetime": {
+		"Now": true, "Today": true, "MakeDate": true, "MakeTime": true,
+		"ParseDate": true, "ParseDateTime": true,
 	},
 }
 
@@ -90,6 +95,8 @@ func (g *Generator) emitStdlibCall(module, funcName string, args []ast.Expressio
 		return g.emitSysutilCall(funcName, args)
 	case "regex":
 		return g.emitRegexCall(funcName, args)
+	case "datetime":
+		return g.emitDatetimeCall(funcName, args)
 	default:
 		// Not yet implemented for LLVM — fall back to a stub so IR stays legal.
 		r := g.tmp()
@@ -124,6 +131,8 @@ func (g *Generator) emitPendingStdlib() {
 			g.emitSysutilBody(sf.name, sf.argCount)
 		case "regex":
 			g.emitRegexBody(sf.name)
+		case "datetime":
+			g.emitDatetimeBody(sf.name, sf.argCount)
 		}
 	}
 }

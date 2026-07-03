@@ -4,6 +4,49 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v4.3.0 (2026-07-03) — stdlib Phase 1 完成 (datetime)
+
+> 🎯 **标准库扩展**。LLVM 后端完成 `datetime` 模块 Phase 1 实现（7 个函数/方法，基于 libc `time.h`）。支持链式调用（`MakeDate().AddDays()`），类型传播系统（`TDateTime` 伪类型）。教程通过率：**31/50 (62%)**。
+
+### LLVM 后端 stdlib datetime
+
+- **datetime 模块实现** — 基于 Unix time_t 和 libc `time.h`，7 个 API：
+  - `Now()` → 当前时间（`time(null)` + malloc TDateTime 实例）
+  - `MakeDate(year, month, day)` → 构造指定日期（`mktime()` + struct tm）
+  - `dt.Year()`, `dt.Month()`, `dt.Day()` → 提取日期字段（`localtime()` + GEP）
+  - `dt.FormatDate()` → YYYY-MM-DD 格式化（`strftime()`）
+  - `dt.AddDays(n)` → 加/减天数（86400 秒计算，返回新实例）
+- **链式调用支持** — `MakeDate(2025,1,1).AddDays(10)` 正常工作，通过类型传播实现：
+  - `emitDatetimeCall` 返回类型标记为 `"TDateTime"`（非 `"ptr"`）
+  - `emitVarDecl` 检测 `llvmType == "TDateTime"` 并记录到 `g.localTypes`
+  - `emitMethodCall` 识别变量接收者（`dt.Year()`）和表达式接收者（链式调用）
+- **libc 依赖声明** — `codegen.go` 新增 `time.h` 函数声明（time/localtime/mktime/strftime）和 `llvm.memset.p0.i64` intrinsic
+- **新文件** — `pkg/llvmgen/stdlib_datetime.go`（360 行，7 个函数 body emitter + 方法调用分发）
+- **测试覆盖** — `pkg/llvmgen/stdlib_datetime_test.go`（9/9 单元测试通过），`example38_datetime.klx` 真机验证通过（与 Go 后端输出一致）
+
+### 测试与验证
+
+- LLVM 后端教程通过率：27/49 → **31/50 (62%)**（datetime + 4 个新教程）
+- LLVM 后端测试：90+ → 99+（新增 datetime 9 个测试）
+- 16 个 Go 测试包全部通过
+
+### 已知限制
+
+- FormatDate 使用 64 字节栈缓冲区（非线程安全）
+- TDateTime 实例无 GC（malloc 未配对 free）
+- 缺少 `Today()`, `MakeTime()`, `ParseDate()` 等函数（Phase 2）
+- 缺少 `Hour()`, `Minute()`, `Second()`, `DayOfWeek()` 等方法（Phase 2）
+
+## v4.2.0 (2026-07-03) — stdlib Phase 1 完成 (sysutil)
+
+> 🎯 **标准库扩展**。LLVM 后端完成 `sysutil` 模块 Phase 1 实现（8 个函数，基于 libc/POSIX API）。
+
+### LLVM 后端 stdlib sysutil
+
+- **sysutil 模块实现** — 8 个 API：`GetEnv`, `SetEnv`, `UnsetEnv`, `Sleep`, `GetCWD`, `SetCWD`, `FileExists`, `DirExists`
+- **新文件** — `pkg/llvmgen/stdlib_sysutil.go`（250 行，8 个函数 body emitter）
+- **测试覆盖** — `pkg/llvmgen/stdlib_sysutil_test.go`（8/8 单元测试通过），`example36_sysutil.klx` 真机验证通过
+
 ## v4.1.0 (2026-07-02) — LLVM M4 高级特性
 
 > 🎉 **正式发布**。LLVM 后端 M4 里程碑：Lambda/闭包、`inherited` 关键字、完整多返回值元组解构、OOP 字段/方法访问系统性修复（vtable 继承）、优化通道（`opt` + `llc -O<N>`）。

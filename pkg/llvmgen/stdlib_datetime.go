@@ -1,0 +1,377 @@
+package llvmgen
+
+import (
+	"fmt"
+	"kylix/ast"
+)
+
+// stdlib_datetime.go — LLVM IR implementation for datetime module
+//
+// Uses libc time.h to implement TDateTime class (wrapper around time_t).
+// TDateTime instance: ptr → i64 (Unix timestamp in seconds since epoch).
+//
+// Core libc functions:
+//   time_t time(time_t *) — current time
+//   struct tm *localtime(const time_t *) — convert time_t → tm (local timezone)
+//   time_t mktime(struct tm *) — convert tm → time_t
+//   size_t strftime(char *, size_t, const char *, const struct tm *) — format tm
+
+// emitDatetimeCall generates a call to a datetime function (Now, MakeDate, or a
+// TDateTime method) and enqueues the function body for later emission if needed.
+func (g *Generator) emitDatetimeCall(funcName string, args []ast.Expression) (reg, typ string, err error) {
+	switch funcName {
+	case "Now":
+		return g.emitDatetimeNowCall(args)
+	case "Today":
+		return g.emitDatetimeTodayCall(args)
+	case "MakeDate":
+		return g.emitDatetimeMakeDateCall(args)
+	default:
+		// Unknown datetime function
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; datetime.%s not implemented", r, funcName))
+		return r, "i64", nil
+	}
+}
+
+// emitDatetimeNowCall emits Now() -> ptr (TDateTime instance with current time)
+func (g *Generator) emitDatetimeNowCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("datetime.Now expects 0 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "Now", "Now", 0)
+
+	// Allocate TDateTime instance (8 bytes for time_t)
+	inst := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+
+	// Get current time: time_t now = time(NULL)
+	nowVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @time(ptr null)", nowVal))
+
+	// Store time_t into instance
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", nowVal, inst))
+
+	return inst, "TDateTime", nil
+}
+
+// emitDatetimeTodayCall emits Today() -> ptr (TDateTime with time set to midnight)
+func (g *Generator) emitDatetimeTodayCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("datetime.Today expects 0 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "Today", "Today", 0)
+
+	// TODO: call @__kylix_datetime_Today() once body is implemented
+	// For now, stub with Now() behavior
+	return g.emitDatetimeNowCall(args)
+}
+
+// emitDatetimeMakeDateCall emits MakeDate(year, month, day) -> ptr
+func (g *Generator) emitDatetimeMakeDateCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 3 {
+		return "", "", fmt.Errorf("datetime.MakeDate expects 3 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "MakeDate", "MakeDate", 0)
+
+	// Emit year, month, day arguments
+	yearReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	monthReg, _, err := g.emitExpr(args[1])
+	if err != nil {
+		return "", "", err
+	}
+	dayReg, _, err := g.emitExpr(args[2])
+	if err != nil {
+		return "", "", err
+	}
+
+	// Call @__kylix_datetime_MakeDate(i64 year, i64 month, i64 day) -> ptr
+	inst := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_MakeDate(i64 %s, i64 %s, i64 %s)",
+		inst, yearReg, monthReg, dayReg))
+
+	return inst, "TDateTime", nil
+}
+
+// emitDatetimeTodayBody emits define for @__kylix_datetime_Today() -> ptr
+func (g *Generator) emitDatetimeTodayBody() {
+	g.line("define ptr @__kylix_datetime_Today() {")
+	g.line("entry:")
+	// TODO: get current date, zero out time fields, mktime
+	// For now, stub to Now()
+	nowVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @time(ptr null)", nowVal))
+	inst := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", nowVal, inst))
+	g.line(fmt.Sprintf("  ret ptr %s", inst))
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeMakeDateBody emits define for @__kylix_datetime_MakeDate(i64, i64, i64) -> ptr
+// Converts (year, month, day) → time_t via mktime(struct tm{...})
+func (g *Generator) emitDatetimeMakeDateBody() {
+	g.line("define ptr @__kylix_datetime_MakeDate(i64 %year, i64 %month, i64 %day) {")
+	g.line("entry:")
+
+	// Allocate struct tm (56 bytes on most platforms)
+	tmSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmSlot))
+
+	// Zero-initialize tm
+	g.line(fmt.Sprintf("  call void @llvm.memset.p0.i64(ptr %s, i8 0, i64 56, i1 false)", tmSlot))
+
+	// tm.tm_year = year - 1900 (offset 20, i32)
+	yearAdj := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 %%year, 1900", yearAdj))
+	yearI32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = trunc i64 %s to i32", yearI32, yearAdj))
+	yearPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 20", yearPtr, tmSlot))
+	g.line(fmt.Sprintf("  store i32 %s, ptr %s", yearI32, yearPtr))
+
+	// tm.tm_mon = month - 1 (offset 16, i32)
+	monAdj := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 %%month, 1", monAdj))
+	monI32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = trunc i64 %s to i32", monI32, monAdj))
+	monPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 16", monPtr, tmSlot))
+	g.line(fmt.Sprintf("  store i32 %s, ptr %s", monI32, monPtr))
+
+	// tm.tm_mday = day (offset 12, i32)
+	dayI32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = trunc i64 %%day to i32", dayI32))
+	dayPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 12", dayPtr, tmSlot))
+	g.line(fmt.Sprintf("  store i32 %s, ptr %s", dayI32, dayPtr))
+
+	// time_t t = mktime(&tm)
+	timeVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @mktime(ptr %s)", timeVal, tmSlot))
+
+	// Allocate TDateTime instance and store
+	inst := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", timeVal, inst))
+
+	g.line(fmt.Sprintf("  ret ptr %s", inst))
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeMethodCall emits a call to a TDateTime instance method.
+// receiver is the TDateTime instance (ptr), method is the method name.
+func (g *Generator) emitDatetimeMethodCall(receiver string, method string, args []ast.Expression) (string, string, error) {
+	switch method {
+	case "Year":
+		return g.emitDatetimeYearCall(receiver, args)
+	case "Month":
+		return g.emitDatetimeMonthCall(receiver, args)
+	case "Day":
+		return g.emitDatetimeDayCall(receiver, args)
+	case "FormatDate":
+		return g.emitDatetimeFormatDateCall(receiver, args)
+	case "AddDays":
+		return g.emitDatetimeAddDaysCall(receiver, args)
+	default:
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; TDateTime.%s not implemented", r, method))
+		return r, "i64", nil
+	}
+}
+
+// emitDatetimeYearCall emits dt.Year() -> i64
+func (g *Generator) emitDatetimeYearCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TDateTime.Year expects 0 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "Year", "Year", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_datetime_Year(ptr %s)", r, receiver))
+	return r, "i64", nil
+}
+
+// emitDatetimeMonthCall emits dt.Month() -> i64
+func (g *Generator) emitDatetimeMonthCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TDateTime.Month expects 0 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "Month", "Month", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_datetime_Month(ptr %s)", r, receiver))
+	return r, "i64", nil
+}
+
+// emitDatetimeDayCall emits dt.Day() -> i64
+func (g *Generator) emitDatetimeDayCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TDateTime.Day expects 0 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "Day", "Day", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_datetime_Day(ptr %s)", r, receiver))
+	return r, "i64", nil
+}
+
+// emitDatetimeFormatDateCall emits dt.FormatDate() -> ptr (String)
+func (g *Generator) emitDatetimeFormatDateCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TDateTime.FormatDate expects 0 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "FormatDate", "FormatDate", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_FormatDate(ptr %s)", r, receiver))
+	return r, "ptr", nil
+}
+
+// emitDatetimeAddDaysCall emits dt.AddDays(n) -> ptr (new TDateTime)
+func (g *Generator) emitDatetimeAddDaysCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("TDateTime.AddDays expects 1 argument, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "AddDays", "AddDays", 0)
+	daysReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_AddDays(ptr %s, i64 %s)", r, receiver, daysReg))
+	return r, "TDateTime", nil
+}
+
+// Method body emitters (called by emitDatetimeBody via emitPendingStdlib)
+
+// emitDatetimeYearBody emits @__kylix_datetime_Year(ptr %self) -> i64
+func (g *Generator) emitDatetimeYearBody() {
+	g.line("define i64 @__kylix_datetime_Year(ptr %self) {")
+	g.line("entry:")
+	// Load time_t from self
+	timeVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %%self", timeVal))
+	// localtime(&time_t) -> struct tm*
+	tmPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	// tm->tm_year (offset 20, i32)
+	yearPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 20", yearPtr, tmPtr))
+	yearI32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", yearI32, yearPtr))
+	// year = tm_year + 1900
+	yearI64 := g.tmp()
+	g.line(fmt.Sprintf("  %s = sext i32 %s to i64", yearI64, yearI32))
+	result := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1900", result, yearI64))
+	g.line(fmt.Sprintf("  ret i64 %s", result))
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeMonthBody emits @__kylix_datetime_Month(ptr %self) -> i64
+func (g *Generator) emitDatetimeMonthBody() {
+	g.line("define i64 @__kylix_datetime_Month(ptr %self) {")
+	g.line("entry:")
+	tmPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	// tm->tm_mon (offset 16, i32)
+	monPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 16", monPtr, tmPtr))
+	monI32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", monI32, monPtr))
+	// month = tm_mon + 1 (tm_mon is 0-based)
+	monI64 := g.tmp()
+	g.line(fmt.Sprintf("  %s = sext i32 %s to i64", monI64, monI32))
+	result := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", result, monI64))
+	g.line(fmt.Sprintf("  ret i64 %s", result))
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeDayBody emits @__kylix_datetime_Day(ptr %self) -> i64
+func (g *Generator) emitDatetimeDayBody() {
+	g.line("define i64 @__kylix_datetime_Day(ptr %self) {")
+	g.line("entry:")
+	tmPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	// tm->tm_mday (offset 12, i32)
+	dayPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 12", dayPtr, tmPtr))
+	dayI32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", dayI32, dayPtr))
+	dayI64 := g.tmp()
+	g.line(fmt.Sprintf("  %s = sext i32 %s to i64", dayI64, dayI32))
+	g.line(fmt.Sprintf("  ret i64 %s", dayI64))
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeFormatDateBody emits @__kylix_datetime_FormatDate(ptr %self) -> ptr
+func (g *Generator) emitDatetimeFormatDateBody() {
+	g.line("define ptr @__kylix_datetime_FormatDate(ptr %self) {")
+	g.line("entry:")
+	// localtime(&time_t)
+	tmPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	// Allocate buffer for formatted string (20 bytes enough for "YYYY-MM-DD")
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 20)", buf))
+	// Format string "%Y-%m-%d" (YYYY-MM-DD)
+	fmtStr := g.addString("%Y-%m-%d")
+	fmtPtr := g.ptrTo(fmtStr, 9)
+	// strftime(buf, 20, "%Y-%m-%d", tm)
+	g.line(fmt.Sprintf("  call i64 @strftime(ptr %s, i64 20, ptr %s, ptr %s)", buf, fmtPtr, tmPtr))
+	g.line(fmt.Sprintf("  ret ptr %s", buf))
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeAddDaysBody emits @__kylix_datetime_AddDays(ptr %self, i64 %days) -> ptr
+func (g *Generator) emitDatetimeAddDaysBody() {
+	g.line("define ptr @__kylix_datetime_AddDays(ptr %self, i64 %days) {")
+	g.line("entry:")
+	// Load time_t from self
+	timeVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %%self", timeVal))
+	// Add days * 86400 (seconds per day)
+	daysInSec := g.tmp()
+	g.line(fmt.Sprintf("  %s = mul i64 %%days, 86400", daysInSec))
+	newTime := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %s", newTime, timeVal, daysInSec))
+	// Allocate new TDateTime
+	inst := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", newTime, inst))
+	g.line(fmt.Sprintf("  ret ptr %s", inst))
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeBodyDispatch dispatches to the correct body emitter (called by emitPendingStdlib).
+// This function is named to match the expected naming pattern in stdlib.go.
+func (g *Generator) emitDatetimeBody(funcName string, argCount int) {
+	switch funcName {
+	case "Now":
+		// Now() body inlined at call site, no separate define needed
+	case "Today":
+		g.emitDatetimeTodayBody()
+	case "MakeDate":
+		g.emitDatetimeMakeDateBody()
+	case "Year":
+		g.emitDatetimeYearBody()
+	case "Month":
+		g.emitDatetimeMonthBody()
+	case "Day":
+		g.emitDatetimeDayBody()
+	case "FormatDate":
+		g.emitDatetimeFormatDateBody()
+	case "AddDays":
+		g.emitDatetimeAddDaysBody()
+	default:
+		g.line(fmt.Sprintf("; ERROR: unsupported datetime function: %s", funcName))
+	}
+}

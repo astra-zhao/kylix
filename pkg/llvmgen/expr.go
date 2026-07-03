@@ -689,6 +689,30 @@ func (g *Generator) emitMethodCall(member *ast.MemberExpression, args []ast.Expr
 	}
 
 	kind, typeName := g.receiverKind(member.Object)
+
+	// Special case: TDateTime stdlib methods (not registered in g.classes).
+	// For known TDateTime variables (typeName == "TDateTime"), dispatch directly.
+	// For unknown receivers (kind == ""), evaluate to check if it's a TDateTime.
+	if typeName == "TDateTime" {
+		objReg, _, err := g.emitExpr(member.Object)
+		if err != nil {
+			return "", "", err
+		}
+		return g.emitDatetimeMethodCall(objReg, member.Member, args)
+	}
+
+	if kind == "" {
+		// Unknown receiver type — evaluate it to check if it's TDateTime (e.g., chained calls)
+		objReg, objType, err := g.emitExpr(member.Object)
+		if err != nil {
+			return "", "", err
+		}
+		if objType == "TDateTime" {
+			return g.emitDatetimeMethodCall(objReg, member.Member, args)
+		}
+		// Not TDateTime, fall through to unsupported receiver
+	}
+
 	argRegs := make([]string, 0, len(args))
 	argTypes := make([]string, 0, len(args))
 	for _, a := range args {
@@ -990,4 +1014,14 @@ func (g *Generator) emitWriteLnMulti(args []ast.Expression) (string, string, err
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i32 @puts(ptr noundef %s)", r, buf))
 	return "0", "void", nil
+}
+
+// isTDateTimeReceiver checks if the expression is a TDateTime instance variable.
+func (g *Generator) isTDateTimeReceiver(obj ast.Expression) bool {
+	ident, ok := obj.(*ast.Identifier)
+	if !ok {
+		return false
+	}
+	t, ok := g.localTypes[ident.Value]
+	return ok && t == "TDateTime"
 }

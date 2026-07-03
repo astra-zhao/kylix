@@ -223,9 +223,15 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 			}
 		}
 
+		// Stdlib class inference: datetime module functions return TDateTime
+		if llvmType == "TDateTime" {
+			inferredClass = "TDateTime"
+		}
+
 		// Allocate variables with the inferred type.
 		for _, name := range s.Names {
 			suffix := "_int"
+			actualLLVMType := llvmType
 			switch llvmType {
 			case "i1":
 				suffix = "_bool"
@@ -233,10 +239,13 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 				suffix = "_real"
 			case "ptr":
 				suffix = "_str"
+			case "TDateTime":
+				suffix = "_str"
+				actualLLVMType = "ptr"
 			}
 			allocaReg := fmt.Sprintf("%%v_%s%s", name, suffix)
-			g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, llvmType))
-			g.line(fmt.Sprintf("  store %s %s, ptr %s", llvmType, valReg, allocaReg))
+			g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, actualLLVMType))
+			g.line(fmt.Sprintf("  store %s %s, ptr %s", actualLLVMType, valReg, allocaReg))
 			g.locals[name] = allocaReg
 			if inferredClass != "" {
 				g.localTypes[name] = inferredClass
