@@ -124,3 +124,120 @@ func TestDatetimeLibcDeclarations(t *testing.T) {
 		t.Error("Should declare llvm.memset intrinsic")
 	}
 }
+
+// Phase 2 Tests
+
+func TestDatetimeHour(t *testing.T) {
+	src := `program Test; uses datetime; begin var dt := Now(); var h := dt.Hour(); end.`
+	ir := generateIR(t, src)
+	if !strings.Contains(ir, "call i64 @__kylix_datetime_Hour") {
+		t.Error("Hour() should call @__kylix_datetime_Hour")
+	}
+	if !strings.Contains(ir, "define i64 @__kylix_datetime_Hour(ptr %self)") {
+		t.Error("Hour() body should be emitted")
+	}
+	if !strings.Contains(ir, "getelementptr inbounds [56 x i8], ptr %") && !strings.Contains(ir, "i64 8") {
+		t.Error("Hour() should GEP to offset 8 (tm_hour)")
+	}
+}
+
+func TestDatetimeMinute(t *testing.T) {
+	src := `program Test; uses datetime; begin var dt := Now(); var m := dt.Minute(); end.`
+	ir := generateIR(t, src)
+	if !strings.Contains(ir, "call i64 @__kylix_datetime_Minute") {
+		t.Error("Minute() should call @__kylix_datetime_Minute")
+	}
+	if !strings.Contains(ir, "define i64 @__kylix_datetime_Minute(ptr %self)") {
+		t.Error("Minute() body should be emitted")
+	}
+}
+
+func TestDatetimeSecond(t *testing.T) {
+	src := `program Test; uses datetime; begin var dt := Now(); var s := dt.Second(); end.`
+	ir := generateIR(t, src)
+	if !strings.Contains(ir, "call i64 @__kylix_datetime_Second") {
+		t.Error("Second() should call @__kylix_datetime_Second")
+	}
+	if !strings.Contains(ir, "define i64 @__kylix_datetime_Second(ptr %self)") {
+		t.Error("Second() body should be emitted")
+	}
+}
+
+func TestDatetimeDayOfWeek(t *testing.T) {
+	src := `program Test; uses datetime; begin var dt := Now(); var dow := dt.DayOfWeek(); end.`
+	ir := generateIR(t, src)
+	if !strings.Contains(ir, "call i64 @__kylix_datetime_DayOfWeek") {
+		t.Error("DayOfWeek() should call @__kylix_datetime_DayOfWeek")
+	}
+	if !strings.Contains(ir, "define i64 @__kylix_datetime_DayOfWeek(ptr %self)") {
+		t.Error("DayOfWeek() body should be emitted")
+	}
+	if !strings.Contains(ir, "getelementptr inbounds [56 x i8], ptr %") && !strings.Contains(ir, "i64 24") {
+		t.Error("DayOfWeek() should GEP to offset 24 (tm_wday)")
+	}
+}
+
+func TestDatetimeToday(t *testing.T) {
+	src := `program Test; uses datetime; begin var dt := Today(); end.`
+	ir := generateIR(t, src)
+	if !strings.Contains(ir, "call ptr @__kylix_datetime_Today()") {
+		t.Error("Today() should call @__kylix_datetime_Today()")
+	}
+	if !strings.Contains(ir, "define ptr @__kylix_datetime_Today()") {
+		t.Error("Today() body should be emitted")
+	}
+	if !strings.Contains(ir, "call void @llvm.memcpy.p0.p0.i64") {
+		t.Error("Today() should use memcpy to copy struct tm")
+	}
+	if !strings.Contains(ir, "call i64 @mktime") {
+		t.Error("Today() should call mktime to normalize date")
+	}
+}
+
+func TestDatetimeAddHours(t *testing.T) {
+	src := `program Test; uses datetime; begin var dt := Now(); var dt2 := dt.AddHours(2); end.`
+	ir := generateIR(t, src)
+	if !strings.Contains(ir, "call ptr @__kylix_datetime_AddHours") {
+		t.Error("AddHours() should call @__kylix_datetime_AddHours")
+	}
+	if !strings.Contains(ir, "define ptr @__kylix_datetime_AddHours(ptr %self, i64 %hours)") {
+		t.Error("AddHours() body should be emitted")
+	}
+	if !strings.Contains(ir, "mul i64 %hours, 3600") {
+		t.Error("AddHours() should multiply hours by 3600")
+	}
+}
+
+func TestDatetimeAddMinutes(t *testing.T) {
+	src := `program Test; uses datetime; begin var dt := Now(); var dt2 := dt.AddMinutes(30); end.`
+	ir := generateIR(t, src)
+	if !strings.Contains(ir, "call ptr @__kylix_datetime_AddMinutes") {
+		t.Error("AddMinutes() should call @__kylix_datetime_AddMinutes")
+	}
+	if !strings.Contains(ir, "mul i64 %minutes, 60") {
+		t.Error("AddMinutes() should multiply minutes by 60")
+	}
+}
+
+func TestDatetimeAddSeconds(t *testing.T) {
+	src := `program Test; uses datetime; begin var dt := Now(); var dt2 := dt.AddSeconds(45); end.`
+	ir := generateIR(t, src)
+	if !strings.Contains(ir, "call ptr @__kylix_datetime_AddSeconds") {
+		t.Error("AddSeconds() should call @__kylix_datetime_AddSeconds")
+	}
+	if !strings.Contains(ir, "define ptr @__kylix_datetime_AddSeconds(ptr %self, i64 %seconds)") {
+		t.Error("AddSeconds() body should be emitted")
+	}
+	// AddSeconds should NOT multiply (direct add)
+	if strings.Contains(ir, "mul i64 %seconds") {
+		t.Error("AddSeconds() should NOT multiply (direct add to time_t)")
+	}
+}
+
+func TestDatetimeMemcpyDeclaration(t *testing.T) {
+	src := `program Test; uses datetime; begin var dt := Today(); end.`
+	ir := generateIR(t, src)
+	if !strings.Contains(ir, "declare void @llvm.memcpy.p0.p0.i64") {
+		t.Error("Should declare llvm.memcpy intrinsic for Today()")
+	}
+}

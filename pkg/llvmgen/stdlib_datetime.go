@@ -62,9 +62,10 @@ func (g *Generator) emitDatetimeTodayCall(args []ast.Expression) (string, string
 	}
 	g.enqueueStdlib("datetime", "Today", "Today", 0)
 
-	// TODO: call @__kylix_datetime_Today() once body is implemented
-	// For now, stub with Now() behavior
-	return g.emitDatetimeNowCall(args)
+	// Call @__kylix_datetime_Today()
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_Today()", r))
+	return r, "TDateTime", nil
 }
 
 // emitDatetimeMakeDateCall emits MakeDate(year, month, day) -> ptr
@@ -100,13 +101,48 @@ func (g *Generator) emitDatetimeMakeDateCall(args []ast.Expression) (string, str
 func (g *Generator) emitDatetimeTodayBody() {
 	g.line("define ptr @__kylix_datetime_Today() {")
 	g.line("entry:")
-	// TODO: get current date, zero out time fields, mktime
-	// For now, stub to Now()
+	// Get current time
 	nowVal := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i64 @time(ptr null)", nowVal))
+
+	// Allocate temporary for time_t and store it
+	timeSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", timeSlot))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", nowVal, timeSlot))
+
+	// Call localtime to get struct tm* (points to static buffer)
+	tmPtrStatic := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %s)", tmPtrStatic, timeSlot))
+
+	// Copy struct tm to local buffer (56 bytes)
+	tmLocal := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmLocal))
+	g.line(fmt.Sprintf("  call void @llvm.memcpy.p0.p0.i64(ptr %s, ptr %s, i64 56, i1 false)", tmLocal, tmPtrStatic))
+
+	// Zero out time fields in the local copy
+	// tm_sec (offset 0)
+	secPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 0", secPtr, tmLocal))
+	g.line(fmt.Sprintf("  store i32 0, ptr %s", secPtr))
+
+	// tm_min (offset 4)
+	minPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 4", minPtr, tmLocal))
+	g.line(fmt.Sprintf("  store i32 0, ptr %s", minPtr))
+
+	// tm_hour (offset 8)
+	hourPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 8", hourPtr, tmLocal))
+	g.line(fmt.Sprintf("  store i32 0, ptr %s", hourPtr))
+
+	// Convert back to time_t with mktime (using local copy)
+	todayVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @mktime(ptr %s)", todayVal, tmLocal))
+
+	// Allocate TDateTime instance and store
 	inst := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
-	g.line(fmt.Sprintf("  store i64 %s, ptr %s", nowVal, inst))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", todayVal, inst))
 	g.line(fmt.Sprintf("  ret ptr %s", inst))
 	g.line("}")
 	g.line("")
@@ -174,10 +210,24 @@ func (g *Generator) emitDatetimeMethodCall(receiver string, method string, args 
 		return g.emitDatetimeMonthCall(receiver, args)
 	case "Day":
 		return g.emitDatetimeDayCall(receiver, args)
+	case "Hour":
+		return g.emitDatetimeHourCall(receiver, args)
+	case "Minute":
+		return g.emitDatetimeMinuteCall(receiver, args)
+	case "Second":
+		return g.emitDatetimeSecondCall(receiver, args)
+	case "DayOfWeek":
+		return g.emitDatetimeDayOfWeekCall(receiver, args)
 	case "FormatDate":
 		return g.emitDatetimeFormatDateCall(receiver, args)
 	case "AddDays":
 		return g.emitDatetimeAddDaysCall(receiver, args)
+	case "AddHours":
+		return g.emitDatetimeAddHoursCall(receiver, args)
+	case "AddMinutes":
+		return g.emitDatetimeAddMinutesCall(receiver, args)
+	case "AddSeconds":
+		return g.emitDatetimeAddSecondsCall(receiver, args)
 	default:
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; TDateTime.%s not implemented", r, method))
@@ -218,6 +268,50 @@ func (g *Generator) emitDatetimeDayCall(receiver string, args []ast.Expression) 
 	return r, "i64", nil
 }
 
+// emitDatetimeHourCall emits dt.Hour() -> i64
+func (g *Generator) emitDatetimeHourCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TDateTime.Hour expects 0 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "Hour", "Hour", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_datetime_Hour(ptr %s)", r, receiver))
+	return r, "i64", nil
+}
+
+// emitDatetimeMinuteCall emits dt.Minute() -> i64
+func (g *Generator) emitDatetimeMinuteCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TDateTime.Minute expects 0 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "Minute", "Minute", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_datetime_Minute(ptr %s)", r, receiver))
+	return r, "i64", nil
+}
+
+// emitDatetimeSecondCall emits dt.Second() -> i64
+func (g *Generator) emitDatetimeSecondCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TDateTime.Second expects 0 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "Second", "Second", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_datetime_Second(ptr %s)", r, receiver))
+	return r, "i64", nil
+}
+
+// emitDatetimeDayOfWeekCall emits dt.DayOfWeek() -> i64 (0=Sunday, 6=Saturday)
+func (g *Generator) emitDatetimeDayOfWeekCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TDateTime.DayOfWeek expects 0 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "DayOfWeek", "DayOfWeek", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_datetime_DayOfWeek(ptr %s)", r, receiver))
+	return r, "i64", nil
+}
+
 // emitDatetimeFormatDateCall emits dt.FormatDate() -> ptr (String)
 func (g *Generator) emitDatetimeFormatDateCall(receiver string, args []ast.Expression) (string, string, error) {
 	if len(args) != 0 {
@@ -241,6 +335,51 @@ func (g *Generator) emitDatetimeAddDaysCall(receiver string, args []ast.Expressi
 	}
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_AddDays(ptr %s, i64 %s)", r, receiver, daysReg))
+	return r, "TDateTime", nil
+}
+
+// emitDatetimeAddHoursCall emits dt.AddHours(n) -> ptr (new TDateTime)
+func (g *Generator) emitDatetimeAddHoursCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("TDateTime.AddHours expects 1 argument, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "AddHours", "AddHours", 0)
+	hoursReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_AddHours(ptr %s, i64 %s)", r, receiver, hoursReg))
+	return r, "TDateTime", nil
+}
+
+// emitDatetimeAddMinutesCall emits dt.AddMinutes(n) -> ptr (new TDateTime)
+func (g *Generator) emitDatetimeAddMinutesCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("TDateTime.AddMinutes expects 1 argument, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "AddMinutes", "AddMinutes", 0)
+	minutesReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_AddMinutes(ptr %s, i64 %s)", r, receiver, minutesReg))
+	return r, "TDateTime", nil
+}
+
+// emitDatetimeAddSecondsCall emits dt.AddSeconds(n) -> ptr (new TDateTime)
+func (g *Generator) emitDatetimeAddSecondsCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("TDateTime.AddSeconds expects 1 argument, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "AddSeconds", "AddSeconds", 0)
+	secondsReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_AddSeconds(ptr %s, i64 %s)", r, receiver, secondsReg))
 	return r, "TDateTime", nil
 }
 
@@ -310,6 +449,78 @@ func (g *Generator) emitDatetimeDayBody() {
 	g.line("")
 }
 
+// emitDatetimeHourBody emits @__kylix_datetime_Hour(ptr %self) -> i64
+func (g *Generator) emitDatetimeHourBody() {
+	g.line("define i64 @__kylix_datetime_Hour(ptr %self) {")
+	g.line("entry:")
+	tmPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	// tm->tm_hour (offset 8, i32)
+	hourPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 8", hourPtr, tmPtr))
+	hourI32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", hourI32, hourPtr))
+	hourI64 := g.tmp()
+	g.line(fmt.Sprintf("  %s = sext i32 %s to i64", hourI64, hourI32))
+	g.line(fmt.Sprintf("  ret i64 %s", hourI64))
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeMinuteBody emits @__kylix_datetime_Minute(ptr %self) -> i64
+func (g *Generator) emitDatetimeMinuteBody() {
+	g.line("define i64 @__kylix_datetime_Minute(ptr %self) {")
+	g.line("entry:")
+	tmPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	// tm->tm_min (offset 4, i32)
+	minPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 4", minPtr, tmPtr))
+	minI32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", minI32, minPtr))
+	minI64 := g.tmp()
+	g.line(fmt.Sprintf("  %s = sext i32 %s to i64", minI64, minI32))
+	g.line(fmt.Sprintf("  ret i64 %s", minI64))
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeSecondBody emits @__kylix_datetime_Second(ptr %self) -> i64
+func (g *Generator) emitDatetimeSecondBody() {
+	g.line("define i64 @__kylix_datetime_Second(ptr %self) {")
+	g.line("entry:")
+	tmPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	// tm->tm_sec (offset 0, i32)
+	secPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 0", secPtr, tmPtr))
+	secI32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", secI32, secPtr))
+	secI64 := g.tmp()
+	g.line(fmt.Sprintf("  %s = sext i32 %s to i64", secI64, secI32))
+	g.line(fmt.Sprintf("  ret i64 %s", secI64))
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeDayOfWeekBody emits @__kylix_datetime_DayOfWeek(ptr %self) -> i64
+func (g *Generator) emitDatetimeDayOfWeekBody() {
+	g.line("define i64 @__kylix_datetime_DayOfWeek(ptr %self) {")
+	g.line("entry:")
+	tmPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	// tm->tm_wday (offset 24, i32) - 0=Sunday, 6=Saturday
+	wdayPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 24", wdayPtr, tmPtr))
+	wdayI32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", wdayI32, wdayPtr))
+	wdayI64 := g.tmp()
+	g.line(fmt.Sprintf("  %s = sext i32 %s to i64", wdayI64, wdayI32))
+	g.line(fmt.Sprintf("  ret i64 %s", wdayI64))
+	g.line("}")
+	g.line("")
+}
+
 // emitDatetimeFormatDateBody emits @__kylix_datetime_FormatDate(ptr %self) -> ptr
 func (g *Generator) emitDatetimeFormatDateBody() {
 	g.line("define ptr @__kylix_datetime_FormatDate(ptr %self) {")
@@ -351,6 +562,61 @@ func (g *Generator) emitDatetimeAddDaysBody() {
 	g.line("")
 }
 
+// emitDatetimeAddHoursBody emits @__kylix_datetime_AddHours(ptr %self, i64 %hours) -> ptr
+func (g *Generator) emitDatetimeAddHoursBody() {
+	g.line("define ptr @__kylix_datetime_AddHours(ptr %self, i64 %hours) {")
+	g.line("entry:")
+	timeVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %%self", timeVal))
+	// hours * 3600
+	hoursInSec := g.tmp()
+	g.line(fmt.Sprintf("  %s = mul i64 %%hours, 3600", hoursInSec))
+	newTime := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %s", newTime, timeVal, hoursInSec))
+	inst := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", newTime, inst))
+	g.line(fmt.Sprintf("  ret ptr %s", inst))
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeAddMinutesBody emits @__kylix_datetime_AddMinutes(ptr %self, i64 %minutes) -> ptr
+func (g *Generator) emitDatetimeAddMinutesBody() {
+	g.line("define ptr @__kylix_datetime_AddMinutes(ptr %self, i64 %minutes) {")
+	g.line("entry:")
+	timeVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %%self", timeVal))
+	// minutes * 60
+	minInSec := g.tmp()
+	g.line(fmt.Sprintf("  %s = mul i64 %%minutes, 60", minInSec))
+	newTime := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %s", newTime, timeVal, minInSec))
+	inst := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", newTime, inst))
+	g.line(fmt.Sprintf("  ret ptr %s", inst))
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeAddSecondsBody emits @__kylix_datetime_AddSeconds(ptr %self, i64 %seconds) -> ptr
+func (g *Generator) emitDatetimeAddSecondsBody() {
+	g.line("define ptr @__kylix_datetime_AddSeconds(ptr %self, i64 %seconds) {")
+	g.line("entry:")
+	timeVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %%self", timeVal))
+	// Direct add (no multiplication needed)
+	newTime := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %%seconds", newTime, timeVal))
+	inst := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", newTime, inst))
+	g.line(fmt.Sprintf("  ret ptr %s", inst))
+	g.line("}")
+	g.line("")
+}
+
 // emitDatetimeBodyDispatch dispatches to the correct body emitter (called by emitPendingStdlib).
 // This function is named to match the expected naming pattern in stdlib.go.
 func (g *Generator) emitDatetimeBody(funcName string, argCount int) {
@@ -367,10 +633,24 @@ func (g *Generator) emitDatetimeBody(funcName string, argCount int) {
 		g.emitDatetimeMonthBody()
 	case "Day":
 		g.emitDatetimeDayBody()
+	case "Hour":
+		g.emitDatetimeHourBody()
+	case "Minute":
+		g.emitDatetimeMinuteBody()
+	case "Second":
+		g.emitDatetimeSecondBody()
+	case "DayOfWeek":
+		g.emitDatetimeDayOfWeekBody()
 	case "FormatDate":
 		g.emitDatetimeFormatDateBody()
 	case "AddDays":
 		g.emitDatetimeAddDaysBody()
+	case "AddHours":
+		g.emitDatetimeAddHoursBody()
+	case "AddMinutes":
+		g.emitDatetimeAddMinutesBody()
+	case "AddSeconds":
+		g.emitDatetimeAddSecondsBody()
 	default:
 		g.line(fmt.Sprintf("; ERROR: unsupported datetime function: %s", funcName))
 	}

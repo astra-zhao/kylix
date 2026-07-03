@@ -233,6 +233,7 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i64 @strftime(ptr, i64, ptr, ptr)")
 	g.line("; ===== LLVM intrinsics =====")
 	g.line("declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg)")
+	g.line("declare void @llvm.memcpy.p0.p0.i64(ptr noalias nocapture writeonly, ptr noalias nocapture readonly, i64, i1 immarg)")
 	g.line("")
 }
 
