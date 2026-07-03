@@ -56,12 +56,29 @@ type Generator struct {
 	// can resolve the parent-class method to call.
 	curClassName  string
 	curMethodName string
+
+	// stdlib (v4.2.0 Phase 1): stdlib module functions (e.g. sysutil.ReadFile)
+	// are lowered to module-level @__kylix_<Module>_<Func> defines that call
+	// libc. Bodies are queued during expression emission and emitted at module
+	// end (like lambdas) — they can't be defined inline mid-expression.
+	stdlibEmitted map[string]bool // function key ("sysutil.ReadFile") → body already queued
+	stdlibQueue   []stdlibFunc    // deferred stdlib function bodies to emit
 }
 
 type stringConst struct {
 	reg  string // @.str.N
 	val  string // literal value
 	size int    // byte length including \00
+}
+
+// stdlibFunc is a deferred stdlib module-function body (e.g. sysutil.ReadFile)
+// queued during expression emission and emitted as a module-level define at
+// the end of emitProgram (see emitPendingStdlib).
+type stdlibFunc struct {
+	module   string // "sysutil"
+	name     string // "ReadFile" (or "PathJoin")
+	key      string // dedup key ("sysutil.ReadFile", or "sysutil.PathJoin_3")
+	argCount int    // arg count for variadic functions (PathJoin); 0 otherwise
 }
 
 // NewGenerator creates a new LLVM IR generator.
@@ -83,6 +100,7 @@ func NewGenerator(moduleName string) *Generator {
 		closureLocals:     make(map[string]bool),
 		closureSigs:       make(map[string]string),
 		closureParams:     make(map[string][]string),
+		stdlibEmitted:     make(map[string]bool),
 	}
 }
 
@@ -161,6 +179,10 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 		return err
 	}
 
+	// Emit deferred stdlib module-function bodies (e.g. sysutil.ReadFile),
+	// collected during expression emission. Module-level defines, like lambdas.
+	g.emitPendingStdlib()
+
 	// Emit string constants at the end
 	g.emitStringConsts()
 
@@ -191,6 +213,15 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i32 @setjmp(ptr)")
 	g.line("declare void @longjmp(ptr, i32)")
 	g.line("declare void @exit(i32)")
+	g.line("; ===== File I/O (libc, used by stdlib sysutil) =====")
+	g.line("declare ptr @fopen(ptr noundef, ptr noundef)")
+	g.line("declare i32 @fclose(ptr noundef)")
+	g.line("declare i64 @fread(ptr noundef, i64 noundef, i64 noundef, ptr noundef)")
+	g.line("declare i64 @fwrite(ptr noundef, i64 noundef, i64 noundef, ptr noundef)")
+	g.line("declare i32 @fputs(ptr noundef, ptr noundef)")
+	g.line("declare i32 @fseek(ptr noundef, i64 noundef, i32 noundef)")
+	g.line("declare i64 @ftell(ptr noundef)")
+	g.line("declare i32 @access(ptr noundef, i32 noundef)")
 	g.line("")
 }
 

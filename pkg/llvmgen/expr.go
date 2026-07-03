@@ -336,14 +336,28 @@ func (g *Generator) emitStringConcat(lv, rv string) string {
 
 // emitCall generates a function call expression.
 func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
-	// obj.Method(args) — method dispatch on a class or interface receiver.
+	// stdlib module function call: `sysutil.ReadFile(path)` — MemberExpression
+	// whose Object is an imported stdlib module name. Dispatch to libc-backed
+	// IR before the generic method-call path treats `sysutil` as a receiver.
 	if member, ok := e.Function.(*ast.MemberExpression); ok {
+		if ident, ok := member.Object.(*ast.Identifier); ok && g.isStdlibModule(ident.Value) {
+			return g.emitStdlibCall(ident.Value, member.Member, e.Arguments)
+		}
 		return g.emitMethodCall(member, e.Arguments)
 	}
 
 	funcName := ""
 	if ident, ok := e.Function.(*ast.Identifier); ok {
 		funcName = ident.Value
+	}
+
+	// Bare-name stdlib call: `ReadFile(...)` (no `sysutil.` qualifier) resolved
+	// to an imported module. User-defined functions (in funcSigs) take
+	// precedence, matching the Go backend's resolveStdlibFunc behavior.
+	if funcName != "" && g.funcSigs[funcName] == nil {
+		if mod, ok := g.resolveStdlibBareCall(funcName); ok {
+			return g.emitStdlibCall(mod, funcName, e.Arguments)
+		}
 	}
 
 	// Closure call: callee is a local variable holding a closure value.
