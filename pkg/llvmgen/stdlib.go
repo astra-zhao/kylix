@@ -25,7 +25,8 @@ import (
 // module is in this set AND was imported via `uses`.
 var knownStdlibModules = map[string]bool{
 	"sysutil": true,
-	// Future: jsonutil, datetime, regex, net, crypto, encoding, ...
+	"regex":   true,
+	// Future: jsonutil, datetime, net, crypto, encoding, ...
 }
 
 // stdlibModuleFuncs maps each known stdlib module to the function names it
@@ -36,6 +37,10 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"sysutil": {
 		"ReadFile": true, "WriteFile": true, "FileExists": true,
 		"PathJoin": true, "PathBase": true,
+	},
+	"regex": {
+		"IsEmail": true, "IsURL": true, "IsNumeric": true,
+		"IsAlpha": true, "IsAlphaNumeric": true, "IsIP": true,
 	},
 }
 
@@ -83,6 +88,8 @@ func (g *Generator) emitStdlibCall(module, funcName string, args []ast.Expressio
 	switch module {
 	case "sysutil":
 		return g.emitSysutilCall(funcName, args)
+	case "regex":
+		return g.emitRegexCall(funcName, args)
 	default:
 		// Not yet implemented for LLVM — fall back to a stub so IR stays legal.
 		r := g.tmp()
@@ -115,6 +122,8 @@ func (g *Generator) emitPendingStdlib() {
 		switch sf.module {
 		case "sysutil":
 			g.emitSysutilBody(sf.name, sf.argCount)
+		case "regex":
+			g.emitRegexBody(sf.name)
 		}
 	}
 }

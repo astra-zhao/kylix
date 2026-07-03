@@ -222,6 +222,10 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i32 @fseek(ptr noundef, i64 noundef, i32 noundef)")
 	g.line("declare i64 @ftell(ptr noundef)")
 	g.line("declare i32 @access(ptr noundef, i32 noundef)")
+	g.line("; ===== POSIX regex (used by stdlib regex) =====")
+	g.line("declare i32 @regcomp(ptr noundef, ptr noundef, i32 noundef)")
+	g.line("declare i32 @regexec(ptr noundef, ptr noundef, i64 noundef, ptr, i32 noundef)")
+	g.line("declare void @regfree(ptr noundef)")
 	g.line("")
 }
 
