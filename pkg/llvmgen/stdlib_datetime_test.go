@@ -186,8 +186,8 @@ func TestDatetimeToday(t *testing.T) {
 	if !strings.Contains(ir, "define ptr @__kylix_datetime_Today()") {
 		t.Error("Today() body should be emitted")
 	}
-	if !strings.Contains(ir, "call void @llvm.memcpy.p0.p0.i64") {
-		t.Error("Today() should use memcpy to copy struct tm")
+	if !strings.Contains(ir, "call ptr @localtime_r") {
+		t.Error("Today() should use localtime_r (thread-safe)")
 	}
 	if !strings.Contains(ir, "call i64 @mktime") {
 		t.Error("Today() should call mktime to normalize date")
@@ -234,10 +234,10 @@ func TestDatetimeAddSeconds(t *testing.T) {
 	}
 }
 
-func TestDatetimeMemcpyDeclaration(t *testing.T) {
+func TestDatetimeLocaltime_rDeclaration(t *testing.T) {
 	src := `program Test; uses datetime; begin var dt := Today(); end.`
 	ir := generateIR(t, src)
-	if !strings.Contains(ir, "declare void @llvm.memcpy.p0.p0.i64") {
-		t.Error("Should declare llvm.memcpy intrinsic for Today()")
+	if !strings.Contains(ir, "declare ptr @localtime_r") {
+		t.Error("Should declare localtime_r for thread-safe time conversion")
 	}
 }

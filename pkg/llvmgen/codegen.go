@@ -229,6 +229,7 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("; ===== time.h (used by stdlib datetime) =====")
 	g.line("declare i64 @time(ptr)")
 	g.line("declare ptr @localtime(ptr)")
+	g.line("declare ptr @localtime_r(ptr, ptr)")
 	g.line("declare i64 @mktime(ptr)")
 	g.line("declare i64 @strftime(ptr, i64, ptr, ptr)")
 	g.line("; ===== LLVM intrinsics =====")

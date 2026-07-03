@@ -12,9 +12,27 @@ import (
 //
 // Core libc functions:
 //   time_t time(time_t *) — current time
-//   struct tm *localtime(const time_t *) — convert time_t → tm (local timezone)
+//   struct tm *localtime_r(time_t *, struct tm *) — convert time_t → tm (thread-safe)
 //   time_t mktime(struct tm *) — convert tm → time_t
 //   size_t strftime(char *, size_t, const char *, const struct tm *) — format tm
+//
+// PLATFORM COMPATIBILITY:
+//   struct tm offsets are hardcoded for POSIX systems (Linux, macOS, BSD).
+//   Verified on macOS Darwin 25.5.0. Windows has a different layout and is
+//   NOT supported. struct tm layout (POSIX, 56 bytes):
+//     offset 0:  tm_sec   (i32)    offset 16: tm_mon   (i32)
+//     offset 4:  tm_min   (i32)    offset 20: tm_year  (i32)
+//     offset 8:  tm_hour  (i32)    offset 24: tm_wday  (i32)
+//     offset 12: tm_mday  (i32)    offset 28: tm_yday  (i32)
+//                                   offset 32: tm_isdst (i32)
+//
+// THREAD SAFETY:
+//   localtime_r is reentrant (POSIX.1-2001). Phase 3 removed non-reentrant
+//   localtime() calls that used static buffers.
+//
+// MEMORY MANAGEMENT:
+//   TDateTime instances are malloc'd without free (known leak). See Task #102
+//   for planned solutions: Phase 3.5 arena allocator, Phase 4 mark-sweep GC.
 
 // emitDatetimeCall generates a call to a datetime function (Now, MakeDate, or a
 // TDateTime method) and enqueues the function body for later emission if needed.
@@ -110,14 +128,13 @@ func (g *Generator) emitDatetimeTodayBody() {
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", timeSlot))
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", nowVal, timeSlot))
 
-	// Call localtime to get struct tm* (points to static buffer)
-	tmPtrStatic := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %s)", tmPtrStatic, timeSlot))
-
-	// Copy struct tm to local buffer (56 bytes)
+	// Allocate struct tm on stack (no need to copy from static buffer anymore)
 	tmLocal := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmLocal))
-	g.line(fmt.Sprintf("  call void @llvm.memcpy.p0.p0.i64(ptr %s, ptr %s, i64 56, i1 false)", tmLocal, tmPtrStatic))
+
+	// Call localtime_r to populate local buffer
+	tmPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %s, ptr %s)", tmPtr, timeSlot, tmLocal))
 
 	// Zero out time fields in the local copy
 	// tm_sec (offset 0)
@@ -389,15 +406,15 @@ func (g *Generator) emitDatetimeAddSecondsCall(receiver string, args []ast.Expre
 func (g *Generator) emitDatetimeYearBody() {
 	g.line("define i64 @__kylix_datetime_Year(ptr %self) {")
 	g.line("entry:")
-	// Load time_t from self
-	timeVal := g.tmp()
-	g.line(fmt.Sprintf("  %s = load i64, ptr %%self", timeVal))
-	// localtime(&time_t) -> struct tm*
+	// Allocate struct tm on stack
+	tmBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
+	// localtime_r(&time_t, &tm)
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
 	// tm->tm_year (offset 20, i32)
 	yearPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 20", yearPtr, tmPtr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 20", yearPtr, tmBuf))
 	yearI32 := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i32, ptr %s", yearI32, yearPtr))
 	// year = tm_year + 1900
@@ -414,11 +431,13 @@ func (g *Generator) emitDatetimeYearBody() {
 func (g *Generator) emitDatetimeMonthBody() {
 	g.line("define i64 @__kylix_datetime_Month(ptr %self) {")
 	g.line("entry:")
+	tmBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
 	// tm->tm_mon (offset 16, i32)
 	monPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 16", monPtr, tmPtr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 16", monPtr, tmBuf))
 	monI32 := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i32, ptr %s", monI32, monPtr))
 	// month = tm_mon + 1 (tm_mon is 0-based)
@@ -435,11 +454,13 @@ func (g *Generator) emitDatetimeMonthBody() {
 func (g *Generator) emitDatetimeDayBody() {
 	g.line("define i64 @__kylix_datetime_Day(ptr %self) {")
 	g.line("entry:")
+	tmBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
 	// tm->tm_mday (offset 12, i32)
 	dayPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 12", dayPtr, tmPtr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 12", dayPtr, tmBuf))
 	dayI32 := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i32, ptr %s", dayI32, dayPtr))
 	dayI64 := g.tmp()
@@ -453,11 +474,13 @@ func (g *Generator) emitDatetimeDayBody() {
 func (g *Generator) emitDatetimeHourBody() {
 	g.line("define i64 @__kylix_datetime_Hour(ptr %self) {")
 	g.line("entry:")
+	tmBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
 	// tm->tm_hour (offset 8, i32)
 	hourPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 8", hourPtr, tmPtr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 8", hourPtr, tmBuf))
 	hourI32 := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i32, ptr %s", hourI32, hourPtr))
 	hourI64 := g.tmp()
@@ -471,11 +494,13 @@ func (g *Generator) emitDatetimeHourBody() {
 func (g *Generator) emitDatetimeMinuteBody() {
 	g.line("define i64 @__kylix_datetime_Minute(ptr %self) {")
 	g.line("entry:")
+	tmBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
 	// tm->tm_min (offset 4, i32)
 	minPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 4", minPtr, tmPtr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 4", minPtr, tmBuf))
 	minI32 := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i32, ptr %s", minI32, minPtr))
 	minI64 := g.tmp()
@@ -489,11 +514,13 @@ func (g *Generator) emitDatetimeMinuteBody() {
 func (g *Generator) emitDatetimeSecondBody() {
 	g.line("define i64 @__kylix_datetime_Second(ptr %self) {")
 	g.line("entry:")
+	tmBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
 	// tm->tm_sec (offset 0, i32)
 	secPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 0", secPtr, tmPtr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 0", secPtr, tmBuf))
 	secI32 := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i32, ptr %s", secI32, secPtr))
 	secI64 := g.tmp()
@@ -507,11 +534,13 @@ func (g *Generator) emitDatetimeSecondBody() {
 func (g *Generator) emitDatetimeDayOfWeekBody() {
 	g.line("define i64 @__kylix_datetime_DayOfWeek(ptr %self) {")
 	g.line("entry:")
+	tmBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
 	// tm->tm_wday (offset 24, i32) - 0=Sunday, 6=Saturday
 	wdayPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 24", wdayPtr, tmPtr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 24", wdayPtr, tmBuf))
 	wdayI32 := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i32, ptr %s", wdayI32, wdayPtr))
 	wdayI64 := g.tmp()
@@ -525,9 +554,11 @@ func (g *Generator) emitDatetimeDayOfWeekBody() {
 func (g *Generator) emitDatetimeFormatDateBody() {
 	g.line("define ptr @__kylix_datetime_FormatDate(ptr %self) {")
 	g.line("entry:")
-	// localtime(&time_t)
+	// Allocate struct tm on stack
+	tmBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime(ptr %%self)", tmPtr))
+	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
 	// Allocate buffer for formatted string (20 bytes enough for "YYYY-MM-DD")
 	buf := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 20)", buf))
@@ -535,7 +566,7 @@ func (g *Generator) emitDatetimeFormatDateBody() {
 	fmtStr := g.addString("%Y-%m-%d")
 	fmtPtr := g.ptrTo(fmtStr, 9)
 	// strftime(buf, 20, "%Y-%m-%d", tm)
-	g.line(fmt.Sprintf("  call i64 @strftime(ptr %s, i64 20, ptr %s, ptr %s)", buf, fmtPtr, tmPtr))
+	g.line(fmt.Sprintf("  call i64 @strftime(ptr %s, i64 20, ptr %s, ptr %s)", buf, fmtPtr, tmBuf))
 	g.line(fmt.Sprintf("  ret ptr %s", buf))
 	g.line("}")
 	g.line("")
