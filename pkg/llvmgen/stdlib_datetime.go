@@ -44,6 +44,8 @@ func (g *Generator) emitDatetimeCall(funcName string, args []ast.Expression) (re
 		return g.emitDatetimeTodayCall(args)
 	case "MakeDate":
 		return g.emitDatetimeMakeDateCall(args)
+	case "FreeArena":
+		return g.emitDatetimeFreeArenaCall(args)
 	default:
 		// Unknown datetime function
 		r := g.tmp()
@@ -58,10 +60,11 @@ func (g *Generator) emitDatetimeNowCall(args []ast.Expression) (string, string, 
 		return "", "", fmt.Errorf("datetime.Now expects 0 arguments, got %d", len(args))
 	}
 	g.enqueueStdlib("datetime", "Now", "Now", 0)
+	g.enqueueStdlib("datetime", "ArenaAlloc", "ArenaAlloc", 1)
 
 	// Allocate TDateTime instance (8 bytes for time_t)
 	inst := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_arena_alloc(i64 8)", inst))
 
 	// Get current time: time_t now = time(NULL)
 	nowVal := g.tmp()
@@ -158,7 +161,7 @@ func (g *Generator) emitDatetimeTodayBody() {
 
 	// Allocate TDateTime instance and store
 	inst := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_arena_alloc(i64 8)", inst))
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", todayVal, inst))
 	g.line(fmt.Sprintf("  ret ptr %s", inst))
 	g.line("}")
@@ -209,7 +212,7 @@ func (g *Generator) emitDatetimeMakeDateBody() {
 
 	// Allocate TDateTime instance and store
 	inst := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_arena_alloc(i64 8)", inst))
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", timeVal, inst))
 
 	g.line(fmt.Sprintf("  ret ptr %s", inst))
@@ -586,7 +589,7 @@ func (g *Generator) emitDatetimeAddDaysBody() {
 	g.line(fmt.Sprintf("  %s = add i64 %s, %s", newTime, timeVal, daysInSec))
 	// Allocate new TDateTime
 	inst := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_arena_alloc(i64 8)", inst))
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", newTime, inst))
 	g.line(fmt.Sprintf("  ret ptr %s", inst))
 	g.line("}")
@@ -605,7 +608,7 @@ func (g *Generator) emitDatetimeAddHoursBody() {
 	newTime := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, %s", newTime, timeVal, hoursInSec))
 	inst := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_arena_alloc(i64 8)", inst))
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", newTime, inst))
 	g.line(fmt.Sprintf("  ret ptr %s", inst))
 	g.line("}")
@@ -624,7 +627,7 @@ func (g *Generator) emitDatetimeAddMinutesBody() {
 	newTime := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, %s", newTime, timeVal, minInSec))
 	inst := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_arena_alloc(i64 8)", inst))
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", newTime, inst))
 	g.line(fmt.Sprintf("  ret ptr %s", inst))
 	g.line("}")
@@ -641,7 +644,7 @@ func (g *Generator) emitDatetimeAddSecondsBody() {
 	newTime := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, %%seconds", newTime, timeVal))
 	inst := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", inst))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_datetime_arena_alloc(i64 8)", inst))
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", newTime, inst))
 	g.line(fmt.Sprintf("  ret ptr %s", inst))
 	g.line("}")
@@ -658,6 +661,10 @@ func (g *Generator) emitDatetimeBody(funcName string, argCount int) {
 		g.emitDatetimeTodayBody()
 	case "MakeDate":
 		g.emitDatetimeMakeDateBody()
+	case "ArenaAlloc":
+		g.emitDatetimeArenaAllocBody()
+	case "FreeArena":
+		g.emitDatetimeFreeArenaBody()
 	case "Year":
 		g.emitDatetimeYearBody()
 	case "Month":
@@ -686,3 +693,67 @@ func (g *Generator) emitDatetimeBody(funcName string, argCount int) {
 		g.line(fmt.Sprintf("; ERROR: unsupported datetime function: %s", funcName))
 	}
 }
+
+// emitDatetimeArenaAllocBody emits @__kylix_datetime_arena_alloc(i64 size) -> ptr
+// Arena allocator for TDateTime instances. Allocates from 1MB global buffer.
+// Returns null if out of space.
+func (g *Generator) emitDatetimeArenaAllocBody() {
+	g.line("define ptr @__kylix_datetime_arena_alloc(i64 %size) {")
+	g.line("entry:")
+	// Load current arena pointer
+	currentPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr @__kylix_datetime_arena_ptr", currentPtr))
+
+	// Calculate new pointer (current + size)
+	newPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %%size", newPtr, currentPtr))
+
+	// Calculate arena end (arena base + 1MB)
+	arenaEnd := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [1048576 x i8], ptr @__kylix_datetime_arena, i64 0, i64 1048576", arenaEnd))
+
+	// Check if new pointer exceeds arena end
+	cmp := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ule ptr %s, %s", cmp, newPtr, arenaEnd))
+	g.line(fmt.Sprintf("  br i1 %s, label %%ok, label %%fail", cmp))
+
+	g.line("ok:")
+	// Update arena pointer and return old pointer
+	g.line(fmt.Sprintf("  store ptr %s, ptr @__kylix_datetime_arena_ptr", newPtr))
+	g.line(fmt.Sprintf("  ret ptr %s", currentPtr))
+
+	g.line("fail:")
+	// Out of arena space, return null
+	g.line("  ret ptr null")
+	g.line("}")
+	g.line("")
+}
+
+// emitDatetimeFreeArenaCall emits FreeArena() -> void (resets arena allocator)
+func (g *Generator) emitDatetimeFreeArenaCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("datetime.FreeArena expects 0 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "FreeArena", "FreeArena", 0)
+
+	// Call FreeArena (void return)
+	g.line("  call void @__kylix_datetime_FreeArena()")
+
+	// Return void (represented as i64 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 0, 0", r))
+	return r, "i64", nil
+}
+
+// emitDatetimeFreeArenaBody emits @__kylix_datetime_FreeArena() -> void
+// Resets arena pointer to arena start, effectively freeing all allocations.
+func (g *Generator) emitDatetimeFreeArenaBody() {
+	g.line("define void @__kylix_datetime_FreeArena() {")
+	g.line("entry:")
+	// Reset arena pointer to arena base
+	g.line("  store ptr @__kylix_datetime_arena, ptr @__kylix_datetime_arena_ptr")
+	g.line("  ret void")
+	g.line("}")
+	g.line("")
+}
+

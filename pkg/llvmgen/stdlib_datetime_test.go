@@ -11,8 +11,8 @@ func TestDatetimeNow(t *testing.T) {
 	if !strings.Contains(ir, "call i64 @time(ptr null)") {
 		t.Error("Now() should call time(null)")
 	}
-	if !strings.Contains(ir, "call ptr @malloc(i64 8)") {
-		t.Error("Now() should malloc(8) for TDateTime")
+	if !strings.Contains(ir, "call ptr @__kylix_datetime_arena_alloc(i64 8)") {
+		t.Error("Now() should use arena_alloc(8) for TDateTime")
 	}
 }
 
@@ -239,5 +239,36 @@ func TestDatetimeLocaltime_rDeclaration(t *testing.T) {
 	ir := generateIR(t, src)
 	if !strings.Contains(ir, "declare ptr @localtime_r") {
 		t.Error("Should declare localtime_r for thread-safe time conversion")
+	}
+}
+
+func TestDatetimeArenaAlloc(t *testing.T) {
+	src := `program Test; uses datetime; begin var dt := Now(); end.`
+	ir := generateIR(t, src)
+	if !strings.Contains(ir, "call ptr @__kylix_datetime_arena_alloc(i64 8)") {
+		t.Error("Now() should use arena allocator instead of malloc")
+	}
+	if !strings.Contains(ir, "define ptr @__kylix_datetime_arena_alloc(i64 %size)") {
+		t.Error("Arena allocator body should be emitted")
+	}
+	if !strings.Contains(ir, "@__kylix_datetime_arena = internal global [1048576 x i8]") {
+		t.Error("Arena buffer (1MB) should be declared")
+	}
+	if !strings.Contains(ir, "@__kylix_datetime_arena_ptr = internal global ptr") {
+		t.Error("Arena pointer should be declared")
+	}
+}
+
+func TestDatetimeFreeArena(t *testing.T) {
+	src := `program Test; uses datetime; begin FreeArena(); end.`
+	ir := generateIR(t, src)
+	if !strings.Contains(ir, "call void @__kylix_datetime_FreeArena()") {
+		t.Error("FreeArena() should call @__kylix_datetime_FreeArena()")
+	}
+	if !strings.Contains(ir, "define void @__kylix_datetime_FreeArena()") {
+		t.Error("FreeArena() body should be emitted")
+	}
+	if !strings.Contains(ir, "store ptr @__kylix_datetime_arena, ptr @__kylix_datetime_arena_ptr") {
+		t.Error("FreeArena() should reset arena pointer")
 	}
 }

@@ -236,6 +236,10 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg)")
 	g.line("declare void @llvm.memcpy.p0.p0.i64(ptr noalias nocapture writeonly, ptr noalias nocapture readonly, i64, i1 immarg)")
 	g.line("")
+	g.line("; ===== datetime arena allocator =====")
+	g.line("@__kylix_datetime_arena = internal global [1048576 x i8] zeroinitializer, align 8")
+	g.line("@__kylix_datetime_arena_ptr = internal global ptr @__kylix_datetime_arena, align 8")
+	g.line("")
 }
 
 func (g *Generator) emitMain(stmts []ast.Statement) error {

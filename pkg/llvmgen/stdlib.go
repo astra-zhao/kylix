@@ -45,7 +45,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	},
 	"datetime": {
 		"Now": true, "Today": true, "MakeDate": true, "MakeTime": true,
-		"ParseDate": true, "ParseDateTime": true,
+		"ParseDate": true, "ParseDateTime": true, "FreeArena": true,
 	},
 }
 
