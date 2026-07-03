@@ -4,38 +4,50 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v4.3.0 (2026-07-03) — stdlib Phase 1 完成 (datetime)
+## v4.3.0 (2026-07-03) — stdlib Phase 1 完成 + Arena Allocator
 
-> 🎯 **标准库扩展**。LLVM 后端完成 `datetime` 模块 Phase 1 实现（7 个函数/方法，基于 libc `time.h`）。支持链式调用（`MakeDate().AddDays()`），类型传播系统（`TDateTime` 伪类型）。教程通过率：**31/50 (62%)**。
+> 🎯 **标准库扩展 + 内存优化**。LLVM 后端完成 `datetime` 模块 Phase 1 剩余功能（13 个函数/方法，完整日期时间操作）+ Arena Allocator 内存池（1MB 零复制分配器，消除 malloc 开销）。教程通过率：**31/50 (62%)**。
 
-### LLVM 后端 stdlib datetime
+### LLVM 后端 stdlib datetime Phase 1 完成
 
-- **datetime 模块实现** — 基于 Unix time_t 和 libc `time.h`，7 个 API：
-  - `Now()` → 当前时间（`time(null)` + malloc TDateTime 实例）
-  - `MakeDate(year, month, day)` → 构造指定日期（`mktime()` + struct tm）
-  - `dt.Year()`, `dt.Month()`, `dt.Day()` → 提取日期字段（`localtime()` + GEP）
-  - `dt.FormatDate()` → YYYY-MM-DD 格式化（`strftime()`）
-  - `dt.AddDays(n)` → 加/减天数（86400 秒计算，返回新实例）
-- **链式调用支持** — `MakeDate(2025,1,1).AddDays(10)` 正常工作，通过类型传播实现：
-  - `emitDatetimeCall` 返回类型标记为 `"TDateTime"`（非 `"ptr"`）
-  - `emitVarDecl` 检测 `llvmType == "TDateTime"` 并记录到 `g.localTypes`
-  - `emitMethodCall` 识别变量接收者（`dt.Year()`）和表达式接收者（链式调用）
-- **libc 依赖声明** — `codegen.go` 新增 `time.h` 函数声明（time/localtime/mktime/strftime）和 `llvm.memset.p0.i64` intrinsic
-- **新文件** — `pkg/llvmgen/stdlib_datetime.go`（360 行，7 个函数 body emitter + 方法调用分发）
-- **测试覆盖** — `pkg/llvmgen/stdlib_datetime_test.go`（9/9 单元测试通过），`example38_datetime.klx` 真机验证通过（与 Go 后端输出一致）
+- **Phase 1 完整实现** — 13 个 API（7 个已有 + 6 个新增）：
+  - **新增函数**：`Today()` → 当前日期零点，`MakeDate(y,m,d)` → 构造日期
+  - **新增方法**：`dt.Hour()`, `dt.Minute()`, `dt.Second()`, `dt.DayOfWeek()` → 时间字段提取
+  - **新增运算**：`dt.AddHours(n)`, `dt.AddMinutes(n)`, `dt.AddSeconds(n)` → 时间加减
+  - **已有功能**：`Now()`, `Year()`, `Month()`, `Day()`, `FormatDate()`, `AddDays(n)`
+- **线程安全修复** — 所有 `localtime()` 调用替换为 `localtime_r()`（POSIX 线程安全版本）
+- **平台兼容性** — `struct tm` 偏移量硬编码为 POSIX 标准（Linux/macOS/BSD 通用）
+
+### Arena Allocator — 零复制内存池
+
+- **架构设计**：
+  - `@__kylix_datetime_arena`: 1MB 全局缓冲区（`[1048576 x i8]`）
+  - `@__kylix_datetime_arena_ptr`: bump 指针，指向下一个可分配位置
+  - `@__kylix_datetime_arena_alloc(i64 size) -> ptr`: 线性分配器，检查剩余空间后递增指针
+- **malloc 替换** — 所有 TDateTime 分配从 `malloc(8)` 改为 `arena_alloc(8)`（7 个函数/方法）
+- **FreeArena API** — `FreeArena()` 函数重置 arena 指针，批量回收所有实例（已注册到 `stdlibModuleFuncs`）
+- **性能优势**：
+  - 消除系统调用开销（malloc/free → 指针加法）
+  - 零碎片化（线性分配）
+  - 批量回收（FreeArena 一次重置）
+  - 容量：最多 131,072 个 TDateTime 实例（1MB ÷ 8B）
+- **限制**：
+  - 无法单独释放实例（arena 语义）
+  - FreeArena 后旧指针失效
+  - 1MB 固定容量
 
 ### 测试与验证
 
-- LLVM 后端教程通过率：27/49 → **31/50 (62%)**（datetime + 4 个新教程）
-- LLVM 后端测试：90+ → 99+（新增 datetime 9 个测试）
+- LLVM 后端教程通过率：27/49 → **31/50 (62%)**（datetime 完整实现）
+- LLVM 后端测试：90+ → **102+**（新增 datetime 9 个 + Arena 3 个单元测试）
+- 集成测试：9 个 TDateTime 实例创建 + FreeArena 重用 + 时间运算验证（LLVM 后端通过）
 - 16 个 Go 测试包全部通过
 
-### 已知限制
+### 已知限制（待 Phase 2）
 
-- FormatDate 使用 64 字节栈缓冲区（非线程安全）
-- TDateTime 实例无 GC（malloc 未配对 free）
-- 缺少 `Today()`, `MakeTime()`, `ParseDate()` 等函数（Phase 2）
-- 缺少 `Hour()`, `Minute()`, `Second()`, `DayOfWeek()` 等方法（Phase 2）
+- 缺少 `MakeTime()`, `ParseDate()`, `ParseDateTime()` 等函数
+- Arena 容量固定（1MB），无动态扩展
+- TDateTime 实例在 FreeArena 前无法单独释放
 
 ## v4.2.0 (2026-07-03) — stdlib Phase 1 完成 (sysutil)
 

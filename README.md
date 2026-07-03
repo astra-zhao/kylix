@@ -10,7 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
-> 🎉 **v4.1.0**: LLVM M4 高级特性 —— Lambda/闭包（捕获变量+环境结构体）、`inherited` 关键字（父类方法链）、多返回值元组解构、OOP 字段/方法访问系统性修复（vtable 继承）、优化通道（`opt` + `llc -O<N>`，循环归纳达 20x 提速）。**27/49 教程通过 LLVM 编译**，01-04 章节（19文件）与 Go 后端输出逐字节一致。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v4.3.0**: LLVM stdlib Phase 1 完成 —— datetime 模块 13 个 API（Now/Today/MakeDate + 时间运算/字段提取）+ Arena Allocator 内存池（1MB 零复制分配器，消除 malloc 开销）。线程安全修复（localtime_r → POSIX 标准）。**31/50 教程通过 LLVM 编译**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## Features
 

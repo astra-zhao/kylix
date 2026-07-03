@@ -1,11 +1,11 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-07-01  
-> 当前版本: v4.1.0 ✅  
+> 最后更新: 2026-07-03  
+> 当前版本: v4.3.0 ✅  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**✅ v4.1.0 已发布！** LLVM M4 高级特性：Lambda/闭包、`inherited` 关键字、完整多返回值元组解构、OOP 字段/方法访问系统性修复（vtable 继承）、优化通道（`opt` + `llc -O<N>`，循环归纳达 20x 提速）。27/49 教程通过 LLVM 编译，01-04 章节（19文件）与 Go 后端输出逐字节一致。详见 [CHANGELOG.md](CHANGELOG.md) 与 [VERSION_PLAN.md](VERSION_PLAN.md)。
+**✅ v4.3.0 已发布！** LLVM stdlib Phase 1 完成：datetime 模块 13 个 API（时间运算/字段提取）+ Arena Allocator 内存池（1MB 零复制分配器，消除 malloc 开销）。线程安全修复（localtime_r）。31/50 教程通过 LLVM 编译。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -28,7 +28,9 @@
 | **v3.3.0** | Body Binding + JWT + OpenAPI + 包管理器集成 + 类型检查器 | ✅ 完成 | 2026-06-29 |
 | **v4.0.0** | LLVM M3（异常/控制流/表达式）+ stdlib Phase 7 + VS Code v1.1 | ✅ 完成 | 2026-07-01 |
 | **v4.1.0** | LLVM M4 高级特性（闭包/多返回值/inherited/优化） | ✅ 完成 | 2026-07-02 |
-| **v4.2.0** | LLVM 工具链深化（增量编译/调试符号/交叉编译）+ stdlib Phase 8 | 📋 规划中 | 2026 Q4 |
+| **v4.2.0** | LLVM stdlib Phase 1 (sysutil 模块) | ✅ 完成 | 2026-07-03 |
+| **v4.3.0** | LLVM stdlib Phase 1 (datetime 模块 + Arena Allocator) | ✅ 完成 | 2026-07-03 |
+| **v4.4.0** | LLVM 工具链深化（增量编译/调试符号/交叉编译）+ stdlib Phase 2 | 📋 规划中 | 2026 Q4 |
 | **v5.0.0** | 自研运行时 KylixRT + 自举编译器 + 完全脱离 Go | 📋 长期 | 2027+ |
 
 ---
