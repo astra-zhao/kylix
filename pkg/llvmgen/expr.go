@@ -806,9 +806,9 @@ func (g *Generator) emitMethodCall(member *ast.MemberExpression, args []ast.Expr
 
 	kind, typeName := g.receiverKind(member.Object)
 
-	// Special case: TDateTime stdlib methods (not registered in g.classes).
-	// For known TDateTime variables (typeName == "TDateTime"), dispatch directly.
-	// For unknown receivers (kind == ""), evaluate to check if it's a TDateTime.
+	// Special case: stdlib opaque-handle types (TDateTime, TCache, ...) are
+	// not registered in g.classes, so receiverKind returns kind="". Dispatch
+	// their methods via the per-type stdlib emitter.
 	if typeName == "TDateTime" {
 		objReg, _, err := g.emitExpr(member.Object)
 		if err != nil {
@@ -816,17 +816,28 @@ func (g *Generator) emitMethodCall(member *ast.MemberExpression, args []ast.Expr
 		}
 		return g.emitDatetimeMethodCall(objReg, member.Member, args)
 	}
+	if typeName == "TCache" {
+		objReg, _, err := g.emitExpr(member.Object)
+		if err != nil {
+			return "", "", err
+		}
+		return g.emitCacheMethodCall(objReg, member.Member, args)
+	}
 
 	if kind == "" {
-		// Unknown receiver type — evaluate it to check if it's TDateTime (e.g., chained calls)
+		// Unknown receiver type — evaluate it to check if it's a stdlib
+		// opaque-handle type (TDateTime via chained call, TCache, ...).
 		objReg, objType, err := g.emitExpr(member.Object)
 		if err != nil {
 			return "", "", err
 		}
-		if objType == "TDateTime" {
+		switch objType {
+		case "TDateTime":
 			return g.emitDatetimeMethodCall(objReg, member.Member, args)
+		case "TCache":
+			return g.emitCacheMethodCall(objReg, member.Member, args)
 		}
-		// Not TDateTime, fall through to unsupported receiver
+		// Not a known stdlib handle, fall through to unsupported receiver
 	}
 
 	argRegs := make([]string, 0, len(args))

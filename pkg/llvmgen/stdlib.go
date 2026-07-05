@@ -29,6 +29,7 @@ var knownStdlibModules = map[string]bool{
 	"datetime": true,
 	"encoding": true,
 	"net":      true,
+	"cache":    true,
 	// Future: jsonutil, crypto, ...
 }
 
@@ -60,6 +61,9 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"TcpListen": true, "TcpAccept": true, "TcpListenerClose": true,
 		"UdpDial": true, "UdpSend": true, "UdpRecv": true, "UdpClose": true,
 		"DnsLookup": true, "DnsLookupCNAME": true,
+	},
+	"cache": {
+		"NewCache": true,
 	},
 }
 
@@ -115,6 +119,8 @@ func (g *Generator) emitStdlibCall(module, funcName string, args []ast.Expressio
 		return g.emitEncodingCall(funcName, args)
 	case "net":
 		return g.emitNetCall(funcName, args)
+	case "cache":
+		return g.emitCacheCall(funcName, args)
 	default:
 		// Not yet implemented for LLVM — fall back to a stub so IR stays legal.
 		r := g.tmp()
@@ -155,6 +161,8 @@ func (g *Generator) emitPendingStdlib() {
 			g.emitEncodingBody(sf.name)
 		case "net":
 			g.emitNetBody(sf.name)
+		case "cache":
+			g.emitCacheBody(sf.name)
 		}
 	}
 }

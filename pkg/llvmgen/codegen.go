@@ -68,6 +68,15 @@ type Generator struct {
 	// base64TableEmitted guards the @__kylix_b64_table global (emitted once
 	// per module, on first Base64Encode/Decode use).
 	base64TableEmitted bool
+
+	// hashtabEmitted guards the @__kylix_htab_* runtime helpers (emitted once
+	// per module, on first cache/map use).
+	hashtabEmitted bool
+
+	// needHashtab is set when any stdlib module (cache, future map) references
+	// the hash-table runtime. emitProgram checks it at module end and emits
+	// the helpers only if actually needed (avoids bloating every module).
+	needHashtab bool
 }
 
 type stringConst struct {
@@ -188,6 +197,12 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	// Emit deferred stdlib module-function bodies (e.g. sysutil.ReadFile),
 	// collected during expression emission. Module-level defines, like lambdas.
 	g.emitPendingStdlib()
+
+	// Emit the internal hash-table runtime (used by cache / map) if any
+	// module referenced it. Idempotent.
+	if g.needHashtab {
+		g.emitHashtabBodies()
+	}
 
 	// Emit string constants at the end
 	g.emitStringConsts()
