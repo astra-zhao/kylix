@@ -30,7 +30,8 @@ var knownStdlibModules = map[string]bool{
 	"encoding": true,
 	"net":      true,
 	"cache":    true,
-	// Future: jsonutil, crypto, ...
+	"crypto":   true,
+	// Future: jsonutil, ...
 }
 
 // stdlibModuleFuncs maps each known stdlib module to the function names it
@@ -64,6 +65,12 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	},
 	"cache": {
 		"NewCache": true,
+	},
+	"crypto": {
+		"Sha256": true, "Md5": true, "HmacSha256": true,
+		"AesEncrypt": true, "AesDecrypt": true,
+		"BCryptHash": true, "BCryptCompare": true,
+		"Sha512": true,
 	},
 }
 
@@ -121,6 +128,8 @@ func (g *Generator) emitStdlibCall(module, funcName string, args []ast.Expressio
 		return g.emitNetCall(funcName, args)
 	case "cache":
 		return g.emitCacheCall(funcName, args)
+	case "crypto":
+		return g.emitCryptoCall(funcName, args)
 	default:
 		// Not yet implemented for LLVM — fall back to a stub so IR stays legal.
 		r := g.tmp()
@@ -163,6 +172,16 @@ func (g *Generator) emitPendingStdlib() {
 			g.emitNetBody(sf.name)
 		case "cache":
 			g.emitCacheBody(sf.name)
+		case "crypto":
+			g.emitCryptoBody(sf.name)
+		}
+	}
+	// hexbytes helper is shared by all crypto hash functions; emit once if
+	// any crypto function was queued.
+	for _, sf := range g.stdlibQueue {
+		if sf.module == "crypto" {
+			g.emitCryptoHexbytesBody()
+			break
 		}
 	}
 }

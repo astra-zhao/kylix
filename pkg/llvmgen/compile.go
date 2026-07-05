@@ -162,10 +162,28 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	}
 
 	// clang: .o → native binary
-	clangCmd := exec.Command(llvmPaths.Clang,
-		"-o", outBin,
-		objFile,
-	)
+	clangArgs := []string{"-o", outBin, objFile}
+	// If the IR references OpenSSL libcrypto symbols (crypto stdlib), link
+	// against libcrypto and add the Homebrew OpenSSL lib path (macOS). The
+	// detection is done by scanning the IR for @__kylix_crypto_ defines,
+	// which are only emitted when crypto functions are actually used.
+	if strings.Contains(ir, "@__kylix_crypto_") {
+		clangArgs = append(clangArgs, "-lcrypto")
+		// Homebrew OpenSSL paths (macOS Intel + ARM). On Linux, libcrypto is
+		// typically in the default search path, so no -L needed.
+		for _, dir := range []string{
+			"/opt/homebrew/opt/openssl/lib", // Homebrew ARM
+			"/usr/local/opt/openssl/lib",    // Homebrew x86
+		} {
+			if _, err := os.Stat(dir); err == nil {
+				clangArgs = append(clangArgs, "-L"+dir)
+				// Also set rpath so the runtime linker finds libcrypto.dylib.
+				clangArgs = append(clangArgs, "-Wl,-rpath,"+dir)
+				break
+			}
+		}
+	}
+	clangCmd := exec.Command(llvmPaths.Clang, clangArgs...)
 	if out, err := clangCmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("clang link failed: %w\n%s", err, out)
 	}

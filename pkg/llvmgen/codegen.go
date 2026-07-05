@@ -77,6 +77,10 @@ type Generator struct {
 	// the hash-table runtime. emitProgram checks it at module end and emits
 	// the helpers only if actually needed (avoids bloating every module).
 	needHashtab bool
+
+	// needLibcrypto is set when crypto module functions are used; the compile
+	// driver checks for crypto symbols in the IR and adds -lcrypto at link.
+	needLibcrypto bool
 }
 
 type stringConst struct {
@@ -255,6 +259,10 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i32 @close(i32 noundef)")
 	g.line("declare i32 @setsockopt(i32 noundef, i32 noundef, i32 noundef, ptr noundef, i32 noundef)")
 	g.line("declare i32 @inet_pton(i32 noundef, ptr noundef, ptr noundef)")
+	g.line("; ===== OpenSSL libcrypto (used by stdlib crypto) =====")
+	g.line("declare ptr @SHA256(ptr noundef, i64 noundef, ptr noundef)")
+	g.line("declare ptr @MD5(ptr noundef, i64 noundef, ptr noundef)")
+	g.line("declare ptr @strncpy(ptr noundef, ptr noundef, i64 noundef)")
 	g.line("; ===== POSIX regex (used by stdlib regex) =====")
 	g.line("declare i32 @regcomp(ptr noundef, ptr noundef, i32 noundef)")
 	g.line("declare i32 @regexec(ptr noundef, ptr noundef, i64 noundef, ptr, i32 noundef)")
