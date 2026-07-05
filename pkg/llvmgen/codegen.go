@@ -30,6 +30,7 @@ type Generator struct {
 	instantiations   map[string]bool           // mangled name → already specialized
 	localTypes       map[string]string         // var name → Kylix type name (class/interface)
 	arrayInfo        map[string]*arrayInfo     // var name → array metadata
+	varNameSeq       map[string]int            // Kylix var name → count of allocas emitted so far
 	program          *ast.Program              // current AST root (for cross-pass access)
 	funcName         string                    // current function being generated
 	strings          []stringConst             // string constants (emitted at module level)
@@ -63,6 +64,10 @@ type Generator struct {
 	// end (like lambdas) — they can't be defined inline mid-expression.
 	stdlibEmitted map[string]bool // function key ("sysutil.ReadFile") → body already queued
 	stdlibQueue   []stdlibFunc    // deferred stdlib function bodies to emit
+
+	// base64TableEmitted guards the @__kylix_b64_table global (emitted once
+	// per module, on first Base64Encode/Decode use).
+	base64TableEmitted bool
 }
 
 type stringConst struct {
@@ -95,6 +100,7 @@ func NewGenerator(moduleName string) *Generator {
 		instantiations:    make(map[string]bool),
 		localTypes:        make(map[string]string),
 		arrayInfo:         make(map[string]*arrayInfo),
+		varNameSeq:        make(map[string]int),
 		exceptionTypeIDs:  make(map[string]int),
 		nextExcTypeID:     2, // 1 reserved for Exception itself
 		closureLocals:     make(map[string]bool),
@@ -207,6 +213,7 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare ptr @strcpy(ptr noundef, ptr noundef)")
 	g.line("declare ptr @strcat(ptr noundef, ptr noundef)")
 	g.line("declare i32 @strcmp(ptr noundef, ptr noundef)")
+	g.line("declare ptr @memcpy(ptr noundef, ptr noundef, i64 noundef)")
 	g.line("declare i64 @atoll(ptr noundef)")
 	g.line("declare i32 @snprintf(ptr noundef, i64 noundef, ptr noundef, ...)")
 	g.line("; ===== Exception handling runtime (setjmp/longjmp) =====")
@@ -248,6 +255,7 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	g.line("entry:")
 	g.funcName = "main"
 	g.locals = make(map[string]string)
+	g.varNameSeq = make(map[string]int)
 
 	// Emit top-level VarDecl as local allocas inside main().
 	// (Top-level `var x: T;` declarations live in prog.Declarations.)
@@ -338,6 +346,28 @@ func (g *Generator) label() string {
 	l := fmt.Sprintf("lbl%d", g.labelCount)
 	g.labelCount++
 	return l
+}
+
+// freshVarReg returns a fresh, function-scope-unique LLVM register name for a
+// new alloca backing the Kylix local variable `name`, with the given type
+// suffix (e.g. "_int", "_str", "_bool", "_real", or "" for untyped/ptr-class
+// locals). LLVM local identifiers live in a single function-wide namespace —
+// unlike Kylix's block-scoped `var`, sibling blocks (if/if, try/except,
+// foreach/foreach, on-clauses, ...) can legally declare the same name. The
+// first declaration keeps the plain "%v_name_suffix" form (matching existing
+// IR snapshots/tests); subsequent declarations of the same name get a "_N"
+// disambiguator appended after the suffix so the type-inference logic in
+// emitIdentLoad (which matches on suffix) keeps working unchanged.
+func (g *Generator) freshVarReg(name, suffix string) string {
+	n := g.varNameSeq[name]
+	g.varNameSeq[name] = n + 1
+	if n == 0 {
+		return fmt.Sprintf("%%v_%s%s", name, suffix)
+	}
+	// Disambiguator goes BEFORE the type suffix, not after — emitIdentLoad and
+	// friends infer the LLVM type by matching a HasSuffix("_bool"/"_real"/"_str")
+	// on the alloca name, so the suffix must remain the literal trailing text.
+	return fmt.Sprintf("%%v_%s_%d%s", name, n, suffix)
 }
 
 // addString adds a string constant and returns its global register name.

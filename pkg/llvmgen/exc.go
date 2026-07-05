@@ -149,10 +149,8 @@ func (g *Generator) emitTry(s *ast.TryStatement) error {
 	g.line(fmt.Sprintf("  store ptr %s, ptr @__kylix_jmpbuf", bufptr))
 	g.line("  store i1 false, ptr @__kylix_exc_active")
 	if s.Body != nil {
-		for _, st := range s.Body.Statements {
-			if err := g.emitStatement(st); err != nil {
-				return err
-			}
+		if err := g.emitBlockScoped(s.Body); err != nil {
+			return err
 		}
 	}
 	// Pop handler, clear active, fall through to finally (normal path).
@@ -200,7 +198,7 @@ func (g *Generator) emitTry(s *ast.TryStatement) error {
 		// on-body: bind E to the exception object, run body, clear active.
 		g.line(fmt.Sprintf("%s:", onBodyLbl))
 		if on.Variable != "" {
-			eAlloca := fmt.Sprintf("%%v_%s", on.Variable)
+			eAlloca := g.freshVarReg(on.Variable, "")
 			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", eAlloca))
 			obj := g.tmp()
 			g.line(fmt.Sprintf("  %s = load ptr, ptr @__kylix_exc_obj", obj))
@@ -212,11 +210,9 @@ func (g *Generator) emitTry(s *ast.TryStatement) error {
 		}
 		g.inExceptHandler = true
 		if on.Body != nil {
-			for _, st := range on.Body.Statements {
-				if err := g.emitStatement(st); err != nil {
-					g.inExceptHandler = false
-					return err
-				}
+			if err := g.emitBlockScoped(on.Body); err != nil {
+				g.inExceptHandler = false
+				return err
 			}
 		}
 		g.inExceptHandler = false
@@ -235,11 +231,9 @@ func (g *Generator) emitTry(s *ast.TryStatement) error {
 	//   - otherwise the exception stays active → finally_reraise
 	if s.ExceptBlock != nil {
 		g.inExceptHandler = true
-		for _, st := range s.ExceptBlock.Statements {
-			if err := g.emitStatement(st); err != nil {
-				g.inExceptHandler = false
-				return err
-			}
+		if err := g.emitBlockScoped(s.ExceptBlock); err != nil {
+			g.inExceptHandler = false
+			return err
 		}
 		g.inExceptHandler = false
 		g.line("  store i1 false, ptr @__kylix_exc_active")
@@ -253,10 +247,8 @@ func (g *Generator) emitTry(s *ast.TryStatement) error {
 	// ── finally: normal path (try body completed) ─────────────
 	g.line(fmt.Sprintf("%s:", finallyNormalLbl))
 	if s.FinallyBlock != nil {
-		for _, st := range s.FinallyBlock.Statements {
-			if err := g.emitStatement(st); err != nil {
-				return err
-			}
+		if err := g.emitBlockScoped(s.FinallyBlock); err != nil {
+			return err
 		}
 	}
 	g.line(fmt.Sprintf("  br label %%%s", endLbl))
@@ -264,10 +256,8 @@ func (g *Generator) emitTry(s *ast.TryStatement) error {
 	// ── finally: except handled path ──────────────────────────
 	g.line(fmt.Sprintf("%s:", finallyExcLbl))
 	if s.FinallyBlock != nil {
-		for _, st := range s.FinallyBlock.Statements {
-			if err := g.emitStatement(st); err != nil {
-				return err
-			}
+		if err := g.emitBlockScoped(s.FinallyBlock); err != nil {
+			return err
 		}
 	}
 	g.line(fmt.Sprintf("  br label %%%s", endLbl))
@@ -275,10 +265,8 @@ func (g *Generator) emitTry(s *ast.TryStatement) error {
 	// ── finally: reraise path (uncaught exception) ────────────
 	g.line(fmt.Sprintf("%s:", finallyReraiseLbl))
 	if s.FinallyBlock != nil {
-		for _, st := range s.FinallyBlock.Statements {
-			if err := g.emitStatement(st); err != nil {
-				return err
-			}
+		if err := g.emitBlockScoped(s.FinallyBlock); err != nil {
+			return err
 		}
 	}
 	// Re-throw: longjmp to the outer handler (current @__kylix_jmpbuf).

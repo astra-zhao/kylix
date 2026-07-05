@@ -140,6 +140,18 @@ OPTIONS:
 
 		// Multi-file mode
 		files := fs.Args()
+
+		// LLVM backend shortcut — bypass Go codegen entirely. Mirrors the
+		// single-file branch above: merges each file's declarations (main
+		// program + any `unit` files it `uses`) before lowering to LLVM IR.
+		if *backend == "llvm" {
+			if err := buildMultiFileWithLLVM(files, *output, *llvmOpt); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
 		result, err := compiler.CompileProject(files, opts)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -328,6 +340,35 @@ func buildWithLLVM(srcFile, outBin, optLevel string) error {
 		optInfo = " -O" + optLevel
 	}
 	fmt.Printf("✓ Built %s → %s [llvm%s]\n", srcFile, result.BinFile, optInfo)
+	fmt.Printf("  IR:  %s\n", result.IRFile)
+	fmt.Printf("  Obj: %s\n", result.ObjFile)
+	return nil
+}
+
+// buildMultiFileWithLLVM compiles a main program plus one or more `unit`
+// files it `uses` (e.g. `kylix build --backend=llvm math_helper.klx
+// main.klx`) into a single native binary. Each file is parsed independently,
+// then their declarations are merged (see llvmgen.MergePrograms) before
+// lowering to one LLVM module — mirroring how the Go backend's
+// compiler.CompileProject merges multiple ASTs via generator.GenerateMulti.
+func buildMultiFileWithLLVM(files []string, outBin, optLevel string) error {
+	llvmPaths, err := llvmgen.FindLLVM()
+	if err != nil {
+		return fmt.Errorf("LLVM toolchain not found: %w\nHint: brew install llvm (macOS) or apt install llvm clang (Linux)", err)
+	}
+
+	result, err := llvmgen.CompileFilesToNative(files, outBin, llvmPaths, llvmgen.CompileOpts{
+		OptLevel: optLevel,
+	})
+	if err != nil {
+		return err
+	}
+
+	optInfo := ""
+	if optLevel != "" {
+		optInfo = " -O" + optLevel
+	}
+	fmt.Printf("✓ Built %d files → %s [llvm%s]\n", len(files), result.BinFile, optInfo)
 	fmt.Printf("  IR:  %s\n", result.IRFile)
 	fmt.Printf("  Obj: %s\n", result.ObjFile)
 	return nil

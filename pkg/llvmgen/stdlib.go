@@ -27,7 +27,8 @@ var knownStdlibModules = map[string]bool{
 	"sysutil":  true,
 	"regex":    true,
 	"datetime": true,
-	// Future: jsonutil, net, crypto, encoding, ...
+	"encoding": true,
+	// Future: jsonutil, net, crypto, ...
 }
 
 // stdlibModuleFuncs maps each known stdlib module to the function names it
@@ -46,6 +47,12 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"datetime": {
 		"Now": true, "Today": true, "MakeDate": true, "MakeTime": true,
 		"ParseDate": true, "ParseDateTime": true, "FreeArena": true,
+	},
+	"encoding": {
+		"HexEncode": true, "HexDecode": true,
+		"Base64Encode": true, "Base64Decode": true,
+		"Base64URLEncode": true, "Base64URLDecode": true,
+		"UrlEncode": true, "UrlDecode": true,
 	},
 }
 
@@ -97,6 +104,8 @@ func (g *Generator) emitStdlibCall(module, funcName string, args []ast.Expressio
 		return g.emitRegexCall(funcName, args)
 	case "datetime":
 		return g.emitDatetimeCall(funcName, args)
+	case "encoding":
+		return g.emitEncodingCall(funcName, args)
 	default:
 		// Not yet implemented for LLVM — fall back to a stub so IR stays legal.
 		r := g.tmp()
@@ -133,6 +142,8 @@ func (g *Generator) emitPendingStdlib() {
 			g.emitRegexBody(sf.name)
 		case "datetime":
 			g.emitDatetimeBody(sf.name, sf.argCount)
+		case "encoding":
+			g.emitEncodingBody(sf.name)
 		}
 	}
 }

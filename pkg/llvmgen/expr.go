@@ -129,13 +129,51 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 		return buf, "ptr", nil
 
 	case *ast.SliceExpression:
-		// Slice expressions (arr[lo..hi]) — emit the base pointer for now;
-		// proper slice struct construction is deferred.
-		base, _, err := g.emitExpr(e.Left)
+		// String slice s[start:end] — allocate a new buffer, memcpy the
+		// substring [start, end) from the base pointer, null-terminate, and
+		// return the new ptr. For now only string slicing is supported (array
+		// slicing would need to track element size and return a slice struct).
+		base, baseType, err := g.emitExpr(e.Left)
 		if err != nil {
 			return "", "", err
 		}
-		return base, "ptr", nil
+		if baseType != "ptr" {
+			// Non-string slice (e.g. array[lo:hi]) not yet implemented.
+			return base, baseType, nil
+		}
+
+		low, _, err := g.emitExpr(e.Low)
+		if err != nil {
+			return "", "", err
+		}
+		high, _, err := g.emitExpr(e.High)
+		if err != nil {
+			return "", "", err
+		}
+
+		// length = high - low
+		length := g.tmp()
+		g.line(fmt.Sprintf("  %s = sub i64 %s, %s", length, high, low))
+
+		// Allocate length + 1 (for null terminator)
+		allocSize := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, 1", allocSize, length))
+		buf := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, allocSize))
+
+		// src = base + low
+		src := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", src, base, low))
+
+		// memcpy(buf, src, length)
+		g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", buf, src, length))
+
+		// Write null terminator: buf[length] = '\0'
+		termPtr := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", termPtr, buf, length))
+		g.line(fmt.Sprintf("  store i8 0, ptr %s", termPtr))
+
+		return buf, "ptr", nil
 
 	case *ast.TupleLiteral:
 		// Tuple literals for multi-return — return the first element as a
@@ -210,6 +248,17 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 			rv, rt = g.coerceValue(rv, rt, "double")
 		} else if lt == "i64" && rt == "double" {
 			lv, lt = g.coerceValue(lv, lt, "double")
+		}
+	}
+
+	// String comparison: `=`/`<>`/`<`/`<=`/`>`/`>=` on ptr (string) operands
+	// use strcmp (lexicographic), not icmp (which would compare the pointer
+	// addresses, not the string contents).
+	isStringCmp := lt == "ptr" && rt == "ptr"
+	switch e.Operator {
+	case "=", "<>", "<", "<=", ">", ">=":
+		if isStringCmp {
+			return g.emitStringCompare(e.Operator, lv, rv)
 		}
 	}
 
@@ -300,6 +349,32 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 		g.line(fmt.Sprintf("  %s = add i64 %s, 0 ; unhandled op %s", r, lv, e.Operator))
 		return r, lt, nil
 	}
+}
+
+// emitStringCompare lowers a Pascal comparison operator applied to two String
+// (ptr) operands via libc strcmp, which returns <0/0/>0 for lexicographic
+// less-than/equal/greater-than. icmp on the raw pointers would compare
+// addresses, not string contents, so this must not go through emitInfix's
+// normal numeric-comparison path.
+func (g *Generator) emitStringCompare(op, lv, rv string) (string, string, error) {
+	cmp := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @strcmp(ptr %s, ptr %s)", cmp, lv, rv))
+	r := g.tmp()
+	switch op {
+	case "=":
+		g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", r, cmp))
+	case "<>":
+		g.line(fmt.Sprintf("  %s = icmp ne i32 %s, 0", r, cmp))
+	case "<":
+		g.line(fmt.Sprintf("  %s = icmp slt i32 %s, 0", r, cmp))
+	case "<=":
+		g.line(fmt.Sprintf("  %s = icmp sle i32 %s, 0", r, cmp))
+	case ">":
+		g.line(fmt.Sprintf("  %s = icmp sgt i32 %s, 0", r, cmp))
+	case ">=":
+		g.line(fmt.Sprintf("  %s = icmp sge i32 %s, 0", r, cmp))
+	}
+	return r, "i1", nil
 }
 
 func (g *Generator) emitPrefix(e *ast.PrefixExpression) (string, string, error) {

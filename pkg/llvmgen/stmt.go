@@ -17,12 +17,7 @@ func (g *Generator) emitStatement(node ast.Statement) error {
 		_, _, err := g.emitExpr(s.Expression)
 		return err
 	case *ast.BlockStatement:
-		for _, stmt := range s.Statements {
-			if err := g.emitStatement(stmt); err != nil {
-				return err
-			}
-		}
-		return nil
+		return g.emitBlockScoped(s)
 	case *ast.IfStatement:
 		return g.emitIf(s)
 	case *ast.WhileStatement:
@@ -56,6 +51,82 @@ func (g *Generator) emitStatement(node ast.Statement) error {
 	}
 }
 
+// emitBlockScoped runs a BlockStatement's statements with Kylix block-scoping
+// semantics for locals: `var` declarations inside the block (and anything
+// they register — locals/localTypes/arrayInfo/closureLocals/closureSigs/
+// closureParams) are visible only within the block and are rolled back once
+// it exits, so a sibling block (the other branch of an if, a later loop
+// iteration's body reusing the same AST node, an except handler, ...) can
+// declare a variable of the same name without seeing — or being seen by —
+// this block's binding. The underlying LLVM alloca is NOT removed (it lives
+// for the whole function per LLVM's SSA rules and freshVarReg already gave it
+// a unique register name); only the Kylix-level name→register visibility is
+// scoped. varNameSeq is intentionally NOT rolled back, so a later sibling
+// declaration of the same source name still gets a fresh register rather than
+// colliding with this block's (now invisible but still-live) alloca.
+func (g *Generator) emitBlockScoped(s *ast.BlockStatement) error {
+	savedLocals := g.locals
+	savedTypes := g.localTypes
+	savedArrayInfo := g.arrayInfo
+	savedClosureLocals := g.closureLocals
+	savedClosureSigs := g.closureSigs
+	savedClosureParams := g.closureParams
+
+	g.locals = cloneStringMap(g.locals)
+	g.localTypes = cloneStringMap(g.localTypes)
+	g.arrayInfo = cloneArrayInfoMap(g.arrayInfo)
+	g.closureLocals = cloneBoolMap(g.closureLocals)
+	g.closureSigs = cloneStringMap(g.closureSigs)
+	g.closureParams = cloneStringSliceMap(g.closureParams)
+
+	var err error
+	for _, stmt := range s.Statements {
+		if err = g.emitStatement(stmt); err != nil {
+			break
+		}
+	}
+
+	g.locals = savedLocals
+	g.localTypes = savedTypes
+	g.arrayInfo = savedArrayInfo
+	g.closureLocals = savedClosureLocals
+	g.closureSigs = savedClosureSigs
+	g.closureParams = savedClosureParams
+	return err
+}
+
+func cloneStringMap(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneBoolMap(m map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneStringSliceMap(m map[string][]string) map[string][]string {
+	out := make(map[string][]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneArrayInfoMap(m map[string]*arrayInfo) map[string]*arrayInfo {
+	out := make(map[string]*arrayInfo, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
 // emitFunctionDecl generates an LLVM function definition.
 func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	if decl.Body == nil {
@@ -87,8 +158,10 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	g.funcName = decl.Name
 	savedLocals := g.locals
 	savedTypes := g.localTypes
+	savedVarSeq := g.varNameSeq
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
+	g.varNameSeq = make(map[string]int)
 
 	// Allocate result variable for functions
 	if retType != "void" {
@@ -161,6 +234,7 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	g.line("")
 	g.locals = savedLocals
 	g.localTypes = savedTypes
+	g.varNameSeq = savedVarSeq
 	return nil
 }
 
@@ -243,7 +317,7 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 				suffix = "_str"
 				actualLLVMType = "ptr"
 			}
-			allocaReg := fmt.Sprintf("%%v_%s%s", name, suffix)
+			allocaReg := g.freshVarReg(name, suffix)
 			g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, actualLLVMType))
 			g.line(fmt.Sprintf("  store %s %s, ptr %s", actualLLVMType, valReg, allocaReg))
 			g.locals[name] = allocaReg
@@ -303,7 +377,7 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 	if gt, ok := varType.(*ast.GenericType); ok {
 		mangled := mangleGeneric(gt.Base, gt.TypeParams)
 		if mangled != "" {
-			allocaReg := fmt.Sprintf("%%v_%s", name)
+			allocaReg := g.freshVarReg(name, "")
 			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
 			g.line(fmt.Sprintf("  store ptr null, ptr %s", allocaReg))
 			g.locals[name] = allocaReg
@@ -315,7 +389,7 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 	// Plain class-typed local: hold a ptr to the heap-allocated instance.
 	if ident, ok := varType.(*ast.Identifier); ok {
 		if _, isClass := g.classes[ident.Value]; isClass {
-			allocaReg := fmt.Sprintf("%%v_%s", name)
+			allocaReg := g.freshVarReg(name, "")
 			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
 			g.line(fmt.Sprintf("  store ptr null, ptr %s", allocaReg))
 			g.locals[name] = allocaReg
@@ -340,7 +414,7 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 			suffix = "_str"
 		}
 	}
-	allocaReg := fmt.Sprintf("%%v_%s%s", name, suffix)
+	allocaReg := g.freshVarReg(name, suffix)
 	g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, llvmT))
 
 	// Zero-initialize
@@ -443,7 +517,7 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 	allocaReg, ok := g.locals[varName]
 	if !ok {
 		// Auto-declare as i64
-		allocaReg = fmt.Sprintf("%%v_%s_int", varName)
+		allocaReg = g.freshVarReg(varName, "_int")
 		g.line(fmt.Sprintf("  %s = alloca i64, align 8", allocaReg))
 		g.locals[varName] = allocaReg
 		t = "i64"
@@ -734,7 +808,7 @@ func (g *Generator) emitTupleDestructure(tuple *ast.TupleLiteral, rhs ast.Expres
 			case "ptr":
 				suffix = "_str"
 			}
-			allocaReg = fmt.Sprintf("%%v_%s%s", ident.Value, suffix)
+			allocaReg = g.freshVarReg(ident.Value, suffix)
 			g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, elemT))
 			g.locals[ident.Value] = allocaReg
 		}
@@ -781,7 +855,7 @@ func (g *Generator) emitForEach(s *ast.ForEachStatement) error {
 	}
 
 	// Allocate a loop variable alloca for the element.
-	elemAlloca := fmt.Sprintf("%%v_%s", s.Variable)
+	elemAlloca := g.freshVarReg(s.Variable, "")
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", elemAlloca))
 	g.locals[s.Variable] = elemAlloca
 
@@ -885,10 +959,8 @@ func (g *Generator) emitCase(s *ast.CaseStatement) error {
 	for i, br := range s.Branches {
 		g.line(fmt.Sprintf("%s:", branches[i].lbl))
 		if br.Body != nil {
-			for _, st := range br.Body.Statements {
-				if err := g.emitStatement(st); err != nil {
-					return err
-				}
+			if err := g.emitBlockScoped(br.Body); err != nil {
+				return err
 			}
 		}
 		g.line(fmt.Sprintf("  br label %%%s", mergeLbl))
@@ -897,10 +969,8 @@ func (g *Generator) emitCase(s *ast.CaseStatement) error {
 	// Default / else branch.
 	g.line(fmt.Sprintf("%s:", defaultLbl))
 	if s.ElseBranch != nil {
-		for _, st := range s.ElseBranch.Statements {
-			if err := g.emitStatement(st); err != nil {
-				return err
-			}
+		if err := g.emitBlockScoped(s.ElseBranch); err != nil {
+			return err
 		}
 	}
 	g.line(fmt.Sprintf("  br label %%%s", mergeLbl))
@@ -927,10 +997,8 @@ func (g *Generator) emitMatch(s *ast.MatchStatement) error {
 		// Wildcard / default
 		if ident, ok := br.Pattern.(*ast.Identifier); ok && ident.Value == "_" {
 			if br.Body != nil {
-				for _, st := range br.Body.Statements {
-					if err := g.emitStatement(st); err != nil {
-						return err
-					}
+				if err := g.emitBlockScoped(br.Body); err != nil {
+					return err
 				}
 			}
 			g.line(fmt.Sprintf("  br label %%%s", mergeLbl))
@@ -974,10 +1042,8 @@ func (g *Generator) emitMatch(s *ast.MatchStatement) error {
 		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", condReg, bodyLbl, nextLbl))
 		g.line(fmt.Sprintf("%s:", bodyLbl))
 		if br.Body != nil {
-			for _, st := range br.Body.Statements {
-				if err := g.emitStatement(st); err != nil {
-					return err
-				}
+			if err := g.emitBlockScoped(br.Body); err != nil {
+				return err
 			}
 		}
 		g.line(fmt.Sprintf("  br label %%%s", mergeLbl))

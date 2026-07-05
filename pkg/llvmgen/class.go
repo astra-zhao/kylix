@@ -226,11 +226,13 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 
 	savedLocals := g.locals
 	savedTypes := g.localTypes
+	savedVarSeq := g.varNameSeq
 	savedFunc := g.funcName
 	savedClass := g.curClassName
 	savedMethod := g.curMethodName
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
+	g.varNameSeq = make(map[string]int)
 	g.funcName = className + "_" + method.Name
 	g.curClassName = className
 	g.curMethodName = method.Name
@@ -294,6 +296,7 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 
 	g.locals = savedLocals
 	g.localTypes = savedTypes
+	g.varNameSeq = savedVarSeq
 	g.funcName = savedFunc
 	g.curClassName = savedClass
 	g.curMethodName = savedMethod

@@ -319,9 +319,11 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 	// Save + reset scope (lambdas have their own local scope).
 	savedLocals := g.locals
 	savedTypes := g.localTypes
+	savedVarSeq := g.varNameSeq
 	savedFuncName := g.funcName
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
+	g.varNameSeq = make(map[string]int)
 	g.funcName = fmt.Sprintf("__lambda_%d", pl.id)
 
 	envT := envTypeLiteral(pl.captures)
@@ -393,6 +395,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 			if err != nil {
 				g.locals = savedLocals
 				g.localTypes = savedTypes
+				g.varNameSeq = savedVarSeq
 				g.funcName = savedFuncName
 				return err
 			}
@@ -408,6 +411,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 				if err := g.emitStatement(st); err != nil {
 					g.locals = savedLocals
 					g.localTypes = savedTypes
+					g.varNameSeq = savedVarSeq
 					g.funcName = savedFuncName
 					return err
 				}
@@ -428,6 +432,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 	// Restore outer scope.
 	g.locals = savedLocals
 	g.localTypes = savedTypes
+	g.varNameSeq = savedVarSeq
 	g.funcName = savedFuncName
 	return nil
 }

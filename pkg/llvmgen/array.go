@@ -38,7 +38,7 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 	if arr.Dynamic {
 		// Dynamic array: { ptr data; i64 len; i64 cap }
 		// For Milestone 2, represent as a stack-allocated struct of 3 words.
-		allocaReg := fmt.Sprintf("%%v_%s_dyn", name)
+		allocaReg := g.freshVarReg(name, "_dyn")
 		g.line(fmt.Sprintf("  %s = alloca { ptr, i64, i64 }, align 8", allocaReg))
 		// Zero-init: data=null, len=0, cap=0
 		g.line(fmt.Sprintf("  store { ptr, i64, i64 } zeroinitializer, ptr %s", allocaReg))
@@ -56,7 +56,7 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 		size = 1 // safety
 	}
 
-	allocaReg := fmt.Sprintf("%%v_%s_arr", name)
+	allocaReg := g.freshVarReg(name, "_arr")
 	g.line(fmt.Sprintf("  %s = alloca [%d x %s], align 8", allocaReg, size, elemType))
 	// Zero-init the whole array
 	g.line(fmt.Sprintf("  store [%d x %s] zeroinitializer, ptr %s", size, elemType, allocaReg))
