@@ -297,10 +297,24 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 			}
 		}
 
-		// Stdlib class inference: datetime module functions return TDateTime
-		if llvmType == "TDateTime" {
-			inferredClass = "TDateTime"
+		// Stdlib opaque-type inference: stdlib module functions may return a
+		// pseudo-type name (TDateTime, TTcpConn, TTcpListener, ...) that is NOT
+		// a real LLVM type. Treat any non-standard type string as an opaque
+		// pointer (ptr) and record the Kylix-side name in localTypes so later
+		// method-style dispatch (if any) can recognize it.
+		isOpaquePtr := false
+		switch llvmType {
+		case "i1", "i64", "double", "ptr", "void", "TDateTime":
+			if llvmType == "TDateTime" {
+				inferredClass = "TDateTime"
+			}
+		default:
+			// Non-standard type name → opaque pointer-backed stdlib handle.
+			isOpaquePtr = true
+			inferredClass = llvmType
+			llvmType = "ptr" // normalize so the switch below picks _str
 		}
+		_ = isOpaquePtr
 
 		// Allocate variables with the inferred type.
 		for _, name := range s.Names {

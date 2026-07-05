@@ -28,7 +28,8 @@ var knownStdlibModules = map[string]bool{
 	"regex":    true,
 	"datetime": true,
 	"encoding": true,
-	// Future: jsonutil, net, crypto, ...
+	"net":      true,
+	// Future: jsonutil, crypto, ...
 }
 
 // stdlibModuleFuncs maps each known stdlib module to the function names it
@@ -53,6 +54,12 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"Base64Encode": true, "Base64Decode": true,
 		"Base64URLEncode": true, "Base64URLDecode": true,
 		"UrlEncode": true, "UrlDecode": true,
+	},
+	"net": {
+		"TcpDial": true, "TcpWrite": true, "TcpRead": true, "TcpClose": true,
+		"TcpListen": true, "TcpAccept": true, "TcpListenerClose": true,
+		"UdpDial": true, "UdpSend": true, "UdpRecv": true, "UdpClose": true,
+		"DnsLookup": true, "DnsLookupCNAME": true,
 	},
 }
 
@@ -106,6 +113,8 @@ func (g *Generator) emitStdlibCall(module, funcName string, args []ast.Expressio
 		return g.emitDatetimeCall(funcName, args)
 	case "encoding":
 		return g.emitEncodingCall(funcName, args)
+	case "net":
+		return g.emitNetCall(funcName, args)
 	default:
 		// Not yet implemented for LLVM — fall back to a stub so IR stays legal.
 		r := g.tmp()
@@ -144,6 +153,8 @@ func (g *Generator) emitPendingStdlib() {
 			g.emitDatetimeBody(sf.name, sf.argCount)
 		case "encoding":
 			g.emitEncodingBody(sf.name)
+		case "net":
+			g.emitNetBody(sf.name)
 		}
 	}
 }

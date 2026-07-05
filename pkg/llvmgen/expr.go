@@ -254,11 +254,22 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 	// String comparison: `=`/`<>`/`<`/`<=`/`>`/`>=` on ptr (string) operands
 	// use strcmp (lexicographic), not icmp (which would compare the pointer
 	// addresses, not the string contents).
-	isStringCmp := lt == "ptr" && rt == "ptr"
+	//
+	// Exception: pointer-vs-nil comparisons (e.g. `if c <> nil`) must use icmp
+	// on the raw pointer value, NOT strcmp — calling strcmp against a null
+	// pointer would dereference it and segfault. Detect nil by AST node type
+	// since by this point the nil literal has already been lowered to a plain
+	// ptr register indistinguishable from a string ptr.
+	isStringCmp := lt == "ptr" && rt == "ptr" && !isNilNode(e.Left) && !isNilNode(e.Right)
 	switch e.Operator {
 	case "=", "<>", "<", "<=", ">", ">=":
 		if isStringCmp {
 			return g.emitStringCompare(e.Operator, lv, rv)
+		}
+		// Pointer-vs-nil (or any ptr-ptr that isn't a string cmp): use icmp
+		// on the raw pointers.
+		if lt == "ptr" && rt == "ptr" {
+			return g.emitPtrCompare(e.Operator, lv, rv)
 		}
 	}
 
@@ -349,6 +360,36 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 		g.line(fmt.Sprintf("  %s = add i64 %s, 0 ; unhandled op %s", r, lv, e.Operator))
 		return r, lt, nil
 	}
+}
+
+// isNilNode reports whether e is a `nil` literal AST node. Used to steer
+// ptr-ptr comparisons away from strcmp (which would dereference null) toward
+// raw pointer icmp.
+func isNilNode(e ast.Expression) bool {
+	_, ok := e.(*ast.NilLiteral)
+	return ok
+}
+
+// emitPtrCompare lowers =/<> on two ptr operands as a raw pointer equality
+// test (icmp eq/ne ptr). Ordering comparisons (<, <=, >, >=) on pointers are
+// also lowered with icmp slt/sle/sgt/sge — well-defined for pointers in LLVM.
+func (g *Generator) emitPtrCompare(op, lv, rv string) (string, string, error) {
+	r := g.tmp()
+	switch op {
+	case "=":
+		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, %s", r, lv, rv))
+	case "<>":
+		g.line(fmt.Sprintf("  %s = icmp ne ptr %s, %s", r, lv, rv))
+	case "<":
+		g.line(fmt.Sprintf("  %s = icmp slt ptr %s, %s", r, lv, rv))
+	case "<=":
+		g.line(fmt.Sprintf("  %s = icmp sle ptr %s, %s", r, lv, rv))
+	case ">":
+		g.line(fmt.Sprintf("  %s = icmp sgt ptr %s, %s", r, lv, rv))
+	case ">=":
+		g.line(fmt.Sprintf("  %s = icmp sge ptr %s, %s", r, lv, rv))
+	}
+	return r, "i1", nil
 }
 
 // emitStringCompare lowers a Pascal comparison operator applied to two String
