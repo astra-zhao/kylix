@@ -80,6 +80,13 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 	if !ok {
 		return "", "", fmt.Errorf("array index target must be an identifier")
 	}
+
+	// Map variable? Route to htab_get (map indexing reuses the hash-table
+	// runtime; see stdlib_map.go).
+	if g.mapVars[leftIdent.Value] {
+		return g.emitMapIndexGet(idx)
+	}
+
 	allocaReg, ok := g.locals[leftIdent.Value]
 	if !ok {
 		return "", "", fmt.Errorf("undefined array variable: %s", leftIdent.Value)

@@ -85,6 +85,11 @@ type Generator struct {
 	// needLibsqlite is set when db module functions are used; the compile
 	// driver checks for db symbols in the IR and adds -lsqlite3 at link.
 	needLibsqlite bool
+
+	// mapVars tracks local variables declared as map[K]V — their alloca
+	// holds a ptr to an @__kylix_htab_* table. Indexing/assignment on these
+	// routes to htab_get/htab_put instead of the array-index path.
+	mapVars map[string]bool
 }
 
 type stringConst struct {
@@ -124,6 +129,7 @@ func NewGenerator(moduleName string) *Generator {
 		closureSigs:       make(map[string]string),
 		closureParams:     make(map[string][]string),
 		stdlibEmitted:     make(map[string]bool),
+		mapVars:           make(map[string]bool),
 	}
 }
 

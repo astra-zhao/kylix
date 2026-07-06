@@ -374,6 +374,11 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 		return nil
 	}
 
+	// Map type: allocate a ptr slot, initialize with htab_new().
+	if mapT, ok := varType.(*ast.MapType); ok {
+		return g.emitMapVarDecl(name, mapT)
+	}
+
 	// Interface-typed local: reserve { vtable, data } pair allocas.
 	if varType != nil {
 		if tname := typeExprName(varType); tname != "" {
@@ -486,6 +491,10 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 
 	// Handle array element assignment: arr[i] := value
 	if idx, ok := s.Name.(*ast.IndexExpression); ok {
+		// Map element assignment: m[k] := v → htab_put
+		if leftIdent, ok := idx.Left.(*ast.Identifier); ok && g.mapVars[leftIdent.Value] {
+			return g.emitMapIndexPut(idx, v, t)
+		}
 		ptrReg, elemType, err := g.emitArrayIndex(idx, true)
 		if err != nil {
 			return err
