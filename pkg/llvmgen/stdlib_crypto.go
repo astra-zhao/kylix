@@ -185,7 +185,7 @@ func (g *Generator) emitCryptoHmacSha256Body() {
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curI, iSlot))
 	done := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp slt i64 %s, 64", done, curI))
-	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", done, exitLbl, bodyLbl))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", done, bodyLbl, exitLbl))
 	g.line(fmt.Sprintf("%s:", bodyLbl))
 	// ipad[i] ^= 0x36
 	ip := g.tmp()
