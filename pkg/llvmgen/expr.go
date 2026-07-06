@@ -219,6 +219,8 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 		llvmT = "double"
 	} else if strings.HasSuffix(allocaReg, "_str") {
 		llvmT = "ptr"
+	} else if strings.HasSuffix(allocaReg, "_map") {
+		llvmT = "ptr"
 	}
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = load %s, ptr %s", r, llvmT, allocaReg))

@@ -32,7 +32,7 @@ var knownStdlibModules = map[string]bool{
 	"cache":    true,
 	"crypto":   true,
 	"db":       true,
-	// Future: jsonutil, ...
+	"jsonutil": true,
 }
 
 // stdlibModuleFuncs maps each known stdlib module to the function names it
@@ -76,6 +76,12 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"db": {
 		"DbOpenSQLite": true, "DbOpen": true, "DbClose": true,
 		"DbExec": true, "DbQueryScalar": true, "DbQueryRows": true,
+	},
+	"jsonutil": {
+		"JsonIsValid": true, "JsonDecodeMap": true, "JsonDecode": true,
+		"JsonGetString": true, "JsonGetInt": true, "JsonGetFloat": true,
+		"JsonGetBool": true, "JsonGetMap": true, "JsonGetArray": true,
+		"JsonHasKey": true,
 	},
 }
 
@@ -137,6 +143,8 @@ func (g *Generator) emitStdlibCall(module, funcName string, args []ast.Expressio
 		return g.emitCryptoCall(funcName, args)
 	case "db":
 		return g.emitDbCall(funcName, args)
+	case "jsonutil":
+		return g.emitJsonutilCall(funcName, args)
 	default:
 		// Not yet implemented for LLVM — fall back to a stub so IR stays legal.
 		r := g.tmp()
@@ -183,6 +191,8 @@ func (g *Generator) emitPendingStdlib() {
 			g.emitCryptoBody(sf.name)
 		case "db":
 			g.emitDbBody(sf.name)
+		case "jsonutil":
+			g.emitJsonutilBody(sf.name)
 		}
 	}
 	// hexbytes helper is shared by all crypto hash functions; emit once if

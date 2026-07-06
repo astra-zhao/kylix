@@ -554,6 +554,8 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		actualType = "double"
 	} else if strings.HasSuffix(allocaReg, "_str") {
 		actualType = "ptr"
+	} else if strings.HasSuffix(allocaReg, "_map") {
+		actualType = "ptr"
 	} else if allocaReg == "%result" && t != "" {
 		actualType = t
 	} else if kylixT, ok := g.localTypes[varName]; ok {
