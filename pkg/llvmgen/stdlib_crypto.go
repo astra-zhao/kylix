@@ -274,7 +274,7 @@ func (g *Generator) emitCryptoHexbytesBody() {
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curI, iSlot))
 	done := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp slt i64 %s, %%n", done, curI))
-	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", done, exitLbl, bodyLbl))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", done, bodyLbl, exitLbl))
 	g.line(fmt.Sprintf("%s:", bodyLbl))
 	bp := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%bytes, i64 %s", bp, curI))
