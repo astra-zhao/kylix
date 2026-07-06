@@ -31,6 +31,7 @@ var knownStdlibModules = map[string]bool{
 	"net":      true,
 	"cache":    true,
 	"crypto":   true,
+	"db":       true,
 	// Future: jsonutil, ...
 }
 
@@ -71,6 +72,10 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"AesEncrypt": true, "AesDecrypt": true,
 		"BCryptHash": true, "BCryptCompare": true,
 		"Sha512": true,
+	},
+	"db": {
+		"DbOpenSQLite": true, "DbOpen": true, "DbClose": true,
+		"DbExec": true, "DbQueryScalar": true, "DbQueryRows": true,
 	},
 }
 
@@ -130,6 +135,8 @@ func (g *Generator) emitStdlibCall(module, funcName string, args []ast.Expressio
 		return g.emitCacheCall(funcName, args)
 	case "crypto":
 		return g.emitCryptoCall(funcName, args)
+	case "db":
+		return g.emitDbCall(funcName, args)
 	default:
 		// Not yet implemented for LLVM — fall back to a stub so IR stays legal.
 		r := g.tmp()
@@ -174,6 +181,8 @@ func (g *Generator) emitPendingStdlib() {
 			g.emitCacheBody(sf.name)
 		case "crypto":
 			g.emitCryptoBody(sf.name)
+		case "db":
+			g.emitDbBody(sf.name)
 		}
 	}
 	// hexbytes helper is shared by all crypto hash functions; emit once if

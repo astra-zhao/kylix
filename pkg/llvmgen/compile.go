@@ -183,6 +183,20 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 			}
 		}
 	}
+	// SQLite (db stdlib) — same pattern.
+	if strings.Contains(ir, "@__kylix_db_") || strings.Contains(ir, "@sqlite3_") {
+		clangArgs = append(clangArgs, "-lsqlite3")
+		for _, dir := range []string{
+			"/opt/homebrew/opt/sqlite/lib", // Homebrew ARM
+			"/usr/local/opt/sqlite/lib",    // Homebrew x86
+		} {
+			if _, err := os.Stat(dir); err == nil {
+				clangArgs = append(clangArgs, "-L"+dir)
+				clangArgs = append(clangArgs, "-Wl,-rpath,"+dir)
+				break
+			}
+		}
+	}
 	clangCmd := exec.Command(llvmPaths.Clang, clangArgs...)
 	if out, err := clangCmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("clang link failed: %w\n%s", err, out)

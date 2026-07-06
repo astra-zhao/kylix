@@ -81,6 +81,10 @@ type Generator struct {
 	// needLibcrypto is set when crypto module functions are used; the compile
 	// driver checks for crypto symbols in the IR and adds -lcrypto at link.
 	needLibcrypto bool
+
+	// needLibsqlite is set when db module functions are used; the compile
+	// driver checks for db symbols in the IR and adds -lsqlite3 at link.
+	needLibsqlite bool
 }
 
 type stringConst struct {
@@ -263,6 +267,15 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare ptr @SHA256(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @MD5(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @strncpy(ptr noundef, ptr noundef, i64 noundef)")
+	g.line("; ===== SQLite (used by stdlib db) =====")
+	g.line("declare i32 @sqlite3_open(ptr noundef, ptr noundef)")
+	g.line("declare i32 @sqlite3_close(ptr noundef)")
+	g.line("declare i32 @sqlite3_prepare_v2(ptr noundef, ptr noundef, i32 noundef, ptr noundef, ptr noundef)")
+	g.line("declare i32 @sqlite3_bind_text(ptr noundef, i32 noundef, ptr noundef, i32 noundef, i64 noundef)")
+	g.line("declare i32 @sqlite3_bind_int64(ptr noundef, i32 noundef, i64 noundef)")
+	g.line("declare i32 @sqlite3_step(ptr noundef)")
+	g.line("declare ptr @sqlite3_column_text(ptr noundef, i32 noundef)")
+	g.line("declare i32 @sqlite3_finalize(ptr noundef)")
 	g.line("; ===== POSIX regex (used by stdlib regex) =====")
 	g.line("declare i32 @regcomp(ptr noundef, ptr noundef, i32 noundef)")
 	g.line("declare i32 @regexec(ptr noundef, ptr noundef, i64 noundef, ptr, i32 noundef)")
