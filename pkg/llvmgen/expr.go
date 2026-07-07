@@ -728,6 +728,13 @@ func (g *Generator) emitMember(e *ast.MemberExpression) (string, string, error) 
 	}
 
 	kind, typeName := g.receiverKind(e.Object)
+
+	// THttpClient (stdlib stub): field access (e.g. c.BaseURL) returns empty string.
+	if typeName == "THttpClient" {
+		emptyStr := g.addString("")
+		return g.ptrTo(emptyStr, 1), "ptr", nil
+	}
+
 	if kind != "class" {
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; member access on non-class %s.%s", r, typeName, e.Member))
@@ -737,8 +744,26 @@ func (g *Generator) emitMember(e *ast.MemberExpression) (string, string, error) 
 	if err != nil {
 		return "", "", err
 	}
+	reg, llvmT, err := g.emitFieldAccess(typeName, objReg, e.Member)
+	if err != nil {
+		return "", "", err
+	}
+	// If the field is a class-typed field, return the Kylix class name so
+	// downstream method dispatch (obj.Method()) can resolve the receiver class.
+	if llvmT == "ptr" {
+		if classInfo, ok := g.classes[typeName]; ok {
+			for _, f := range classInfo.Fields {
+				if f.Name == e.Member && f.KylixType != "" {
+					if _, isClass := g.classes[f.KylixType]; isClass {
+						return reg, f.KylixType, nil
+					}
+					break
+				}
+			}
+		}
+	}
 	_ = objType
-	return g.emitFieldAccess(typeName, objReg, e.Member)
+	return reg, llvmT, nil
 }
 
 // loadObjectPtr loads the underlying object pointer for a receiver expression.
@@ -825,10 +850,18 @@ func (g *Generator) emitMethodCall(member *ast.MemberExpression, args []ast.Expr
 		}
 		return g.emitCacheMethodCall(objReg, member.Member, args)
 	}
+	if typeName == "THttpClient" {
+		objReg, _, err := g.emitExpr(member.Object)
+		if err != nil {
+			return "", "", err
+		}
+		return g.emitHttpclientMethodCall(objReg, member.Member, args)
+	}
 
 	if kind == "" {
 		// Unknown receiver type — evaluate it to check if it's a stdlib
-		// opaque-handle type (TDateTime via chained call, TCache, ...).
+		// opaque-handle type (TDateTime via chained call, TCache, ...) or
+		// a class-typed field access (e.g. self.Repo where Repo: TUserRepository).
 		objReg, objType, err := g.emitExpr(member.Object)
 		if err != nil {
 			return "", "", err
@@ -838,6 +871,23 @@ func (g *Generator) emitMethodCall(member *ast.MemberExpression, args []ast.Expr
 			return g.emitDatetimeMethodCall(objReg, member.Member, args)
 		case "TCache":
 			return g.emitCacheMethodCall(objReg, member.Member, args)
+		case "THttpClient":
+			return g.emitHttpclientMethodCall(objReg, member.Member, args)
+		}
+		// If objType is a known class name (field access returned the Kylix
+		// class type), dispatch via emitVirtualCall directly.
+		if _, isClass := g.classes[objType]; isClass {
+			argRegs := make([]string, 0, len(args))
+			argTypes := make([]string, 0, len(args))
+			for _, a := range args {
+				r, t, err := g.emitExpr(a)
+				if err != nil {
+					return "", "", err
+				}
+				argRegs = append(argRegs, r)
+				argTypes = append(argTypes, t)
+			}
+			return g.emitVirtualCall(objType, objReg, member.Member, argRegs, argTypes)
 		}
 		// Not a known stdlib handle, fall through to unsupported receiver
 	}

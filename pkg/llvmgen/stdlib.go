@@ -24,15 +24,18 @@ import (
 // implementation for. A `module.Func()` call is dispatched here only when the
 // module is in this set AND was imported via `uses`.
 var knownStdlibModules = map[string]bool{
-	"sysutil":  true,
-	"regex":    true,
-	"datetime": true,
-	"encoding": true,
-	"net":      true,
-	"cache":    true,
-	"crypto":   true,
-	"db":       true,
-	"jsonutil": true,
+	"sysutil":    true,
+	"regex":      true,
+	"datetime":   true,
+	"encoding":   true,
+	"net":        true,
+	"cache":      true,
+	"crypto":     true,
+	"db":         true,
+	"jsonutil":   true,
+	"boot":       true,
+	"httpclient": true,
+	"jwt":        true,
 }
 
 // stdlibModuleFuncs maps each known stdlib module to the function names it
@@ -82,6 +85,18 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"JsonGetString": true, "JsonGetInt": true, "JsonGetFloat": true,
 		"JsonGetBool": true, "JsonGetMap": true, "JsonGetArray": true,
 		"JsonHasKey": true,
+	},
+	"boot": {
+		"BootText": true, "BootJSON": true, "BootRegisterJwtAuth": true,
+	},
+	"httpclient": {
+		"NewHttpClient": true, "HttpGet": true, "HttpPost": true,
+		"HttpPut": true, "HttpDelete": true,
+		"HttpGetJSON": true, "HttpPostJSON": true,
+		"HttpDoGet": true, "HttpDoPost": true,
+	},
+	"jwt": {
+		"JwtSign": true, "JwtVerify": true, "JwtSubject": true,
 	},
 }
 
@@ -145,6 +160,12 @@ func (g *Generator) emitStdlibCall(module, funcName string, args []ast.Expressio
 		return g.emitDbCall(funcName, args)
 	case "jsonutil":
 		return g.emitJsonutilCall(funcName, args)
+	case "boot":
+		return g.emitBootCall(funcName, args)
+	case "httpclient":
+		return g.emitHttpclientCall(funcName, args)
+	case "jwt":
+		return g.emitJwtCall(funcName, args)
 	default:
 		// Not yet implemented for LLVM — fall back to a stub so IR stays legal.
 		r := g.tmp()
@@ -193,6 +214,12 @@ func (g *Generator) emitPendingStdlib() {
 			g.emitDbBody(sf.name)
 		case "jsonutil":
 			g.emitJsonutilBody(sf.name)
+		case "boot":
+			g.emitBootBody(sf.name)
+		case "httpclient":
+			g.emitHttpclientBody(sf.name)
+		case "jwt":
+			g.emitJwtBody(sf.name)
 		}
 	}
 	// hexbytes helper is shared by all crypto hash functions; emit once if
