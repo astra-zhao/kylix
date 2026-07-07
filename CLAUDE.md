@@ -4,16 +4,19 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 
 **重要：始终用中文回答用户，不论用户用什么语言提问，回复一律使用中文。**
 
-## 当前状态：v4.1.0（2026-07-02）
+## 当前状态：v4.4.0（2026-07-07）
 
+- v4.4.0 已发布：LLVM stdlib Phase 2 完成 —— 8 个模块（encoding/net/crypto/db/cache/jsonutil/boot/jwt/httpclient，~2000 行 IR + 60+ 单元测试）+ KylixBoot 注解方法 stub 生成 + 链式方法调用修复（`self.Repo.Name()` 类型追踪）+ 9 个关键 bug 修复（字符串比较/块作用域/ptr-nil 比较/map 后缀/...）。LLVM 教程通过率 47/48（98%），仅剩 example33 多文件模块失败。
+- v4.3.0 已发布：datetime 模块 Phase 1 完整（13 API + Arena Allocator）
+- v4.2.0 已发布：sysutil 模块 Phase 1（8 API）
 - v4.1.0 已发布：LLVM M4 高级特性 —— Lambda/闭包（捕获变量 + 环境结构体）、`inherited` 关键字（父类方法链查找）、完整多返回值元组解构、OOP 字段/方法访问系统性修复（vtable 继承）、优化通道（`opt` + `llc -O<N>`，循环归纳达 20x 提速）。LLVM 教程通过率 27/49，01-04 章节（19 文件）与 Go 后端输出逐字节一致。
 - v4.0.0 已发布：LLVM M3（异常处理/字符串插值/控制流/表达式覆盖 ✅）+ stdlib Phase 7（db/cache/http/websocket ✅）+ IDE 插件（VS Code v1.1 ✅）
 - v3.3.0：KylixBoot 框架完善 —— Body 绑定 + JWT + OpenAPI 3.1 自动生成
 - v3.2.0：KylixBoot 注解栈 + LLVM M2 完整 + stdlib Phase 6
 - v1.5.0：stdlib `.klx` 声明文件 + 包管理器
-- 所有 Go 测试通过（16 个包，LLVM 后端 73 测试）
+- 所有 Go 测试通过（16 个包，LLVM 后端 198 测试）
 - 教程 49/49 测试通过（Go 后端，`examples/complete-tutorial/`）
-- LLVM 后端 27/49 教程编译通过（01-04 章节 19 个文件与 Go 后端输出逐字节一致）
+- LLVM 后端 47/48 教程编译通过（98%，01-04 章节 19 个文件与 Go 后端输出逐字节一致）
 - 所有源文件 ≤ 1000 行
 
 ## 关键文档

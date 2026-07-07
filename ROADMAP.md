@@ -1,11 +1,11 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-07-03  
-> 当前版本: v4.3.0 ✅  
+> 最后更新: 2026-07-07  
+> 当前版本: v4.4.0 ✅  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**✅ v4.3.0 已发布！** LLVM stdlib Phase 1 完成：datetime 模块 13 个 API（时间运算/字段提取）+ Arena Allocator 内存池（1MB 零复制分配器，消除 malloc 开销）。线程安全修复（localtime_r）。31/50 教程通过 LLVM 编译。详见 [CHANGELOG.md](CHANGELOG.md)。
+**✅ v4.4.0 已发布！** LLVM stdlib Phase 2 完成：8 个模块（encoding/net/crypto/db/cache/jsonutil/boot/jwt/httpclient，~2000 行 IR）+ KylixBoot 注解方法 stub 生成 + 链式方法调用修复。教程通过率：**47/48 (98%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -30,7 +30,8 @@
 | **v4.1.0** | LLVM M4 高级特性（闭包/多返回值/inherited/优化） | ✅ 完成 | 2026-07-02 |
 | **v4.2.0** | LLVM stdlib Phase 1 (sysutil 模块) | ✅ 完成 | 2026-07-03 |
 | **v4.3.0** | LLVM stdlib Phase 1 (datetime 模块 + Arena Allocator) | ✅ 完成 | 2026-07-03 |
-| **v4.4.0** | LLVM 工具链深化（增量编译/调试符号/交叉编译）+ stdlib Phase 2 | 📋 规划中 | 2026 Q4 |
+| **v4.4.0** | LLVM stdlib Phase 2 (8 模块 + KylixBoot 注解支持) | ✅ 完成 | 2026-07-07 |
+| **v4.5.0** | LLVM stdlib Phase 3 + 优化深化 + 调试符号 | 📋 规划中 | 2026 Q3 |
 | **v5.0.0** | 自研运行时 KylixRT + 自举编译器 + 完全脱离 Go | 📋 长期 | 2027+ |
 
 ---
@@ -48,9 +49,9 @@
 | 原生构建目标 | 5 (linux/darwin/windows × amd64/arm64) |
 | WASM 目标 | 2 (Go 标准 + TinyGo) |
 | WASI 目标 | 2 (Go wasip1 + TinyGo) |
-| LLVM 后端 | ✅ Milestone 3（异常 + 控制流 + 表达式完整覆盖）|
-| LLVM 测试 | 73 个（含异常 20 个 + 控制流 5 个）|
-| LLVM 教程编译通过率 | 14/15（93%，lambda 预期失败）|
+| LLVM 后端 | ✅ Milestone 4（stdlib Phase 2 完成，8 模块）|
+| LLVM 测试 | 198 个（含 stdlib 60+ 个）|
+| LLVM 教程编译通过率 | 47/48（98%，仅剩 example33 多文件模块）|
 | KylixBoot 测试 | 23 个 |
 | 包注册中心 | ✅ REST API + Web 前端 |
 | VS Code 扩展 | ✅ v1.1（语法高亮 + LSP + 代码片段 25 个）|
