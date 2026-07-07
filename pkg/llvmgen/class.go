@@ -59,7 +59,7 @@ func (g *Generator) emitClassDecl(decl *ast.ClassDecl) error {
 
 	// Emit method functions
 	for _, method := range decl.Methods {
-		if method.IsExternal || method.Body == nil {
+		if method.IsExternal {
 			continue
 		}
 		if err := g.emitMethod(decl.Name, method); err != nil {
