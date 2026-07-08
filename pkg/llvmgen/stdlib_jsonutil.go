@@ -29,12 +29,20 @@ func (g *Generator) emitJsonutilCall(funcName string, args []ast.Expression) (st
 		return g.emitJsonIsValidCall(args)
 	case "JsonDecodeMap":
 		return g.emitJsonDecodeMapCall(args)
+	case "JsonDecode":
+		return g.emitJsonDecodeCall(args)
 	case "JsonGetString":
 		return g.emitJsonGetStringCall(args)
 	case "JsonGetInt":
 		return g.emitJsonGetIntCall(args)
+	case "JsonGetFloat":
+		return g.emitJsonGetFloatCall(args)
 	case "JsonGetBool":
 		return g.emitJsonGetBoolCall(args)
+	case "JsonGetMap":
+		return g.emitJsonGetMapCall(args)
+	case "JsonGetArray":
+		return g.emitJsonGetArrayCall(args)
 	case "JsonHasKey":
 		return g.emitJsonHasKeyCall(args)
 	default:
@@ -51,12 +59,20 @@ func (g *Generator) emitJsonutilBody(funcName string) {
 		g.emitJsonIsValidBody()
 	case "JsonDecodeMap":
 		g.emitJsonDecodeMapBody()
+	case "JsonDecode":
+		g.emitJsonDecodeBody()
 	case "JsonGetString":
 		g.emitJsonGetStringBody()
 	case "JsonGetInt":
 		g.emitJsonGetIntBody()
+	case "JsonGetFloat":
+		g.emitJsonGetFloatBody()
 	case "JsonGetBool":
 		g.emitJsonGetBoolBody()
+	case "JsonGetMap":
+		g.emitJsonGetMapBody()
+	case "JsonGetArray":
+		g.emitJsonGetArrayBody()
 	case "JsonHasKey":
 		g.emitJsonHasKeyBody()
 	}
@@ -157,15 +173,39 @@ func (g *Generator) emitJsonDecodeMapCall(args []ast.Expression) (string, string
 }
 
 func (g *Generator) emitJsonDecodeMapBody() {
-	// For now, return an empty htab (parsing is deferred). This keeps
-	// example37 compilable; JsonGetString/GetInt/GetBool will return
-	// defaults (""/0/false) from the empty table, so the tutorial's
-	// output won't match Go exactly but won't crash.
-	// TODO: implement flat-object parser.
+	// Emit parser helpers (guarded — once per module).
+	g.emitJsonParserBodies()
 	g.line("define ptr @__kylix_json_JsonDecodeMap(ptr %s) {")
 	g.line("entry:")
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_new()", r))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_parse_flat(ptr %%s)", r))
+	g.line(fmt.Sprintf("  ret ptr %s", r))
+	g.line("}")
+	g.line("")
+}
+
+// ---- JsonDecode: ptr @__kylix_json_JsonDecode(ptr %s) ----
+// Alias of JsonDecodeMap for top-level objects (returns htab ptr).
+func (g *Generator) emitJsonDecodeCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("jsonutil.JsonDecode expects 1 argument, got %d", len(args))
+	}
+	sReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("jsonutil", "JsonDecode", "JsonDecode", 0)
+	g.needHashtab = true
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_JsonDecode(ptr %s)", r, sReg))
+	return r, "ptr", nil
+}
+
+func (g *Generator) emitJsonDecodeBody() {
+	g.line("define ptr @__kylix_json_JsonDecode(ptr %s) {")
+	g.line("entry:")
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_parse_flat(ptr %%s)", r))
 	g.line(fmt.Sprintf("  ret ptr %s", r))
 	g.line("}")
 	g.line("")
@@ -295,6 +335,98 @@ func (g *Generator) emitJsonHasKeyBody() {
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i1 @__kylix_htab_has(ptr %%m, ptr %%k)", r))
 	g.line(fmt.Sprintf("  ret i1 %s", r))
+	g.line("}")
+	g.line("")
+}
+
+// ---- JsonGetFloat: double @__kylix_json_JsonGetFloat(ptr %m, ptr %k) ----
+func (g *Generator) emitJsonGetFloatCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("jsonutil.JsonGetFloat expects 2 arguments, got %d", len(args))
+	}
+	mReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	kReg, _, err := g.emitExpr(args[1])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("jsonutil", "JsonGetFloat", "JsonGetFloat", 0)
+	g.needHashtab = true
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call double @__kylix_json_JsonGetFloat(ptr %s, ptr %s)", r, mReg, kReg))
+	return r, "double", nil
+}
+
+func (g *Generator) emitJsonGetFloatBody() {
+	g.line("define double @__kylix_json_JsonGetFloat(ptr %m, ptr %k) {")
+	g.line("entry:")
+	s := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %%m, ptr %%k)", s))
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call double @strtod(ptr %s, ptr null)", r, s))
+	g.line(fmt.Sprintf("  ret double %s", r))
+	g.line("}")
+	g.line("")
+}
+
+// ---- JsonGetMap: ptr @__kylix_json_JsonGetMap(ptr %m, ptr %k) ----
+// Nested-object support is not implemented in the flat parser (nested values
+// are stored as their raw JSON substring). Returns null so callers can detect
+// the absence of a parsed sub-map.
+func (g *Generator) emitJsonGetMapCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("jsonutil.JsonGetMap expects 2 arguments, got %d", len(args))
+	}
+	mReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	kReg, _, err := g.emitExpr(args[1])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("jsonutil", "JsonGetMap", "JsonGetMap", 0)
+	g.needHashtab = true
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_JsonGetMap(ptr %s, ptr %s)", r, mReg, kReg))
+	return r, "ptr", nil
+}
+
+func (g *Generator) emitJsonGetMapBody() {
+	g.line("define ptr @__kylix_json_JsonGetMap(ptr %m, ptr %k) {")
+	g.line("entry:")
+	g.line("  ret ptr null")
+	g.line("}")
+	g.line("")
+}
+
+// ---- JsonGetArray: ptr @__kylix_json_JsonGetArray(ptr %m, ptr %k) ----
+// Nested-array support not implemented (see JsonGetMap). Returns null.
+func (g *Generator) emitJsonGetArrayCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("jsonutil.JsonGetArray expects 2 arguments, got %d", len(args))
+	}
+	mReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	kReg, _, err := g.emitExpr(args[1])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("jsonutil", "JsonGetArray", "JsonGetArray", 0)
+	g.needHashtab = true
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_JsonGetArray(ptr %s, ptr %s)", r, mReg, kReg))
+	return r, "ptr", nil
+}
+
+func (g *Generator) emitJsonGetArrayBody() {
+	g.line("define ptr @__kylix_json_JsonGetArray(ptr %m, ptr %k) {")
+	g.line("entry:")
+	g.line("  ret ptr null")
 	g.line("}")
 	g.line("")
 }

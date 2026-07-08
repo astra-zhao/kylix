@@ -16,30 +16,30 @@ import (
 
 // Generator holds all state for LLVM IR generation.
 type Generator struct {
-	b          strings.Builder // output IR buffer
-	module     string          // LLVM module name
-	tmpCount   int             // SSA register counter (%t0, %t1, …)
-	labelCount int             // basic block label counter
-	locals           map[string]string         // var name → alloca register (%v_name)
-	constants        map[string]ast.Expression // const name → value expression (literal)
+	b                strings.Builder              // output IR buffer
+	module           string                       // LLVM module name
+	tmpCount         int                          // SSA register counter (%t0, %t1, …)
+	labelCount       int                          // basic block label counter
+	locals           map[string]string            // var name → alloca register (%v_name)
+	constants        map[string]ast.Expression    // const name → value expression (literal)
 	funcSigs         map[string]*ast.FunctionDecl // function name → declaration (param/return types)
-	multiRetTypes    map[string][]string       // function name → LLVM types for multi-return (nil for single/void)
-	classes          map[string]*ClassInfo     // class name → compiled class metadata
-	interfaces       map[string]*InterfaceInfo // interface name → metadata
-	genericTemplates map[string]*ast.ClassDecl // base name → generic class template
-	instantiations   map[string]bool           // mangled name → already specialized
-	localTypes       map[string]string         // var name → Kylix type name (class/interface)
-	arrayInfo        map[string]*arrayInfo     // var name → array metadata
-	varNameSeq       map[string]int            // Kylix var name → count of allocas emitted so far
-	program          *ast.Program              // current AST root (for cross-pass access)
-	funcName         string                    // current function being generated
-	strings          []stringConst             // string constants (emitted at module level)
+	multiRetTypes    map[string][]string          // function name → LLVM types for multi-return (nil for single/void)
+	classes          map[string]*ClassInfo        // class name → compiled class metadata
+	interfaces       map[string]*InterfaceInfo    // interface name → metadata
+	genericTemplates map[string]*ast.ClassDecl    // base name → generic class template
+	instantiations   map[string]bool              // mangled name → already specialized
+	localTypes       map[string]string            // var name → Kylix type name (class/interface)
+	arrayInfo        map[string]*arrayInfo        // var name → array metadata
+	varNameSeq       map[string]int               // Kylix var name → count of allocas emitted so far
+	program          *ast.Program                 // current AST root (for cross-pass access)
+	funcName         string                       // current function being generated
+	strings          []stringConst                // string constants (emitted at module level)
 
 	// Exception handling (M3): global exception slot + setjmp/longjmp.
-	exceptionTypeIDs    map[string]int // exception class name → runtime type ID (Exception=1)
-	nextExcTypeID       int            // next ID to assign (starts at 2; 1 reserved for Exception)
-	inExceptHandler     bool           // true while emitting an except/on handler body (bare raise)
-	exceptionInjected   bool           // guards against double-injecting the Exception class
+	exceptionTypeIDs  map[string]int // exception class name → runtime type ID (Exception=1)
+	nextExcTypeID     int            // next ID to assign (starts at 2; 1 reserved for Exception)
+	inExceptHandler   bool           // true while emitting an except/on handler body (bare raise)
+	exceptionInjected bool           // guards against double-injecting the Exception class
 
 	// Loop control: break/continue targets for the innermost loop.
 	breakLabel    string // label to jump to on 'break'
@@ -47,11 +47,11 @@ type Generator struct {
 
 	// Lambda/closure support (M4): lambdas are lowered to named functions with
 	// an environment struct. lambdaQueue collects bodies to emit at module end.
-	lambdaCount   int                    // next lambda id (@__lambda_0, _1, ...)
-	lambdaQueue   []pendingLambda        // deferred lambda function bodies
-	closureLocals map[string]bool        // local var names holding a closure value
-	closureSigs   map[string]string      // closure local var name → LLVM return type
-	closureParams map[string][]string    // closure local var name → LLVM param types
+	lambdaCount   int                 // next lambda id (@__lambda_0, _1, ...)
+	lambdaQueue   []pendingLambda     // deferred lambda function bodies
+	closureLocals map[string]bool     // local var names holding a closure value
+	closureSigs   map[string]string   // closure local var name → LLVM return type
+	closureParams map[string][]string // closure local var name → LLVM param types
 
 	// inherited: tracks the method currently being generated so `inherited`
 	// can resolve the parent-class method to call.
@@ -72,6 +72,21 @@ type Generator struct {
 	// hashtabEmitted guards the @__kylix_htab_* runtime helpers (emitted once
 	// per module, on first cache/map use).
 	hashtabEmitted bool
+
+	// jsonParserEmitted guards the @__kylix_json_parse_* helper defines
+	// (emitted once per module, on first JsonDecodeMap use).
+	jsonParserEmitted bool
+
+	// debugInfo (v4.5.0 Phase C): when true, emit DWARF metadata so LLDB/GDB
+	// can resolve function names + source files. dbg holds the collector
+	// (nil when debugInfo is off).
+	debugInfo bool
+	dbg       *dbgMeta
+
+	// strDedup (v4.5.0 Phase C) deduplicates string constants by content —
+	// two addString("hello") calls return the same @.str.N register instead
+	// of emitting two identical globals. Reduces IR size and binary rodata.
+	strDedup map[string]string
 
 	// needHashtab is set when any stdlib module (cache, future map) references
 	// the hash-table runtime. emitProgram checks it at module end and emits
@@ -111,33 +126,47 @@ type stdlibFunc struct {
 // NewGenerator creates a new LLVM IR generator.
 func NewGenerator(moduleName string) *Generator {
 	return &Generator{
-		module:            moduleName,
-		locals:            make(map[string]string),
-		constants:         make(map[string]ast.Expression),
-		funcSigs:          make(map[string]*ast.FunctionDecl),
-		multiRetTypes:     make(map[string][]string),
-		classes:           make(map[string]*ClassInfo),
-		interfaces:        make(map[string]*InterfaceInfo),
-		genericTemplates:  make(map[string]*ast.ClassDecl),
-		instantiations:    make(map[string]bool),
-		localTypes:        make(map[string]string),
-		arrayInfo:         make(map[string]*arrayInfo),
-		varNameSeq:        make(map[string]int),
-		exceptionTypeIDs:  make(map[string]int),
-		nextExcTypeID:     2, // 1 reserved for Exception itself
-		closureLocals:     make(map[string]bool),
-		closureSigs:       make(map[string]string),
-		closureParams:     make(map[string][]string),
-		stdlibEmitted:     make(map[string]bool),
-		mapVars:           make(map[string]bool),
+		module:           moduleName,
+		locals:           make(map[string]string),
+		constants:        make(map[string]ast.Expression),
+		funcSigs:         make(map[string]*ast.FunctionDecl),
+		multiRetTypes:    make(map[string][]string),
+		classes:          make(map[string]*ClassInfo),
+		interfaces:       make(map[string]*InterfaceInfo),
+		genericTemplates: make(map[string]*ast.ClassDecl),
+		instantiations:   make(map[string]bool),
+		localTypes:       make(map[string]string),
+		arrayInfo:        make(map[string]*arrayInfo),
+		varNameSeq:       make(map[string]int),
+		exceptionTypeIDs: make(map[string]int),
+		nextExcTypeID:    2, // 1 reserved for Exception itself
+		closureLocals:    make(map[string]bool),
+		closureSigs:      make(map[string]string),
+		closureParams:    make(map[string][]string),
+		stdlibEmitted:    make(map[string]bool),
+		mapVars:          make(map[string]bool),
+		strDedup:         make(map[string]string),
 	}
 }
 
 // Generate translates a Kylix AST program to LLVM IR text.
 func Generate(prog *ast.Program) (string, error) {
+	return GenerateWithOpts(prog, "", CompileOpts{})
+}
+
+// GenerateWithOpts translates a Kylix AST to LLVM IR with codegen options.
+// srcFile is the source path (used for DWARF DIFile when DebugInfo is on).
+func GenerateWithOpts(prog *ast.Program, srcFile string, opts CompileOpts) (string, error) {
 	g := NewGenerator(prog.Name)
+	g.debugInfo = opts.DebugInfo
+	if g.debugInfo {
+		g.initDbgMeta(srcFile)
+	}
 	if err := g.emitProgram(prog); err != nil {
 		return "", err
+	}
+	if g.debugInfo {
+		g.emitDbgMetadata()
 	}
 	return g.b.String(), nil
 }
@@ -245,6 +274,7 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare ptr @memcpy(ptr noundef, ptr noundef, i64 noundef)")
 	g.line("declare i64 @atoll(ptr noundef)")
 	g.line("declare i32 @snprintf(ptr noundef, i64 noundef, ptr noundef, ...)")
+	g.line("declare double @strtod(ptr noundef, ptr noundef)")
 	g.line("; ===== Exception handling runtime (setjmp/longjmp) =====")
 	g.line("declare i32 @setjmp(ptr)")
 	g.line("declare void @longjmp(ptr, i32)")
@@ -273,6 +303,21 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare ptr @SHA256(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @MD5(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @strncpy(ptr noundef, ptr noundef, i64 noundef)")
+	g.line("; EVP_CIPHER API for AES-256-CBC (v4.5.0 stdlib Phase 3)")
+	g.line("declare ptr @EVP_CIPHER_CTX_new()")
+	g.line("declare void @EVP_CIPHER_CTX_free(ptr noundef)")
+	g.line("declare ptr @EVP_aes_256_cbc()")
+	g.line("declare i32 @EVP_EncryptInit_ex(ptr noundef, ptr noundef, ptr noundef, ptr noundef, ptr noundef)")
+	g.line("declare i32 @EVP_EncryptUpdate(ptr noundef, ptr noundef, ptr noundef, ptr noundef, i32 noundef)")
+	g.line("declare i32 @EVP_EncryptFinal_ex(ptr noundef, ptr noundef, ptr noundef)")
+	g.line("declare i32 @EVP_DecryptInit_ex(ptr noundef, ptr noundef, ptr noundef, ptr noundef, ptr noundef)")
+	g.line("declare i32 @EVP_DecryptUpdate(ptr noundef, ptr noundef, ptr noundef, ptr noundef, i32 noundef)")
+	g.line("declare i32 @EVP_DecryptFinal_ex(ptr noundef, ptr noundef, ptr noundef)")
+	g.line("declare i32 @EVP_CIPHER_CTX_block_size(ptr noundef)")
+	g.line("declare i32 @RAND_bytes(ptr noundef, i32 noundef)")
+	g.line("declare ptr @EVP_sha256()")
+	g.line("declare i32 @PKCS5_PBKDF2_HMAC(ptr noundef, i32 noundef, ptr noundef, i32 noundef, i64 noundef, ptr noundef, i32 noundef, ptr noundef)")
+	g.line("declare i32 @sscanf(ptr noundef, ptr noundef, ...)")
 	g.line("; ===== SQLite (used by stdlib db) =====")
 	g.line("declare i32 @sqlite3_open(ptr noundef, ptr noundef)")
 	g.line("declare i32 @sqlite3_close(ptr noundef)")
@@ -282,6 +327,13 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i32 @sqlite3_step(ptr noundef)")
 	g.line("declare ptr @sqlite3_column_text(ptr noundef, i32 noundef)")
 	g.line("declare i32 @sqlite3_finalize(ptr noundef)")
+	g.line("; ===== libcurl (used by stdlib httpclient, v4.5.0 Phase 3) =====")
+	g.line("declare ptr @curl_easy_init()")
+	g.line("declare i32 @curl_easy_setopt(ptr noundef, i32 noundef, ...)")
+	g.line("declare i32 @curl_easy_perform(ptr noundef)")
+	g.line("declare void @curl_easy_cleanup(ptr noundef)")
+	g.line("declare ptr @curl_slist_append(ptr noundef, ptr noundef)")
+	g.line("declare void @curl_slist_free_all(ptr noundef)")
 	g.line("; ===== POSIX regex (used by stdlib regex) =====")
 	g.line("declare i32 @regcomp(ptr noundef, ptr noundef, i32 noundef)")
 	g.line("declare i32 @regexec(ptr noundef, ptr noundef, i64 noundef, ptr, i32 noundef)")
@@ -304,7 +356,16 @@ func (g *Generator) emitRuntimeDecls() {
 
 func (g *Generator) emitMain(stmts []ast.Statement) error {
 	g.line("; ===== Entry point =====")
-	g.line("define i32 @main() {")
+	defineLine := "define i32 @main() {"
+	if g.debugInfo {
+		mainLine := 1
+		if g.program != nil && g.program.NameToken.Line > 0 {
+			mainLine = g.program.NameToken.Line
+		}
+		spID := g.registerSubprogram("main", mainLine)
+		defineLine = g.defineLineWithDbg(defineLine, spID)
+	}
+	g.line(defineLine)
 	g.line("entry:")
 	g.funcName = "main"
 	g.locals = make(map[string]string)
@@ -425,12 +486,21 @@ func (g *Generator) freshVarReg(name, suffix string) string {
 
 // addString adds a string constant and returns its global register name.
 func (g *Generator) addString(val string) string {
+	// Deduplicate by content: identical string literals share one global.
+	if g.strDedup != nil {
+		if reg, ok := g.strDedup[val]; ok {
+			return reg
+		}
+	}
 	reg := fmt.Sprintf("@.str.%d", len(g.strings))
 	g.strings = append(g.strings, stringConst{
 		reg:  reg,
 		val:  val,
 		size: len(val) + 1, // +1 for \00
 	})
+	if g.strDedup != nil {
+		g.strDedup[val] = reg
+	}
 	return reg
 }
 

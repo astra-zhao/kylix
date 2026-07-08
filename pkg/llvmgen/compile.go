@@ -26,7 +26,7 @@ func FindLLVM() (*LLVMPaths, error) {
 	searchDirs := []string{
 		"/opt/homebrew/opt/llvm/bin", // Homebrew ARM
 		"/usr/local/opt/llvm/bin",    // Homebrew x86
-		"/usr/bin",                    // Linux system
+		"/usr/bin",                   // Linux system
 		"/usr/local/bin",
 	}
 
@@ -79,6 +79,12 @@ type CompileOpts struct {
 	// OptLevel selects LLVM optimization tier: "" / "0" / "1" / "2" / "3" / "s".
 	// Empty defaults to -O0 (no optimization).
 	OptLevel string
+
+	// DebugInfo (v4.5.0): when true, emit DWARF debug info so LLDB/GDB can
+	// resolve function names + source files (kylix build --backend=llvm -g).
+	// Implies -O0: optimization reorders/drops instructions, making debug info
+	// misleading, so OptLevel is forced to "" when DebugInfo is on.
+	DebugInfo bool
 }
 
 // CompileToNativeOpts compiles with options.
@@ -106,10 +112,24 @@ func CompileASTToNative(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 
 // compileASTWithOpts is the shared implementation that honors CompileOpts.
 func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LLVMPaths, opts CompileOpts) (*CompileResult, error) {
+	// -g implies -O0: optimization reorders/drops instructions, making debug
+	// info misleading. Force OptLevel off when DebugInfo is on.
+	if opts.DebugInfo && opts.OptLevel != "" {
+		opts.OptLevel = ""
+	}
 	// Generate LLVM IR
-	ir, err := Generate(prog)
+	ir, err := GenerateWithOpts(prog, srcFile, opts)
 	if err != nil {
 		return nil, fmt.Errorf("LLVM IR generation: %w", err)
+	}
+
+	// v4.5.0 Phase C: run the process-in-LLVM pass pipeline (ConstantFold +
+	// DCE) on the generated IR. These are cheap, always-safe IR-text cleanups
+	// that reduce IR/binary size for the common -O0 case and run by default
+	// (no flag). They are skipped when external opt --O<N> is set, since opt
+	// runs LLVM's own (stronger) DCE/mem2reg/etc. passes on the same IR.
+	if opts.OptLevel == "" {
+		ir = DefaultPassPipeline().Run(ir)
 	}
 
 	// Write .ll file
@@ -140,20 +160,41 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 
 	// llc: .ll → .o with optional optimization level
 	objFile := base + ".o"
-	llcArgs := []string{"-filetype=obj"}
-	if opts.OptLevel != "" {
-		// LLVM 22 doesn't accept letter levels (s/z) on llc directly; clamp them.
-		switch opts.OptLevel {
-		case "0", "1", "2", "3":
-			llcArgs = append(llcArgs, "-O="+opts.OptLevel)
-		default:
-			llcArgs = append(llcArgs, "-O=2")
+
+	// v4.5.0 Phase C: incremental cache. If a cached .o exists for this
+	// (IR content + opts), skip llc entirely and link the cached object.
+	// The key is the final IR's hash (post-pass) so any codegen change
+	// invalidates. Best-effort: cache failure is non-fatal.
+	cacheKey := irCacheKey(ir, opts)
+	cachedHit := false
+	if store := defaultLLVMCache(); store != nil {
+		if cached := store.Get(cacheKey); cached != "" {
+			if copyFile(cached, objFile) == nil {
+				cachedHit = true
+			}
 		}
 	}
-	llcArgs = append(llcArgs, "-o", objFile, irFile)
-	llcCmd := exec.Command(llvmPaths.LLC, llcArgs...)
-	if out, err := llcCmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("llc failed: %w\n%s", err, out)
+
+	if !cachedHit {
+		llcArgs := []string{"-filetype=obj"}
+		if opts.OptLevel != "" {
+			// LLVM 22 doesn't accept letter levels (s/z) on llc directly; clamp them.
+			switch opts.OptLevel {
+			case "0", "1", "2", "3":
+				llcArgs = append(llcArgs, "-O="+opts.OptLevel)
+			default:
+				llcArgs = append(llcArgs, "-O=2")
+			}
+		}
+		llcArgs = append(llcArgs, "-o", objFile, irFile)
+		llcCmd := exec.Command(llvmPaths.LLC, llcArgs...)
+		if out, err := llcCmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("llc failed: %w\n%s", err, out)
+		}
+		// Populate the cache with the freshly-compiled object.
+		if store := defaultLLVMCache(); store != nil {
+			_ = store.Put(cacheKey, objFile)
+		}
 	}
 
 	// Determine output binary name
@@ -189,6 +230,20 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		for _, dir := range []string{
 			"/opt/homebrew/opt/sqlite/lib", // Homebrew ARM
 			"/usr/local/opt/sqlite/lib",    // Homebrew x86
+		} {
+			if _, err := os.Stat(dir); err == nil {
+				clangArgs = append(clangArgs, "-L"+dir)
+				clangArgs = append(clangArgs, "-Wl,-rpath,"+dir)
+				break
+			}
+		}
+	}
+	// libcurl (httpclient stdlib, v4.5.0) — same IR-symbol-scan pattern.
+	if strings.Contains(ir, "@__kylix_httpclient_") || strings.Contains(ir, "@curl_easy_") {
+		clangArgs = append(clangArgs, "-lcurl")
+		for _, dir := range []string{
+			"/opt/homebrew/opt/curl/lib", // Homebrew ARM
+			"/usr/local/opt/curl/lib",    // Homebrew x86
 		} {
 			if _, err := os.Stat(dir); err == nil {
 				clangArgs = append(clangArgs, "-L"+dir)

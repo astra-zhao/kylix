@@ -4,9 +4,117 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v4.5.0 (2026-07-08) — LLVM stdlib Phase 3 + DWARF 调试符号 + 优化 pass 管线 + 增量缓存
+
+> 🎯 **stdlib 真实化 + 工具链成熟化**。三个 stdlib stub 升级为真实实现（jsonutil 递归下降解析器 / crypto AES-256-CBC+PBKDF2 / httpclient libcurl 集成）+ 进程内 IR 优化 pass 管线（DCE）+ 增量编译缓存（llc 跳过，32x 加速）+ DWARF 调试符号（`-g` flag，LLDB/GDB 函数级调试）+ 文件拆分（expr.go/stmt.go 回到 1000 行约束内）。LLVM 测试 198→**240**，教程通过率 **48/48 (100%)**。
+
+### LLVM 后端 stdlib Phase 3 完成（3 模块 stub → 真实实现）
+
+#### 1. **jsonutil** 模块 — 完整扁平对象递归下降解析器
+- **实现**：6 个手写 LLVM IR 解析函数（`@__kylix_json_parse_flat` + `skip_ws`/`read_string`/`read_bare`/`skip_nested`/`read_value`），状态机式 IR，跨函数 `&pos` 游标传递
+- **支持**：扁平 JSON 对象 + 字符串转义（`\n \t \r \" \\ \/ \b \f`）+ 数字（int/float via `atoll`/`strtod`）+ `true`/`false`/`null`
+- **嵌套**：嵌套对象/数组作为 raw JSON 子串存储（`JsonGetString` 可用），`JsonGetMap`/`JsonGetArray` 返回 null（文档化限制）
+- **API 扩展**：新增 `JsonDecode`/`JsonGetFloat`/`JsonGetMap`/`JsonGetArray`（dispatch 表已含 10 个 API）
+- **设计决策**：值仍以裸字符串存入共享 htab（不引入 tagged `%JsonValue` 结构体），避免破坏 cache/map 的 htab 字符串契约
+- **文件**：`pkg/llvmgen/stdlib_jsonutil_parser.go`（520 行，新）+ `stdlib_jsonutil.go`（重写 dispatch + 新 API）
+- **验证**：example37 输出与 Go 后端**完全一致**（之前 stub 输出 `version: 0`/不打印 active）
+
+#### 2. **crypto** 模块 — AES-256-CBC + PBKDF2 真实实现
+- **AesEncrypt/AesDecrypt**：OpenSSL `EVP_CIPHER` API（`EVP_EncryptInit_ex`/`Update`/`Final_ex` + `EVP_aes_256_cbc`），随机 IV via `RAND_bytes` 前置于密文，hex 编解码（复用 `hexbytes` + 新 `hexdecode` helper）
+- **BCryptHash/BCryptCompare**：用 `PKCS5_PBKDF2_HMAC` + `EVP_sha256` 实现（OpenSSL 无原生 BCrypt），序列化为 `pbkdf2$sha256$<cost>$<hex_salt>$<hex_out>`，`sscanf` 解析 + 重算比较
+- **key padding**：32 字节 `alloca` + `memset` 清零 + `strncpy`（不足补 0，超出截断）
+- **轮数映射**：`iter = 1 << cost`（cost 即 log2(iterations)）
+- **文件**：`pkg/llvmgen/stdlib_crypto.go`（754 行，stub body → 真实 body）
+- **验证**：example48 输出与 Go 后端**逐字节一致**（`AES round-trip: OK` / `BCrypt: OK`），`-lcrypto` 链接自动触发
+
+#### 3. **httpclient** 模块 — libcurl 集成
+- **THttpClient 句柄**：32 字节堆结构（`{ptr curl, ptr slist, ptr baseURL, i64 timeout}`），不透明句柄模式
+- **NewHttpClient(baseURL, timeout)**：`curl_easy_init` + malloc 句柄 + 存储 baseURL/timeout（支持 0/1/2 参数调用，缺省用默认值）
+- **SetHeader**：`curl_slist_append` + `curl_easy_setopt(CURLOPT_HTTPHEADER)`
+- **Get/Post**：`curl_easy_setopt`（URL/WRITEFUNCTION/WRITEDATA/TIMEOUT，Post 额外 POST/POSTFIELDS）+ `curl_easy_perform`
+- **写回调**：`@__kylix_http_write_cb` 累积响应到 realloc 增长缓冲，null 检查中止传输
+- **variadic 函数指针**：`curl_easy_setopt(ptr, i32, ptr @write_cb)` —— llvmgen 首次将函数符号作 variadic 实参（llc round-trip 验证通过）
+- **文件**：`pkg/llvmgen/stdlib_httpclient.go`（485 行，重写）+ `expr.go` BaseURL 字段访问（stub → 真实 GEP+load）
+- **验证**：example54 `BaseURL: https://httpbin.org` 正确显示，`-lcurl` 链接自动触发
+
+### 进程内 IR 优化 pass 管线（v4.5.0 Phase C）
+
+- **PassPipeline**：`pkg/llvmgen/passes.go`（126 行）—— IR 文本后处理 pass 框架
+- **DeadCodeElim (DCE)**：删除从未被引用的 `%tN` 临时寄存器定义（纯指令：add/sub/mul/icmp/load/getelementptr/...），单次出现判定 + 词边界检查（`%t1` 不误匹配 `%t10`），**绝不删除 call/store**（副作用）
+- **ConstantFold**：MVP 结构钩子（未来扩展用）
+- **默认运行**：-O0 时自动跑（无需 flag），`--llvm-opt` 时跳过（外部 opt 跑更强 pass）
+- **字符串常量去重**：`addString` 按内容去重（两个 `"hello"` 共享一个 `@.str.N`），减少 IR/binary 体积
+
+### 增量编译缓存（v4.5.0 Phase C）
+
+- **CacheStore**：`pkg/llvmgen/cache.go`（149 行）—— 按 IR 内容 + opts 的 SHA256 缓存 `.o`
+- **命中跳过 llc**：缓存命中时直接复用 `.o`，仅跑 clang 链接
+- **实测**：example01 二次构建 **0.939s → 0.029s（32x 加速）**
+- **best-effort**：缓存失败非致命（静默降级到全量编译）
+
+### DWARF 调试符号（v4.5.0 Phase C）
+
+- **`-g` flag**：`kylix build --backend=llvm -g` 发出 DWARF 调试信息
+- **metadata**：`!llvm.dbg.cu` + `DICompileUnit` + `DIFile` + `DISubprogram`（每个用户函数 + main），函数名 + 源行号映射
+- **LLDB/GDB**：支持函数级断点、backtrace 显示函数+行号、源文件关联
+- **-g 与 -O 互斥**：`-g` 强制 `-O0`（优化重排指令会使调试信息误导）
+- **范围**：MVP 为函数级调试信息；逐行单步（per-instruction DILocation）留作后续（stdlib 预生成 IR 无源码行号，附 stale 位置会误导）
+- **文件**：`pkg/llvmgen/debug.go`（127 行）
+
+### 文件拆分（1000 行约束修复）
+
+expr.go(1207行) / stmt.go(1081行) 超过 CLAUDE.md 硬约束，按功能拆分：
+- `expr.go` 1207→**777 行**（核心表达式：emitExpr/emitInfix/emitCall/emitWriteLn/...）
+- `expr_access.go` **440 行**（新，成员/方法/接口/闭包访问：emitMember/emitMethodCall/emitInterfaceCall/emitClosureCall/emitIsExpr/emitAsExpr/emitStringInterpolation）
+- `stmt.go` 1081→**614 行**（核心语句：emitStatement/emitFunctionDecl/emitVarDecl/emitAssign/emitReturn）
+- `stmt_flow.go` **484 行**（新，控制流：emitIf/emitWhile/emitFor/emitRepeat/emitForEach/emitCase/emitMatch/emitBreak/emitContinue）
+
+### 测试与验证
+
+- **LLVM 后端单元测试**：198 → **240**（+42：jsonutil 12 + crypto 6 + httpclient 11 + debug 5 + DCE 5 + cache 4）
+- **LLVM 后端教程通过率**：48/48 (**100%**)，无回归
+- **16 个 Go 测试包全部通过**
+- **端到端一致性**：example37 (jsonutil) / example48 (crypto) / example54 (httpclient) LLVM 输出与 Go 后端一致
+- **性能**：增量缓存 32x 加速；DCE 减少 IR 体积
+
+### 文件清单
+
+| 文件 | 行数 | 说明 |
+|------|------|------|
+| `pkg/llvmgen/stdlib_jsonutil_parser.go` | 520 | jsonutil 递归下降解析器（新）|
+| `pkg/llvmgen/stdlib_jsonutil.go` | 432 | jsonutil dispatch + 10 API（重写）|
+| `pkg/llvmgen/stdlib_crypto.go` | 754 | AES/BCrypt 真实实现（stub→真实）|
+| `pkg/llvmgen/stdlib_httpclient.go` | 485 | libcurl 集成（stub→真实）|
+| `pkg/llvmgen/debug.go` | 127 | DWARF metadata 生成器（新）|
+| `pkg/llvmgen/passes.go` | 126 | IR 优化 pass 管线 + DCE（新）|
+| `pkg/llvmgen/cache.go` | 149 | 增量编译缓存（新）|
+| `pkg/llvmgen/expr_access.go` | 440 | 表达式访问 codegen（拆分）|
+| `pkg/llvmgen/stmt_flow.go` | 484 | 控制流 codegen（拆分）|
+| `pkg/llvmgen/expr.go` | 777 | 核心表达式（拆分后）|
+| `pkg/llvmgen/stmt.go` | 614 | 核心语句（拆分后）|
+| `pkg/llvmgen/codegen.go` | 538 | Generator 字段 + GenerateWithOpts + addString 去重 |
+| `pkg/llvmgen/compile.go` | 265 | CompileOpts.DebugInfo + pass 管线 + 缓存集成 |
+| `cmd/kylix/cmd_build.go` | - | `-g` flag + DebugInfo 传递 |
+| **合计** | ~5000 行 | stdlib Phase 3 + 优化/调试/缓存 + 拆分 |
+
+### 已知限制（v4.5.0）
+
+- **jsonutil 嵌套**：嵌套对象/数组作为 raw 子串存储，`JsonGetMap`/`JsonGetArray` 返回 null（扁平对象已覆盖教程用例）
+- **crypto BCrypt 命名**：实际算法为 PBKDF2-SHA256（OpenSSL 无原生 BCrypt），命名保留 BCryptHash，跨系统互操作需注意
+- **httpclient Get 不重置 POST**：同句柄先 Post 再 Get 时需手动重置（CURLOPT_HTTPGET）
+- **DWARF 逐行单步**：仅函数级调试信息，逐行 DILocation 留作后续
+- **DCE ConstantFold**：MVP 仅 DCE，常量折叠为结构钩子
+
+### 下一步（v4.6.0 规划）
+
+- **stdlib Phase 4**：jsonutil 嵌套解析（tagged JsonValue 树）+ httpclient 真实响应对象 + db MySQL/PostgreSQL
+- **DWARF 逐行**：per-instruction DILocation + llvm.dbg.value 局部变量
+- **优化 pass 扩展**：ConstantFold 真实实现 + mem2reg（进程内）+ 内联
+- **JetBrains 插件**：IntelliJ/GoLand 支持
+
 ## v4.4.0 (2026-07-07) — LLVM stdlib Phase 2 完成 + KylixBoot 注解支持
 
-> 🎯 **标准库完善 + 注解框架支持**。LLVM 后端完成 8 个 stdlib 模块（encoding/net/crypto/db/cache/jsonutil/boot/jwt/httpclient）+ KylixBoot 注解方法 stub 生成 + 链式方法调用修复。教程通过率：**47/48 (98%)**。
+> 🎯 **标准库完善 + 注解框架支持**。LLVM 后端完成 8 个 stdlib 模块（encoding/net/crypto/db/cache/jsonutil/boot/jwt/httpclient）+ KylixBoot 注解方法 stub 生成 + 链式方法调用修复。教程通过率：**48/48 (100%，含 example33 多文件模块)**。
 
 ### LLVM 后端 stdlib Phase 2 完成
 
@@ -113,12 +221,12 @@ All notable changes to the Kylix compiler are documented in this file.
 ### 测试与验证
 
 - **LLVM 后端单元测试**：90+ → **198+**（新增 encoding 12 个 + net 15 个 + crypto 10 个 + db 18 个 + cache 6 个 + jsonutil 8 个 + boot/jwt/httpclient 各 3 个）
-- **LLVM 后端教程通过率**：31/50 → **47/48 (98%)**
-  - **新增通过**（20 个教程）：
+- **LLVM 后端教程通过率**：31/50 → **48/48 (100%)**
+  - **新增通过**（21 个教程）：
     - 08_stdlib_utils：example36-39（sysutil/jsonutil/datetime/regex）
     - 12_special_features：example41-47（属性/路由/DI/过程式路由/验证/安全/ORM 注解）
     - 13-20 章节：example48-55（net/crypto/encoding/db/cache/http/websocket）
-  - **仅剩失败**：example33（多文件模块 — 已部分修复 MergePrograms，但教程本身多文件结构需调整）
+    - 11_modules：example33（多文件模块，经 `kylix build main.klx unit.klx` 双文件传入 + `multifile.go` MergePrograms 合并声明后通过）
 - **16 个 Go 测试包全部通过**
 - **01-04 章节**（19 个教程）输出与 Go 后端逐字节一致（验证 OOP/控制流/lambda 基础正确）
 
@@ -200,7 +308,7 @@ All notable changes to the Kylix compiler are documented in this file.
 ### 文档更新
 
 - **CHANGELOG.md** — 新增 v4.4.0 条目（本文档）
-- **ROADMAP.md** — 更新 v4.4.0 状态为"✅ 完成"，教程通过率 47/48（98%）
+- **ROADMAP.md** — 更新 v4.4.0 状态为"✅ 完成"，教程通过率 48/48（100%）
 - **CLAUDE.md** — 更新"当前状态"章节（v4.4.0 发布日期 2026-07-07）
 - **docs/llvm-backend.md**（待更新）— stdlib 模块完成度表格 + 注解支持说明
 ## v4.3.0 (2026-07-03) — stdlib Phase 1 完成 + Arena Allocator

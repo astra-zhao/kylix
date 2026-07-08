@@ -1,7 +1,7 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-06-30
-> 当前版本: v4.0 开发中
+> 最后更新: 2026-07-08
+> 当前版本: v4.5.0 已发布
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
@@ -75,13 +75,9 @@
 
 `pkg/llvmgen/interface.go`（~230 行）：fat pointer（`{ ptr vtable, ptr data }`）、每接口方法 thunk、`is`/`as` 断言。23 个测试。
 
----
-
 ### ✅ 6.2 泛型无单态化 → v3.2.0 M2 Phase 3 修复
 
 `pkg/llvmgen/monomorph.go`（~270 行）：`collectInstantiations` AST walker + 类型参数替换 + mangling（`TBox<Integer>` → `TBox_Integer`）。6 个 IR 测试。
-
----
 
 ### ✅ 6.4 不支持异常（try/catch）→ v4.0 M3 修复
 
@@ -94,9 +90,39 @@
 
 附带修复：字符串插值 codegen、带参构造 `T.Create(args)`、类字段继承（子类 struct 包含父类字段）。
 
----
+### ✅ 6.5 文件大小约束违反 → v4.5.0 修复
 
-### 6.1 接口未支持
+**已修复：** expr.go(1207行) / stmt.go(1081行) 超过 1000 行约束。
+
+拆分结果：
+- `expr.go` 1207→**777 行**（核心表达式 codegen）
+- `expr_access.go` **440 行**（新，成员/方法/接口/闭包访问）
+- `stmt.go` 1081→**614 行**（核心语句 codegen）
+- `stmt_flow.go` **484 行**（新，控制流 if/while/for/case/match/try）
+
+### ✅ 6.6 无优化深化（DCE/内联/循环优化）→ v4.5.0 修复
+
+**已修复：** `pkg/llvmgen/passes.go`（126 行）—— 进程内 IR 优化 pass 管线：
+- DeadCodeElim (DCE)：删除未被引用的 `%tN` 临时寄存器定义（纯指令），词边界检查防止 `%t1` 误匹配 `%t10`
+- ConstantFold：MVP 结构钩子（未来扩展用）
+- 默认运行（-O0 时自动），`--llvm-opt` 时跳过（外部 opt 跑更强 pass）
+- 字符串常量去重：`addString` 按内容去重，两个 `"hello"` 共享一个 `@.str.N`
+
+### ✅ 6.7 无增量编译（每次全量 llc）→ v4.5.0 修复
+
+**已修复：** `pkg/llvmgen/cache.go`（149 行）—— 按 IR 内容 + opts 的 SHA256 缓存 `.o`：
+- 缓存命中时直接复用 `.o`，跳过 llc
+- 实测：example01 二次构建 **0.939s → 0.029s（32x 加速）**
+- best-effort：缓存失败非致命（静默降级到全量编译）
+
+### ✅ 6.8 无调试符号（LLDB/GDB 不可用）→ v4.5.0 修复
+
+**已修复：** `pkg/llvmgen/debug.go`（127 行）—— DWARF 调试符号：
+- `-g` flag：`kylix build --backend=llvm -g` 发出 DWARF 调试信息
+- metadata：`!llvm.dbg.cu` + `DICompileUnit` + `DIFile` + `DISubprogram`（每个用户函数 + main）
+- LLDB/GDB：支持函数级断点、backtrace 显示函数+行号、源文件关联
+- -g 与 -O 互斥：`-g` 强制 `-O0`（优化重排指令会使调试信息误导）
+- 范围：MVP 为函数级调试信息；逐行单步（per-instruction DILocation）留作后续
 
 ---
 

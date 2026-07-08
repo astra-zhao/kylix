@@ -21,6 +21,7 @@ func cmdBuild(args []string) {
 	tinygo := fs.Bool("tinygo", false, "Use TinyGo for WASM/WASI build (smaller output, requires tinygo installed)")
 	backend := fs.String("backend", "go", "Compiler backend: go (default) or llvm (experimental)")
 	llvmOpt := fs.String("llvm-opt", "", "LLVM optimization level (0/1/2/3); only meaningful with --backend=llvm")
+	llvmDebug := fs.Bool("g", false, "Emit DWARF debug info (LLVM backend; implies -O0, enables GDB/LLDB function-level debugging)")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix build [options] [file.klx]
 
@@ -85,7 +86,7 @@ OPTIONS:
 
 			// LLVM backend shortcut — bypass Go codegen entirely
 			if *backend == "llvm" {
-				if err := buildWithLLVM(file, *output, *llvmOpt); err != nil {
+				if err := buildWithLLVM(file, *output, *llvmOpt, *llvmDebug); err != nil {
 					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 					os.Exit(1)
 				}
@@ -145,7 +146,7 @@ OPTIONS:
 		// single-file branch above: merges each file's declarations (main
 		// program + any `unit` files it `uses`) before lowering to LLVM IR.
 		if *backend == "llvm" {
-			if err := buildMultiFileWithLLVM(files, *output, *llvmOpt); err != nil {
+			if err := buildMultiFileWithLLVM(files, *output, *llvmOpt, *llvmDebug); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -322,14 +323,15 @@ func stripExt(name string) string {
 }
 
 // buildWithLLVM compiles a Kylix file to native binary via LLVM IR.
-func buildWithLLVM(srcFile, outBin, optLevel string) error {
+func buildWithLLVM(srcFile, outBin, optLevel string, debugInfo bool) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
 		return fmt.Errorf("LLVM toolchain not found: %w\nHint: brew install llvm (macOS) or apt install llvm clang (Linux)", err)
 	}
 
 	result, err := llvmgen.CompileToNativeOpts(srcFile, outBin, llvmPaths, llvmgen.CompileOpts{
-		OptLevel: optLevel,
+		OptLevel:  optLevel,
+		DebugInfo: debugInfo,
 	})
 	if err != nil {
 		return err
@@ -351,14 +353,15 @@ func buildWithLLVM(srcFile, outBin, optLevel string) error {
 // then their declarations are merged (see llvmgen.MergePrograms) before
 // lowering to one LLVM module — mirroring how the Go backend's
 // compiler.CompileProject merges multiple ASTs via generator.GenerateMulti.
-func buildMultiFileWithLLVM(files []string, outBin, optLevel string) error {
+func buildMultiFileWithLLVM(files []string, outBin, optLevel string, debugInfo bool) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
 		return fmt.Errorf("LLVM toolchain not found: %w\nHint: brew install llvm (macOS) or apt install llvm clang (Linux)", err)
 	}
 
 	result, err := llvmgen.CompileFilesToNative(files, outBin, llvmPaths, llvmgen.CompileOpts{
-		OptLevel: optLevel,
+		OptLevel:  optLevel,
+		DebugInfo: debugInfo,
 	})
 	if err != nil {
 		return err

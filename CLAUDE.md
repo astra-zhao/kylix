@@ -4,9 +4,10 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 
 **重要：始终用中文回答用户，不论用户用什么语言提问，回复一律使用中文。**
 
-## 当前状态：v4.4.0（2026-07-07）
+## 当前状态：v4.5.0（2026-07-08）
 
-- v4.4.0 已发布：LLVM stdlib Phase 2 完成 —— 8 个模块（encoding/net/crypto/db/cache/jsonutil/boot/jwt/httpclient，~2000 行 IR + 60+ 单元测试）+ KylixBoot 注解方法 stub 生成 + 链式方法调用修复（`self.Repo.Name()` 类型追踪）+ 9 个关键 bug 修复（字符串比较/块作用域/ptr-nil 比较/map 后缀/...）。LLVM 教程通过率 47/48（98%），仅剩 example33 多文件模块失败。
+- v4.5.0 已发布：LLVM stdlib Phase 3 完成 —— 3 个 stub 模块升级为真实实现（jsonutil 递归下降解析器 / crypto AES-256-CBC+PBKDF2 / httpclient libcurl 集成）+ 进程内 IR 优化 pass 管线（DCE）+ 增量编译缓存（llc 跳过，32x 加速）+ DWARF 调试符号（`-g` flag，LLDB/GDB 函数级调试）+ 文件拆分（expr.go 1207→777、stmt.go 1081→614，回到 1000 行约束内）。LLVM 测试 198→240，教程通过率 48/48（100%）。
+- v4.4.0 已发布：LLVM stdlib Phase 2 完成 —— 8 个模块（encoding/net/crypto/db/cache/jsonutil/boot/jwt/httpclient，~2000 行 IR + 60+ 单元测试）+ KylixBoot 注解方法 stub 生成 + 链式方法调用修复（`self.Repo.Name()` 类型追踪）+ 9 个关键 bug 修复（字符串比较/块作用域/ptr-nil 比较/map 后缀/...）。LLVM 教程通过率 48/48（100%，含 example33 多文件模块）。
 - v4.3.0 已发布：datetime 模块 Phase 1 完整（13 API + Arena Allocator）
 - v4.2.0 已发布：sysutil 模块 Phase 1（8 API）
 - v4.1.0 已发布：LLVM M4 高级特性 —— Lambda/闭包（捕获变量 + 环境结构体）、`inherited` 关键字（父类方法链查找）、完整多返回值元组解构、OOP 字段/方法访问系统性修复（vtable 继承）、优化通道（`opt` + `llc -O<N>`，循环归纳达 20x 提速）。LLVM 教程通过率 27/49，01-04 章节（19 文件）与 Go 后端输出逐字节一致。
@@ -14,9 +15,10 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - v3.3.0：KylixBoot 框架完善 —— Body 绑定 + JWT + OpenAPI 3.1 自动生成
 - v3.2.0：KylixBoot 注解栈 + LLVM M2 完整 + stdlib Phase 6
 - v1.5.0：stdlib `.klx` 声明文件 + 包管理器
-- 所有 Go 测试通过（16 个包，LLVM 后端 198 测试）
+- 所有 Go 测试通过（16 个包，LLVM 后端 240 测试）
 - 教程 49/49 测试通过（Go 后端，`examples/complete-tutorial/`）
-- LLVM 后端 47/48 教程编译通过（98%，01-04 章节 19 个文件与 Go 后端输出逐字节一致）
+- LLVM 后端 48/48 教程编译通过（100%，01-04 章节 19 个文件与 Go 后端输出逐字节一致；example33 多文件模块经 `multifile.go` MergePrograms 合并声明后通过）
+- v4.5.0 新增：进程内 IR 优化 pass（DCE，默认运行）+ 增量编译缓存（llc 跳过，32x 加速）+ DWARF 调试符号（`kylix build --backend=llvm -g`）
 - 所有源文件 ≤ 1000 行
 
 ## 关键文档
@@ -44,6 +46,18 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - `pkg/lsp/` — Language Server Protocol
 - `stdlib/` — Go 标准库封装（web, orm, template, exceptions, jwt 等）
 - `stdlib/klx/` — LSP 补全用的 Kylix 声明文件
+- `pkg/llvmgen/` — LLVM 后端代码生成器（原生二进制）
+  - `codegen.go` — Generator 核心 + 字符串常量池 + 调试符号
+  - `compile.go` — 编译管线（AST → IR → .o → binary）
+  - `expr.go` — 表达式 codegen（算术/比较/调用/WriteLn）
+  - `expr_access.go` — 成员/方法/接口/闭包访问 codegen
+  - `stmt.go` — 语句 codegen（赋值/return/变量声明）
+  - `stmt_flow.go` — 控制流 codegen（if/while/for/case/match/try）
+  - `class.go` — 类/vtable/构造/方法 codegen
+  - `stdlib_*.go` — 标准库模块 IR 实现（encoding/net/crypto/db/cache/jsonutil/boot/jwt/httpclient/sysutil/datetime）
+  - `debug.go` — DWARF 调试符号生成（`-g` flag）
+  - `passes.go` — IR 优化 pass 管线（DCE + ConstantFold）
+  - `cache.go` — 增量编译缓存（SHA256 键控 .o 复用）
 
 ## 已完成阶段
 
