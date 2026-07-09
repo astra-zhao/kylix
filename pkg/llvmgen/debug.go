@@ -4,21 +4,28 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"kylix/ast"
+	"kylix/token"
 )
 
-// debug.go — DWARF debug-info emission for the LLVM backend (v4.5.0 Phase C).
+// debug.go — DWARF debug-info emission for the LLVM backend.
 //
 // When CompileOpts.DebugInfo is set (kylix build --backend=llvm -g), the
 // generator attaches DWARF metadata to the emitted IR so that LLDB/GDB can
-// resolve function names, source files, and starting line numbers — enabling
-// `break <function>`, function-level backtraces, and source correlation.
+// resolve function names, source files, and source lines — enabling
+// `break <function>`, per-line stepping (`step`/`next`), function-level
+// backtraces, and local-variable inspection.
 //
-// Scope (MVP): function-level debug info. Each user-defined function (and
-// `main`) gets a DISubprogram referenced from its `define` line via `!dbg !N`.
-// Per-instruction DILocation (line stepping within a function) is not emitted
-// in this cut — stdlib pre-generated IR has no source lines, and attaching
-// stale locations would mislead the debugger. A follow-up can thread source
-// positions through emitStatement/emitExpr for per-line DILocation.
+// Scope (v4.6.0): per-instruction DILocation + DILocalVariable.
+//   - Each user-defined function (and `main`) gets a DISubprogram referenced
+//     from its `define` line via `!dbg !N`.
+//   - emitStatement/emitExpr set a "current source position" (line+column)
+//     before emitting instructions; the line() helper appends `, !dbg !M` to
+//     each instruction-level IR line, where !M is a DILocation node for the
+//     current position scoped to the current subprogram.
+//   - emitVarDecl emits a DILocalVariable + `call void @llvm.dbg.declare(...)`
+//     next to each alloca so LLDB can resolve local variable names + scopes.
 //
 // Metadata layout (IDs are assigned deterministically):
 //
@@ -27,8 +34,11 @@ import (
 //	!2 = !{i32 2, !"Debug Info Version", i32 3}
 //	!3 = !DIFile(filename: "...", directory: "...")
 //	!4.. = distinct !DISubprogram(...)   ; one per function, in registration order
-//	!N = !DISubroutineType(types: !{null})   ; shared void() type
-//	!N+1 = !{}                              ; empty retainedNodes list
+//	!N   = !DISubroutineType(types: !{null})   ; shared void() type
+//	!N+1 = !{}                              ; empty retainedNodes list (base)
+//	!N+2.. = !DILocation(...)              ; one per unique (line, col, scope) pair
+//	!M..   = !DILocalVariable(...)         ; one per user-local alloca
+//	!K..   = !DIBasicType(...)             ; canonical type nodes
 
 // dbgMeta collects DWARF metadata during codegen and emits it at module end.
 type dbgMeta struct {
@@ -36,12 +46,51 @@ type dbgMeta struct {
 	srcDir      string // DIFile directory (absolute)
 	progs       []dbgSubprogram
 	nextID      int // next metadata ID to allocate
+
+	// Per-instruction DILocation support (v4.6.0).
+	// curLoc is the "current source position": the (line,column) of the AST
+	// node currently being emitted. line() appends !dbg !<locID> to each
+	// instruction-level IR line, where locID resolves to a DILocation scoped
+	// to curScope (the subprogram of the function we're inside).
+	curLine  int // 0 = no position set (don't attach !dbg)
+	curCol   int
+	curScope int // subprogram metadata ID (0 outside a function)
+	locs     []dbgLocation
+	locByKey map[dbgLocKey]int // dedup: (line,col,scope) → metadata ID
+
+	// DILocalVariable support (v4.6.0).
+	locals []dbgLocalVar
 }
 
 type dbgSubprogram struct {
 	id   int    // metadata ID for this DISubprogram (e.g. 4 → !4)
 	name string // function name
 	line int    // source line of the function declaration
+}
+
+// dbgLocKey dedups DILocation nodes by (line, column, scope). Identical
+// positions within the same function share one !DILocation metadata node.
+type dbgLocKey struct {
+	line  int
+	col   int
+	scope int
+}
+
+type dbgLocation struct {
+	id    int // metadata ID
+	line  int
+	col   int
+	scope int // subprogram ID
+}
+
+// dbgLocalVar records a DILocalVariable for one user-local alloca.
+type dbgLocalVar struct {
+	id       int    // metadata ID for the DILocalVariable
+	name     string // source variable name
+	line     int    // declaration line
+	scope    int    // subprogram ID
+	llvmType string // LLVM type string (for diType mapping)
+	alloca   string // the alloca register (ptr to storage)
 }
 
 // initDbgMeta prepares the metadata collector with the source file info.
@@ -54,11 +103,14 @@ func (g *Generator) initDbgMeta(srcFile string) {
 		srcFilename: name,
 		srcDir:      dir,
 		nextID:      4, // !0=CU, !1,!2=flags, !3=DIFile → subprograms start at !4
+		locByKey:    make(map[dbgLocKey]int),
 	}
 }
 
 // registerSubprogram records a DISubprogram for a function and returns its
-// metadata ID (so the caller can append `!dbg !N` to the define line).
+// metadata ID (so the caller can append `!dbg !N` to the define line). The
+// returned ID also becomes the "scope" for DILocations emitted inside that
+// function (set via setDbgScope).
 func (g *Generator) registerSubprogram(name string, line int) int {
 	if g.dbg == nil {
 		return 0
@@ -66,6 +118,79 @@ func (g *Generator) registerSubprogram(name string, line int) int {
 	id := g.dbg.nextID
 	g.dbg.nextID++
 	g.dbg.progs = append(g.dbg.progs, dbgSubprogram{id: id, name: name, line: line})
+	return id
+}
+
+// setDbgScope sets the subprogram that subsequent instructions belong to.
+// Called when entering a function body (emitMain/emitFunctionDecl/emitMethod).
+// Pass 0 to clear (outside any function).
+func (g *Generator) setDbgScope(subprogID int) {
+	if g.dbg == nil {
+		return
+	}
+	g.dbg.curScope = subprogID
+}
+
+// setDbgNode extracts the source line/column from an AST node's Token and
+// sets it as the current debug position. This is the main entrypoint called
+// at the top of emitStatement/emitExpr: before emitting any IR for the node,
+// record where it came from so each instruction carries a !dbg location.
+func (g *Generator) setDbgNode(node ast.Node) {
+	if g.dbg == nil || node == nil {
+		return
+	}
+	tok := nodeToken(node)
+	if tok.Line == 0 {
+		return
+	}
+	g.dbg.curLine = tok.Line
+	g.dbg.curCol = tok.Column
+}
+
+// clearDbgPos unsets the current source position (synthetic/runtime code).
+func (g *Generator) clearDbgPos() {
+	if g.dbg == nil {
+		return
+	}
+	g.dbg.curLine = 0
+	g.dbg.curCol = 0
+}
+
+// registerLocalVariable records a DILocalVariable for a local alloca and
+// returns its metadata ID. The caller emits a `call void @llvm.dbg.declare`
+// next to the alloca to associate the LLVM value with the source variable.
+func (g *Generator) registerLocalVariable(name string, line int, llvmType, allocaReg string) int {
+	if g.dbg == nil {
+		return 0
+	}
+	id := g.dbg.nextID
+	g.dbg.nextID++
+	g.dbg.locals = append(g.dbg.locals, dbgLocalVar{
+		id:       id,
+		name:     name,
+		line:     line,
+		scope:    g.dbg.curScope,
+		llvmType: llvmType,
+		alloca:   allocaReg,
+	})
+	return id
+}
+
+// curDbgLocID returns the metadata ID for a DILocation at the current
+// position (allocating one if needed), or 0 if no position is set or debug
+// info is off. Dedup keeps identical (line,col,scope) positions sharing one node.
+func (g *Generator) curDbgLocID() int {
+	if g.dbg == nil || g.dbg.curLine == 0 || g.dbg.curScope == 0 {
+		return 0
+	}
+	key := dbgLocKey{line: g.dbg.curLine, col: g.dbg.curCol, scope: g.dbg.curScope}
+	if id, ok := g.dbg.locByKey[key]; ok {
+		return id
+	}
+	id := g.dbg.nextID
+	g.dbg.nextID++
+	g.dbg.locByKey[key] = id
+	g.dbg.locs = append(g.dbg.locs, dbgLocation{id: id, line: key.line, col: key.col, scope: key.scope})
 	return id
 }
 
@@ -99,21 +224,68 @@ func (g *Generator) emitDbgMetadata() {
 	d.nextID++
 	subrTypeID := d.nextID
 	d.nextID++
-	emptyListID := d.nextID
+	baseEmptyListID := d.nextID
+	d.nextID++
+	// Canonical DIBasicType nodes referenced by DILocalVariables.
+	diTypeID := d.nextID
 	d.nextID++
 	// Subprograms (one per registered function) — reference the subroutine type.
+	// Each gets its own retainedNodes list (so its locals can be attached).
+	subprogRetained := make(map[int]int) // subprogram ID → its retainedNodes list ID
 	for _, sp := range d.progs {
+		retainedID := d.nextID
+		d.nextID++
+		subprogRetained[sp.id] = retainedID
 		g.line(fmt.Sprintf(
 			"!%d = distinct !DISubprogram(name: %q, scope: !3, file: !3, line: %d, type: %s, scopeLine: %d, spFlags: DISPFlagDefinition, unit: !0, retainedNodes: %s)",
-			sp.id, sp.name, sp.line, dbgRef(subrTypeID), sp.line, dbgRef(emptyListID),
+			sp.id, sp.name, sp.line, dbgRef(subrTypeID), sp.line, dbgRef(retainedID),
+		))
+	}
+	// DILocalVariable nodes (one per user-local alloca). Each references its
+	// declaring function's subprogram as scope and a basic DI type.
+	for _, lv := range d.locals {
+		g.line(fmt.Sprintf(
+			"!%d = !DILocalVariable(name: %q, scope: %s, file: !3, line: %d, type: %s)",
+			lv.id, lv.name, dbgRef(lv.scope), lv.line, dbgRef(diTypeID),
+		))
+	}
+	// DILocation nodes (one per unique position). inlinedAt omitted (no
+	// inlining in -O0 codegen).
+	for _, loc := range d.locs {
+		g.line(fmt.Sprintf(
+			"!%d = !DILocation(line: %d, column: %d, scope: %s)",
+			loc.id, loc.line, loc.col, dbgRef(loc.scope),
 		))
 	}
 	// Types list: a single null (void return, no params).
 	g.line(fmt.Sprintf("%s = !{null}", dbgRef(typeListID)))
 	// Subroutine type referencing the types list.
 	g.line(fmt.Sprintf("%s = !DISubroutineType(types: %s)", dbgRef(subrTypeID), dbgRef(typeListID)))
-	// Empty retainedNodes list.
-	g.line(fmt.Sprintf("%s = !{}", dbgRef(emptyListID)))
+	// Empty retainedNodes list (base, for subprograms with no locals).
+	g.line(fmt.Sprintf("%s = !{}", dbgRef(baseEmptyListID)))
+	// Canonical DIBasicType (DW_ATE_signed, 64 bits) — MVP maps every local
+	// to this one so LLDB shows names + scopes; value formatting for non-i64
+	// locals may be approximate but stepping works. A follow-up can emit
+	// per-llvmType DIBasicType nodes (double → DW_ATE_float, ptr → DW_ATE_address, ...).
+	g.line(fmt.Sprintf("!%d = !DIBasicType(name: \"int64\", size: 64, encoding: DW_ATE_signed)", diTypeID))
+	// Per-subprogram retainedNodes lists (containing their locals, if any).
+	subprogLocalIDs := make(map[int][]int)
+	for _, lv := range d.locals {
+		subprogLocalIDs[lv.scope] = append(subprogLocalIDs[lv.scope], lv.id)
+	}
+	for spID, retainedID := range subprogRetained {
+		ids := subprogLocalIDs[spID]
+		if len(ids) == 0 {
+			// Empty list — stays valid.
+			g.line(fmt.Sprintf("%s = !{}", dbgRef(retainedID)))
+		} else {
+			parts := make([]string, len(ids))
+			for i, id := range ids {
+				parts[i] = dbgRef(id)
+			}
+			g.line(fmt.Sprintf("%s = !{%s}", dbgRef(retainedID), strings.Join(parts, ", ")))
+		}
+	}
 }
 
 // defineLineWithDbg returns a `define ...` line, appending `!dbg !N` when
@@ -124,4 +296,80 @@ func (g *Generator) defineLineWithDbg(defineLine string, subprogID int) string {
 		return strings.TrimSuffix(defineLine, " {") + " " + fmt.Sprintf("!dbg %s {", dbgRef(subprogID))
 	}
 	return defineLine
+}
+
+// nodeToken extracts the token.Token from an AST node for its source position.
+// Returns a zero token if the node has no Token field (synthetic nodes).
+func nodeToken(node ast.Node) token.Token {
+	var t token.Token
+	// Reflection-free: type switch over concrete node types that carry a Token.
+	switch n := node.(type) {
+	// Statements
+	case *ast.AssignmentStatement:
+		t = n.Token
+	case *ast.ExpressionStatement:
+		t = n.Token
+	case *ast.BlockStatement:
+		t = n.Token
+	case *ast.IfStatement:
+		t = n.Token
+	case *ast.WhileStatement:
+		t = n.Token
+	case *ast.ForStatement:
+		t = n.Token
+	case *ast.RepeatStatement:
+		t = n.Token
+	case *ast.VarDecl:
+		t = n.Token
+	case *ast.ReturnStatement:
+		t = n.Token
+	case *ast.TryStatement:
+		t = n.Token
+	case *ast.RaiseStatement:
+		t = n.Token
+	case *ast.ForEachStatement:
+		t = n.Token
+	case *ast.CaseStatement:
+		t = n.Token
+	case *ast.MatchStatement:
+		t = n.Token
+	case *ast.BreakStatement:
+		t = n.Token
+	case *ast.ContinueStatement:
+		t = n.Token
+	case *ast.InheritedStatement:
+		t = n.Token
+	// Expressions
+	case *ast.IntegerLiteral:
+		t = n.Token
+	case *ast.FloatLiteral:
+		t = n.Token
+	case *ast.BooleanLiteral:
+		t = n.Token
+	case *ast.StringLiteral:
+		t = n.Token
+	case *ast.Identifier:
+		t = n.Token
+	case *ast.InfixExpression:
+		t = n.Token
+	case *ast.PrefixExpression:
+		t = n.Token
+	case *ast.CallExpression:
+		t = n.Token
+	case *ast.MemberExpression:
+		t = n.Token
+	case *ast.IndexExpression:
+		t = n.Token
+	case *ast.SliceExpression:
+		t = n.Token
+	case *ast.TypeCastExpression:
+		t = n.Token
+	case *ast.IsExpression:
+		t = n.Token
+	case *ast.ArrayLiteral:
+		t = n.Token
+	case *ast.LambdaExpression:
+		t = n.Token
+	}
+	return t
 }

@@ -10,6 +10,22 @@ import (
 
 // emitStatement generates code for a single statement.
 func (g *Generator) emitStatement(node ast.Statement) error {
+	// v4.6.0: record the source position of this statement so every IR
+	// instruction emitted while processing it carries a !dbg DILocation.
+	// Cleared on return so synthetic trailing instructions (ret) don't claim
+	// a stale source line. save/restore lets nested dispatch (e.g. Block →
+	// If → Assign) each set their own position without clobbering the parent's
+	// on the way out.
+	savedLine, savedCol := 0, 0
+	if g.debugInfo {
+		savedLine, savedCol = g.dbg.curLine, g.dbg.curCol
+		g.setDbgNode(node)
+	}
+	defer func() {
+		if g.debugInfo {
+			g.dbg.curLine, g.dbg.curCol = savedLine, savedCol
+		}
+	}()
 	switch s := node.(type) {
 	case *ast.AssignmentStatement:
 		return g.emitAssign(s)
@@ -48,6 +64,15 @@ func (g *Generator) emitStatement(node ast.Statement) error {
 		return g.emitInherited(s)
 	default:
 		return nil
+	}
+}
+
+// stmtDbgRestore is a no-op helper kept to document the save/restore pattern
+// in emitStatement's defer (kept inline there for clarity). Retained as a
+// placeholder so future statement-level debug instrumentation has a home.
+func (g *Generator) stmtDbgRestore(savedLine, savedCol int) {
+	if g.debugInfo {
+		g.dbg.curLine, g.dbg.curCol = savedLine, savedCol
 	}
 }
 
@@ -154,9 +179,10 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	}
 
 	defineLine := fmt.Sprintf("define %s @%s(%s) {", retType, decl.Name, strings.Join(params, ", "))
+	var funcSpID int
 	if g.debugInfo {
-		spID := g.registerSubprogram(decl.Name, decl.Token.Line)
-		defineLine = g.defineLineWithDbg(defineLine, spID)
+		funcSpID = g.registerSubprogram(decl.Name, decl.Token.Line)
+		defineLine = g.defineLineWithDbg(defineLine, funcSpID)
 	}
 	g.line(defineLine)
 	g.line("entry:")
@@ -167,6 +193,14 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
+	// v4.6.0: scope for DILocations inside this function = its subprogram.
+	// Position the entry-block setup at the function's declaration line so the
+	// %result alloca + parameter stores carry a valid !dbg before the body
+	// statements set their own positions.
+	if g.debugInfo {
+		g.setDbgScope(funcSpID)
+		g.setDbgNode(decl)
+	}
 
 	// Allocate result variable for functions
 	if retType != "void" {
@@ -175,6 +209,12 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 		if isMultiRet {
 			// Mark result as a tuple so assignment can detect it.
 			g.localTypes["result"] = "__tuple__"
+		}
+		// v4.6.0: declare `result` as a debug local so LLDB can show its
+		// value while stepping through the function body (it's the implicit
+		// return slot — a real alloca, so dbg.declare applies directly).
+		if g.debugInfo {
+			g.emitDbgDeclare("result", decl.Token.Line, retType, "%result")
 		}
 	}
 
@@ -202,6 +242,14 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 		g.locals[p.Name] = allocaReg
 		if kylixType != "" {
 			g.localTypes[p.Name] = kylixType
+		}
+		// v4.6.0: declare the parameter as a debug local so LLDB can show it.
+		if g.debugInfo {
+			declLine := decl.Token.Line
+			if p.Token.Line > 0 {
+				declLine = p.Token.Line
+			}
+			g.emitDbgDeclare(p.Name, declLine, llvmT, allocaReg)
 		}
 	}
 
@@ -240,6 +288,13 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	g.locals = savedLocals
 	g.localTypes = savedTypes
 	g.varNameSeq = savedVarSeq
+	// Leaving this function: clear the debug scope + position so subsequent
+	// module-level code (other functions, stdlib defines, metadata) doesn't
+	// attach a stale !dbg.
+	if g.debugInfo {
+		g.setDbgScope(0)
+		g.clearDbgPos()
+	}
 	return nil
 }
 
@@ -457,10 +512,67 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 	if kylixType != "" {
 		g.localTypes[name] = kylixType
 	}
+	// v4.6.0: declare the local as a debug variable (DILocalVariable +
+	// llvm.dbg.declare) so LLDB can resolve its name + value at breakpoints.
+	if g.debugInfo {
+		g.emitDbgDeclare(name, varDeclLine(varType), llvmT, allocaReg)
+	}
 	return nil
 }
 
-// emitAssign generates a store instruction.
+// emitDbgDeclare records a DILocalVariable for `name` (scoped to the current
+// function) and emits a `#dbg_declare` intrinsic record next to the alloca,
+// so the debugger can map the alloca to a source variable. No-op when debug
+// info is off.
+//
+// LLVM 22 deprecated the `call void @llvm.dbg.declare(...)` intrinsic in favor
+// of the `#dbg_declare` record syntax:
+//
+//	#dbg_declare(ptr <alloca>, !<DILocalVariable>, !DIExpression(), !<DILocation>)
+//
+// The record takes 4 operands: the storage address (an SSA value), the
+// DILocalVariable metadata, a DIExpression (empty = direct addressing — "the
+// value at this address IS the variable"), and a DILocation (the source
+// position; we use the current position so the record is associated with the
+// declaration line). The `declare void @llvm.dbg.declare` is NOT emitted —
+// the record is standalone.
+//
+// DILocalVariable ID is allocated here (during codegen); the empty-expression
+// is inlined as `!DIExpression()` (no separate node needed in LLVM 22 record
+// syntax).
+func (g *Generator) emitDbgDeclare(name string, line int, llvmType, allocaReg string) {
+	if g.dbg == nil {
+		return
+	}
+	if line == 0 {
+		line = g.dbg.curLine
+	}
+	vID := g.registerLocalVariable(name, line, llvmType, allocaReg)
+	locID := g.curDbgLocID()
+	// If no current position (shouldn't happen inside a function), fall back
+	// to a position synthesized from the variable's declaration line.
+	if locID == 0 {
+		g.dbg.curLine = line
+		g.dbg.curCol = 1
+		locID = g.curDbgLocID()
+	}
+	g.line(fmt.Sprintf("  #dbg_declare(ptr %s, %s, !DIExpression(), %s)",
+		allocaReg, dbgRef(vID), dbgRef(locID)))
+}
+
+// varDeclLine best-effort extracts a source line from a var type AST node for
+// the debug declaration. Returns 0 if unavailable (emitDbgDeclare then falls
+// back to the current position).
+func varDeclLine(varType ast.Expression) int {
+	if varType == nil {
+		return 0
+	}
+	// Identifier-typed vars carry their Token; others fall back to 0.
+	if ident, ok := varType.(*ast.Identifier); ok {
+		return ident.Token.Line
+	}
+	return 0
+}
 func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 	// Case 1: Tuple destructuring `(a, b) := Func()` — LHS is TupleLiteral.
 	if tuple, ok := s.Name.(*ast.TupleLiteral); ok {

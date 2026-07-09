@@ -4,6 +4,72 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v4.6.0 (2026-07-10) — DWARF 逐行调试（per-instruction DILocation + DILocalVariable）
+
+> 🎯 **调试体验升级**。LLVM 后端 `-g` flag 从函数级调试升级为逐行调试 + 变量检视。每条 IR 指令附 `!dbg !N` DILocation（源行号 + 列号 + scope），每个局部变量/参数/`result` 附 DILocalVariable + `#dbg_declare` 记录。LLDB 支持：按源文件行号设断点、`step`/`next` 逐行单步、`frame variable` 检视局部变量值、backtrace 显示函数+行号+源文件。LLVM 测试 240→**247**，教程通过率 **48/48 (100%)** 无回归。
+
+### DWARF 逐行调试（per-instruction DILocation）
+
+- **DILocation 注册**：`dbgMeta` 新增 `locs []dbgLocation` + `locByKey map[dbgLocKey]int`，按 (line, column, scope) 三元组去重——相同源位置的指令共享一个 `!DILocation` 节点，避免 IR 膨胀
+- **源位置线程化**：`emitStatement`/`emitExpr` 入口调用 `setDbgNode(node)` 设置当前源位置（line+column），save/restore 保证嵌套节点（Block → If → Assign）各自设置自己的位置不污染父节点
+- **`line()` 自动附加**：`isInstructionLine()` 识别指令行（两空格缩进 + 非 label/define/metadata/comment/`#`-record），自动追加 `, !dbg !N`；非指令行（`entry:`、`lblN:`、`}`、`define ...`、`!N = ...`、`; ...`）不附加
+- **scope 管理**：`setDbgScope(subprogID)` 在进入函数体时设置当前 subprogram 作为 DILocation 的 scope，函数结束时清除
+- **`#dbg_declare` 排除**：LLVM 22 的 `#dbg_declare` 记录自带 DILocation 操作数，`isInstructionLine` 显式排除 `#` 前缀行避免重复 `!dbg`
+- **验证**：`dbg_test.klx` LLDB 实测——按 `dbg_test.klx:5` 设断点命中、`step`/`next` 逐行单步、源码上下文显示、stop reason 正确
+
+### DILocalVariable + 变量检视
+
+- **DILocalVariable 节点**：每个局部变量/参数/`result` 注册一个 `!DILocalVariable(name, scope, file, line, type)`，引用其声明函数的 subprogram 作为 scope
+- **`#dbg_declare` 记录**（LLVM 22 语法）：每个 alloca 后发出 `#dbg_declare(ptr <alloca>, !<varID>, !DIExpression(), !<locID>)`，将 LLVM 内存地址关联到源变量——直接寻址（空 DIExpression = "地址处的值即变量"）
+- **参数 dbg.declare**：`emitFunctionDecl` 参数 alloca + store 后声明 DILocalVariable，LLDB `frame variable` 显示参数值
+- **`result` dbg.declare**：函数返回槽 `%result` alloca 后声明，LLDB 可检视返回值
+- **DIBasicType**：MVP 用单个规范 `!DIBasicType(name: "int64", size: 64, encoding: DW_ATE_signed)`；非 i64 局部变量（double/ptr）的值格式化可能不精确，但变量名 + scope 正确，单步不受影响（后续可按 llvmType 发射独立 DIBasicType 节点）
+- **验证**：`frame variable` 显示 `(long) a = 3`、`(long) b = 4`、`(long) result = ...`、`(long) x = 42`
+
+### LLVM 22 适配
+
+- **`#dbg_declare` 记录语法**：LLVM 22 废弃 `call void @llvm.dbg.declare(ptr, ptr, ptr)` intrinsic，改用 `#dbg_declare(ptr, !var, !DIExpression(), !loc)` 记录语法。移除了不再需要的 `declare void @llvm.dbg.declare` 声明
+- **Dwarf Version**：保持 DWARF 4（`!{i32 7, !"Dwarf Version", i32 4}`），兼容性最佳
+- **`#` 前缀排除**：`isInstructionLine` 新增 `#` 前缀分支，避免给 intrinsic 记录附加非法的 `, !dbg` 后缀
+
+### 文件清单
+
+| 文件 | 行数 | 说明 |
+|------|------|------|
+| `pkg/llvmgen/debug.go` | 扩展 | DILocation 注册 + DILocalVariable + `#dbg_declare` + `nodeToken` 类型 switch + DIExpression |
+| `pkg/llvmgen/codegen.go` | 修改 | `line()` 自动附加 `!dbg` + `isInstructionLine()` + emitMain/emitFunctionDecl scope 管理 |
+| `pkg/llvmgen/stmt.go` | 修改 | emitStatement/emitExpr `setDbgNode` + emitVarDeclSingle/参数/`result` 的 `#dbg_declare` |
+| `pkg/llvmgen/expr.go` | 修改 | emitExpr `setDbgNode` save/restore |
+| `pkg/llvmgen/debug_test.go` | 扩展 | +7 测试（DILocation 附加/label 排除/DILocalVariable/参数/result/无 -g/逐行单步）|
+| **合计** | ~250 行新增 | DWARF 逐行调试 + 变量检视 |
+
+### 测试与验证
+
+- **LLVM 后端单元测试**：240 → **247**（+7：DILocation 附加、label 不带 !dbg、DILocation 节点数、DILocalVariable、参数 dbg.declare、无 -g 不生成、if 逐行单步）
+- **LLVM 后端教程通过率**：48/48 (**100%**)，无回归（Go 后端 49/49 不变）
+- **16 个 Go 测试包全部通过**
+- **真机 LLDB 验证**：
+  - `dbg_test.klx`：按源行号设断点 + 逐行单步 + 源码关联 ✅
+  - `dbg_test2.klx`（用户函数）：`break Add` + `frame variable` 显示 `a=3, b=4, result=...` ✅
+  - `dbg_loop.klx`（循环）：循环内逐行单步 + `i`/`sum` 变量检视 ✅
+  - example01/37/17/48/33：-g 编译运行输出正确 ✅
+- **已知限制**：example23_arrays（静态数组）段错误是 v4.5.0 预先存在的 bug（不带 -g 也复现，IR 完全一致），非 v4.6.0 引入
+
+### 已知限制（v4.6.0）
+
+- **DIBasicType 单一化**：MVP 用单个 int64 类型节点；double/ptr/string 局部变量在 LLDB 中值格式化可能不精确（变量名 + scope 正确）
+- **无栈结构**：未发射 DILexicalBlock，块级作用域（`begin var x; end`）变量在 LLDB 中归到函数级 scope
+- **stdlib 预生成 IR 无调试信息**：stdlib 函数体（手写 IR）无源码行号，不附 DILocation（避免 stale 位置误导）——用户代码逐行单步正常，进入 stdlib 函数时无可单步源码
+- **lambda/类方法**：本版本聚焦 main + 用户函数；lambda 闭包和类方法的 DISubprogram 留作后续
+
+### 下一步（v4.7.0 规划）
+
+- **stdlib Phase 4**：jsonutil 嵌套解析（tagged JsonValue 树）+ httpclient 真实响应对象 + db MySQL/PostgreSQL
+- **DILexicalBlock**：块级作用域调试信息
+- **DIBasicType 多类型**：double → DW_ATE_float、ptr → DW_ATE_address、string → derived type
+- **类方法 DISubprogram**：OOP 方法的逐行调试
+- **JetBrains 插件**：IntelliJ/GoLand 支持
+
 ## v4.5.0 (2026-07-08) — LLVM stdlib Phase 3 + DWARF 调试符号 + 优化 pass 管线 + 增量缓存
 
 > 🎯 **stdlib 真实化 + 工具链成熟化**。三个 stdlib stub 升级为真实实现（jsonutil 递归下降解析器 / crypto AES-256-CBC+PBKDF2 / httpclient libcurl 集成）+ 进程内 IR 优化 pass 管线（DCE）+ 增量编译缓存（llc 跳过，32x 加速）+ DWARF 调试符号（`-g` flag，LLDB/GDB 函数级调试）+ 文件拆分（expr.go/stmt.go 回到 1000 行约束内）。LLVM 测试 198→**240**，教程通过率 **48/48 (100%)**。

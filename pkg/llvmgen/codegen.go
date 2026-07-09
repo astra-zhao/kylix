@@ -357,19 +357,32 @@ func (g *Generator) emitRuntimeDecls() {
 func (g *Generator) emitMain(stmts []ast.Statement) error {
 	g.line("; ===== Entry point =====")
 	defineLine := "define i32 @main() {"
+	var mainSpID int
 	if g.debugInfo {
 		mainLine := 1
 		if g.program != nil && g.program.NameToken.Line > 0 {
 			mainLine = g.program.NameToken.Line
 		}
-		spID := g.registerSubprogram("main", mainLine)
-		defineLine = g.defineLineWithDbg(defineLine, spID)
+		mainSpID = g.registerSubprogram("main", mainLine)
+		defineLine = g.defineLineWithDbg(defineLine, mainSpID)
 	}
 	g.line(defineLine)
 	g.line("entry:")
 	g.funcName = "main"
 	g.locals = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
+	// Scope for DILocations inside main = the main subprogram.
+	if g.debugInfo {
+		g.setDbgScope(mainSpID)
+		// Position the entry-block setup at the program line so the very first
+		// instructions (before any user statement) still carry a valid !dbg.
+		if g.program != nil && g.program.NameToken.Line > 0 {
+			g.setDbgNode(g.program) // uses NameToken via nodeToken fallback
+			// nodeToken may not cover Program; set position directly from NameToken.
+			g.dbg.curLine = g.program.NameToken.Line
+			g.dbg.curCol = g.program.NameToken.Column
+		}
+	}
 
 	// Emit top-level VarDecl as local allocas inside main().
 	// (Top-level `var x: T;` declarations live in prog.Declarations.)
@@ -387,9 +400,17 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 		}
 	}
 
+	// ret i32 0 is synthetic (implicit program exit); clear any !dbg so it
+	// doesn't claim a source line it doesn't correspond to.
+	g.clearDbgPos()
 	g.line("  ret i32 0")
 	g.line("}")
 	g.line("")
+	// Leaving main: clear scope so stray instructions outside functions don't
+	// attach a stale !dbg.
+	if g.debugInfo {
+		g.setDbgScope(0)
+	}
 	return nil
 }
 
@@ -445,9 +466,69 @@ func (g *Generator) emitDecl(node ast.Node) error {
 
 // ===== Helper methods =====
 
+// line emits one IR line verbatim. When debug info is active and a current
+// source position is set (see setDbgNode), instruction-level lines (those
+// indented with two spaces and defining/using SSA values — alloca/load/store/
+// arithmetic/call/br/ret/...) get ", !dbg !M" appended, where !M is a
+// DILocation node for the current position. Non-instruction lines (labels,
+// defines, metadata, comments) are passed through unchanged: they must not
+// carry !dbg, and LLVM rejects !dbg on a label line.
 func (g *Generator) line(s string) {
+	if g.debugInfo && g.dbg != nil {
+		if id := g.curDbgLocID(); id != 0 {
+			if isInstructionLine(s) {
+				s = s + ", !dbg " + dbgRef(id)
+			}
+		}
+	}
 	g.b.WriteString(s)
 	g.b.WriteByte('\n')
+}
+
+// isInstructionLine reports whether s is an instruction-level IR line (as
+// opposed to a label, define, metadata, or comment). Heuristic: an
+// instruction line is indented exactly two spaces and its 3rd byte starts
+// the opcode or a register token. Lines like "entry:", "lblN:", "}",
+// "define ...", "!N = ...", "; ..." are NOT instructions.
+//
+// We only attach !dbg to real instructions because:
+//   - LLVM rejects !dbg on labels, defines, and metadata.
+//   - !dbg on a `define`/`declare` belongs via the subprogram, not the line.
+//   - Terminator instructions (br/ret) DO take !dbg — it's how the debugger
+//     maps a step to a source line.
+func isInstructionLine(s string) bool {
+	if len(s) < 3 {
+		return false
+	}
+	// Must start with exactly two spaces (the codegen indentation convention).
+	if s[0] != ' ' || s[1] != ' ' || (len(s) > 2 && s[2] == ' ') {
+		return false
+	}
+	rest := s[2:]
+	switch {
+	case len(rest) == 0:
+		return false
+	case strings.HasPrefix(rest, ";"):
+		return false // comment
+	case strings.HasPrefix(rest, "define ") || strings.HasPrefix(rest, "declare "):
+		return false
+	case strings.HasPrefix(rest, "!"):
+		return false // metadata node
+	case strings.HasPrefix(rest, "#"):
+		// LLVM 22 intrinsic records (e.g. "#dbg_declare(...)") carry their
+		// own DILocation operand — they must NOT get an extra trailing
+		// ", !dbg !M" (LLVM rejects it: "expected instruction opcode").
+		return false
+	}
+	// Labels: "entry:" or "lblN:" — last char is ':' and no leading %v/%t reg.
+	if rest[len(rest)-1] == ':' {
+		return false
+	}
+	// Everything else indented two spaces is an instruction (alloca/load/store/
+	// arithmetic/call/br/ret/icmp/gep/phi/zext/...). This includes both
+	// "  %tN = ..." register-defining and "  store ..."/"  call ..."/"  br ..."
+	// non-defining instructions.
+	return true
 }
 
 func (g *Generator) tmp() string {

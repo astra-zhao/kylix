@@ -43,6 +43,18 @@ func typeExprName(expr ast.Expression) string {
 // emitExpr generates code for an expression, returning the SSA register holding the result.
 // Returns ("", type, error).
 func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, err error) {
+	// v4.6.0: record the source position so IR emitted for this expression
+	// carries a !dbg DILocation (per-line stepping). Save/restore so the
+	// caller's position is unaffected when this returns — a sub-expression's
+	// position only applies to its own instructions, not subsequent ones in
+	// the caller's node. Statements set their own position in emitStatement.
+	if g.debugInfo {
+		savedLine, savedCol := g.dbg.curLine, g.dbg.curCol
+		g.setDbgNode(node)
+		defer func() {
+			g.dbg.curLine, g.dbg.curCol = savedLine, savedCol
+		}()
+	}
 	switch e := node.(type) {
 	case *ast.IntegerLiteral:
 		r := g.tmp()

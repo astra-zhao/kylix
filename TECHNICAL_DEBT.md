@@ -1,7 +1,7 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-07-08
-> 当前版本: v4.5.0 已发布
+> 最后更新: 2026-07-10
+> 当前版本: v4.6.0 已发布
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
@@ -115,14 +115,18 @@
 - 实测：example01 二次构建 **0.939s → 0.029s（32x 加速）**
 - best-effort：缓存失败非致命（静默降级到全量编译）
 
-### ✅ 6.8 无调试符号（LLDB/GDB 不可用）→ v4.5.0 修复
+### ✅ 6.8 无调试符号（LLDB/GDB 不可用）→ v4.5.0 函数级 / v4.6.0 逐行
 
-**已修复：** `pkg/llvmgen/debug.go`（127 行）—— DWARF 调试符号：
+**已修复：** `pkg/llvmgen/debug.go` —— DWARF 调试符号：
 - `-g` flag：`kylix build --backend=llvm -g` 发出 DWARF 调试信息
 - metadata：`!llvm.dbg.cu` + `DICompileUnit` + `DIFile` + `DISubprogram`（每个用户函数 + main）
-- LLDB/GDB：支持函数级断点、backtrace 显示函数+行号、源文件关联
+- v4.5.0 函数级：函数级断点、backtrace 显示函数+行号、源文件关联
+- v4.6.0 逐行：per-instruction DILocation（每条 IR 指令附 `!dbg !N` 源行号+列号+scope）+ DILocalVariable + `#dbg_declare` 记录
+  - LLDB 支持：按源文件行号设断点、`step`/`next` 逐行单步、`frame variable` 检视局部变量（参数/`result`/用户变量）
+  - LLVM 22 适配：用 `#dbg_declare` 记录语法替代废弃的 `call @llvm.dbg.declare` intrinsic
+  - `emitStatement`/`emitExpr` 入口 `setDbgNode` 设置源位置；`line()` 自动给指令行附加 `!dbg`
 - -g 与 -O 互斥：`-g` 强制 `-O0`（优化重排指令会使调试信息误导）
-- 范围：MVP 为函数级调试信息；逐行单步（per-instruction DILocation）留作后续
+- 已知残留（v4.7.0）：stdlib 预生成 IR 无源码行号（不附 DILocation）；DIBasicType 单一化（double/ptr 值格式化可能不精确）；类方法/lambda 未给 DISubprogram；无 DILexicalBlock（块作用域归函数级）
 
 ---
 
@@ -317,3 +321,26 @@
 | 接口（vtable fat pointer）| 🔲 Milestone 2 Phase 2 (v3.2) |
 | 泛型单态化 | 🔲 Milestone 2 Phase 3 (v3.2) |
 | 异常（try/catch）| 🔲 v3.2+ |
+
+---
+
+## 🔴 v4.6.0 新发现：example23_arrays 静态数组段错误（预先存在）
+
+**症状**：`example23_arrays.klx`（静态 `array[0..N] of T`）经 LLVM 后端编译运行时段错误（exit 139），不带 `-g` 也复现。
+
+**排查**：v4.5.0（HEAD）与 v4.6.0 生成的 IR **逐字节一致**（`diff` 无差异），且两个版本都段错误——确认为 v4.5.0 预先存在的 bug，非 v4.6.0 引入。
+
+**根因推测**：静态数组的 LLVM alloca `[N x i64]` + 1-based 索引访问在 `numbers[0]`（边界）或后续访问处越界/类型混淆。Go 后端正常，仅 LLVM 后端复现。
+
+**优先级**：中（静态数组教程用例少，且 Go 后端可用作 fallback）。留待 v4.7.0 排查 `array.go` 的静态数组 codegen。
+
+---
+
+## 🟠 v4.6.0 DWARF 调试信息残留限制（待 v4.7.0）
+
+| 限制 | 影响 | 修复方向 |
+|------|------|---------|
+| stdlib 预生成 IR 无 DILocation | 进入 stdlib 函数时无可单步源码 | 给 stdlib IR 注入合成 DILocation（或文档化为预期） |
+| DIBasicType 单一化（int64） | double/ptr/string 局部变量值格式化不精确 | 按 llvmType 发射独立 DIBasicType（DW_ATE_float/address/...） |
+| 类方法/lambda 无 DISubprogram | OOP 方法/闭包体内不可逐行单步 | emitMethod/emitLambda 注册 subprogram + setDbgScope |
+| 无 DILexicalBlock | 块级 `begin var x; end` 变量归函数级 scope | 为 BlockStatement 发射 DILexicalBlock 作 scope |
