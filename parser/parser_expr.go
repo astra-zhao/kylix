@@ -604,6 +604,9 @@ func (p *Parser) parseTypeExpression() ast.Expression {
 				p.nextToken()
 				upperBound := p.parseExpression(LOWEST)
 				p.nextToken()
+				// Record the lower bound so the LLVM backend can adjust indices
+				// (Pascal range → LLVM 0-based). The Go backend ignores it.
+				arrayType.LowerBound = lowerBound
 				// Size = upperBound - lowerBound + 1 (Pascal range semantics)
 				arrayType.Size = &ast.InfixExpression{
 					Left:     &ast.InfixExpression{Left: upperBound, Operator: "-", Right: lowerBound},

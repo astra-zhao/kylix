@@ -372,9 +372,11 @@ func (g *Generator) emitJsonGetFloatBody() {
 }
 
 // ---- JsonGetMap: ptr @__kylix_json_JsonGetMap(ptr %m, ptr %k) ----
-// Nested-object support is not implemented in the flat parser (nested values
-// are stored as their raw JSON substring). Returns null so callers can detect
-// the absence of a parsed sub-map.
+// Nested-object support (v4.7.0): the flat parser stores nested objects as
+// their raw JSON substring (skip_nested). JsonGetMap retrieves that substring
+// and recursively parses it with parse_flat into a fresh htab, so callers can
+// chain JsonGetString(inner, 'name') on the result. Returns null when the key
+// is absent or the stored value is empty (not a nested object).
 func (g *Generator) emitJsonGetMapCall(args []ast.Expression) (string, string, error) {
 	if len(args) != 2 {
 		return "", "", fmt.Errorf("jsonutil.JsonGetMap expects 2 arguments, got %d", len(args))
@@ -395,9 +397,30 @@ func (g *Generator) emitJsonGetMapCall(args []ast.Expression) (string, string, e
 }
 
 func (g *Generator) emitJsonGetMapBody() {
+	// Ensure parse_flat + helpers are emitted (JsonGetMap depends on parse_flat).
+	g.emitJsonParserBodies()
 	g.line("define ptr @__kylix_json_JsonGetMap(ptr %m, ptr %k) {")
 	g.line("entry:")
+	// raw = htab_get(m, k) — the nested object's raw JSON substring (or "" on miss).
+	raw := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %%m, ptr %%k)", raw))
+	// If raw is empty (miss or non-object value), return null.
+	emptyStr := g.addString("")
+	emptyPtr := g.ptrTo(emptyStr, 1)
+	cmp := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @strcmp(ptr %s, ptr %s)", cmp, raw, emptyPtr))
+	isEmpty := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", isEmpty, cmp))
+	retNullLbl := g.label()
+	parseLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isEmpty, retNullLbl, parseLbl))
+	g.line(fmt.Sprintf("%s:", retNullLbl))
 	g.line("  ret ptr null")
+	// Recursively parse the raw substring as a flat object → nested htab.
+	g.line(fmt.Sprintf("%s:", parseLbl))
+	nested := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_parse_flat(ptr %s)", nested, raw))
+	g.line(fmt.Sprintf("  ret ptr %s", nested))
 	g.line("}")
 	g.line("")
 }

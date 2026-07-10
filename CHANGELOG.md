@@ -4,6 +4,77 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v4.7.0 (2026-07-10) — 静态数组下界修复 + jsonutil 嵌套对象解析
+
+> 🎯 **正确性修复 + stdlib 能力扩展**。修复 v4.5.0 起静态数组 `array[0..N]` 下界硬编码为 1 导致 example23 段错误、example21 输出错误的 bug（`0 - 1` 无符号下溢 → GEP 越界）。AST `ArrayType` 新增 `LowerBound` 字段，parser 记录真实下界，LLVM 后端按真实下界调整索引。jsonutil `JsonGetMap` 从返回 null 升级为递归解析 raw JSON 子串为 nested htab，支持任意深度嵌套对象。LLVM 测试 247→**249**，教程通过率 **48/48 (100%)** 无回归，example23 从段错误 → 输出正确。
+
+### 静态数组下界修复（核心 bug）
+
+**根因**：`pkg/llvmgen/array.go` 第 69 行硬编码 `LowerBound: 1`（Pascal 默认），但 `array[0..4]` 的下界是 0。第 106 行 `sub i64 idx, LowerBound` 把 `0 - 1 = -1`（i64 无符号下溢成 0xFFFFFFFFFFFFFFFF），GEP 越界访问非法内存 → 段错误（example23）或静默错误（example21 `Pop: 0` 而非 `Pop: 30`）。
+
+**波及**：example21_generic_class 也用 `array[0..99] of T`，但因泛型类方法是 stub（`unsupported receiver`），输出全是 0，掩盖了下界 bug。
+
+**修复**：
+- `ast/ast.go`：`ArrayType` 新增 `LowerBound Expression` 字段（Pascal 范围下界）
+- `parser/parser_expr.go`：DOTDOT 分支设置 `arrayType.LowerBound = lowerBound`（解析时记录，不再丢弃）
+- `pkg/llvmgen/array.go`：`emitArrayVarDecl` 用 `evalConstInt(arr.LowerBound)` 计算 `lb`，传给 `arrayInfo.LowerBound`（不再硬编码 1）
+- `emitArrayIndex` 已有 `if LowerBound != 0` 分支（LowerBound=0 走 `add idx, 0` 不调整，LowerBound=1 走 `sub idx, 1`），逻辑正确——只需 `arrayInfo.LowerBound` 正确即可
+- Go 后端不读 `LowerBound`（直接透传源码索引给 Go 运行时），加字段零影响
+
+**验证**：
+- `example23_arrays.klx` LLVM 编译运行 → `numbers[0]=10 ... numbers[4]=50` + `Names: 1.Alice 2.Bob 3.Charlie`（之前段错误 exit 139）
+- `array[5..7]` → `sub idx, 5`（真实下界），`array[0..4]` → `add idx, 0`（不调整）
+
+### jsonutil 嵌套对象解析
+
+**升级**：`JsonGetMap` 从返回 null 升级为递归解析 raw JSON 子串为 nested htab。
+
+- **设计**：不引入 tagged JsonValue 结构体（避免破坏 htab 字符串契约）。嵌套对象作为 raw JSON 子串存储在父 htab（`skip_nested` 已实现），`JsonGetMap` 按需递归 `parse_flat` 解析
+- **`emitJsonGetMapBody`**：`htab_get(m, k)` 取 raw 子串 → `strcmp` 判空 → 空则 `ret null`，非空则 `call parse_flat(raw)` 返回 nested htab
+- **`skip_nested` pos 修复**：返回的 pos 从指向 close char 改为指向 close char 之后（`end + 1`）。之前 pos 指向 `}`，导致 `parse_flat` 误判外层对象结束，丢失后续 sibling 字段（`{"user":{...},"version":3}` 丢失 `version`）
+- **验证**：
+  - `{"user":{"name":"Alice","age":30},"version":3}` → `JsonGetMap(json,'user')` + `JsonGetString(inner,'name')` = `Alice` + `JsonGetInt(json,'version')` = 3（之前 version=0）
+  - 3 层嵌套 `{"user":{"name":"Alice","address":{"city":"NYC","zip":"10001"}}}` → `JsonGetMap(JsonGetMap(root,'user'),'address')` + `JsonGetString(addr,'city')` = `NYC` ✅
+- **限制**：`JsonGetArray` 仍返回 null（array of Variant 需 Variant 运行时，超 v4.7.0 范围）
+
+### 文件清单
+
+| 文件 | 说明 |
+|------|------|
+| `ast/ast.go` | ArrayType 加 `LowerBound Expression` 字段 |
+| `parser/parser_expr.go` | DOTDOT 分支设置 `arrayType.LowerBound` |
+| `pkg/llvmgen/array.go` | `emitArrayVarDecl` 用真实 LowerBound（不再硬编码 1） |
+| `pkg/llvmgen/stdlib_jsonutil.go` | `emitJsonGetMapBody` 递归 parse_flat |
+| `pkg/llvmgen/stdlib_jsonutil_parser.go` | `skip_nested` pos 修复（指向 close char 之后） |
+| `pkg/llvmgen/array_test.go` | +2 测试（ZeroLowerBound / NonZeroLowerBound） |
+| `pkg/llvmgen/stdlib_jsonutil_test.go` | `TestJson_GetMap_ReturnsNull` → `TestJson_GetMap_ParsesNestedObject` |
+
+### 测试与验证
+
+- **LLVM 后端单元测试**：247 → **249**（+2 数组下界测试，jsonutil 测试调整）
+- **LLVM 后端教程通过率**：48/48 (**100%**) 无回归（example23 从段错误 → 正确）
+- **16 个 Go 测试包全部通过**
+- **Go 后端教程**：49/49 无回归
+- **真机验证**：
+  - example23 LLVM 输出与 Go 后端一致 ✅
+  - jsonutil 嵌套对象 2-3 层深度解析正确 ✅
+  - `-g` 模式与修复兼容 ✅
+
+### 已知限制（v4.7.0）
+
+- **example21 泛型类 stub**：`TStack<Integer>.Push/Pop` 仍是 `unsupported receiver` stub（输出 `Pop: 0`），这是泛型类方法未实现的独立问题，非下界 bug
+- **JsonGetArray 仍 stub**：array of Variant 需 Variant 运行时
+- **jsonutil 嵌套递归深度**：超深 JSON 可能栈溢出（教程用例 2-3 层，可接受）
+
+### 下一步（v4.8.0 规划）
+
+- `JsonGetArray` + array of Variant 运行时
+- DILexicalBlock 块级作用域调试信息
+- DIBasicType 多类型（double/ptr/string）
+- 类方法/lambda DISubprogram
+- httpclient THttpResponse 响应对象
+- JetBrains 插件
+
 ## v4.6.0 (2026-07-10) — DWARF 逐行调试（per-instruction DILocation + DILocalVariable）
 
 > 🎯 **调试体验升级**。LLVM 后端 `-g` flag 从函数级调试升级为逐行调试 + 变量检视。每条 IR 指令附 `!dbg !N` DILocation（源行号 + 列号 + scope），每个局部变量/参数/`result` 附 DILocalVariable + `#dbg_declare` 记录。LLDB 支持：按源文件行号设断点、`step`/`next` 逐行单步、`frame variable` 检视局部变量值、backtrace 显示函数+行号+源文件。LLVM 测试 240→**247**，教程通过率 **48/48 (100%)** 无回归。

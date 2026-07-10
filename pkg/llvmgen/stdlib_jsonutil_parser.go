@@ -364,6 +364,13 @@ func (g *Generator) emitJsonSkipNested() {
 	g.line(fmt.Sprintf("%s:", done))
 	end := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", end, curSlot))
+	// Advance past the closing '}' / ']' so the caller's pos points at the
+	// next token (',' or outer close), not back at this nesting's close
+	// char. Without this, parse_flat saw '}' right after a nested value and
+	// treated it as the end of the OUTER object, dropping any trailing
+	// sibling keys (e.g. '{"user":{...},"version":3}' lost "version").
+	endAfter := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", endAfter, end))
 	length := g.tmp()
 	g.line(fmt.Sprintf("  %s = sub i64 %s, %s", length, end, start))
 	allocSize := g.tmp()
@@ -376,7 +383,7 @@ func (g *Generator) emitJsonSkipNested() {
 	term := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", term, buf, length))
 	g.line(fmt.Sprintf("  store i8 0, ptr %s", term))
-	g.line(fmt.Sprintf("  store i64 %s, ptr %%posSlot", end))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %%posSlot", endAfter))
 	g.line(fmt.Sprintf("  ret ptr %s", buf))
 	g.line("}")
 	g.line("")

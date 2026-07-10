@@ -103,7 +103,7 @@ end.`)
 	assertIRContains(t, ir, "define ptr @__kylix_json_JsonDecode")
 }
 
-func TestJson_GetMap_ReturnsNull(t *testing.T) {
+func TestJson_GetMap_ParsesNestedObject(t *testing.T) {
 	ir := generateIR(t, `program p;
 uses jsonutil;
 begin
@@ -112,12 +112,17 @@ begin
 end.`)
 	assertIRContains(t, ir, "call ptr @__kylix_json_JsonGetMap")
 	assertIRContains(t, ir, "define ptr @__kylix_json_JsonGetMap")
-	// GetMap body returns null (nested not supported in flat parser)
+	// v4.7.0: GetMap recursively parses the raw substring. The body should
+	// call parse_flat (not just `ret ptr null` like the v4.5.0 stub).
 	getMapIdx := strings.Index(ir, "define ptr @__kylix_json_JsonGetMap")
 	bodyEnd := strings.Index(ir[getMapIdx:], "\n}")
 	body := ir[getMapIdx : getMapIdx+bodyEnd]
-	if !strings.Contains(body, "ret ptr null") {
-		t.Errorf("JsonGetMap body should ret null (nested unsupported)\nbody:\n%s", body)
+	if !strings.Contains(body, "call ptr @__kylix_json_parse_flat") {
+		t.Errorf("JsonGetMap body should call parse_flat for nested objects\nbody:\n%s", body)
+	}
+	// Should still return null when the key is absent/empty (strcmp branch).
+	if !strings.Contains(body, "call i32 @strcmp") {
+		t.Errorf("JsonGetMap body should strcmp the raw value against empty\nbody:\n%s", body)
 	}
 }
 

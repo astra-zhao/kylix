@@ -1,7 +1,7 @@
 # Kylix 技术债务与后续开发清单
 
 > 最后更新: 2026-07-10
-> 当前版本: v4.6.0 已发布
+> 当前版本: v4.7.0 已发布
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
@@ -324,19 +324,27 @@
 
 ---
 
-## 🔴 v4.6.0 新发现：example23_arrays 静态数组段错误（预先存在）
+## ✅ v4.7.0 修复：example23_arrays 静态数组段错误
 
 **症状**：`example23_arrays.klx`（静态 `array[0..N] of T`）经 LLVM 后端编译运行时段错误（exit 139），不带 `-g` 也复现。
 
 **排查**：v4.5.0（HEAD）与 v4.6.0 生成的 IR **逐字节一致**（`diff` 无差异），且两个版本都段错误——确认为 v4.5.0 预先存在的 bug，非 v4.6.0 引入。
 
-**根因推测**：静态数组的 LLVM alloca `[N x i64]` + 1-based 索引访问在 `numbers[0]`（边界）或后续访问处越界/类型混淆。Go 后端正常，仅 LLVM 后端复现。
+**根因**：`pkg/llvmgen/array.go` 第 69 行硬编码 `LowerBound: 1`（Pascal 默认），但 `array[0..4]` 的下界是 0。`emitArrayIndex` 第 106 行 `sub i64 idx, LowerBound` 把 `0 - 1 = -1`（i64 无符号下溢成 0xFFFFFFFFFFFFFFFF），GEP 越界访问非法内存 → 段错误。
 
-**优先级**：中（静态数组教程用例少，且 Go 后端可用作 fallback）。留待 v4.7.0 排查 `array.go` 的静态数组 codegen。
+**修复**（v4.7.0）：
+- `ast/ast.go`：`ArrayType` 新增 `LowerBound Expression` 字段
+- `parser/parser_expr.go`：DOTDOT 分支设置 `arrayType.LowerBound = lowerBound`（解析时记录，不再丢弃）
+- `pkg/llvmgen/array.go`：`emitArrayVarDecl` 用 `evalConstInt(arr.LowerBound)` 计算真实下界，传给 `arrayInfo.LowerBound`
+- `emitArrayIndex` 已有 `if LowerBound != 0` 分支（LowerBound=0 走 `add idx, 0` 不调整），逻辑正确——只需 `arrayInfo.LowerBound` 正确
+
+**验证**：example23 LLVM 编译运行输出 `numbers[0]=10 ... numbers[4]=50` + `Names: 1.Alice 2.Bob 3.Charlie`，与 Go 后端一致。
+
+**附注**：example21_generic_class 也用 `array[0..99]`，但因泛型类方法是 stub（`unsupported receiver`），输出全是 0，掩盖了下界 bug。修复后 example21 仍是 stub 输出（泛型类方法未实现，独立问题）。
 
 ---
 
-## 🟠 v4.6.0 DWARF 调试信息残留限制（待 v4.7.0）
+## 🟠 v4.6.0 DWARF 调试信息残留限制（待 v4.8.0）
 
 | 限制 | 影响 | 修复方向 |
 |------|------|---------|
@@ -344,3 +352,13 @@
 | DIBasicType 单一化（int64） | double/ptr/string 局部变量值格式化不精确 | 按 llvmType 发射独立 DIBasicType（DW_ATE_float/address/...） |
 | 类方法/lambda 无 DISubprogram | OOP 方法/闭包体内不可逐行单步 | emitMethod/emitLambda 注册 subprogram + setDbgScope |
 | 无 DILexicalBlock | 块级 `begin var x; end` 变量归函数级 scope | 为 BlockStatement 发射 DILexicalBlock 作 scope |
+
+---
+
+## 🟠 v4.7.0 jsonutil 残留限制（待 v4.8.0）
+
+| 限制 | 影响 | 修复方向 |
+|------|------|---------|
+| `JsonGetArray` 返回 null | array of Variant 需 Variant 运行时（类型标签 + dispatch） | 实现 Variant 运行时后，JsonGetArray 递归解析 raw 数组子串 |
+| jsonutil 嵌套递归深度无界 | 超深 JSON 可能栈溢出 | 教程用例 2-3 层可接受；超深场景文档化为限制 |
+| example21 泛型类方法 stub | `TStack<T>.Push/Pop` 输出 `Pop: 0`（unsupported receiver） | 泛型类单态化后的方法 codegen（独立于下界 bug） |

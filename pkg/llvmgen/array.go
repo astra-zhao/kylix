@@ -55,6 +55,15 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 	if size <= 0 {
 		size = 1 // safety
 	}
+	// Pascal range lower bound for index adjustment (array[0..N] → 0,
+	// array[1..N] → 1, array[5..N] → 5). nil for the single-value form
+	// array[N] → default 0. emitArrayIndex uses this to shift source indices
+	// to LLVM 0-based (sub idx, LowerBound). The previous hardcoded 1 broke
+	// array[0..N] (0-1 underflowed → wild GEP → segfault on example23).
+	lb := int64(0)
+	if arr.LowerBound != nil {
+		lb = evalConstInt(arr.LowerBound)
+	}
 
 	allocaReg := g.freshVarReg(name, "_arr")
 	g.line(fmt.Sprintf("  %s = alloca [%d x %s], align 8", allocaReg, size, elemType))
@@ -66,7 +75,7 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 		IsDynamic:   false,
 		ElementType: elemType,
 		Size:        size,
-		LowerBound:  1, // Pascal default
+		LowerBound:  lb,
 	}
 	return true
 }

@@ -336,7 +336,12 @@ func (r *RecordType) TokenLiteral() string { return "record" }
 type ArrayType struct {
 	ElementType Expression
 	Size        Expression
-	Dynamic     bool
+	// LowerBound is the Pascal range lower bound (e.g. 0 for array[0..N], 1
+	// for array[1..N]). nil for the single-value form array[N] (treated as
+	// 0-based by the LLVM backend). The Go backend ignores this field — it
+	// emits source-level indices directly and lets Go's runtime handle bounds.
+	LowerBound Expression
+	Dynamic    bool
 }
 
 func (a *ArrayType) expressionNode()      {}

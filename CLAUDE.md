@@ -4,8 +4,9 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 
 **重要：始终用中文回答用户，不论用户用什么语言提问，回复一律使用中文。**
 
-## 当前状态：v4.6.0（2026-07-10）
+## 当前状态：v4.7.0（2026-07-10）
 
+- v4.7.0 已发布：静态数组下界修复 + jsonutil 嵌套对象解析。AST `ArrayType` 新增 `LowerBound` 字段，parser 记录真实下界，LLVM 后端按真实下界调整索引（不再硬编码 1）——修复 example23 段错误（`array[0..4]` 的 `0-1` 无符号下溢 → GEP 越界）。jsonutil `JsonGetMap` 从返回 null 升级为递归 `parse_flat` 解析 raw JSON 子串为 nested htab（支持任意深度嵌套对象），并修复 `skip_nested` 的 pos bug（指向 close char 之后，不再丢失 sibling 字段）。LLVM 测试 240→249，教程通过率 48/48（100%），example23 从段错误 → 输出正确。
 - v4.6.0 已发布：DWARF 逐行调试升级 —— per-instruction DILocation（每条 IR 指令附 `!dbg !N` 源行号+列号+scope，按 (line,col,scope) 去重）+ DILocalVariable + `#dbg_declare` 记录（LLVM 22 语法，替代废弃的 `call @llvm.dbg.declare`）。`emitStatement`/`emitExpr` 入口 `setDbgNode` 设置源位置，`line()` 自动给指令行附加 `!dbg`。LLDB 支持按源文件行号设断点、`step`/`next` 逐行单步、`frame variable` 检视局部变量（参数/`result`/用户变量）。LLVM 测试 240→247，教程通过率 48/48（100%）无回归。
 - v4.5.0 已发布：LLVM stdlib Phase 3 完成 —— 3 个 stub 模块升级为真实实现（jsonutil 递归下降解析器 / crypto AES-256-CBC+PBKDF2 / httpclient libcurl 集成）+ 进程内 IR 优化 pass 管线（DCE）+ 增量编译缓存（llc 跳过，32x 加速）+ DWARF 调试符号（`-g` flag，LLDB/GDB 函数级调试）+ 文件拆分（expr.go 1207→777、stmt.go 1081→614，回到 1000 行约束内）。LLVM 测试 198→240，教程通过率 48/48（100%）。
 - v4.4.0 已发布：LLVM stdlib Phase 2 完成 —— 8 个模块（encoding/net/crypto/db/cache/jsonutil/boot/jwt/httpclient，~2000 行 IR + 60+ 单元测试）+ KylixBoot 注解方法 stub 生成 + 链式方法调用修复（`self.Repo.Name()` 类型追踪）+ 9 个关键 bug 修复（字符串比较/块作用域/ptr-nil 比较/map 后缀/...）。LLVM 教程通过率 48/48（100%，含 example33 多文件模块）。
@@ -16,9 +17,10 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - v3.3.0：KylixBoot 框架完善 —— Body 绑定 + JWT + OpenAPI 3.1 自动生成
 - v3.2.0：KylixBoot 注解栈 + LLVM M2 完整 + stdlib Phase 6
 - v1.5.0：stdlib `.klx` 声明文件 + 包管理器
-- 所有 Go 测试通过（16 个包，LLVM 后端 247 测试）
+- 所有 Go 测试通过（16 个包，LLVM 后端 249 测试）
 - 教程 49/49 测试通过（Go 后端，`examples/complete-tutorial/`）
 - LLVM 后端 48/48 教程编译通过（100%，01-04 章节 19 个文件与 Go 后端输出逐字节一致；example33 多文件模块经 `multifile.go` MergePrograms 合并声明后通过）
+- v4.7.0 新增：静态数组真实 LowerBound（`array[0..N]` 不再段错误）+ jsonutil `JsonGetMap` 递归嵌套对象解析
 - v4.6.0 新增：DWARF 逐行调试（per-instruction DILocation + DILocalVariable + `#dbg_declare`，LLDB 逐行单步 + `frame variable` 变量检视）
 - v4.5.0 新增：进程内 IR 优化 pass（DCE，默认运行）+ 增量编译缓存（llc 跳过，32x 加速）+ DWARF 调试符号（`kylix build --backend=llvm -g`）
 - 所有源文件 ≤ 1000 行

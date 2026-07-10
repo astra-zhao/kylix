@@ -1,11 +1,11 @@
 # Kylix Development Roadmap
 
 > 最后更新: 2026-07-10  
-> 当前版本: v4.6.0 ✅  
+> 当前版本: v4.7.0 ✅  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**✅ v4.6.0 已发布！** DWARF 逐行调试升级：per-instruction DILocation（每条 IR 指令附 `!dbg !N` 源行号+列号+scope）+ DILocalVariable + `#dbg_declare` 记录（LLVM 22 语法）。LLDB 支持按源文件行号设断点、`step`/`next` 逐行单步、`frame variable` 检视局部变量（参数/`result`/用户变量）。LLVM 测试 240→**247**，教程通过率 **48/48 (100%)** 无回归。详见 [CHANGELOG.md](CHANGELOG.md)。
+**✅ v4.7.0 已发布！** 静态数组 `array[0..N]` 下界修复（AST 加 `LowerBound` 字段，解决 example23 段错误/example21 错误输出）+ jsonutil `JsonGetMap` 递归解析嵌套对象（raw 子串 → nested htab，支持任意深度）+ `skip_nested` pos 修复（ sibling 字段不再丢失）。LLVM 测试 247→**249**，教程通过率 **48/48 (100%)**，example23 从段错误 → 输出正确。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -33,7 +33,8 @@
 | **v4.4.0** | LLVM stdlib Phase 2 (8 模块 + KylixBoot 注解支持) | ✅ 完成 | 2026-07-07 |
 | **v4.5.0** | LLVM stdlib Phase 3 + 优化 pass + 增量缓存 + DWARF 调试符号 | ✅ 完成 | 2026-07-08 |
 | **v4.6.0** | DWARF 逐行调试（per-instruction DILocation + DILocalVariable） | ✅ 完成 | 2026-07-10 |
-| **v4.7.0** | stdlib Phase 4 + DILexicalBlock + 类方法调试 + JetBrains 插件 | 📋 规划中 | 2026 Q4 |
+| **v4.7.0** | 静态数组下界修复 + jsonutil 嵌套对象解析 | ✅ 完成 | 2026-07-10 |
+| **v4.8.0** | stdlib Phase 4 + DILexicalBlock + 类方法调试 + JetBrains 插件 | 📋 规划中 | 2026 Q4 |
 | **v5.0.0** | 自研运行时 KylixRT + 自举编译器 + 完全脱离 Go | 📋 长期 | 2027+ |
 
 ---
@@ -52,10 +53,11 @@
 | WASM 目标 | 2 (Go 标准 + TinyGo) |
 | WASI 目标 | 2 (Go wasip1 + TinyGo) |
 | LLVM 后端 | ✅ Milestone 4（stdlib Phase 3 完成，3 模块真实化）|
-| LLVM 测试 | 247 个（含 stdlib 60+ 个 + debug/DCE/cache 21 个）|
-| LLVM 教程编译通过率 | 48/48（100%，含 example33 多文件模块）|
+| LLVM 测试 | 249 个（含 stdlib 60+ 个 + debug/DCE/cache 21 个 + 数组下界 2 个）|
+| LLVM 教程编译通过率 | 48/48（100%，含 example33 多文件模块；example23 修复后正确运行）|
 | LLVM 增量缓存 | ✅ v4.5.0（llc 跳过，32x 加速）|
 | LLVM 调试符号 | ✅ v4.6.0（DWARF `-g` flag，逐行单步 + 变量检视）|
+| LLVM 静态数组 | ✅ v4.7.0（真实 LowerBound，array[0..N]/array[1..N]/array[5..N] 均正确）|
 | KylixBoot 测试 | 23 个 |
 | 包注册中心 | ✅ REST API + Web 前端 |
 | VS Code 扩展 | ✅ v1.1（语法高亮 + LSP + 代码片段 25 个）|
