@@ -346,15 +346,14 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 			return err
 		}
 
-		// Constructor inference: `var x := TFoo.Create` produces a ptr, but we
-		// must record the class name so later `x.Field` / `x.Method` resolve.
+		// Constructor inference: `var x := TFoo.Create` or `var x := TFoo.Create()`
+		// produces a ptr, but we must record the class name so later
+		// `x.Field` / `x.Method` resolve. Covers both the bare-member form
+		// (MemberExpression) and the call form (CallExpression wrapping a
+		// MemberExpression), and the generic variants TStack<Integer>.Create.
 		inferredClass := ""
-		if member, ok := s.Value.(*ast.MemberExpression); ok && member.Member == "Create" {
-			if ident, ok := member.Object.(*ast.Identifier); ok {
-				if _, known := g.classes[ident.Value]; known {
-					inferredClass = ident.Value
-				}
-			}
+		if name := constructorClassName(s.Value, g); name != "" {
+			inferredClass = name
 		}
 
 		// Stdlib opaque-type inference: stdlib module functions may return a
@@ -573,6 +572,55 @@ func varDeclLine(varType ast.Expression) int {
 	}
 	return 0
 }
+
+// constructorClassName inspects a var-decl initializer expression and, if it
+// is a constructor call (TFoo.Create, TFoo.Create(args), or the generic
+// TStack<Integer>.Create / TStack<Integer>.Create(args)), returns the class
+// name the variable holds (the specialized mangled name for generics). This
+// lets `var x := TFoo.Create()` record the receiver type so later
+// `x.Method()` dispatches correctly. Returns "" if the initializer is not a
+// recognized constructor form or the target class isn't registered.
+//
+// Handles both forms:
+//   - *ast.MemberExpression{Member:"Create"}         (bare `TFoo.Create`)
+//   - *ast.CallExpression{Function: MemberExpression} (`TFoo.Create(...)`)
+//
+// and both receiver kinds:
+//   - *ast.Identifier (TFoo)                         → ident.Value
+//   - *ast.GenericType (TStack<Integer>)            → mangleGeneric(...)
+func constructorClassName(value ast.Expression, g *Generator) string {
+	var member *ast.MemberExpression
+	switch v := value.(type) {
+	case *ast.MemberExpression:
+		member = v
+	case *ast.CallExpression:
+		m, ok := v.Function.(*ast.MemberExpression)
+		if !ok {
+			return ""
+		}
+		member = m
+	default:
+		return ""
+	}
+	if member.Member != "Create" {
+		return ""
+	}
+	if ident, ok := member.Object.(*ast.Identifier); ok {
+		if _, known := g.classes[ident.Value]; known {
+			return ident.Value
+		}
+	}
+	if gt, ok := member.Object.(*ast.GenericType); ok {
+		mangled := mangleGeneric(gt.Base, gt.TypeParams)
+		if mangled != "" {
+			if _, known := g.classes[mangled]; known {
+				return mangled
+			}
+		}
+	}
+	return ""
+}
+
 func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 	// Case 1: Tuple destructuring `(a, b) := Func()` — LHS is TupleLiteral.
 	if tuple, ok := s.Name.(*ast.TupleLiteral); ok {

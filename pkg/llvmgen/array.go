@@ -84,6 +84,53 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 // Returns (resultReg, elementType, error). For assignment context, returns
 // the pointer register (use g.line to emit a store yourself).
 func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (string, string, error) {
+	// Class field array: self.Items[i] — Left is a MemberExpression whose
+	// Object is an identifier (self) and Member is the array field name.
+	// Resolve the field address (the [N x T] storage embedded in the struct)
+	// via emitFieldStore (GEP without load), then index into it.
+	if member, ok := idx.Left.(*ast.MemberExpression); ok {
+		kind, typeName := g.receiverKind(member.Object)
+		if kind == "class" {
+			objReg, _, err := g.loadObjectPtr(member.Object, typeName)
+			if err != nil {
+				return "", "", err
+			}
+			fieldAddr, _, err := g.emitFieldStore(typeName, objReg, member.Member)
+			if err != nil {
+				return "", "", err
+			}
+			// The field is a static array embedded in the struct; its LLVM
+			// type is [N x T]. Look up array metadata from the class field
+			// (stored when buildClassInfo ran). For generics, the field type
+			// is already substituted to concrete (array[0..99] of Integer).
+			elemType := "i64"
+			arrSize := int64(0)
+			lb := int64(0)
+			if info, ok := g.classes[typeName]; ok {
+				for _, f := range info.Fields {
+					if f.Name == member.Member {
+						if at := f.ArrayType; at != nil {
+							if at.ElementType != nil {
+								elemType = LLVMType(typeExprName(at.ElementType))
+							}
+							if at.Size != nil {
+								arrSize = evalConstInt(at.Size)
+							}
+							if at.LowerBound != nil {
+								lb = evalConstInt(at.LowerBound)
+							}
+						}
+						break
+					}
+				}
+			}
+			if arrSize == 0 {
+				arrSize = 1 // safety
+			}
+			return g.emitStaticArrayGEP(fieldAddr, arrSize, elemType, lb, idx.Index, asLValue)
+		}
+	}
+
 	// Resolve the array variable
 	leftIdent, ok := idx.Left.(*ast.Identifier)
 	if !ok {
@@ -105,7 +152,7 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 		return "", "", fmt.Errorf("variable %s is not an array", leftIdent.Value)
 	}
 
-	// Compute index (Pascal 1-based → LLVM 0-based for static arrays)
+	// Compute index (Pascal range → LLVM 0-based).
 	idxReg, _, err := g.emitExpr(idx.Index)
 	if err != nil {
 		return "", "", err
@@ -140,6 +187,33 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 	loaded := g.tmp()
 	g.line(fmt.Sprintf("  %s = load %s, ptr %s", loaded, info.ElementType, ptr))
 	return loaded, info.ElementType, nil
+}
+
+// emitStaticArrayGEP emits the index-compute + GEP for a static array given
+// its storage base pointer, element count, element type, and Pascal lower
+// bound. Shared by the class-field-array path (local arrays stay inlined in
+// emitArrayIndex above for the dynamic-array branch). Returns the element
+// pointer (asLValue) or the loaded value.
+func (g *Generator) emitStaticArrayGEP(baseReg string, size int64, elemType string, lowerBound int64, indexExpr ast.Expression, asLValue bool) (string, string, error) {
+	idxReg, _, err := g.emitExpr(indexExpr)
+	if err != nil {
+		return "", "", err
+	}
+	zeroIdx := g.tmp()
+	if lowerBound != 0 {
+		g.line(fmt.Sprintf("  %s = sub i64 %s, %d", zeroIdx, idxReg, lowerBound))
+	} else {
+		g.line(fmt.Sprintf("  %s = add i64 %s, 0", zeroIdx, idxReg))
+	}
+	ptr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [%d x %s], ptr %s, i64 0, i64 %s",
+		ptr, size, elemType, baseReg, zeroIdx))
+	if asLValue {
+		return ptr, elemType, nil
+	}
+	loaded := g.tmp()
+	g.line(fmt.Sprintf("  %s = load %s, ptr %s", loaded, elemType, ptr))
+	return loaded, elemType, nil
 }
 
 // emitArrayLength returns the length of an array.

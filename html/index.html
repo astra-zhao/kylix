@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <!-- ============ SEO: Primary Meta ============ -->
-<title>Kylix v3.1.0 — Modern Pascal, Compiled to Go &amp; LLVM | KylixBoot &amp; Annotations</title>
+<title>Kylix v4.8.0 — Modern Pascal, Compiled to Go &amp; LLVM | KylixBoot &amp; Annotations</title>
 <meta name="description" content="Kylix 是一个现代 Pascal 编译器：双后端（Go 转译 + LLVM 原生）。带类型推导、泛型、async/await、模式匹配、注解语法、KylixBoot Web 框架、ORM、包注册中心、WASM/WASI 支持，以及完整 IDE 工具链。MIT 开源。">
 <meta name="keywords" content="Kylix, Pascal, Go, LLVM, transpiler, compiler, KylixBoot, annotations, WASM, WASI, modern Pascal, Pascal to Go, open source, IDE, LSP, ORM, dependency injection">
 <meta name="author" content="astra-zhao">
@@ -16,7 +16,7 @@
 <meta property="og:type" content="website">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:site_name" content="Kylix">
-<meta property="og:title" content="Kylix v3.1.0 — Modern Pascal, Compiled to Go &amp; LLVM">
+<meta property="og:title" content="Kylix v4.8.0 — Modern Pascal, Compiled to Go &amp; LLVM">
 <meta property="og:description" content="KylixBoot 框架、注解语法、LLVM 原生后端、WASI、包注册中心 — 用 Pascal 编写，编译为 Go 或原生二进制。">
 <meta property="og:url" content="https://kylix.top/">
 <meta property="og:image" content="https://kylix.top/og-image.png">
@@ -26,7 +26,7 @@
 
 <!-- ============ SEO: Twitter Card ============ -->
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Kylix v3.1.0 — Modern Pascal, Compiled to Go &amp; LLVM">
+<meta name="twitter:title" content="Kylix v4.8.0 — Modern Pascal, Compiled to Go &amp; LLVM">
 <meta name="twitter:description" content="KylixBoot 框架、注解语法、LLVM 原生后端、WASI、包注册中心 — Pascal 焕发新生。">
 <meta name="twitter:image" content="https://kylix.top/og-image.png">
 <meta name="twitter:image:alt" content="Kylix - Modern Pascal, Compiled to Go &amp; LLVM">
@@ -542,7 +542,7 @@ img { max-width: 100%; }
 <header class="hero" id="hero">
   <div class="hero-inner">
     <div class="badges">
-      <span class="badge badge-accent"><span class="badge-dot accent"></span> v3.1.0</span>
+      <span class="badge badge-accent"><span class="badge-dot accent"></span> v4.8.0</span>
       <span class="badge badge-green"><span class="badge-dot green"></span> MIT License</span>
       <span class="badge">Go 1.18+</span>
       <span class="badge">LLVM 后端</span>
@@ -569,7 +569,7 @@ img { max-width: 100%; }
         <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
         GitHub
       </a>
-      <a href="md-viewer.html?file=CHANGELOG.md" class="btn btn-accent">📝 v3.1.0 更新日志</a>
+      <a href="md-viewer.html?file=CHANGELOG.md" class="btn btn-accent">📝 v4.8.0 更新日志</a>
     </div>
 
     <!-- Hero code example -->
@@ -770,34 +770,34 @@ end.</code></pre>
 <!-- ====================== WHATS NEW v3.1 ====================== -->
 <section class="section" id="whatsnew">
   <div class="section-inner">
-    <p class="section-label">v3.1.0 亮点</p>
-    <h2 class="section-title">注解、Boot 框架与 LLVM 数组 🎉</h2>
-    <p class="section-desc">2026-06-23 发布。KylixBoot 框架（路由 + DI + 中间件）、<code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">[Attribute]</code> 注解语法、LLVM 数组与优化选项，以及 5 个关键编译器修复（KLX-C01..C05）。</p>
+    <p class="section-label">v4.8.0 亮点</p>
+    <h2 class="section-title">泛型类方法、调试类型精度与 OOP 正确性 🎉</h2>
+    <p class="section-desc">2026-07-14 发布。泛型类方法 codegen 打通（<code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">TStack&lt;Integer&gt;.Push/Pop</code> 从 stub → 输出正确）、类字段数组 <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">self.Items[i]</code> GEP、DWARF per-llvmType DIBasicType（LLDB 显示正确变量类型）。教程通过率 48/48 (100%)。</p>
 
     <div class="features-grid">
       <div class="feature-card">
-        <div class="feature-icon">🏷️</div>
-        <h3>注解语法</h3>
-        <p>顶层和类体内均可使用 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">[Name]</code> 和 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">[Name(args)]</code>，附加到 ClassDecl / TypeDecl / FunctionDecl / VarDecl，是声明式 API 的基础。</p>
-        <code>[Controller], [Inject], [Entity]</code>
+        <div class="feature-icon">🧬</div>
+        <h3>泛型类方法</h3>
+        <p>打通 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">var x := TStack&lt;T&gt;.Create()</code> → <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">x.Push()</code> / <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">x.Pop()</code> 完整 codegen 链路：单态化 walk VarDecl.Value + constructor inference 处理 GenericType/CallExpression + 类字段数组 GEP。example21 输出与 Go 后端逐字节一致。</p>
+        <code>TStack&lt;Integer&gt; / TStack&lt;String&gt;</code>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🚀</div>
-        <h3>KylixBoot 运行时</h3>
-        <p>~700 行核心运行时，23 个单元测试。Router（含路径参数）、Server（含优雅停机）、DI 容器（Singleton/Transient）、内置中间件（Logger/Recover/CORS/Auth/RateLimit/RequestID）。</p>
-        <code>boot.GET / boot.Use / boot.Listen</code>
+        <div class="feature-icon">🔍</div>
+        <h3>DIBasicType 多类型</h3>
+        <p>DWARF 调试信息从单一 int64 升级为按 llvmType 发射独立 DIBasicType：<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">double→DW_ATE_float</code>、<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">ptr→DW_ATE_address</code>、<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">i1→DW_ATE_boolean</code>。LLDB <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">frame variable</code> 显示正确类型。</p>
+        <code>(double) d = 3.14 / (bool) b = true</code>
       </div>
       <div class="feature-card">
         <div class="feature-icon">📐</div>
-        <h3>LLVM Milestone 2 Phase 1</h3>
-        <p>静态数组 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">array[1..N] of T</code> → <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">alloca [N x T]</code>，动态数组 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">array of T</code> → slice 结构体。Pascal 1-based 自动转 LLVM 0-based。</p>
-        <code>kylix build --backend=llvm --llvm-opt=2</code>
+        <h3>静态数组真实下界</h3>
+        <p>v4.7.0 修复 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">array[0..N]</code> 下界硬编码为 1 的段错误 bug。AST 加 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">LowerBound</code> 字段，parser 记录真实下界，LLVM 后端按真实下界调整索引。example23 从段错误 → 输出正确。</p>
+        <code>array[0..4] / array[5..7] 均正确</code>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🛠️</div>
-        <h3>5 个编译器修复</h3>
-        <p>KLX-C01：<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">var p: TClass</code> 生成 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">*TClass</code>。KLX-C02：单引号 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">${...}</code> 正确插值。KLX-C03：lambda 返回类型保留。KLX-C04：match codegen。KLX-C05：<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">uses</code> 模块符号注入 program。</p>
-        <code>KLX-C01..C05 全部修复</code>
+        <div class="feature-icon">🔧</div>
+        <h3>jsonutil 嵌套 + DWARF 逐行</h3>
+        <p>v4.7.0 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">JsonGetMap</code> 递归解析嵌套对象（支持任意深度）。v4.6.0 per-instruction DILocation + <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">#dbg_declare</code>，LLDB 按源行号设断点 + 逐行单步 + 变量检视。</p>
+        <code>LLVM 测试 250 个</code>
       </div>
     </div>
   </div>
@@ -1279,14 +1279,14 @@ kylix build --wasi hello.klx                   # WASI (Wasmtime)</code></pre>
         <span class="doc-icon">🗺️</span>
         <div>
           <h4>路线图</h4>
-          <p>v3.2 自动装配 + ORM 注解；v4.0 完全脱离 Go</p>
+          <p>v4.9 stdlib Phase 4 + 类方法调试 + JetBrains 插件</p>
         </div>
       </a>
       <a href="md-viewer.html?file=CHANGELOG.md" class="doc-card">
         <span class="doc-icon">📝</span>
         <div>
           <h4>更新日志</h4>
-          <p>v1.0 → v3.1 完整版本史，含 KLX-C01..C05 修复</p>
+          <p>v1.0 → v4.8 完整版本史，含 LLVM 后端 + DWARF 调试</p>
         </div>
       </a>
       <a href="md-viewer.html?file=README_CN.md" class="doc-card">
@@ -1312,7 +1312,7 @@ kylix build --wasi hello.klx                   # WASI (Wasmtime)</code></pre>
   <div class="section-inner">
     <div class="cta-banner">
       <h3>🚀 加入 Kylix 社区</h3>
-      <p>Kylix 已 100% 自举，正在迈向 v3.2 — 自动装配、ORM 注解、LLVM 接口与泛型。<br>欢迎贡献代码、提交 Issue、完善文档，一起把 Pascal 带入 LLVM 时代。</p>
+      <p>Kylix 已 100% 自举，LLVM 后端教程通过率 48/48，正在迈向 v4.9 — stdlib Phase 4、类方法调试、JetBrains 插件。<br>欢迎贡献代码、提交 Issue、完善文档，一起把 Pascal 带入 LLVM 时代。</p>
       <div class="btn-group">
         <a href="https://github.com/astra-zhao/kylix" class="btn btn-primary" target="_blank" rel="noopener">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -1336,7 +1336,7 @@ kylix build --wasi hello.klx                   # WASI (Wasmtime)</code></pre>
       <a href="https://github.com/astra-zhao/kylix/issues">Issue</a>
     </div>
     <p class="footer-copy">
-      Kylix v3.1.0 &middot; Built with ❤️ by <a href="https://github.com/astra-zhao">astra-zhao</a> &middot; Pascal → Go &amp; LLVM &middot; Simple, Modern, Fast
+      Kylix v4.8.0 &middot; Built with ❤️ by <a href="https://github.com/astra-zhao">astra-zhao</a> &middot; Pascal → Go &amp; LLVM &middot; Simple, Modern, Fast
     </p>
   </div>
 </footer>

@@ -1,11 +1,11 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-07-10  
-> 当前版本: v4.7.0 ✅  
+> 最后更新: 2026-07-14  
+> 当前版本: v4.8.0 ✅  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**✅ v4.7.0 已发布！** 静态数组 `array[0..N]` 下界修复（AST 加 `LowerBound` 字段，解决 example23 段错误/example21 错误输出）+ jsonutil `JsonGetMap` 递归解析嵌套对象（raw 子串 → nested htab，支持任意深度）+ `skip_nested` pos 修复（ sibling 字段不再丢失）。LLVM 测试 247→**249**，教程通过率 **48/48 (100%)**，example23 从段错误 → 输出正确。详见 [CHANGELOG.md](CHANGELOG.md)。
+**✅ v4.8.0 已发布！** 泛型类方法 codegen 修复（example21 `TStack<Integer>.Push/Pop` 从 stub `Pop: 0` → 与 Go 后端一致 `Pop: 30`）+ 类字段数组 `self.Items[i]` GEP + DIBasicType 多类型（double→DW_ATE_float、ptr→DW_ATE_address、i1→DW_ATE_boolean，LLDB 显示正确类型）。LLVM 测试 249→**250**，教程通过率 **48/48 (100%)**，example21 从 stub → 输出正确。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -34,7 +34,8 @@
 | **v4.5.0** | LLVM stdlib Phase 3 + 优化 pass + 增量缓存 + DWARF 调试符号 | ✅ 完成 | 2026-07-08 |
 | **v4.6.0** | DWARF 逐行调试（per-instruction DILocation + DILocalVariable） | ✅ 完成 | 2026-07-10 |
 | **v4.7.0** | 静态数组下界修复 + jsonutil 嵌套对象解析 | ✅ 完成 | 2026-07-10 |
-| **v4.8.0** | stdlib Phase 4 + DILexicalBlock + 类方法调试 + JetBrains 插件 | 📋 规划中 | 2026 Q4 |
+| **v4.8.0** | 泛型类方法 codegen + 类字段数组 GEP + DIBasicType 多类型 | ✅ 完成 | 2026-07-14 |
+| **v4.9.0** | stdlib Phase 4 + DILexicalBlock + 类方法 DISubprogram + JetBrains 插件 | 📋 规划中 | 2026 Q4 |
 | **v5.0.0** | 自研运行时 KylixRT + 自举编译器 + 完全脱离 Go | 📋 长期 | 2027+ |
 
 ---
@@ -53,11 +54,12 @@
 | WASM 目标 | 2 (Go 标准 + TinyGo) |
 | WASI 目标 | 2 (Go wasip1 + TinyGo) |
 | LLVM 后端 | ✅ Milestone 4（stdlib Phase 3 完成，3 模块真实化）|
-| LLVM 测试 | 249 个（含 stdlib 60+ 个 + debug/DCE/cache 21 个 + 数组下界 2 个）|
-| LLVM 教程编译通过率 | 48/48（100%，含 example33 多文件模块；example23 修复后正确运行）|
+| LLVM 测试 | 250 个（含 stdlib 60+ 个 + debug/DCE/cache 22 个 + 数组下界 2 个 + DIBasicType 1 个）|
+| LLVM 教程编译通过率 | 48/48（100%，含 example33 多文件模块；example23 修复后正确运行；example21 泛型类输出正确）|
 | LLVM 增量缓存 | ✅ v4.5.0（llc 跳过，32x 加速）|
-| LLVM 调试符号 | ✅ v4.6.0（DWARF `-g` flag，逐行单步 + 变量检视）|
+| LLVM 调试符号 | ✅ v4.6.0/v4.8.0（DWARF `-g` flag，逐行单步 + 变量检视 + per-llvmType DIBasicType）|
 | LLVM 静态数组 | ✅ v4.7.0（真实 LowerBound，array[0..N]/array[1..N]/array[5..N] 均正确）|
+| LLVM 泛型类 | ✅ v4.8.0（TStack<T>.Create() → Push/Pop 完整 codegen，example21 输出正确）|
 | KylixBoot 测试 | 23 个 |
 | 包注册中心 | ✅ REST API + Web 前端 |
 | VS Code 扩展 | ✅ v1.1（语法高亮 + LSP + 代码片段 25 个）|

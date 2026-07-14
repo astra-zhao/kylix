@@ -86,6 +86,16 @@ func (g *Generator) visitStmtForGenerics(node ast.Statement) error {
 		if err := g.maybeSpecializeType(s.Type); err != nil {
 			return err
 		}
+		// v4.8.0: type-inferred vars (var x := TBox<Integer>.Create()) carry
+		// the GenericType in s.Value, not s.Type. Walk the initializer so
+		// monomorphization triggers before emitMain references the
+		// specialized class. Without this, example21's TStack<Integer>.Create()
+		// never specialized and method calls resolved to "unsupported receiver".
+		if s.Value != nil {
+			if err := g.visitExprForGenerics(s.Value); err != nil {
+				return err
+			}
+		}
 	case *ast.AssignmentStatement:
 		if err := g.visitExprForGenerics(s.Value); err != nil {
 			return err

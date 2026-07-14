@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-4.1.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.8.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
-> 🎉 **v4.3.0**: LLVM stdlib Phase 1 完成 —— datetime 模块 13 个 API（Now/Today/MakeDate + 时间运算/字段提取）+ Arena Allocator 内存池（1MB 零复制分配器，消除 malloc 开销）。线程安全修复（localtime_r → POSIX 标准）。**31/50 教程通过 LLVM 编译**。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v4.8.0**: 泛型类方法 codegen 修复（example21 `TStack<Integer>.Push/Pop` 从 stub → 输出正确）+ 类字段数组 `self.Items[i]` GEP + DIBasicType 多类型（LLDB 显示正确变量类型）。LLVM 测试 250，教程通过率 **48/48 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## Features
 
@@ -43,7 +43,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 - **LSP Server**: Full IDE support with completion, hover, diagnostics, and signature help
 - **Package Manager**: `kylix add`, `kylix remove`, `kylix publish` for dependency management
 - **WASI**: `kylix build --wasi` — compile to WebAssembly System Interface (v3.0.0-alpha)
-- **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain. **M3 milestone**: complete exception handling (try/except/finally/on/raise), control flow (break/continue/case/match/foreach), multi-variable declarations, type coercion. **14/15 basic tutorials compile to native binary** (v4.0-dev)
+- **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain. **48/48 tutorials compile to native binary (100%)**, with per-instruction DWARF debug info (`-g`, LLDB line-stepping + variable inspection), generic class methods (TStack<T>.Push/Pop), static arrays with real lower bounds, and jsonutil nested-object parsing.
 - **KylixBoot Framework**: Spring Boot–style annotation-driven web apps (v3.1.0)
 - **Annotation Auto-Wiring**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` auto route registration (v3.2.0)
 - **Dependency Injection**: `[Service]`/`[Component]`/`[Inject]` compile-time auto-wiring (v3.2.0)

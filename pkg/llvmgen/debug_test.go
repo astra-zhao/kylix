@@ -251,3 +251,31 @@ end.`)
 		t.Errorf("expected >=4 DILocation nodes for if-stepping, got %d\nIR:\n%s", count, ir)
 	}
 }
+
+// TestDebug_DIBasicTypePerLLVMType verifies v4.8.0 emits distinct DIBasicType
+// nodes per LLVM type so LLDB formats values correctly: int64 → DW_ATE_signed,
+// double → DW_ATE_float, ptr → DW_ATE_address, i1 → DW_ATE_boolean.
+func TestDebug_DIBasicTypePerLLVMType(t *testing.T) {
+	ir := generateIRWithDebug(t, `program p;
+var
+  i: Integer;
+  d: Real;
+  s: String;
+  b: Boolean;
+begin
+  i := 1;
+  d := 1.0;
+  s := 'x';
+  b := true;
+end.`)
+	assertIRContains(t, ir, "DW_ATE_signed")
+	assertIRContains(t, ir, "DW_ATE_float")
+	assertIRContains(t, ir, "DW_ATE_address")
+	assertIRContains(t, ir, "DW_ATE_boolean")
+	// Each variable's DILocalVariable should reference a type matching its
+	// kind (not all the same int64 node).
+	if strings.Count(ir, "!DIBasicType(") < 4 {
+		t.Errorf("expected >=4 distinct DIBasicType nodes, got %d\nIR:\n%s",
+			strings.Count(ir, "!DIBasicType("), ir)
+	}
+}

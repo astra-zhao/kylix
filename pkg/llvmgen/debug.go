@@ -3,6 +3,7 @@ package llvmgen
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"kylix/ast"
@@ -226,9 +227,26 @@ func (g *Generator) emitDbgMetadata() {
 	d.nextID++
 	baseEmptyListID := d.nextID
 	d.nextID++
-	// Canonical DIBasicType nodes referenced by DILocalVariables.
-	diTypeID := d.nextID
-	d.nextID++
+	// v4.8.0: per-llvmType DIBasicType nodes so LLDB formats values correctly
+	// (int64 → DW_ATE_signed, double → DW_ATE_float, ptr → DW_ATE_address,
+	// i1 → DW_ATE_boolean). Collect the set of types actually referenced by
+	// locals; always include i64 as the fallback. Allocate IDs in sorted
+	// order so emission is deterministic and the cache key stays stable.
+	typeSet := map[string]bool{}
+	for _, lv := range d.locals {
+		typeSet[lv.llvmType] = true
+	}
+	typeSet["i64"] = true // fallback for unknown / untyped locals
+	typeKeys := make([]string, 0, len(typeSet))
+	for k := range typeSet {
+		typeKeys = append(typeKeys, k)
+	}
+	sort.Strings(typeKeys)
+	diTypeIDs := map[string]int{} // llvmType → metadata ID
+	for _, k := range typeKeys {
+		diTypeIDs[k] = d.nextID
+		d.nextID++
+	}
 	// Subprograms (one per registered function) — reference the subroutine type.
 	// Each gets its own retainedNodes list (so its locals can be attached).
 	subprogRetained := make(map[int]int) // subprogram ID → its retainedNodes list ID
@@ -242,11 +260,16 @@ func (g *Generator) emitDbgMetadata() {
 		))
 	}
 	// DILocalVariable nodes (one per user-local alloca). Each references its
-	// declaring function's subprogram as scope and a basic DI type.
+	// declaring function's subprogram as scope and a basic DI type matching
+	// the variable's LLVM type (so LLDB formats the value correctly).
 	for _, lv := range d.locals {
+		typeID := diTypeIDs[lv.llvmType]
+		if typeID == 0 {
+			typeID = diTypeIDs["i64"] // fallback
+		}
 		g.line(fmt.Sprintf(
 			"!%d = !DILocalVariable(name: %q, scope: %s, file: !3, line: %d, type: %s)",
-			lv.id, lv.name, dbgRef(lv.scope), lv.line, dbgRef(diTypeID),
+			lv.id, lv.name, dbgRef(lv.scope), lv.line, dbgRef(typeID),
 		))
 	}
 	// DILocation nodes (one per unique position). inlinedAt omitted (no
@@ -263,11 +286,21 @@ func (g *Generator) emitDbgMetadata() {
 	g.line(fmt.Sprintf("%s = !DISubroutineType(types: %s)", dbgRef(subrTypeID), dbgRef(typeListID)))
 	// Empty retainedNodes list (base, for subprograms with no locals).
 	g.line(fmt.Sprintf("%s = !{}", dbgRef(baseEmptyListID)))
-	// Canonical DIBasicType (DW_ATE_signed, 64 bits) — MVP maps every local
-	// to this one so LLDB shows names + scopes; value formatting for non-i64
-	// locals may be approximate but stepping works. A follow-up can emit
-	// per-llvmType DIBasicType nodes (double → DW_ATE_float, ptr → DW_ATE_address, ...).
-	g.line(fmt.Sprintf("!%d = !DIBasicType(name: \"int64\", size: 64, encoding: DW_ATE_signed)", diTypeID))
+	// Per-llvmType DIBasicType definitions. int64 → DW_ATE_signed (fallback),
+	// double → DW_ATE_float, ptr → DW_ATE_address, i1 → DW_ATE_boolean.
+	for _, k := range typeKeys {
+		id := diTypeIDs[k]
+		switch k {
+		case "double":
+			g.line(fmt.Sprintf("!%d = !DIBasicType(name: \"double\", size: 64, encoding: DW_ATE_float)", id))
+		case "ptr":
+			g.line(fmt.Sprintf("!%d = !DIBasicType(name: \"ptr\", size: 64, encoding: DW_ATE_address)", id))
+		case "i1":
+			g.line(fmt.Sprintf("!%d = !DIBasicType(name: \"bool\", size: 8, encoding: DW_ATE_boolean)", id))
+		default: // "i64" + any unrecognized → signed 64-bit fallback
+			g.line(fmt.Sprintf("!%d = !DIBasicType(name: \"int64\", size: 64, encoding: DW_ATE_signed)", id))
+		}
+	}
 	// Per-subprogram retainedNodes lists (containing their locals, if any).
 	subprogLocalIDs := make(map[int][]int)
 	for _, lv := range d.locals {

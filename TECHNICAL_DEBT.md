@@ -1,7 +1,7 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-07-10
-> 当前版本: v4.7.0 已发布
+> 最后更新: 2026-07-14
+> 当前版本: v4.8.0 已发布
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
@@ -344,21 +344,42 @@
 
 ---
 
-## 🟠 v4.6.0 DWARF 调试信息残留限制（待 v4.8.0）
+## 🟠 v4.6.0 DWARF 调试信息残留限制
 
-| 限制 | 影响 | 修复方向 |
-|------|------|---------|
-| stdlib 预生成 IR 无 DILocation | 进入 stdlib 函数时无可单步源码 | 给 stdlib IR 注入合成 DILocation（或文档化为预期） |
-| DIBasicType 单一化（int64） | double/ptr/string 局部变量值格式化不精确 | 按 llvmType 发射独立 DIBasicType（DW_ATE_float/address/...） |
-| 类方法/lambda 无 DISubprogram | OOP 方法/闭包体内不可逐行单步 | emitMethod/emitLambda 注册 subprogram + setDbgScope |
-| 无 DILexicalBlock | 块级 `begin var x; end` 变量归函数级 scope | 为 BlockStatement 发射 DILexicalBlock 作 scope |
+| 限制 | 影响 | 修复方向 | 状态 |
+|------|------|---------|------|
+| stdlib 预生成 IR 无 DILocation | 进入 stdlib 函数时无可单步源码 | 给 stdlib IR 注入合成 DILocation（或文档化为预期） | 🟠 待 v4.9.0 |
+| DIBasicType 单一化（int64） | double/ptr/string 局部变量值格式化不精确 | 按 llvmType 发射独立 DIBasicType（DW_ATE_float/address/...） | ✅ v4.8.0 已修复 |
+| 类方法/lambda 无 DISubprogram | OOP 方法/闭包体内不可逐行单步 | emitMethod/emitLambda 注册 subprogram + setDbgScope | 🟠 待 v4.9.0 |
+| 无 DILexicalBlock | 块级 `begin var x; end` 变量归函数级 scope | 为 BlockStatement 发射 DILexicalBlock 作 scope | 🟠 待 v4.9.0 |
 
 ---
 
-## 🟠 v4.7.0 jsonutil 残留限制（待 v4.8.0）
+## 🟠 v4.7.0 jsonutil 残留限制
 
-| 限制 | 影响 | 修复方向 |
-|------|------|---------|
-| `JsonGetArray` 返回 null | array of Variant 需 Variant 运行时（类型标签 + dispatch） | 实现 Variant 运行时后，JsonGetArray 递归解析 raw 数组子串 |
-| jsonutil 嵌套递归深度无界 | 超深 JSON 可能栈溢出 | 教程用例 2-3 层可接受；超深场景文档化为限制 |
-| example21 泛型类方法 stub | `TStack<T>.Push/Pop` 输出 `Pop: 0`（unsupported receiver） | 泛型类单态化后的方法 codegen（独立于下界 bug） |
+| 限制 | 影响 | 修复方向 | 状态 |
+|------|------|---------|------|
+| `JsonGetArray` 返回 null | array of Variant 需 Variant 运行时（类型标签 + dispatch） | 实现 Variant 运行时后，JsonGetArray 递归解析 raw 数组子串 | 🟠 待 v4.9.0 |
+| jsonutil 嵌套递归深度无界 | 超深 JSON 可能栈溢出 | 教程用例 2-3 层可接受；超深场景文档化为限制 | ⚪ 文档化为限制 |
+| ~~example21 泛型类方法 stub~~ | ~~`TStack<T>.Push/Pop` 输出 `Pop: 0`（unsupported receiver）~~ | ~~泛型类单态化后的方法 codegen~~ | ✅ v4.8.0 已修复 |
+
+---
+
+## ✅ v4.8.0 修复：example21 泛型类方法 codegen
+
+**症状**：`example21_generic_class.klx` LLVM 后端输出 `Stack count: 0 / Pop: 0`（应为 `Stack count: 3 / Pop: 30`）。Go 后端正确。
+
+**根因（三个）**：
+1. 单态化未触发：`collectInstantiations` 的 `visitStmtForGenerics` VarDecl case 只 walk `s.Type`，不 walk `s.Value`。`var intStack := TStack<Integer>.Create()` 是类型推断，GenericType 从未被 walk。
+2. constructor inference 不处理 CallExpression/GenericType：`emitVarDecl` 只识别 `TFoo.Create`（MemberExpression + Identifier），不处理 `TStack<Integer>.Create()`（CallExpression + GenericType）。
+3. 类字段数组 GEP 未实现：`self.Items[i]` 的 Left 是 MemberExpression，`emitArrayIndex` 只处理 Identifier。
+
+**修复**：
+- `monomorph.go`：VarDecl case 加 walk s.Value
+- `stmt.go`：`constructorClassName` 辅助函数处理 MemberExpression/CallExpression + Identifier/GenericType
+- `class.go`：`FieldInfo.ArrayType` 字段 + 数组字段 LLVM 类型 `[N x T]`
+- `array.go`：`emitArrayIndex` MemberExpression Left 分支 + `emitStaticArrayGEP`
+
+**验证**：example21 LLVM 输出与 Go 后端逐字节一致（`Stack count: 3 / Pop: 30 / Pop: 20 / Stack count: 1 / Pop: World`）。
+
+**附注**：example21 的静态数组字段 `array[0..99]` 现在也受益于 v4.7.0 的 LowerBound 修复（下界 0 → 不调整索引）。两个修复协同使泛型栈类完整工作。

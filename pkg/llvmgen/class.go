@@ -32,6 +32,7 @@ type FieldInfo struct {
 	LLVMType  string
 	KylixType string // original Kylix type name (e.g. "TUserRepository", "Integer")
 	Index     int
+	ArrayType *ast.ArrayType // v4.8.0: set when the field is a static array (array[lo..hi] of T); enables self.Items[i] GEP
 }
 
 // MethodInfo describes a class method in the vtable.
@@ -87,9 +88,11 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 		if parent, ok := g.classes[decl.Parent]; ok {
 			for _, f := range parent.Fields {
 				info.Fields = append(info.Fields, FieldInfo{
-					Name:     f.Name,
-					LLVMType: f.LLVMType,
-					Index:    idx,
+					Name:      f.Name,
+					LLVMType:  f.LLVMType,
+					KylixType: f.KylixType,
+					ArrayType: f.ArrayType,
+					Index:     idx,
 				})
 				idx++
 			}
@@ -101,7 +104,26 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 		}
 		llvmT := "i64"
 		kylixT := ""
-		if f.Type != nil {
+		// v4.8.0: capture the ArrayType for static-array fields so
+		// self.Items[i] can GEP into the embedded [N x T] storage. The
+		// field's LLVM type is [N x T] (not the fallback i64 that
+		// llvmTypeFor gives for "array" name).
+		var arrT *ast.ArrayType
+		if at, ok := f.Type.(*ast.ArrayType); ok && !at.Dynamic {
+			arrT = at
+			elemT := "i64"
+			if at.ElementType != nil {
+				elemT = LLVMType(typeExprName(at.ElementType))
+			}
+			size := int64(0)
+			if at.Size != nil {
+				size = evalConstInt(at.Size)
+			}
+			if size <= 0 {
+				size = 1
+			}
+			llvmT = fmt.Sprintf("[%d x %s]", size, elemT)
+		} else if f.Type != nil {
 			kylixT = typeExprName(f.Type)
 			llvmT = g.llvmTypeFor(kylixT)
 		}
@@ -110,6 +132,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 				Name:      name,
 				LLVMType:  llvmT,
 				KylixType: kylixT,
+				ArrayType: arrT,
 				Index:     idx,
 			})
 			idx++

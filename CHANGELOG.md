@@ -4,6 +4,78 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v4.8.0 (2026-07-14) — 泛型类方法 codegen + DIBasicType 多类型
+
+> 🎯 **OOP 泛型 + 调试类型精度**。修复 example21 泛型类方法 stub（`TStack<Integer>.Push/Pop` 从输出 `Pop: 0` → 与 Go 后端一致 `Pop: 30`），打通泛型类 `var x := TStack<T>.Create()` → `x.Method()` 的完整 codegen 链路：单态化 walk VarDecl.Value + constructor inference 处理 GenericType/CallExpression + 类字段数组 `self.Items[i]` GEP。DWARF 调试信息从单一 int64 类型升级为按 llvmType 发射独立 DIBasicType（double→DW_ATE_float、ptr→DW_ATE_address、i1→DW_ATE_boolean），LLDB `frame variable` 显示正确类型。LLVM 测试 249→**250**，教程通过率 **48/48 (100%)** 无回归，example21 从 stub → 输出正确。
+
+### 泛型类方法 codegen（example21 修复）
+
+**症状**：`example21_generic_class.klx` LLVM 后端输出 `Stack count: 0 / Pop: 0`（应为 `Stack count: 3 / Pop: 30 / Pop: 20 / Pop: World`）。Go 后端正确。
+
+**根因（三个）**：
+1. **单态化未触发**：`collectInstantiations` 的 `visitStmtForGenerics` 对 `VarDecl` case 只 walk `s.Type`，不 walk `s.Value`。`var intStack := TStack<Integer>.Create()` 是类型推断（`Type=nil`，`Value=CallExpression`），`TStack<Integer>` 的 GenericType 从未被 walk，`TStack_Integer` 类没注册到 `g.classes`。
+2. **constructor inference 不处理 CallExpression/GenericType**：`emitVarDecl` 只识别 `s.Value` 是 MemberExpression 且 Object 是 Identifier（`TFoo.Create`），不处理 `TStack<Integer>.Create()`（CallExpression + GenericType receiver）。即使单态化触发，`localTypes[intStack]` 不设 `TStack_Integer`，方法调用走 unsupported receiver。
+3. **类字段数组 GEP 未实现**：`self.Items[self.Count]` 的 `IndexExpression.Left` 是 MemberExpression，`emitArrayIndex` 只处理 Identifier Left，报错 "array index target must be an identifier"。
+
+**修复**：
+- `monomorph.go` `visitStmtForGenerics` VarDecl case：加 walk `s.Value`，触发 `var x := TBox<Integer>.Create()` 的单态化
+- `stmt.go` `emitVarDecl`：提取 `constructorClassName` 辅助函数，处理 MemberExpression（`TFoo.Create`）和 CallExpression（`TFoo.Create()`）两种形式，Identifier（`TFoo`）和 GenericType（`TStack<Integer>`）两种 receiver。设 `localTypes[name]=mangled`
+- `class.go` `FieldInfo` 加 `ArrayType *ast.ArrayType` 字段；`buildClassInfo` 对静态数组字段计算 LLVM 类型 `[N x T]`（不再 fallback 到 i64）+ 存 ArrayType 元数据
+- `array.go` `emitArrayIndex`：新增 MemberExpression Left 分支——`self.Items[i]` 经 `receiverKind` → `loadObjectPtr` → `emitFieldStore` 取字段地址 → `emitStaticArrayGEP` 索引。提取 `emitStaticArrayGEP` 共享 GEP 逻辑
+
+**验证**：example21 LLVM 输出 `Stack count: 3 / Pop: 30 / Pop: 20 / Stack count: 1 / Pop: World`，与 Go 后端逐字节一致
+
+### DIBasicType 多类型
+
+**升级**：v4.6.0 用单一 `DIBasicType(int64, DW_ATE_signed)` 覆盖所有局部变量，double/ptr/string 在 LLDB 中类型显示错误（变量名 + scope 正确，但值格式化不精确）。
+
+**修复**（`debug.go` `emitDbgMetadata`）：
+- 按 `llvmType` 收集需要的类型集合（i64/double/ptr/i1），sort 后分配独立 metadata ID（确定性）
+- DILocalVariable 引用对应 llvmType 的 DIBasicType（fallback i64）
+- 发射 per-llvmType DIBasicType 定义：
+  - `i64` → `DW_ATE_signed`（size 64）
+  - `double` → `DW_ATE_float`（size 64）
+  - `ptr` → `DW_ATE_address`（size 64）
+  - `i1` → `DW_ATE_boolean`（size 8）
+
+**验证**：`frame variable` 显示 `(long) i = 42`、`(double) d = 3.14`、`(void *) s = ...`、`(bool) b = ...`（之前全显示 `(long)`）
+
+### 文件清单
+
+| 文件 | 说明 |
+|------|------|
+| `pkg/llvmgen/monomorph.go` | `visitStmtForGenerics` VarDecl case 加 walk s.Value |
+| `pkg/llvmgen/stmt.go` | `constructorClassName` 辅助函数（处理 MemberExpression/CallExpression + Identifier/GenericType）|
+| `pkg/llvmgen/class.go` | `FieldInfo.ArrayType` 字段 + 数组字段 LLVM 类型 `[N x T]` |
+| `pkg/llvmgen/array.go` | `emitArrayIndex` MemberExpression Left 分支 + `emitStaticArrayGEP` |
+| `pkg/llvmgen/debug.go` | `emitDbgMetadata` 按 llvmType 发射独立 DIBasicType |
+| `pkg/llvmgen/debug_test.go` | +1 测试（DIBasicTypePerLLVMType）|
+
+### 测试与验证
+
+- **LLVM 后端单元测试**：249 → **250**（+1 DIBasicType 多类型测试）
+- **LLVM 后端教程通过率**：48/48 (**100%**) 无回归（example21 从 stub → 正确）
+- **16 个 Go 测试包全部通过**
+- **Go 后端教程**：49/49 无回归
+- **真机验证**：
+  - example21 LLVM 输出与 Go 后端逐字节一致 ✅
+  - DIBasicType 多类型：LLDB `frame variable` 显示正确类型 ✅
+  - `-g` 模式与 example21/example23 修复兼容 ✅
+
+### 已知限制（v4.8.0）
+
+- JsonGetArray 仍返回 null（array of Variant 需 Variant 运行时）
+- DILexicalBlock 未实现（块级作用域变量归函数级 scope）
+- 类方法/lambda 无 DISubprogram（OOP 方法体内不可逐行单步——example21 方法体在 -g 下仍无逐行 DILocation）
+
+### 下一步（v4.9.0 规划）
+
+- JsonGetArray + array of Variant 运行时
+- DILexicalBlock 块级作用域调试信息
+- 类方法/lambda DISubprogram（OOP 方法逐行调试）
+- httpclient THttpResponse 响应对象
+- JetBrains 插件
+
 ## v4.7.0 (2026-07-10) — 静态数组下界修复 + jsonutil 嵌套对象解析
 
 > 🎯 **正确性修复 + stdlib 能力扩展**。修复 v4.5.0 起静态数组 `array[0..N]` 下界硬编码为 1 导致 example23 段错误、example21 输出错误的 bug（`0 - 1` 无符号下溢 → GEP 越界）。AST `ArrayType` 新增 `LowerBound` 字段，parser 记录真实下界，LLVM 后端按真实下界调整索引。jsonutil `JsonGetMap` 从返回 null 升级为递归解析 raw JSON 子串为 nested htab，支持任意深度嵌套对象。LLVM 测试 247→**249**，教程通过率 **48/48 (100%)** 无回归，example23 从段错误 → 输出正确。
