@@ -43,6 +43,19 @@ func (g *Generator) emitJsonParserBodies() {
 	g.emitJsonParseFlat()
 }
 
+// emitJsonArrayParserBodies emits the array parser, once per module. It is
+// guarded separately from the object parser (jsonParserEmitted) so a module
+// that only uses JsonGetArray still pulls in both — JsonGetArray's body calls
+// emitJsonParserBodies() first (for skip_ws/read_value/skip_nested), then
+// emitJsonArrayParserBodies() here.
+func (g *Generator) emitJsonArrayParserBodies() {
+	if g.jsonArrayParserEmitted {
+		return
+	}
+	g.jsonArrayParserEmitted = true
+	g.emitJsonParseArray()
+}
+
 // ---- skip_ws: void @__kylix_json_skip_ws(ptr %s, ptr %posSlot) ----
 func (g *Generator) emitJsonSkipWs() {
 	g.line("define void @__kylix_json_skip_ws(ptr %s, ptr %posSlot) {")
@@ -371,8 +384,15 @@ func (g *Generator) emitJsonSkipNested() {
 	// sibling keys (e.g. '{"user":{...},"version":3}' lost "version").
 	endAfter := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", endAfter, end))
+	// v4.9.0: include the closing char in the raw substring. curSlot points at
+	// the matching close (depth reached 0 before advLbl advances past it), so
+	// the substring spans [start, endAfter) — i.e. endAfter - start bytes —
+	// which keeps the closing '}' / ']' so JsonGetArray's parser sees a
+	// complete "[...]" and terminates. (Previously length = end - start
+	// dropped the close char; parse_flat tolerated it for objects, but
+	// parse_array looped forever on a missing ']'.)
 	length := g.tmp()
-	g.line(fmt.Sprintf("  %s = sub i64 %s, %s", length, end, start))
+	g.line(fmt.Sprintf("  %s = sub i64 %s, %s", length, endAfter, start))
 	allocSize := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", allocSize, length))
 	buf := g.tmp()
@@ -522,6 +542,149 @@ func (g *Generator) emitJsonParseFlat() {
 	g.line(fmt.Sprintf("  br label %%%s", loopLbl))
 	g.line(fmt.Sprintf("%s:", doneLbl))
 	g.line(fmt.Sprintf("  ret ptr %s", htab))
+	g.line("}")
+	g.line("")
+}
+
+// ---- parse_array: void @__kylix_json_parse_array(ptr %out, ptr %s) ----
+// v4.9.0: parse a JSON array substring "[...]" into the {ptr items, i64 len}
+// struct at %out. Elements are stored as C strings (scalars as JSON text,
+// nested objects/arrays as their raw substring) in a growable malloc'd [N x ptr]
+// buffer. Mirrors parse_flat's state machine but for arrays: skip ws, expect
+// '[', loop reading values separated by ',' until ']'.
+//
+// Growable buffer strategy: start with cap=4, realloc×2 when full. len tracks
+// the live count; *out = { items, len } on return. The buffer is never shrunk;
+// callers own it (no free — matches the htab caller-managed-string contract).
+func (g *Generator) emitJsonParseArray() {
+	g.line("define void @__kylix_json_parse_array(ptr %out, ptr %s) {")
+	g.line("entry:")
+	// Growable buffer state.
+	capSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", capSlot))
+	g.line(fmt.Sprintf("  store i64 4, ptr %s", capSlot)) // initial capacity
+	bufSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", bufSlot))
+	initBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 32)", initBuf)) // 4 * 8
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", initBuf, bufSlot))
+	lenSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", lenSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", lenSlot))
+	posSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", posSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", posSlot))
+	// skip ws, expect '['.
+	g.line(fmt.Sprintf("  call void @__kylix_json_skip_ws(ptr %%s, ptr %s)", posSlot))
+	pos := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", pos, posSlot))
+	cp := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%s, i64 %s", cp, pos))
+	c := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", c, cp))
+	isOpen := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 91", isOpen, c)) // '['
+	arrLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%ret_empty", isOpen, arrLbl))
+	g.line("ret_empty:")
+	// Not an array → zero-length result { null, 0, 0 }.
+	g.emitStoreSliceWords("%out", "null", "0", "0")
+	g.line("  ret void")
+	// arrLbl: pos past '[', enter element loop.
+	g.line(fmt.Sprintf("%s:", arrLbl))
+	afterOpen := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", afterOpen, pos))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", afterOpen, posSlot))
+	loopLbl := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", loopLbl))
+	// loop: skip ws, check ']' (end) or read an element.
+	g.line(fmt.Sprintf("%s:", loopLbl))
+	g.line(fmt.Sprintf("  call void @__kylix_json_skip_ws(ptr %%s, ptr %s)", posSlot))
+	pos2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", pos2, posSlot))
+	cp2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%s, i64 %s", cp2, pos2))
+	c2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", c2, cp2))
+	isClose := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 93", isClose, c2)) // ']'
+	doneLbl := g.label()
+	elemLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isClose, doneLbl, elemLbl))
+	// elemLbl: read value, append to buffer (grow if needed).
+	g.line(fmt.Sprintf("%s:", elemLbl))
+	val := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_read_value(ptr %%s, ptr %s)", val, posSlot))
+	// Grow check: if len == cap, realloc.
+	curLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curLen, lenSlot))
+	curCap := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curCap, capSlot))
+	needGrow := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, %s", needGrow, curLen, curCap))
+	growLbl := g.label()
+	storeLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", needGrow, growLbl, storeLbl))
+	// growLbl: newCap = cap*2; newBuf = malloc(newCap*8); memcpy old; free old.
+	g.line(fmt.Sprintf("%s:", growLbl))
+	newCap := g.tmp()
+	g.line(fmt.Sprintf("  %s = mul i64 %s, 2", newCap, curCap))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", newCap, capSlot))
+	newSize := g.tmp()
+	g.line(fmt.Sprintf("  %s = mul i64 %s, 8", newSize, newCap))
+	newBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", newBuf, newSize))
+	oldBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", oldBuf, bufSlot))
+	copyBytes := g.tmp()
+	g.line(fmt.Sprintf("  %s = mul i64 %s, 8", copyBytes, curLen))
+	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", newBuf, oldBuf, copyBytes))
+	g.line(fmt.Sprintf("  call void @free(ptr %s)", oldBuf))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", newBuf, bufSlot))
+	g.line(fmt.Sprintf("  br label %%%s", storeLbl))
+	// storeLbl: buf[len] = val; len++.
+	g.line(fmt.Sprintf("%s:", storeLbl))
+	curBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", curBuf, bufSlot))
+	slot := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds ptr, ptr %s, i64 %s", slot, curBuf, curLen))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", val, slot))
+	newLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", newLen, curLen))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", newLen, lenSlot))
+	// skip ws, expect ',' (continue) or ']' (done).
+	g.line(fmt.Sprintf("  call void @__kylix_json_skip_ws(ptr %%s, ptr %s)", posSlot))
+	pos3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", pos3, posSlot))
+	cp3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%s, i64 %s", cp3, pos3))
+	c3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", c3, cp3))
+	isComma := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 44", isComma, c3)) // ','
+	commaLbl := g.label()
+	chkClose2 := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isComma, commaLbl, chkClose2))
+	g.line(fmt.Sprintf("%s:", chkClose2))
+	isClose2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 93", isClose2, c3)) // ']'
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isClose2, doneLbl, loopLbl))
+	g.line(fmt.Sprintf("%s:", commaLbl))
+	afterComma := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", afterComma, pos3))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", afterComma, posSlot))
+	g.line(fmt.Sprintf("  br label %%%s", loopLbl))
+	// doneLbl: *out = { buf, len }.
+	g.line(fmt.Sprintf("%s:", doneLbl))
+	finalBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", finalBuf, bufSlot))
+	finalLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", finalLen, lenSlot))
+	finalCap := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", finalCap, capSlot))
+	// *out = { buf, len, cap } — cap tracks the allocated [cap x ptr] capacity.
+	g.emitStoreSliceWordsReg("%out", finalBuf, finalLen, finalCap)
+	g.line("  ret void")
 	g.line("}")
 	g.line("")
 }

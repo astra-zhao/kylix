@@ -313,7 +313,18 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 		params = append(params, fmt.Sprintf("%s %%%s", llvmT, p.Name))
 	}
 
-	g.line(fmt.Sprintf("define %s %s(%s) {", pl.retType, lambdaName(pl.id), strings.Join(params, ", ")))
+	defineLine := fmt.Sprintf("define %s %s(%s) {", pl.retType, lambdaName(pl.id), strings.Join(params, ", "))
+	// v4.9.0: register a DISubprogram for the lambda so closures get per-line
+	// stepping + variable inspection. The lambda's source position isn't
+	// tracked on pendingLambda (it's emitted at module end, after the call
+	// site); we anchor it at line 0 → registerSubprogram falls back to the
+	// file's first line, which still yields a usable backtrace frame name.
+	var lambdaSpID int
+	if g.debugInfo {
+		lambdaSpID = g.registerSubprogram(fmt.Sprintf("__lambda_%d", pl.id), 0)
+		defineLine = g.defineLineWithDbg(defineLine, lambdaSpID)
+	}
+	g.line(defineLine)
 	g.line("entry:")
 
 	// Save + reset scope (lambdas have their own local scope).
@@ -321,6 +332,11 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 	savedTypes := g.localTypes
 	savedVarSeq := g.varNameSeq
 	savedFuncName := g.funcName
+	savedDbgScope := 0
+	if g.debugInfo {
+		savedDbgScope = g.dbg.curScope
+		g.setDbgScope(lambdaSpID)
+	}
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
@@ -350,6 +366,11 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 		g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, c.llvmType))
 		g.line(fmt.Sprintf("  store %s %s, ptr %s", c.llvmType, val, allocaReg))
 		g.locals[c.name] = allocaReg
+		// v4.9.0: declare the captured variable as a debug local so LLDB
+		// shows it while stepping the closure body.
+		if g.debugInfo {
+			g.emitDbgDeclare(c.name, 0, c.llvmType, allocaReg)
+		}
 	}
 
 	// Allocate parameters as locals (same logic as emitFunctionDecl).
@@ -376,12 +397,23 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 		if kylixType != "" {
 			g.localTypes[p.Name] = kylixType
 		}
+		// v4.9.0: declare the parameter as a debug local.
+		if g.debugInfo {
+			declLine := 0
+			if p.Token.Line > 0 {
+				declLine = p.Token.Line
+			}
+			g.emitDbgDeclare(p.Name, declLine, llvmT, allocaReg)
+		}
 	}
 
 	// Result alloca for functions with a return type.
 	if pl.retType != "void" && !pl.retExpr {
 		g.line(fmt.Sprintf("  %%result = alloca %s, align 8", pl.retType))
 		g.locals["result"] = "%result"
+		if g.debugInfo {
+			g.emitDbgDeclare("result", 0, pl.retType, "%result")
+		}
 	}
 
 	// Emit body.
@@ -397,11 +429,16 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 				g.localTypes = savedTypes
 				g.varNameSeq = savedVarSeq
 				g.funcName = savedFuncName
+				if g.debugInfo {
+					g.setDbgScope(savedDbgScope)
+					g.clearDbgPos()
+				}
 				return err
 			}
 			if t != pl.retType {
 				v, t = g.coerceValue(v, t, pl.retType)
 			}
+			g.clearDbgPos() // synthetic ret
 			g.line(fmt.Sprintf("  ret %s %s", pl.retType, v))
 		}
 	} else {
@@ -413,10 +450,15 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 					g.localTypes = savedTypes
 					g.varNameSeq = savedVarSeq
 					g.funcName = savedFuncName
+					if g.debugInfo {
+						g.setDbgScope(savedDbgScope)
+						g.clearDbgPos()
+					}
 					return err
 				}
 			}
 		}
+		g.clearDbgPos() // synthetic ret
 		if pl.retType == "void" {
 			g.line("  ret void")
 		} else {
@@ -434,5 +476,9 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 	g.localTypes = savedTypes
 	g.varNameSeq = savedVarSeq
 	g.funcName = savedFuncName
+	if g.debugInfo {
+		g.setDbgScope(savedDbgScope)
+		g.clearDbgPos()
+	}
 	return nil
 }

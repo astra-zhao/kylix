@@ -239,6 +239,7 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 
 	// Annotation-generated methods (ORM [Query], [Repository]) have no body —
 	// only a signature. Emit a stub define so the vtable symbol resolves.
+	// (No debug info for stubs: they have no source body to step through.)
 	if method.Body == nil {
 		var params []string
 		params = append(params, "ptr %self")
@@ -250,7 +251,6 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 			params = append(params, fmt.Sprintf("%s %%%s", llvmT, p.Name))
 		}
 		g.line(fmt.Sprintf("define %s @%s_%s(%s) {", retType, className, method.Name, strings.Join(params, ", ")))
-		g.line("entry:")
 		switch retType {
 		case "void":
 			g.line("  ret void")
@@ -280,7 +280,15 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 		params = append(params, fmt.Sprintf("%s %%%s", llvmT, p.Name))
 	}
 
-	g.line(fmt.Sprintf("define %s @%s_%s(%s) {", retType, className, method.Name, strings.Join(params, ", ")))
+	defineLine := fmt.Sprintf("define %s @%s_%s(%s) {", retType, className, method.Name, strings.Join(params, ", "))
+	// v4.9.0: register a DISubprogram for the method so OOP methods get
+	// per-line stepping + variable inspection (same pattern as emitFunctionDecl).
+	var methodSpID int
+	if g.debugInfo {
+		methodSpID = g.registerSubprogram(className+"_"+method.Name, method.Token.Line)
+		defineLine = g.defineLineWithDbg(defineLine, methodSpID)
+	}
+	g.line(defineLine)
 	g.line("entry:")
 
 	savedLocals := g.locals
@@ -296,9 +304,21 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	g.curClassName = className
 	g.curMethodName = method.Name
 
+	// v4.9.0: scope + position for DILocations emitted inside this method.
+	if g.debugInfo {
+		g.setDbgScope(methodSpID)
+		g.setDbgNode(method)
+	}
+
 	// Register `self` pointer
 	g.locals["self"] = "%self"
 	g.localTypes["self"] = className
+	if g.debugInfo {
+		// `self` is the function's first param (ptr %self), not an alloca —
+		// #dbg_declare on the param register itself associates it with the
+		// `self` source variable so LLDB shows the receiver object.
+		g.emitDbgDeclare("self", method.Token.Line, "ptr", "%self")
+	}
 
 	// Register method params
 	for _, p := range method.Parameters {
@@ -325,12 +345,23 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 		if kylixType != "" {
 			g.localTypes[p.Name] = kylixType
 		}
+		// v4.9.0: declare the parameter as a debug local.
+		if g.debugInfo {
+			declLine := method.Token.Line
+			if p.Token.Line > 0 {
+				declLine = p.Token.Line
+			}
+			g.emitDbgDeclare(p.Name, declLine, llvmT, allocaReg)
+		}
 	}
 
 	// Result variable
 	if retType != "void" {
 		g.line(fmt.Sprintf("  %%result = alloca %s, align 8", retType))
 		g.locals["result"] = "%result"
+		if g.debugInfo {
+			g.emitDbgDeclare("result", method.Token.Line, retType, "%result")
+		}
 	}
 
 	// Emit body
@@ -359,6 +390,12 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	g.funcName = savedFunc
 	g.curClassName = savedClass
 	g.curMethodName = savedMethod
+	// Leaving this method: clear the debug scope + position so subsequent
+	// module-level code doesn't attach a stale !dbg.
+	if g.debugInfo {
+		g.setDbgScope(0)
+		g.clearDbgPos()
+	}
 	return nil
 }
 

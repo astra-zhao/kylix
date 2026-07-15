@@ -4,6 +4,78 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v4.9.0 (2026-07-15) — DWARF 调试信息 Phase 2 + jsonutil 嵌套数组
+
+> 🎯 **OOP 方法逐行调试 + 块作用域 + JSON 数组**。补齐 v4.6.0 逐行调试的覆盖盲区：类方法/lambda 现在注册独立 DISubprogram（define 行附 `!dbg`、`self`/参数/捕获变量声明为调试局部变量），v4.8.0 的泛型类方法可逐行单步 + LLDB 检视 receiver/捕获值。新增 DILexicalBlock——块内 `var` 声明的变量归属正确的嵌套作用域（不再全归函数级 subprogram），LLDB 报告正确的块层级。jsonutil `JsonGetArray` 从返回 null 的 stub 升级为真实解析器：把 JSON 数组解析为字符串数组 slice `{ptr items, i64 len, i64 cap}`（标量存文本、嵌套对象/数组存 raw 子串），新增 `JsonArrayLen`/`JsonArrayGetString` 访问器。顺手修复 `skip_nested` 丢失闭合 `]`/`}` 的 off-by-one（length `end-start` → `endAfter-start`），此前嵌套对象数组丢失闭合括号、`parse_array` 无限循环。LLVM 测试 250→**255**，教程通过率 **49/49 (100%)** 无回归。
+
+### 类方法/lambda DISubprogram（OOP 方法逐行调试）
+
+**问题**：v4.6.0 只给用户函数和 main 注册 DISubprogram，类方法（`emitMethod`）和 lambda（`emitLambdaFunc`）完全没有调试元数据——OOP 方法体内不可逐行单步、`frame variable` 不显示 `self`/参数/捕获变量。v4.8.0 打通泛型类方法 codegen 后，这一盲区更明显。
+
+**修复**（`class.go` `emitMethod` + `lambda.go` `emitLambdaFunc`，复用 `emitFunctionDecl` 模式）：
+- `registerSubprogram`（方法名 `ClassName_Method`、lambda `__lambda_N`）+ `defineLineWithDbg` 给 define 行附 `!dbg !N`
+- `setDbgScope` + `setDbgNode` 进入函数体时设作用域 + 源位置；退出时 `setDbgScope(0)` + `clearDbgPos`（防后续模块级代码附 stale `!dbg`）
+- `self`（方法的 receiver，函数参数 `ptr %self`，非 alloca）+ 参数 + `result` + lambda 捕获变量全部 `emitDbgDeclare` 声明为调试局部变量
+- 合成 `ret` 指令前 `clearDbgPos`（不声称源行）
+- stub 方法（`Body==nil`，ORM 注解生成）不发调试信息（无源码体可步进）
+- `debug.go` `nodeToken` 加 `FunctionDecl` 类型分支（方法取声明行 Token）
+
+**验证**：LLDB 在方法体内 `break`/`step`/`frame variable` 显示 `(long) self = ...`、参数值、捕获变量值；backtrace 显示 `__lambda_0` 帧
+
+### DILexicalBlock（块级作用域调试）
+
+**问题**：v4.6.0–v4.8.0 所有局部变量（含块内 `begin var y; ... end` 声明的）都归函数级 subprogram scope——LLDB 无法区分变量的声明块，块作用域语义在调试信息中丢失。
+
+**修复**（`debug.go` + `stmt.go` `emitBlockScoped`）：
+- `dbgMeta` 新增 `lexBlocks []dbgLexicalBlock` + `registerLexicalBlock()`：在当前 scope（subprogram 或外层 lexical block）下分配 DILexicalBlock ID，切 `curScope` 到块，返回原 scope 供退出恢复
+- `emitBlockScoped` 进入块时（`-g` 且已在函数内）`registerLexicalBlock`，退出时 `setDbgScope` 恢复父 scope
+- `emitDbgMetadata` 末尾发射 `!DILexicalBlock(scope: !parent, file, line, column)`；块内变量/`DILocation` 自动归入块（`curScope` 已是块 ID）
+- `retainedNodes` 只收集 scope 为 subprogram 的局部变量（块作用域变量经 lexical block scope 链可达，DWARF 不要求进 subprogram 列表）
+
+**已知限制**：块作用域变量的 `alloca` 跟随 `VarDecl` 在块的基本块发射（非 entry block），LLVM location-list 生成器据此把变量可用范围限制在块内指令区间——LLDB 在块外（如 `WriteLn(y)` 调用点）可能报 `<variable not available>`。这是 v4.6.0 起 alloca-in-block 设计的固有行为（v4.8.0 同样存在，非 v4.9.0 回归）；DILexicalBlock 仍正确反映 scope 树。完整修复需要把块内 `alloca` 提升到 entry block（结构重构，留 v5.0）。
+
+### jsonutil JsonGetArray 嵌套数组 + skip_nested off-by-one
+
+**问题**：`JsonGetArray` 此前是 `ret ptr null` stub。v4.7.0 实现了 `JsonGetMap`（嵌套对象）但数组未做。同时发现 `skip_nested` 的 raw 子串丢失闭合 `]`/`}`（`length = end - start`，`end` 指向 close char 但 memcpy 不含它）——嵌套对象因 `parse_flat` 容忍而未暴露，数组因 `parse_array` 遇缺 `]` 无限循环 → OOM/SIGKILL。
+
+**修复**（`stdlib_jsonutil.go` + `stdlib_jsonutil_parser.go`）：
+- `skip_nested`：`length = endAfter - start`（`endAfter = end + 1`，含闭合 char）。此前嵌套对象也丢 `}`，`parse_flat` 容忍故未暴露；数组丢 `]` 致 `parse_array` 无限循环
+- `JsonGetArray`：从 `ret ptr null` 升级为解析 raw 数组子串为字符串数组 slice `{ptr items, i64 len, i64 cap}`。返回值经 out-param `ptr %out` 写入临时 alloca，`emitAssign` 识别 `_dyn` LHS + `{ptr,i64,i64}` RHS 做结构 copy
+- `parse_array`（新增）：状态机解析 `[v1,v2,...]`，标量存文本（`"1"`/`"true"`/`"\"hi\""`）、嵌套对象/数组存 raw 子串；growable buffer（初始 cap=4，满则 realloc×2）
+- `JsonArrayLen`/`JsonArrayGetString`（新增）：访问器。`JsonArrayLen(arr)` 读 slice len；`JsonArrayGetString(arr,i)` 读 `items[i]`，越界返回 `""`（安全，不返 null）
+- `sliceArgPtr`：`JsonArrayLen`/`GetString` 参数若是 Identifier 直接取其 alloca（运行时经 GEP 读 len/items，需结构地址而非 load 的值）
+- `stdlib.go` `stdlibModuleFuncs["jsonutil"]` 加 `JsonArrayLen`/`JsonArrayGetString`（bare-call 路由）
+
+**务实范围**：完整 Variant 运行时（类型标签 + union + dispatch，`array of Variant` 的 `arr[0] = 1.0` 数值比较）是 v5.0 级工作（全新基础设施、教程零用例）。v4.9.0 的字符串数组版覆盖字符串/数字数组读取的 80% 用例，不引入 Variant。
+
+**验证**：`{"items":["apple","banana","cherry"]}` → `JsonArrayLen=3` + 三个字符串；`{"nums":[10,20,30]}` → 数字数组；`{"users":[{...},{...}]}` → 嵌套对象数组（raw 子串）；缺失键 → 0 长度
+
+### 文件清单
+
+| 文件 | 说明 |
+|------|------|
+| `pkg/llvmgen/class.go` | `emitMethod` 加 DISubprogram + self/参数/result dbg.declare + scope 管理 |
+| `pkg/llvmgen/lambda.go` | `emitLambdaFunc` 加 DISubprogram + 捕获变量/参数 dbg.declare + scope 管理 |
+| `pkg/llvmgen/debug.go` | `registerLexicalBlock` + `emitDbgMetadata` 发射 DILexicalBlock + `nodeToken` 加 FunctionDecl + retainedNodes 只含 subprogram 级变量 |
+| `pkg/llvmgen/stmt.go` | `emitBlockScoped` 进出 lexical block scope；`emitAssign` 加 `_dyn` slice 结构 copy 分支 |
+| `pkg/llvmgen/codegen.go` | `Generator` 加 `jsonArrayParserEmitted` 字段 |
+| `pkg/llvmgen/stdlib_jsonutil.go` | `JsonGetArray` 升级为真实解析 + 新增 `JsonArrayLen`/`JsonArrayGetString` + `sliceArgPtr`/`emitStoreSliceWords` 辅助 |
+| `pkg/llvmgen/stdlib_jsonutil_parser.go` | 新增 `parse_array` 状态机 + `skip_nested` length off-by-one 修复 |
+| `pkg/llvmgen/stdlib.go` | `stdlibModuleFuncs["jsonutil"]` 加 JsonArrayLen/JsonArrayGetString |
+| `pkg/llvmgen/debug_test.go` | +3 测试（method/lambda subprogram、lexical block） |
+| `pkg/llvmgen/stdlib_jsonutil_test.go` | 替换 stub 测试为 JsonGetArray/JsonArrayLen/JsonArrayGetString 真实测试 |
+
+### 测试与验证
+
+- LLVM 测试 **250 → 255**（+3 调试 +2 jsonutil）
+- Go 测试 16 包全绿
+- 教程通过率 **49/49 (100%)** 无回归
+- 真机：JsonGetArray 解析字符串/数字/嵌套对象数组 + JsonArrayLen/JsonArrayGetString + 缺失键返回 0 长度
+- 真机：LLDB 在方法体内逐行单步 + `frame variable` 显示 self/参数/捕获变量
+- 文件行数：所有修改文件 ≤ 1000 行（最大 stmt.go 800）
+
+---
+
 ## v4.8.0 (2026-07-14) — 泛型类方法 codegen + DIBasicType 多类型
 
 > 🎯 **OOP 泛型 + 调试类型精度**。修复 example21 泛型类方法 stub（`TStack<Integer>.Push/Pop` 从输出 `Pop: 0` → 与 Go 后端一致 `Pop: 30`），打通泛型类 `var x := TStack<T>.Create()` → `x.Method()` 的完整 codegen 链路：单态化 walk VarDecl.Value + constructor inference 处理 GenericType/CallExpression + 类字段数组 `self.Items[i]` GEP。DWARF 调试信息从单一 int64 类型升级为按 llvmType 发射独立 DIBasicType（double→DW_ATE_float、ptr→DW_ATE_address、i1→DW_ATE_boolean），LLDB `frame variable` 显示正确类型。LLVM 测试 249→**250**，教程通过率 **48/48 (100%)** 无回归，example21 从 stub → 输出正确。

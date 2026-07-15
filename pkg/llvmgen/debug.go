@@ -61,6 +61,12 @@ type dbgMeta struct {
 
 	// DILocalVariable support (v4.6.0).
 	locals []dbgLocalVar
+
+	// DILexicalBlock support (v4.9.0): nested source scopes inside a
+	// subprogram. curScope may point at a lexical-block ID (instead of a
+	// subprogram) when emitting inside a block; DILocations + locals emitted
+	// there attach to the block, giving LLDB block-scoped variable visibility.
+	lexBlocks []dbgLexicalBlock
 }
 
 type dbgSubprogram struct {
@@ -89,9 +95,20 @@ type dbgLocalVar struct {
 	id       int    // metadata ID for the DILocalVariable
 	name     string // source variable name
 	line     int    // declaration line
-	scope    int    // subprogram ID
+	scope    int    // subprogram or lexical-block ID
 	llvmType string // LLVM type string (for diType mapping)
 	alloca   string // the alloca register (ptr to storage)
+}
+
+// dbgLexicalBlock records one DILexicalBlock: a nested source scope inside a
+// subprogram (e.g. the body of an if/while/for, or a Pascal `begin...end`
+// block). Locals declared inside it get this block as their scope so LLDB
+// can show block-scoped variables correctly, and stepping reflects nesting.
+type dbgLexicalBlock struct {
+	id     int // metadata ID for the DILexicalBlock
+	parent int // enclosing scope (subprogram or outer lexical block)
+	line   int
+	col    int
 }
 
 // initDbgMeta prepares the metadata collector with the source file info.
@@ -155,6 +172,37 @@ func (g *Generator) clearDbgPos() {
 	}
 	g.dbg.curLine = 0
 	g.dbg.curCol = 0
+}
+
+// registerLexicalBlock allocates a DILexicalBlock scoped to the current scope
+// (a subprogram or an enclosing lexical block) and switches curScope to it.
+// Returns the new block's metadata ID so the caller can restore the previous
+// scope on exit. Called when entering a nested block (emitBlockScoped) under
+// -g, so locals declared in that block are scoped to it rather than the whole
+// function. The block's source position is taken from the current position.
+func (g *Generator) registerLexicalBlock() int {
+	if g.dbg == nil {
+		return 0
+	}
+	id := g.dbg.nextID
+	g.dbg.nextID++
+	line := g.dbg.curLine
+	if line == 0 {
+		line = 1
+	}
+	col := g.dbg.curCol
+	if col == 0 {
+		col = 1
+	}
+	g.dbg.lexBlocks = append(g.dbg.lexBlocks, dbgLexicalBlock{
+		id:     id,
+		parent: g.dbg.curScope,
+		line:   line,
+		col:    col,
+	})
+	prev := g.dbg.curScope
+	g.dbg.curScope = id
+	return prev
 }
 
 // registerLocalVariable records a DILocalVariable for a local alloca and
@@ -259,6 +307,16 @@ func (g *Generator) emitDbgMetadata() {
 			sp.id, sp.name, sp.line, dbgRef(subrTypeID), sp.line, dbgRef(retainedID),
 		))
 	}
+	// DILexicalBlock nodes (v4.9.0): one per nested block. Each references its
+	// enclosing scope (a subprogram or an outer lexical block) so the scope
+	// tree reflects source nesting. Locals/DILocations emitted inside the
+	// block point at the block ID (set via registerLexicalBlock → curScope).
+	for _, lb := range d.lexBlocks {
+		g.line(fmt.Sprintf(
+			"!%d = distinct !DILexicalBlock(scope: %s, file: !3, line: %d, column: %d)",
+			lb.id, dbgRef(lb.parent), lb.line, lb.col,
+		))
+	}
 	// DILocalVariable nodes (one per user-local alloca). Each references its
 	// declaring function's subprogram as scope and a basic DI type matching
 	// the variable's LLVM type (so LLDB formats the value correctly).
@@ -302,9 +360,16 @@ func (g *Generator) emitDbgMetadata() {
 		}
 	}
 	// Per-subprogram retainedNodes lists (containing their locals, if any).
+	// A local's scope may be a subprogram or a lexical block; only locals
+	// whose scope IS a subprogram go into that subprogram's retainedNodes.
+	// (Lexical-block-scoped locals are reachable via the block's own scope
+	// chain — DWARF doesn't require them in the subprogram's list, and LLDB
+	// resolves them through the lexical block.)
 	subprogLocalIDs := make(map[int][]int)
 	for _, lv := range d.locals {
-		subprogLocalIDs[lv.scope] = append(subprogLocalIDs[lv.scope], lv.id)
+		if _, isSubprog := subprogRetained[lv.scope]; isSubprog {
+			subprogLocalIDs[lv.scope] = append(subprogLocalIDs[lv.scope], lv.id)
+		}
 	}
 	for spID, retainedID := range subprogRetained {
 		ids := subprogLocalIDs[spID]
@@ -371,6 +436,9 @@ func nodeToken(node ast.Node) token.Token {
 	case *ast.ContinueStatement:
 		t = n.Token
 	case *ast.InheritedStatement:
+		t = n.Token
+	// Declarations (v4.9.0: methods carry a Token for source position)
+	case *ast.FunctionDecl:
 		t = n.Token
 	// Expressions
 	case *ast.IntegerLiteral:

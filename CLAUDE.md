@@ -4,8 +4,9 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 
 **重要：始终用中文回答用户，不论用户用什么语言提问，回复一律使用中文。**
 
-## 当前状态：v4.8.0（2026-07-14）
+## 当前状态：v4.9.0（2026-07-15）
 
+- v4.9.0 已发布：DWARF 调试信息 Phase 2 + jsonutil 嵌套数组。类方法/lambda 注册独立 DISubprogram（define 行附 `!dbg`、`self`/参数/捕获变量声明为调试局部变量），v4.8.0 泛型类方法可逐行单步 + LLDB 检视 receiver/捕获值。新增 DILexicalBlock——块内 `var` 归属正确的嵌套作用域。jsonutil `JsonGetArray` 从返回 null 的 stub 升级为真实解析器：把 JSON 数组解析为字符串数组 slice `{ptr items, i64 len, i64 cap}`（标量存文本、嵌套对象/数组存 raw 子串），新增 `JsonArrayLen`/`JsonArrayGetString`。顺手修复 `skip_nested` 丢失闭合 `]`/`}` 的 off-by-one（length `end-start` → `endAfter-start`）。LLVM 测试 250→255，教程通过率 49/49（100%）无回归。
 - v4.8.0 已发布：泛型类方法 codegen + DIBasicType 多类型。修复 example21 泛型类 stub（`TStack<Integer>.Push/Pop` 从 `Pop: 0` → 与 Go 后端一致 `Pop: 30`），打通泛型类 `var x := TStack<T>.Create()` → `x.Method()` 完整链路：单态化 walk VarDecl.Value + constructor inference 处理 GenericType/CallExpression + 类字段数组 `self.Items[i]` GEP（FieldInfo.ArrayType + emitArrayIndex MemberExpression 分支）。DWARF 调试信息从单一 int64 升级为按 llvmType 发射独立 DIBasicType（double→DW_ATE_float、ptr→DW_ATE_address、i1→DW_ATE_boolean），LLDB `frame variable` 显示正确类型。LLVM 测试 249→250，教程通过率 48/48（100%），example21 从 stub → 输出正确。
 - v4.7.0 已发布：静态数组下界修复 + jsonutil 嵌套对象解析。AST `ArrayType` 新增 `LowerBound` 字段，parser 记录真实下界，LLVM 后端按真实下界调整索引（不再硬编码 1）——修复 example23 段错误（`array[0..4]` 的 `0-1` 无符号下溢 → GEP 越界）。jsonutil `JsonGetMap` 从返回 null 升级为递归 `parse_flat` 解析 raw JSON 子串为 nested htab（支持任意深度嵌套对象），并修复 `skip_nested` 的 pos bug（指向 close char 之后，不再丢失 sibling 字段）。LLVM 测试 240→249，教程通过率 48/48（100%），example23 从段错误 → 输出正确。
 - v4.6.0 已发布：DWARF 逐行调试升级 —— per-instruction DILocation（每条 IR 指令附 `!dbg !N` 源行号+列号+scope，按 (line,col,scope) 去重）+ DILocalVariable + `#dbg_declare` 记录（LLVM 22 语法，替代废弃的 `call @llvm.dbg.declare`）。`emitStatement`/`emitExpr` 入口 `setDbgNode` 设置源位置，`line()` 自动给指令行附加 `!dbg`。LLDB 支持按源文件行号设断点、`step`/`next` 逐行单步、`frame variable` 检视局部变量（参数/`result`/用户变量）。LLVM 测试 240→247，教程通过率 48/48（100%）无回归。
@@ -18,9 +19,10 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - v3.3.0：KylixBoot 框架完善 —— Body 绑定 + JWT + OpenAPI 3.1 自动生成
 - v3.2.0：KylixBoot 注解栈 + LLVM M2 完整 + stdlib Phase 6
 - v1.5.0：stdlib `.klx` 声明文件 + 包管理器
-- 所有 Go 测试通过（16 个包，LLVM 后端 250 测试）
+- 所有 Go 测试通过（16 个包，LLVM 后端 255 测试）
 - 教程 49/49 测试通过（Go 后端，`examples/complete-tutorial/`）
 - LLVM 后端 48/48 教程编译通过（100%，01-04 章节 19 个文件与 Go 后端输出逐字节一致；example33 多文件模块经 `multifile.go` MergePrograms 合并声明后通过）
+- v4.9.0 新增：类方法/lambda DISubprogram（OOP 方法逐行调试 + self/参数/捕获变量检视）+ DILexicalBlock（块作用域 scope 正确）+ jsonutil `JsonGetArray`/`JsonArrayLen`/`JsonArrayGetString`（嵌套数组字符串数组版）+ `skip_nested` 闭合 char off-by-one 修复
 - v4.8.0 新增：泛型类方法 codegen（`TStack<T>.Create()` → `Push/Pop` 完整链路，example21 输出正确）+ 类字段数组 `self.Items[i]` GEP + DIBasicType 多类型（per-llvmType，LLDB 显示正确类型）
 - v4.7.0 新增：静态数组真实 LowerBound（`array[0..N]` 不再段错误）+ jsonutil `JsonGetMap` 递归嵌套对象解析
 - v4.6.0 新增：DWARF 逐行调试（per-instruction DILocation + DILocalVariable + `#dbg_declare`，LLDB 逐行单步 + `frame variable` 变量检视）

@@ -1,7 +1,7 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-07-14
-> 当前版本: v4.8.0 已发布
+> 最后更新: 2026-07-15
+> 当前版本: v4.9.0 已发布
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
@@ -348,10 +348,11 @@
 
 | 限制 | 影响 | 修复方向 | 状态 |
 |------|------|---------|------|
-| stdlib 预生成 IR 无 DILocation | 进入 stdlib 函数时无可单步源码 | 给 stdlib IR 注入合成 DILocation（或文档化为预期） | 🟠 待 v4.9.0 |
+| stdlib 预生成 IR 无 DILocation | 进入 stdlib 函数时无可单步源码 | 给 stdlib IR 注入合成 DILocation（或文档化为预期） | 🟠 待 v5.0 |
 | DIBasicType 单一化（int64） | double/ptr/string 局部变量值格式化不精确 | 按 llvmType 发射独立 DIBasicType（DW_ATE_float/address/...） | ✅ v4.8.0 已修复 |
-| 类方法/lambda 无 DISubprogram | OOP 方法/闭包体内不可逐行单步 | emitMethod/emitLambda 注册 subprogram + setDbgScope | 🟠 待 v4.9.0 |
-| 无 DILexicalBlock | 块级 `begin var x; end` 变量归函数级 scope | 为 BlockStatement 发射 DILexicalBlock 作 scope | 🟠 待 v4.9.0 |
+| 类方法/lambda 无 DISubprogram | OOP 方法/闭包体内不可逐行单步 | emitMethod/emitLambda 注册 subprogram + setDbgScope | ✅ v4.9.0 已修复 |
+| 无 DILexicalBlock | 块级 `begin var x; end` 变量归函数级 scope | 为 BlockStatement 发射 DILexicalBlock 作 scope | ✅ v4.9.0 已修复 |
+| 块作用域变量 location list 范围窄 | 块内变量在块外 PC（如 WriteLn 调用点）报 `<variable not available>` | 把块内 alloca 提升到 entry block（结构重构） | 🟠 待 v5.0 |
 
 ---
 
@@ -359,9 +360,40 @@
 
 | 限制 | 影响 | 修复方向 | 状态 |
 |------|------|---------|------|
-| `JsonGetArray` 返回 null | array of Variant 需 Variant 运行时（类型标签 + dispatch） | 实现 Variant 运行时后，JsonGetArray 递归解析 raw 数组子串 | 🟠 待 v4.9.0 |
+| ~~`JsonGetArray` 返回 null~~ | ~~array of Variant 需 Variant 运行时~~ | ~~v4.9.0 字符串数组 slice 版（JsonArrayLen/JsonArrayGetString）；完整 Variant 运行时留 v5.0~~ | ✅ v4.9.0 已修复（字符串数组版） |
+| `array of Variant` 数值比较（`arr[0] = 1.0`）| v4.9.0 字符串数组版不支持 Variant 数值索引 | Variant 运行时（类型标签 + union + dispatch） | 🟠 待 v5.0 |
 | jsonutil 嵌套递归深度无界 | 超深 JSON 可能栈溢出 | 教程用例 2-3 层可接受；超深场景文档化为限制 | ⚪ 文档化为限制 |
 | ~~example21 泛型类方法 stub~~ | ~~`TStack<T>.Push/Pop` 输出 `Pop: 0`（unsupported receiver）~~ | ~~泛型类单态化后的方法 codegen~~ | ✅ v4.8.0 已修复 |
+
+---
+
+## ✅ v4.9.0 修复：类方法/lambda DISubprogram + DILexicalBlock + jsonutil 嵌套数组
+
+### 类方法/lambda DISubprogram
+
+**症状**：v4.6.0 只给用户函数和 main 注册 DISubprogram，类方法（`emitMethod`）和 lambda（`emitLambdaFunc`）无调试元数据——OOP 方法不可逐行单步、`frame variable` 不显示 `self`/参数/捕获变量。
+
+**修复**：`emitMethod`/`emitLambdaFunc` 复用 `emitFunctionDecl` 模式——`registerSubprogram` + `defineLineWithDbg` + `setDbgScope`/`setDbgNode` + `self`/参数/`result`/捕获变量 `emitDbgDeclare` + 退出 `setDbgScope(0)`/`clearDbgPos` + 合成 ret 前 `clearDbgPos`。stub 方法（`Body==nil`）不发调试信息。`nodeToken` 加 `FunctionDecl` 分支。
+
+**验证**：LLDB 方法体内 `break`/`step`/`frame variable` 显示 `(long) self = ...`、参数值、捕获变量值；backtrace 显示 `__lambda_0` 帧。
+
+### DILexicalBlock
+
+**症状**：v4.6.0–v4.8.0 块内 `var` 声明的变量全归函数级 subprogram scope，块作用域语义在调试信息中丢失。
+
+**修复**：`dbgMeta` 加 `lexBlocks` + `registerLexicalBlock()`；`emitBlockScoped` 进出块时切/恢复 `curScope`；`emitDbgMetadata` 发射 `!DILexicalBlock(scope: !parent, ...)`；`retainedNodes` 只含 subprogram 级变量（块作用域变量经 lexical block scope 链可达）。
+
+**已知限制**：块作用域变量的 alloca 跟随 VarDecl 在块的基本块发射（非 entry block），LLVM location-list 生成器据此限制变量可用范围——LLDB 在块外（如 `WriteLn(y)` 调用点）可能报 `<variable not available>`。这是 v4.6.0 起 alloca-in-block 设计的固有行为（v4.8.0 同样存在，非 v4.9.0 回归）；DILexicalBlock 仍正确反映 scope 树。完整修复需把块内 alloca 提升到 entry block（留 v5.0）。
+
+### jsonutil JsonGetArray 嵌套数组 + skip_nested off-by-one
+
+**症状**：`JsonGetArray` 是 `ret ptr null` stub。同时 `skip_nested` 的 raw 子串丢失闭合 `]`/`}`（`length = end - start`，end 指向 close char 但 memcpy 不含它）——嵌套对象因 `parse_flat` 容忍未暴露，数组因 `parse_array` 遇缺 `]` 无限循环 → OOM/SIGKILL。
+
+**修复**：`skip_nested` `length = endAfter - start`（含闭合 char）；`JsonGetArray` 升级为解析 raw 数组子串为字符串数组 slice `{ptr,i64,i64}`（标量存文本、嵌套对象/数组存 raw 子串）；新增 `parse_array` 状态机（growable buffer）+ `JsonArrayLen`/`JsonArrayGetString` 访问器；`emitAssign` 加 `_dyn` slice 结构 copy 分支；`sliceArgPtr` 从 ident 直接取 alloca。
+
+**验证**：`{"items":["apple","banana","cherry"]}` → `JsonArrayLen=3` + 三字符串；`{"nums":[10,20,30]}` 数字数组；`{"users":[{...},{...}]}` 嵌套对象数组；缺失键 → 0 长度。
+
+**务实范围**：完整 Variant 运行时（`array of Variant` 的 `arr[0] = 1.0` 数值比较）是 v5.0 级工作。v4.9.0 字符串数组版覆盖字符串/数字数组读取 80% 用例，不引入 Variant。
 
 ---
 

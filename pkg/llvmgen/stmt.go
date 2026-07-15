@@ -104,6 +104,15 @@ func (g *Generator) emitBlockScoped(s *ast.BlockStatement) error {
 	g.closureSigs = cloneStringMap(g.closureSigs)
 	g.closureParams = cloneStringSliceMap(g.closureParams)
 
+	// v4.9.0: open a DILexicalBlock for this nested scope so locals declared
+	// inside (and the instructions emitted here) are scoped to the block,
+	// not the whole function. Only when we're actually inside a function
+	// (curScope != 0) and debug info is on; otherwise this is a no-op.
+	savedDbgScope := 0
+	if g.debugInfo && g.dbg != nil && g.dbg.curScope != 0 {
+		savedDbgScope = g.registerLexicalBlock()
+	}
+
 	var err error
 	for _, stmt := range s.Statements {
 		if err = g.emitStatement(stmt); err != nil {
@@ -117,6 +126,10 @@ func (g *Generator) emitBlockScoped(s *ast.BlockStatement) error {
 	g.closureLocals = savedClosureLocals
 	g.closureSigs = savedClosureSigs
 	g.closureParams = savedClosureParams
+	// Restore the enclosing scope (subprogram or outer block) on block exit.
+	if g.debugInfo && g.dbg != nil && savedDbgScope != 0 {
+		g.setDbgScope(savedDbgScope)
+	}
 	return err
 }
 
@@ -709,6 +722,19 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		g.line(fmt.Sprintf("  %s = alloca i64, align 8", allocaReg))
 		g.locals[varName] = allocaReg
 		t = "i64"
+	}
+
+	// v4.9.0: dynamic-array assignment. `arr := JsonGetArray(...)` (or any RHS
+	// yielding a {ptr, i64, i64} slice) must copy the whole slice struct into
+	// arr's alloca — the generic scalar path below would store only the first
+	// word and leave len/cap stale. If the LHS is a _dyn alloca and the RHS is
+	// a slice struct value (carried as a pointer to a temporary alloca), load
+	// the struct from the RHS alloca and store it into the LHS alloca.
+	if strings.HasSuffix(allocaReg, "_dyn") && t == "{ ptr, i64, i64 }" {
+		loaded := g.tmp()
+		g.line(fmt.Sprintf("  %s = load { ptr, i64, i64 }, ptr %s", loaded, v))
+		g.line(fmt.Sprintf("  store { ptr, i64, i64 } %s, ptr %s", loaded, allocaReg))
+		return nil
 	}
 
 	// Infer actual type from alloca name

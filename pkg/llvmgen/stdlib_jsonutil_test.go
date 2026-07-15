@@ -126,14 +126,43 @@ end.`)
 	}
 }
 
-func TestJson_GetArray_ReturnsNull(t *testing.T) {
+func TestJson_GetArray_ParsesArray(t *testing.T) {
 	ir := generateIR(t, `program p;
 uses jsonutil;
 begin
   var m := JsonDecodeMap('{"a":[1,2]}');
   var arr := JsonGetArray(m, 'a');
 end.`)
-	assertIRContains(t, ir, "call ptr @__kylix_json_JsonGetArray")
+	// v4.9.0: JsonGetArray now returns a {ptr,i64,i64} slice via an out-param
+	// (define void), not a bare ptr. The call writes into a temp alloca.
+	assertIRContains(t, ir, "call void @__kylix_json_JsonGetArray")
+	assertIRContains(t, ir, "define void @__kylix_json_JsonGetArray")
+	// The array parser is emitted on first use.
+	assertIRContains(t, ir, "define void @__kylix_json_parse_array")
+}
+
+func TestJson_ArrayLen_Dispatch(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses jsonutil;
+begin
+  var m := JsonDecodeMap('{"a":[1,2]}');
+  var arr := JsonGetArray(m, 'a');
+  WriteLn(JsonArrayLen(arr));
+end.`)
+	assertIRContains(t, ir, "call i64 @__kylix_json_JsonArrayLen")
+	assertIRContains(t, ir, "define i64 @__kylix_json_JsonArrayLen")
+}
+
+func TestJson_ArrayGetString_Dispatch(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses jsonutil;
+begin
+  var m := JsonDecodeMap('{"a":[1,2]}');
+  var arr := JsonGetArray(m, 'a');
+  WriteLn(JsonArrayGetString(arr, 0));
+end.`)
+	assertIRContains(t, ir, "call ptr @__kylix_json_JsonArrayGetString")
+	assertIRContains(t, ir, "define ptr @__kylix_json_JsonArrayGetString")
 }
 
 func TestJson_HasKey_Dispatch(t *testing.T) {

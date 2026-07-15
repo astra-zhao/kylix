@@ -1,11 +1,11 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-07-14  
-> 当前版本: v4.8.0 ✅  
+> 最后更新: 2026-07-15  
+> 当前版本: v4.9.0 ✅  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**✅ v4.8.0 已发布！** 泛型类方法 codegen 修复（example21 `TStack<Integer>.Push/Pop` 从 stub `Pop: 0` → 与 Go 后端一致 `Pop: 30`）+ 类字段数组 `self.Items[i]` GEP + DIBasicType 多类型（double→DW_ATE_float、ptr→DW_ATE_address、i1→DW_ATE_boolean，LLDB 显示正确类型）。LLVM 测试 249→**250**，教程通过率 **48/48 (100%)**，example21 从 stub → 输出正确。详见 [CHANGELOG.md](CHANGELOG.md)。
+**✅ v4.9.0 已发布！** DWARF 调试信息 Phase 2 —— 类方法/lambda 注册独立 DISubprogram（define 行附 `!dbg`、`self`/参数/捕获变量声明为调试局部变量，v4.8.0 泛型类方法可逐行单步）+ DILexicalBlock（块内 `var` 归属正确的嵌套作用域）+ jsonutil `JsonGetArray` 从返回 null 的 stub 升级为真实解析器（字符串数组 slice `{ptr,i64,i64}` + `JsonArrayLen`/`JsonArrayGetString`）+ 顺手修复 `skip_nested` 丢失闭合 `]`/`}` 的 off-by-one。LLVM 测试 250→**255**，教程通过率 **49/49 (100%)** 无回归。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -35,8 +35,8 @@
 | **v4.6.0** | DWARF 逐行调试（per-instruction DILocation + DILocalVariable） | ✅ 完成 | 2026-07-10 |
 | **v4.7.0** | 静态数组下界修复 + jsonutil 嵌套对象解析 | ✅ 完成 | 2026-07-10 |
 | **v4.8.0** | 泛型类方法 codegen + 类字段数组 GEP + DIBasicType 多类型 | ✅ 完成 | 2026-07-14 |
-| **v4.9.0** | stdlib Phase 4 + DILexicalBlock + 类方法 DISubprogram + JetBrains 插件 | 📋 规划中 | 2026 Q4 |
-| **v5.0.0** | 自研运行时 KylixRT + 自举编译器 + 完全脱离 Go | 📋 长期 | 2027+ |
+| **v4.9.0** | DWARF Phase 2（类方法/lambda DISubprogram + DILexicalBlock）+ jsonutil 嵌套数组 | ✅ 完成 | 2026-07-15 |
+| **v5.0.0** | 自研运行时 KylixRT + Variant 运行时 + JetBrains 插件 + 自举编译器 | 📋 长期 | 2027+ |
 
 ---
 
@@ -54,12 +54,13 @@
 | WASM 目标 | 2 (Go 标准 + TinyGo) |
 | WASI 目标 | 2 (Go wasip1 + TinyGo) |
 | LLVM 后端 | ✅ Milestone 4（stdlib Phase 3 完成，3 模块真实化）|
-| LLVM 测试 | 250 个（含 stdlib 60+ 个 + debug/DCE/cache 22 个 + 数组下界 2 个 + DIBasicType 1 个）|
+| LLVM 测试 | 255 个（含 stdlib 60+ 个 + debug/DCE/cache 25 个 + 数组下界 2 个 + DIBasicType 1 个 + 方法/lambda subprogram + lexical block + JsonGetArray）|
 | LLVM 教程编译通过率 | 48/48（100%，含 example33 多文件模块；example23 修复后正确运行；example21 泛型类输出正确）|
 | LLVM 增量缓存 | ✅ v4.5.0（llc 跳过，32x 加速）|
-| LLVM 调试符号 | ✅ v4.6.0/v4.8.0（DWARF `-g` flag，逐行单步 + 变量检视 + per-llvmType DIBasicType）|
+| LLVM 调试符号 | ✅ v4.6.0/v4.8.0/v4.9.0（DWARF `-g` flag，逐行单步 + 变量检视 + per-llvmType DIBasicType + 方法/lambda DISubprogram + DILexicalBlock）|
 | LLVM 静态数组 | ✅ v4.7.0（真实 LowerBound，array[0..N]/array[1..N]/array[5..N] 均正确）|
 | LLVM 泛型类 | ✅ v4.8.0（TStack<T>.Create() → Push/Pop 完整 codegen，example21 输出正确）|
+| LLVM jsonutil | ✅ v4.7.0/v4.9.0（嵌套对象 JsonGetMap + 嵌套数组 JsonGetArray/JsonArrayLen/JsonArrayGetString）|
 | KylixBoot 测试 | 23 个 |
 | 包注册中心 | ✅ REST API + Web 前端 |
 | VS Code 扩展 | ✅ v1.1（语法高亮 + LSP + 代码片段 25 个）|

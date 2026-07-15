@@ -43,6 +43,10 @@ func (g *Generator) emitJsonutilCall(funcName string, args []ast.Expression) (st
 		return g.emitJsonGetMapCall(args)
 	case "JsonGetArray":
 		return g.emitJsonGetArrayCall(args)
+	case "JsonArrayLen":
+		return g.emitJsonArrayLenCall(args)
+	case "JsonArrayGetString":
+		return g.emitJsonArrayGetStringCall(args)
 	case "JsonHasKey":
 		return g.emitJsonHasKeyCall(args)
 	default:
@@ -73,6 +77,10 @@ func (g *Generator) emitJsonutilBody(funcName string) {
 		g.emitJsonGetMapBody()
 	case "JsonGetArray":
 		g.emitJsonGetArrayBody()
+	case "JsonArrayLen":
+		g.emitJsonArrayLenBody()
+	case "JsonArrayGetString":
+		g.emitJsonArrayGetStringBody()
 	case "JsonHasKey":
 		g.emitJsonHasKeyBody()
 	}
@@ -426,7 +434,22 @@ func (g *Generator) emitJsonGetMapBody() {
 }
 
 // ---- JsonGetArray: ptr @__kylix_json_JsonGetArray(ptr %m, ptr %k) ----
-// Nested-array support not implemented (see JsonGetMap). Returns null.
+// Nested-array support (v4.9.0). The flat parser stores a JSON array as its
+// raw substring (skip_nested). JsonGetArray retrieves that substring and parses
+// it into a Kylix dynamic-array slice struct { ptr items; i64 len; i64 cap },
+// where:
+//   - items points to a malloc'd [cap x ptr] of C strings
+//   - each element is the array element's text: scalars as their JSON text
+//     ("1", "true", "\"hi\""), nested objects/arrays as their raw JSON substring
+//   - len = element count; cap = allocated capacity (≥ len)
+//
+// This is the array analogue of v4.7.0's JsonGetMap. A full Variant runtime
+// (tagged values + dispatch) is out of scope; callers use JsonArrayLen /
+// JsonArrayGetString to read elements. Returns a zero-length slice
+// (items=null, len=0, cap=0) when the key is absent or the stored value is
+// empty. The returned struct matches a Kylix dynamic array exactly, so
+// `var arr: array of Variant; arr := JsonGetArray(...)` stores it directly and
+// Length(arr) (via the slice's len word) yields the element count.
 func (g *Generator) emitJsonGetArrayCall(args []ast.Expression) (string, string, error) {
 	if len(args) != 2 {
 		return "", "", fmt.Errorf("jsonutil.JsonGetArray expects 2 arguments, got %d", len(args))
@@ -441,15 +464,170 @@ func (g *Generator) emitJsonGetArrayCall(args []ast.Expression) (string, string,
 	}
 	g.enqueueStdlib("jsonutil", "JsonGetArray", "JsonGetArray", 0)
 	g.needHashtab = true
-	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_JsonGetArray(ptr %s, ptr %s)", r, mReg, kReg))
-	return r, "ptr", nil
+	// Result is a {ptr, i64, i64} slice returned by value into a local alloca,
+	// so callers can store it into a `var arr: array of ...` slot with a single
+	// struct copy and index it with the standard slice path.
+	retAlloca := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca { ptr, i64, i64 }, align 8", retAlloca))
+	g.line(fmt.Sprintf("  call void @__kylix_json_JsonGetArray(ptr %s, ptr %s, ptr %s)",
+		retAlloca, mReg, kReg))
+	return retAlloca, "{ ptr, i64, i64 }", nil
 }
 
 func (g *Generator) emitJsonGetArrayBody() {
-	g.line("define ptr @__kylix_json_JsonGetArray(ptr %m, ptr %k) {")
+	// Ensure parse helpers + the new array parser are emitted.
+	g.emitJsonParserBodies()
+	g.emitJsonArrayParserBodies()
+	emptyStr := g.addString("")
+	g.line("define void @__kylix_json_JsonGetArray(ptr %out, ptr %m, ptr %k) {")
 	g.line("entry:")
-	g.line("  ret ptr null")
+	// raw = htab_get(m, k) — the array's raw JSON substring (or "" on miss).
+	raw := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %%m, ptr %%k)", raw))
+	// If raw is empty (miss or non-array value), write a zero-length slice.
+	emptyPtr := g.ptrTo(emptyStr, 1)
+	cmp := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @strcmp(ptr %s, ptr %s)", cmp, raw, emptyPtr))
+	isEmpty := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", isEmpty, cmp))
+	retEmptyLbl := g.label()
+	parseLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isEmpty, retEmptyLbl, parseLbl))
+	// Empty path: *out = { null, 0, 0 }.
+	g.line(fmt.Sprintf("%s:", retEmptyLbl))
+	g.emitStoreSliceWords("%out", "null", "0", "0")
+	g.line("  ret void")
+	// Parse path: parse_array(raw) fills *out.
+	g.line(fmt.Sprintf("%s:", parseLbl))
+	g.line(fmt.Sprintf("  call void @__kylix_json_parse_array(ptr %%out, ptr %s)", raw))
+	g.line("  ret void")
+	g.line("}")
+	g.line("")
+}
+
+// emitStoreSliceWords writes {ptr items, i64 len, i64 cap} into the slice
+// struct at baseReg. Shared by the empty-result path and the parser's done
+// path. operands are raw IR operand strings (e.g. "null", "0", "%len").
+func (g *Generator) emitStoreSliceWords(baseReg, itemsOp, lenOp, capOp string) {
+	itemsLoc := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr %s, i32 0, i32 0", itemsLoc, baseReg))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", itemsOp, itemsLoc))
+	lenLoc := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr %s, i32 0, i32 1", lenLoc, baseReg))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", lenOp, lenLoc))
+	capLoc := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr %s, i32 0, i32 2", capLoc, baseReg))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", capOp, capLoc))
+}
+
+// emitStoreSliceWordsReg is the register-operand variant of emitStoreSliceWords
+// for the parser's done path, where items/len/cap are SSA registers (ptr/i64).
+// It emits the same GEP+store sequence; the operand strings are already
+// register references, so no type coercion is needed.
+func (g *Generator) emitStoreSliceWordsReg(baseReg, itemsReg, lenReg, capReg string) {
+	itemsLoc := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr %s, i32 0, i32 0", itemsLoc, baseReg))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", itemsReg, itemsLoc))
+	lenLoc := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr %s, i32 0, i32 1", lenLoc, baseReg))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", lenReg, lenLoc))
+	capLoc := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr %s, i32 0, i32 2", capLoc, baseReg))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", capReg, capLoc))
+}
+
+// ---- JsonArrayLen: i64 @__kylix_json_JsonArrayLen(ptr %arr) ----
+// Returns the element count of a string-array produced by JsonGetArray.
+// `arr` is a pointer to the {ptr items, i64 len, i64 cap} slice struct.
+func (g *Generator) emitJsonArrayLenCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("jsonutil.JsonArrayLen expects 1 argument, got %d", len(args))
+	}
+	arrReg := g.sliceArgPtr(args[0])
+	g.enqueueStdlib("jsonutil", "JsonArrayLen", "JsonArrayLen", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_json_JsonArrayLen(ptr %s)", r, arrReg))
+	return r, "i64", nil
+}
+
+func (g *Generator) emitJsonArrayLenBody() {
+	g.line("define i64 @__kylix_json_JsonArrayLen(ptr %arr) {")
+	g.line("entry:")
+	lenLoc := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr %%arr, i32 0, i32 1", lenLoc))
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", r, lenLoc))
+	g.line(fmt.Sprintf("  ret i64 %s", r))
+	g.line("}")
+	g.line("")
+}
+
+// ---- JsonArrayGetString: ptr @__kylix_json_JsonArrayGetString(ptr %arr, i64 %i) ----
+// Returns the i-th element string of a JsonGetArray result. Out-of-range
+// indices return a pointer to "" (safe, never null).
+func (g *Generator) emitJsonArrayGetStringCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("jsonutil.JsonArrayGetString expects 2 arguments, got %d", len(args))
+	}
+	arrReg := g.sliceArgPtr(args[0])
+	iReg, _, err := g.emitExpr(args[1])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("jsonutil", "JsonArrayGetString", "JsonArrayGetString", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_JsonArrayGetString(ptr %s, i64 %s)", r, arrReg, iReg))
+	return r, "ptr", nil
+}
+
+// sliceArgPtr resolves a JsonArrayLen/JsonArrayGetString argument to the ptr of
+// the slice struct. If the arg is an Identifier bound to a local, return its
+// alloca register directly (the runtime reads len/items via GEP, so it needs
+// the struct address, not a loaded value). Otherwise fall back to emitExpr —
+// which covers the case where the array is itself returned by a call.
+func (g *Generator) sliceArgPtr(arg ast.Expression) string {
+	if ident, ok := arg.(*ast.Identifier); ok {
+		if reg, ok := g.locals[ident.Value]; ok {
+			return reg
+		}
+	}
+	reg, _, err := g.emitExpr(arg)
+	if err != nil || reg == "" {
+		// Best-effort: a zero/null pointer keeps IR legal.
+		return "null"
+	}
+	return reg
+}
+
+func (g *Generator) emitJsonArrayGetStringBody() {
+	emptyStr := g.addString("")
+	g.line("define ptr @__kylix_json_JsonArrayGetString(ptr %arr, i64 %i) {")
+	g.line("entry:")
+	emptyPtr := g.ptrTo(emptyStr, 1)
+	// len = arr->len
+	lenLoc := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr %%arr, i32 0, i32 1", lenLoc))
+	lenVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", lenVal, lenLoc))
+	// if i >= len → return empty
+	inRange := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp slt i64 %%i, %s", inRange, lenVal))
+	getLbl := g.label()
+	emptyLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", inRange, getLbl, emptyLbl))
+	g.line(fmt.Sprintf("%s:", emptyLbl))
+	g.line(fmt.Sprintf("  ret ptr %s", emptyPtr))
+	// items = arr->items; return items[i]
+	g.line(fmt.Sprintf("%s:", getLbl))
+	itemsLoc := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr %%arr, i32 0, i32 0", itemsLoc))
+	itemsVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", itemsVal, itemsLoc))
+	elemPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds ptr, ptr %s, i64 %%i", elemPtr, itemsVal))
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", r, elemPtr))
+	g.line(fmt.Sprintf("  ret ptr %s", r))
 	g.line("}")
 	g.line("")
 }

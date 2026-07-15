@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-4.8.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-4.9.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🎉 **v4.8.0**: 泛型类方法 codegen 修复（example21 `TStack<Integer>.Push/Pop` 从 stub → 输出正确）+ 类字段数组 `self.Items[i]` GEP + DIBasicType 多类型（LLDB 显示正确变量类型）。LLVM 测试 250，教程通过率 **48/48 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v4.9.0**: DWARF 调试信息 Phase 2 — 类方法/lambda 注册独立 DISubprogram（OOP 方法逐行调试 + LLDB 检视 `self`/捕获变量）+ DILexicalBlock（块作用域 scope 正确）+ jsonutil `JsonGetArray` 嵌套数组解析（`JsonArrayLen`/`JsonArrayGetString`）。LLVM 测试 255，教程通过率 **49/49 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 特性
 
@@ -46,7 +46,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 - **调试器**: `kylix debug` 集成 Delve (v2.3.0)
 - **WebAssembly**: `kylix build --wasm` 编译为 .wasm (v2.3.0)
 - **WASI**: `kylix build --wasi` 编译为 WASI 目标 (v3.0.0-alpha)
-- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链。**48/48 教程编译到原生二进制 (100%)**，支持逐行 DWARF 调试（`-g`，LLDB 逐行单步 + 变量检视）、泛型类方法（TStack<T>.Push/Pop）、静态数组真实下界、jsonutil 嵌套对象解析。
+- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链。**48/48 教程编译到原生二进制 (100%)**，支持逐行 DWARF 调试（`-g`，LLDB 逐行单步 + 变量检视，含类方法/lambda DISubprogram + 块作用域 DILexicalBlock）、泛型类方法（TStack<T>.Push/Pop）、静态数组真实下界、jsonutil 嵌套对象/数组解析（JsonGetMap/JsonGetArray/JsonArrayLen/JsonArrayGetString）。
 - **KylixBoot 框架**: Spring Boot 式注解驱动的 Web 应用 (v3.1.0)
 - **注解自动装配**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` 自动路由注册 (v3.2.0)
 - **依赖注入**: `[Service]`/`[Component]`/`[Inject]` 编译期自动装配 (v3.2.0)

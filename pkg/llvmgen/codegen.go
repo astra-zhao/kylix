@@ -77,6 +77,10 @@ type Generator struct {
 	// (emitted once per module, on first JsonDecodeMap use).
 	jsonParserEmitted bool
 
+	// jsonArrayParserEmitted guards the @__kylix_json_parse_array define
+	// (v4.9.0, emitted once per module, on first JsonGetArray use).
+	jsonArrayParserEmitted bool
+
 	// debugInfo (v4.5.0 Phase C): when true, emit DWARF metadata so LLDB/GDB
 	// can resolve function names + source files. dbg holds the collector
 	// (nil when debugInfo is off).
