@@ -81,6 +81,15 @@ type Generator struct {
 	// (v4.9.0, emitted once per module, on first JsonGetArray use).
 	jsonArrayParserEmitted bool
 
+	// variantRuntimeEmitted guards the @__kylix_variant_* runtime helpers
+	// (v5.0.0, emitted once per module when any Variant value is used).
+	variantRuntimeEmitted bool
+
+	// needVariantRuntime is set when any Variant box/unbox/compare/print helper
+	// is referenced; emitProgram checks it at module end and emits the runtime
+	// bodies only if actually needed (avoids bloating every module).
+	needVariantRuntime bool
+
 	// debugInfo (v4.5.0 Phase C): when true, emit DWARF metadata so LLDB/GDB
 	// can resolve function names + source files. dbg holds the collector
 	// (nil when debugInfo is off).
@@ -249,6 +258,12 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	// module referenced it. Idempotent.
 	if g.needHashtab {
 		g.emitHashtabBodies()
+	}
+
+	// Emit the Variant runtime (boxed-pointer tagged union) if any Variant
+	// value was used. Idempotent.
+	if g.needVariantRuntime {
+		g.emitVariantRuntimeBodies()
 	}
 
 	// Emit string constants at the end

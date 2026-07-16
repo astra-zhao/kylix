@@ -478,6 +478,9 @@ func (g *Generator) emitJsonGetArrayBody() {
 	// Ensure parse helpers + the new array parser are emitted.
 	g.emitJsonParserBodies()
 	g.emitJsonArrayParserBodies()
+	// v5.0.0: parse_array now produces Variant boxes (value_to_variant calls
+	// box_str/box_float/box_bool), so the Variant runtime must be emitted.
+	g.needVariantRuntime = true
 	emptyStr := g.addString("")
 	g.line("define void @__kylix_json_JsonGetArray(ptr %out, ptr %m, ptr %k) {")
 	g.line("entry:")
@@ -617,16 +620,21 @@ func (g *Generator) emitJsonArrayGetStringBody() {
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", inRange, getLbl, emptyLbl))
 	g.line(fmt.Sprintf("%s:", emptyLbl))
 	g.line(fmt.Sprintf("  ret ptr %s", emptyPtr))
-	// items = arr->items; return items[i]
+	// v5.0.0: items[i] is now a Variant box ptr; unbox to its string form
+	// (variant_as_str dispatches on tag) and return that.
 	g.line(fmt.Sprintf("%s:", getLbl))
+	// Variant runtime is needed for as_str.
+	g.needVariantRuntime = true
 	itemsLoc := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr %%arr, i32 0, i32 0", itemsLoc))
 	itemsVal := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", itemsVal, itemsLoc))
 	elemPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds ptr, ptr %s, i64 %%i", elemPtr, itemsVal))
+	boxVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", boxVal, elemPtr))
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", r, elemPtr))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %s)", r, boxVal))
 	g.line(fmt.Sprintf("  ret ptr %s", r))
 	g.line("}")
 	g.line("")

@@ -4,6 +4,46 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v5.0.0 (2026-07-17) — Variant 运行时（标量 + `array of Variant`）
+
+> 🎯 **第一个带类型标签的动态值运行时**。LLVM 后端此前把 `Variant` 静默当成 `i64` 别名——`var v: Variant; v := 1.0` 把 double 截断成 i64，`array of Variant` 元素槽是裸 i64 无类型标签，`arr[0] = 10.0` 比较的是位模式/指针而非数值。v5.0.0 实现 boxed-pointer Variant 运行时：一个 Variant 值是 `ptr`，指向 16 字节 `{i32 tag, i64 payload}`（tag 0=nil/1=int/2=float/3=str/4=bool）。`var v: Variant` + `array of Variant` 元素槽装 box 指针；赋值按 RHS 类型装箱（box_int/float/str/bool）；比较 `arr[0] = 10.0` 经运行时 `variant_compare` 按标签派发（数值双方提升为 double 比，字符串 strcmp，布尔按 payload，异类型不相等）；`WriteLn(variantValue)` 按标签打印。jsonutil `JsonGetArray` 从 v4.9.0 的「C 字符串指针切片」升级为**带类型标签的 Variant box 切片**——`value_to_variant` 窥首字符分类（`"`→str、`{`/`[`→str raw、`t`/`f`→bool、数字→float，与 Go json 把所有数字解析为 float64 对齐）。顺带修复 `Length(arr)` 路由 bug（`emitArrayLength` 是死代码，`Length` 只走 strlen 对数组返回 0；现按 arrayInfo 派发到 slice len word）。LLVM 测试 255→**266**（+11 Variant 测试），教程通过率 **49→50 (100%)** 新增 example56_variant（双后端输出逐字节一致），无回归。
+
+### Variant 运行时核心（`pkg/llvmgen/variant.go` 新文件）
+
+**表示**：boxed pointer，`%struct.kylix_variant = { i32 tag, i64 payload }`（16 字节）。Payload 存位模式：double 经 `bitcast`、string ptr 经 `ptrtoint`、bool 经 `zext`、int 原样。Variant 存储槽（`_var` alloca / Variant 数组元素槽）是 `ptr`，装 box 指针。
+
+**运行时 helpers**（模块级 define，受 `variantRuntimeEmitted`/`needVariantRuntime` 守卫，从 `emitProgram` 末尾发射，仿 hashtab 模式）：
+- `box_int/box_float/box_str/box_bool`：malloc 16 + 存 tag + 存 payload
+- `as_double`：按标签取值转 double（int→sitofp、float→bitcast、str→strtod、bool→sitofp）
+- `as_str`：按标签取字符串（int→snprintf %lld、float→%.15g、bool→select "true"/"false"、str→inttoptr 原样）
+- `compare(ptr a, ptr b)→i32`：-1/0/1。同标签：数值按 double 比、字符串 strcmp 符号、布尔按 payload；异类别：按 tag 距离定序（`=` 不相等）
+- `print`/`println`：按标签 puts/printf（int→%lld、float→%.15g、str→puts、bool→select、nil→"nil"）
+
+**call-site helpers**：`emitVariantBox(v, llvmT)`（按 llvmT 装箱）、`emitVariantCompare(op,...)`（box 非_variant 操作数 + variant_compare + icmp）、`emitVariantPrint(v, newline)`、`emitVariantAsStr(v)`（给插值/多参 WriteLn 用）。
+
+### 合成类型 "variant" 贯穿 emitExpr
+
+`emitExpr` 对 Variant box 值返回伪类型字符串 `"variant"`（区别于 `"ptr"`=string、class ptr），让 Variant 身份贯穿 `emitInfix`/`emitWriteLn` 而无需平行类型表。逐点审计现有按 llvmT 的 switch，在以下位置加显式分支：`LLVMType`（`case "variant"→"ptr"`）、`emitIdentLoad`（`_var` suffix → load ptr 返回 "variant"）、`emitInfix`（`+` 拼接 guard **之前** 插 Variant 比较分支，防 Variant+string 误入 strcpy / Variant+double 类型不匹配崩溃）、`emitWriteLn`/`emitWrite`/`emitStringInterpolation`/`emitWriteLnMulti`（`case "variant"` → 打印/unbox 成 str）。`coerceValue` 对 "variant" 安全透传。
+
+### 标量 + 数组 Variant
+
+- `var v: Variant`（`emitVarDeclSingle`）：`alloca ptr` + `_var` suffix + `localTypes="Variant"`，**必须**在 generic fallback 之前（否则 `LLVMType("Variant")="ptr"` 配 `_int` suffix → load 崩溃）。注：lexer 把 `Variant` 小写化成 `variant` 关键字 → AST 是 `*ast.VariantType{Cases:nil}`（不是 Identifier），故 `isVariantTypeExpr` 检查 `*ast.VariantType`。
+- `array of Variant`（`array.go`）：`arrayInfo.IsVariant=true`、元素类型 `ptr`、`alloca [N x ptr]`（静态）/ `{ptr,i64,i64}` of ptr（动态）。`emitArrayIndex`：asLValue 返回 `(ptr, "ptr")`（存 box 指针），rvalue `load ptr` 返回 `(reg, "variant")`。
+- 赋值装箱（`emitAssign`）：arr[i] 路径查 `arrayInfo.IsVariant` → 装 box；标量 `_var` 路径 `actualType="ptr"` + coercion 前 box RHS。`_dyn` 整片复制（`arr := JsonGetArray(...)`）走既有 `{ptr,i64,i64}` 复制分支，不被 Variant 路径拦截。
+
+### jsonutil JsonGetArray 升级 + Length 路由修复
+
+- `emitJsonParseArray` 改调 `@__kylix_json_value_to_variant(ptr %s, ptr %posSlot)→ptr`（取代 `read_value`）：窥首字符分类，调既有 read_string/skip_nested/read_bare + box_*，元素仍按 8 字节 box 指针存进可增长缓冲（grow 算法不变）。`JsonArrayLen` 不变（读 len word）；`JsonArrayGetString` 改 unbox（`call ptr @__kylix_variant_as_str(boxPtr)`）。
+- **双端 parity**：Go 后端 `Variant→interface{}`，`JsonGetArray→[]interface{}`，json 把所有数字解析为 `float64`；LLVM 把数字装 float box，`variant_compare` 数值按 double 比 → `arr[0]=10.0`、`arr[0]=42`（int 字面量 vs float64，类型不匹配→false）行为与 Go 一致。example56 双后端输出逐字节相同。
+- **Length(arr) 修复**：`emitCall` 的 `Length` 分支先查 `arrayInfo` → 派发 `emitArrayLength`（slice len word / 静态常量），否则 `emitLength`（string strlen）。此前 `emitArrayLength` 是死代码、`Length(arr)` 对数组返回 0（v3.1.0 起遗漏）。
+
+### 已知限制（留 v5.0.x）
+
+- **Variant 算术**（`v+1`、`v*2`）：未实现，`emitInfix` 对 Variant 算术操作发安全 stub（`add i64 0, 0`）保 IR 合法。
+- **`map[String]Variant` 真实化**：维持现有 htab 字符串实现（example37 不回归）；Variant map 值槽需 htab 宽化，留后续。
+- **box 内存不释放**：与现有 no-GC 约定一致（htab/jsonutil 同样不释放）。
+- **null 打印分歧**：LLVM nil box → "nil"，Go `nil` → "<nil>"；example 不含 null。
+
 ## v4.9.0 (2026-07-15) — DWARF 调试信息 Phase 2 + jsonutil 嵌套数组
 
 > 🎯 **OOP 方法逐行调试 + 块作用域 + JSON 数组**。补齐 v4.6.0 逐行调试的覆盖盲区：类方法/lambda 现在注册独立 DISubprogram（define 行附 `!dbg`、`self`/参数/捕获变量声明为调试局部变量），v4.8.0 的泛型类方法可逐行单步 + LLDB 检视 receiver/捕获值。新增 DILexicalBlock——块内 `var` 声明的变量归属正确的嵌套作用域（不再全归函数级 subprogram），LLDB 报告正确的块层级。jsonutil `JsonGetArray` 从返回 null 的 stub 升级为真实解析器：把 JSON 数组解析为字符串数组 slice `{ptr items, i64 len, i64 cap}`（标量存文本、嵌套对象/数组存 raw 子串），新增 `JsonArrayLen`/`JsonArrayGetString` 访问器。顺手修复 `skip_nested` 丢失闭合 `]`/`}` 的 off-by-one（length `end-start` → `endAfter-start`），此前嵌套对象数组丢失闭合括号、`parse_array` 无限循环。LLVM 测试 250→**255**，教程通过率 **49/49 (100%)** 无回归。

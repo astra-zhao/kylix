@@ -399,6 +399,10 @@ func (g *Generator) emitStringInterpolation(e *ast.StringInterpolation) (string,
 				return "", "", err
 			}
 			switch t {
+			case "variant":
+				// v5.0.0: unbox the Variant to a string and strcat it.
+				strReg := g.emitVariantAsStr(reg)
+				g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, strReg))
 			case "ptr":
 				g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, reg))
 			case "i64":

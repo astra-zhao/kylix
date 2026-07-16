@@ -1,7 +1,7 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-07-15
-> 当前版本: v4.9.0 已发布
+> 最后更新: 2026-07-17
+> 当前版本: v5.0.0 已发布
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
@@ -360,10 +360,31 @@
 
 | 限制 | 影响 | 修复方向 | 状态 |
 |------|------|---------|------|
-| ~~`JsonGetArray` 返回 null~~ | ~~array of Variant 需 Variant 运行时~~ | ~~v4.9.0 字符串数组 slice 版（JsonArrayLen/JsonArrayGetString）；完整 Variant 运行时留 v5.0~~ | ✅ v4.9.0 已修复（字符串数组版） |
-| `array of Variant` 数值比较（`arr[0] = 1.0`）| v4.9.0 字符串数组版不支持 Variant 数值索引 | Variant 运行时（类型标签 + union + dispatch） | 🟠 待 v5.0 |
+| ~~`JsonGetArray` 返回 null~~ | ~~array of Variant 需 Variant 运行时~~ | ~~v4.9.0 字符串数组 slice；v5.0.0 类型标签 Variant box~~ | ✅ v5.0.0 已修复（类型标签 Variant box 切片） |
+| ~~`array of Variant` 数值比较（`arr[0] = 1.0`）~~ | ~~v4.9.0 字符串数组版不支持 Variant 数值索引~~ | ~~Variant 运行时（类型标签 + union + dispatch）~~ | ✅ v5.0.0 已修复（variant_compare 按标签派发） |
+| Variant 算术（`v + 1`、`v * 2`） | v5.0.0 未实现 Variant 运算符重载 | 运行时按标签算术派发 | 🟠 待 v5.1 |
+| `map[String]Variant` 真实化 | htab 值槽是字符串，Variant map 值需宽化 | htab 变体值槽（结构重写）或 Variant-valued map | 🟠 待 v5.1 |
 | jsonutil 嵌套递归深度无界 | 超深 JSON 可能栈溢出 | 教程用例 2-3 层可接受；超深场景文档化为限制 | ⚪ 文档化为限制 |
+| null 打印分歧 | LLVM nil box → "nil"，Go `nil` → "<nil>" | 统一 null 语义（v5.1） | ⚪ 文档化为限制 |
 | ~~example21 泛型类方法 stub~~ | ~~`TStack<T>.Push/Pop` 输出 `Pop: 0`（unsupported receiver）~~ | ~~泛型类单态化后的方法 codegen~~ | ✅ v4.8.0 已修复 |
+
+---
+
+## ✅ v5.0.0 修复：Variant 运行时（标量 + `array of Variant`）
+
+**症状**：LLVM 后端把 `Variant` 静默当 `i64` 别名——`LLVMType("Variant")` 走 `default → "i64"`，`var v: Variant; v := 1.0` 把 double 截断成 i64，`array of Variant` 元素槽是裸 i64（无类型标签），`arr[0] = 10.0` 比较的是位模式/数据指针而非数值。v4.9.0 的 `JsonGetArray` 退而产出「C 字符串指针切片」并文档化「完整 Variant 运行时留 v5.0」。
+
+**修复**（新文件 `pkg/llvmgen/variant.go` + expr/stmt/array/codegen/jsonutil 接线）：
+- **boxed-pointer 表示**：`%struct.kylix_variant = { i32 tag, i64 payload }`（16 字节，tag 0=nil/1=int/2=float/3=str/4=bool）。Variant 值是 `ptr`（指向堆 box）；存储槽（`_var` alloca / Variant 数组元素槽）是 `ptr`。
+- **运行时 helpers**（受 `variantRuntimeEmitted`/`needVariantRuntime` 守卫，`emitProgram` 末尾发射）：`box_int/float/str/bool`、`as_double`、`as_str`、`compare(ptr a,ptr b)→i32`（-1/0/1，按标签派发：数值提升 double、字符串 strcmp、布尔 payload、异类型按 tag 距离）、`print`/`println`（按标签 puts/printf）。
+- **合成类型 "variant"**：`emitExpr` 对 Variant box 值返回伪类型字符串 `"variant"`，让 Variant 身份贯穿 `emitInfix`（`+` guard 前插比较分支）/`emitWriteLn` 等而无需平行类型表。逐点审计现有 switch。
+- **标量 + 数组**：`emitVarDeclSingle` Variant 分支（`_var` suffix，generic fallback 前）；`arrayInfo.IsVariant` + `emitArrayIndex` asLValue/rvalue 类型分流；`emitAssign` 装箱（arr[i] 路径 + 标量 `_var` 路径，coercion 前）。
+- **JsonGetArray 升级**：`emitJsonParseArray` 改调 `value_to_variant`（窥首字符分类 → box_str/float/bool，数字全 float box 与 Go json 的 float64 对齐）；`JsonArrayGetString` unbox via `as_str`；`JsonArrayLen` 不变。
+- **Length(arr) 路由修复**：`emitCall` Length 分支先查 `arrayInfo` → `emitArrayLength`（slice len word / 静态常量），否则 strlen。此前 `emitArrayLength` 是死代码、`Length(arr)` 对数组返回 0（v3.1.0 起遗漏）。
+
+**验证**：example56_variant 双后端输出逐字节一致（`arr[0]=10.0` 数值比较、`WriteLn(arr[i])` 按标签打印、`Length(arr)` 正确、字符串/布尔数组）。LLVM 测试 255→266（+11 Variant 测试），教程 49→50。
+
+**务实范围**：Variant 算术（`v+1`）与 `map[String]Variant` 真实化留 v5.1（box 内存不释放与现有 no-GC 一致）。
 
 ---
 

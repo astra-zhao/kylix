@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <!-- ============ SEO: Primary Meta ============ -->
-<title>Kylix v4.9.0 — Modern Pascal, Compiled to Go &amp; LLVM | KylixBoot &amp; Annotations</title>
+<title>Kylix v5.0.0 — Modern Pascal, Compiled to Go &amp; LLVM | KylixBoot &amp; Annotations</title>
 <meta name="description" content="Kylix 是一个现代 Pascal 编译器：双后端（Go 转译 + LLVM 原生）。带类型推导、泛型、async/await、模式匹配、注解语法、KylixBoot Web 框架、ORM、包注册中心、WASM/WASI 支持，以及完整 IDE 工具链。MIT 开源。">
 <meta name="keywords" content="Kylix, Pascal, Go, LLVM, transpiler, compiler, KylixBoot, annotations, WASM, WASI, modern Pascal, Pascal to Go, open source, IDE, LSP, ORM, dependency injection">
 <meta name="author" content="astra-zhao">
@@ -16,7 +16,7 @@
 <meta property="og:type" content="website">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:site_name" content="Kylix">
-<meta property="og:title" content="Kylix v4.9.0 — Modern Pascal, Compiled to Go &amp; LLVM">
+<meta property="og:title" content="Kylix v5.0.0 — Modern Pascal, Compiled to Go &amp; LLVM">
 <meta property="og:description" content="KylixBoot 框架、注解语法、LLVM 原生后端、WASI、包注册中心 — 用 Pascal 编写，编译为 Go 或原生二进制。">
 <meta property="og:url" content="https://kylix.top/">
 <meta property="og:image" content="https://kylix.top/og-image.png">
@@ -26,7 +26,7 @@
 
 <!-- ============ SEO: Twitter Card ============ -->
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Kylix v4.9.0 — Modern Pascal, Compiled to Go &amp; LLVM">
+<meta name="twitter:title" content="Kylix v5.0.0 — Modern Pascal, Compiled to Go &amp; LLVM">
 <meta name="twitter:description" content="KylixBoot 框架、注解语法、LLVM 原生后端、WASI、包注册中心 — Pascal 焕发新生。">
 <meta name="twitter:image" content="https://kylix.top/og-image.png">
 <meta name="twitter:image:alt" content="Kylix - Modern Pascal, Compiled to Go &amp; LLVM">
@@ -542,7 +542,7 @@ img { max-width: 100%; }
 <header class="hero" id="hero">
   <div class="hero-inner">
     <div class="badges">
-      <span class="badge badge-accent"><span class="badge-dot accent"></span> v4.9.0</span>
+      <span class="badge badge-accent"><span class="badge-dot accent"></span> v5.0.0</span>
       <span class="badge badge-green"><span class="badge-dot green"></span> MIT License</span>
       <span class="badge">Go 1.18+</span>
       <span class="badge">LLVM 后端</span>
@@ -569,7 +569,7 @@ img { max-width: 100%; }
         <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
         GitHub
       </a>
-      <a href="md-viewer.html?file=CHANGELOG.md" class="btn btn-accent">📝 v4.9.0 更新日志</a>
+      <a href="md-viewer.html?file=CHANGELOG.md" class="btn btn-accent">📝 v5.0.0 更新日志</a>
     </div>
 
     <!-- Hero code example -->
@@ -770,34 +770,34 @@ end.</code></pre>
 <!-- ====================== WHATS NEW v3.1 ====================== -->
 <section class="section" id="whatsnew">
   <div class="section-inner">
-    <p class="section-label">v4.9.0 亮点</p>
-    <h2 class="section-title">OOP 方法逐行调试、块作用域与 JSON 数组 🎉</h2>
-    <p class="section-desc">2026-07-15 发布。DWARF 调试信息 Phase 2 — 类方法/lambda 注册独立 DISubprogram（<code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">self</code>/参数/捕获变量声明为调试局部变量，OOP 方法可逐行单步）+ DILexicalBlock（块内 <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">var</code> 归属正确作用域）+ jsonutil <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">JsonGetArray</code> 嵌套数组解析。教程通过率 49/49 (100%)。</p>
+    <p class="section-label">v5.0.0 亮点</p>
+    <h2 class="section-title">Variant 运行时：第一个带类型标签的动态值 🎉</h2>
+    <p class="section-desc">2026-07-17 发布。LLVM 后端此前把 <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">Variant</code> 静默当 <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">i64</code> 别名，<code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">arr[0] = 10.0</code> 比较的是位模式。v5.0.0 实现 boxed-pointer <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">{i32 tag, i64 payload}</code>（nil/int/float/str/bool）：标量 + <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">array of Variant</code> 装箱，比较按标签派发，<code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">WriteLn</code> 按标签打印。jsonutil <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">JsonGetArray</code> 升级为类型标签化 Variant 切片。教程通过率 50/50 (100%)。</p>
 
     <div class="features-grid">
       <div class="feature-card">
-        <div class="feature-icon">🔍</div>
-        <h3>类方法/lambda DISubprogram</h3>
-        <p>补齐 v4.6.0 逐行调试的覆盖盲区：<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">emitMethod</code> / <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">emitLambdaFunc</code> 注册 DISubprogram，<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">self</code>/参数/捕获变量声明为调试局部变量。v4.8.0 泛型类方法可逐行单步 + LLDB 检视 receiver。</p>
-        <code>(long) self = 0x... / 捕获 base = 10</code>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">📐</div>
-        <h3>DILexicalBlock 块作用域</h3>
-        <p>块内 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">begin var y; ... end</code> 声明的变量归属正确的 DILexicalBlock，不再全归函数级 subprogram scope。LLDB 报告正确的块嵌套层级。</p>
-        <code>!DILexicalBlock(scope: !4, ...)</code>
-      </div>
-      <div class="feature-card">
         <div class="feature-icon">📦</div>
-        <h3>jsonutil 嵌套数组</h3>
-        <p><code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">JsonGetArray</code> 从返回 null 的 stub 升级为真实解析器：JSON 数组 → 字符串数组 slice <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">{ptr, i64, i64}</code>。新增 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">JsonArrayLen</code> / <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">JsonArrayGetString</code> 访问器。</p>
-        <code>["a","b","c"] → len=3</code>
+        <h3>boxed-pointer Variant</h3>
+        <p>一个 Variant 值是 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">ptr</code>，指向 16 字节 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">{i32 tag, i64 payload}</code>。Tag 0=nil/1=int/2=float/3=str/4=bool；payload 存位模式（double 经 bitcast、string 经 ptrtoint）。存储槽装 box 指针。</p>
+        <code>var v: Variant; v := 1.0 → box_float</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⚖️</div>
+        <h3>按标签派发的比较</h3>
+        <p><code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">arr[0] = 10.0</code> 经运行时 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">variant_compare</code> 按标签派发：数值提升 double 比、字符串 strcmp、布尔按 payload、异类型不相等。合成类型 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">"variant"</code> 贯穿 emitInfix。</p>
+        <code>variant_compare(ptr a, ptr b) → i32</code>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🏷️</div>
+        <h3>JsonGetArray 类型标签化</h3>
+        <p>从 v4.9 字符串数组切片升级为带类型标签的 Variant box 切片：<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">value_to_variant</code> 窥首字符分类（<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">"</code>→str、<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">{</code>/<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">[</code>→raw、<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">t</code>/<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">f</code>→bool、数字→float，与 Go json 的 float64 对齐）。</p>
+        <code>双端 parity：输出逐字节一致</code>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🔧</div>
-        <h3>skip_nested off-by-one 修复</h3>
-        <p>修复 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">skip_nested</code> 丢失闭合 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">]</code> / <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">}</code> 的 off-by-one（length <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">end-start</code> → <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">endAfter-start</code>）。此前嵌套对象数组丢失闭合括号、parse_array 无限循环。</p>
-        <code>LLVM 测试 255 个</code>
+        <h3>Length(arr) 路由修复</h3>
+        <p>顺带修复 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">Length(arr)</code> 路由：<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">emitArrayLength</code> 此前是死代码（<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">Length</code> 只走 strlen 对数组返回 0），现按 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">arrayInfo</code> 派发到 slice len word。</p>
+        <code>LLVM 测试 266 个 · 教程 50/50</code>
       </div>
     </div>
   </div>
@@ -1336,7 +1336,7 @@ kylix build --wasi hello.klx                   # WASI (Wasmtime)</code></pre>
       <a href="https://github.com/astra-zhao/kylix/issues">Issue</a>
     </div>
     <p class="footer-copy">
-      Kylix v4.9.0 &middot; Built with ❤️ by <a href="https://github.com/astra-zhao">astra-zhao</a> &middot; Pascal → Go &amp; LLVM &middot; Simple, Modern, Fast
+      Kylix v5.0.0 &middot; Built with ❤️ by <a href="https://github.com/astra-zhao">astra-zhao</a> &middot; Pascal → Go &amp; LLVM &middot; Simple, Modern, Fast
     </p>
   </div>
 </footer>

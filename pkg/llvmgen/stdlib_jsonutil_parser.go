@@ -53,6 +53,7 @@ func (g *Generator) emitJsonArrayParserBodies() {
 		return
 	}
 	g.jsonArrayParserEmitted = true
+	g.emitJsonValueToVariant()
 	g.emitJsonParseArray()
 }
 
@@ -611,10 +612,11 @@ func (g *Generator) emitJsonParseArray() {
 	doneLbl := g.label()
 	elemLbl := g.label()
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isClose, doneLbl, elemLbl))
-	// elemLbl: read value, append to buffer (grow if needed).
+	// elemLbl: read a value as a Variant box (v5.0.0: classified by
+	// value_to_variant → tagged box), then append to buffer (grow if needed).
 	g.line(fmt.Sprintf("%s:", elemLbl))
 	val := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_read_value(ptr %%s, ptr %s)", val, posSlot))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_value_to_variant(ptr %%s, ptr %s)", val, posSlot))
 	// Grow check: if len == cap, realloc.
 	curLen := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curLen, lenSlot))
@@ -685,6 +687,153 @@ func (g *Generator) emitJsonParseArray() {
 	// *out = { buf, len, cap } — cap tracks the allocated [cap x ptr] capacity.
 	g.emitStoreSliceWordsReg("%out", finalBuf, finalLen, finalCap)
 	g.line("  ret void")
+	g.line("}")
+	g.line("")
+}
+
+// ---- value_to_variant: ptr @__kylix_json_value_to_variant(ptr %s, ptr %posSlot) ----
+// v5.0.0: reads one JSON value at %s[%pos] (advancing %pos) and returns a
+// Variant box (tagged {i32, i64}) so array elements carry their runtime type.
+// Classification by the value's first char:
+//   '"'  → string  (read_string returns the UNQUOTED content)   → box_str
+//   '{'/'[' → nested raw substring (skip_nested)                → box_str
+//   't'  → "true"  (strcmp)                                       → box_bool(1)
+//   'f'  → "false" (strcmp)                                       → box_bool(0)
+//   digit/'-'/'+'/'.' → number (strtod) — all numbers box as float
+//     (matches Go's json, which decodes every number as float64, so arr[0]=10.0
+//      compares true and prints identically on both backends)
+//   else (incl. 'n' for null) → box_str (null → empty)
+//
+// All numbers become float boxes; numeric Variant comparisons coerce int-box
+// operands to double in variant_compare, so `arr[0] = 42` (int literal) still
+// matches Go's float64-vs-int (type-mismatch → false) behavior.
+func (g *Generator) emitJsonValueToVariant() {
+	emptyStr := g.addString("")
+	trueStr := g.addString("true")
+	falseStr := g.addString("false")
+	g.line("define ptr @__kylix_json_value_to_variant(ptr %s, ptr %posSlot) {")
+	g.line("entry:")
+	pos := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %%posSlot", pos))
+	cp := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%s, i64 %s", cp, pos))
+	c := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", c, cp))
+	strLbl := g.label()
+	nestLbl := g.label()
+	bareLbl := g.label()
+	isQuote := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 34", isQuote, c)) // '"'
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_obj", isQuote, strLbl))
+	g.line("chk_obj:")
+	isObj := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 123", isObj, c)) // '{'
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_arr", isObj, nestLbl))
+	g.line("chk_arr:")
+	isArr := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 91", isArr, c)) // '['
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isArr, nestLbl, bareLbl))
+	// string → box_str(unquoted content)
+	g.line(fmt.Sprintf("%s:", strLbl))
+	sr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_read_string(ptr %%s, ptr %%posSlot)", sr))
+	sbox := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", sbox, sr))
+	g.line(fmt.Sprintf("  ret ptr %s", sbox))
+	// nested → box_str(raw)
+	g.line(fmt.Sprintf("%s:", nestLbl))
+	nr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_skip_nested(ptr %%s, ptr %%posSlot)", nr))
+	nbox := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", nbox, nr))
+	g.line(fmt.Sprintf("  ret ptr %s", nbox))
+	// bare → classify by first char of the token.
+	g.line(fmt.Sprintf("%s:", bareLbl))
+	br := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_read_bare(ptr %%s, ptr %%posSlot)", br))
+	bcp := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 0", bcp, br))
+	bc := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", bc, bcp))
+	// numeric start: '0'-'9', '-', '+', '.'
+	isD0 := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp uge i8 %s, 48", isD0, bc))
+	isD9 := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ule i8 %s, 57", isD9, bc))
+	isDigit := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i1 %s, %s", isDigit, isD0, isD9))
+	isMinus := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 45", isMinus, bc)) // '-'
+	isPlus := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 43", isPlus, bc)) // '+'
+	isDot := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 46", isDot, bc)) // '.'
+	n1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i1 %s, %s", n1, isDigit, isMinus))
+	n2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i1 %s, %s", n2, n1, isPlus))
+	isNumStart := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i1 %s, %s", isNumStart, n2, isDot))
+	numLbl := g.label()
+	trueLbl := g.label()
+	falseLbl := g.label()
+	nullLbl := g.label()
+	defStrLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_t", isNumStart, numLbl))
+	g.line("chk_t:")
+	isT := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 116", isT, bc)) // 't'
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_f", isT, trueLbl))
+	g.line("chk_f:")
+	isF := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 102", isF, bc)) // 'f'
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_n", isF, falseLbl))
+	g.line("chk_n:")
+	isN := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 110", isN, bc)) // 'n'
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isN, nullLbl, defStrLbl))
+	// number → strtod → box_float
+	g.line(fmt.Sprintf("%s:", numLbl))
+	dv := g.tmp()
+	g.line(fmt.Sprintf("  %s = call double @strtod(ptr %s, ptr null)", dv, br))
+	fbox := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_float(double %s)", fbox, dv))
+	g.line(fmt.Sprintf("  ret ptr %s", fbox))
+	// "true" → box_bool(1)
+	g.line(fmt.Sprintf("%s:", trueLbl))
+	truePtr := g.ptrTo(trueStr, len("true")+1)
+	tcmp := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @strcmp(ptr %s, ptr %s)", tcmp, br, truePtr))
+	teq := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", teq, tcmp))
+	g.line(fmt.Sprintf("  br i1 %s, label %%true_box, label %%%s", teq, defStrLbl))
+	g.line("true_box:")
+	tbbox := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_bool(i1 1)", tbbox))
+	g.line(fmt.Sprintf("  ret ptr %s", tbbox))
+	// "false" → box_bool(0)
+	g.line(fmt.Sprintf("%s:", falseLbl))
+	falsePtr := g.ptrTo(falseStr, len("false")+1)
+	fcmp := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @strcmp(ptr %s, ptr %s)", fcmp, br, falsePtr))
+	feq := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", feq, fcmp))
+	g.line(fmt.Sprintf("  br i1 %s, label %%false_box, label %%%s", feq, defStrLbl))
+	g.line("false_box:")
+	fbbox := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_bool(i1 0)", fbbox))
+	g.line(fmt.Sprintf("  ret ptr %s", fbbox))
+	// null → box_str("") (null printing diverges from Go's "<nil>"; not in examples)
+	g.line(fmt.Sprintf("%s:", nullLbl))
+	emptyPtr := g.ptrTo(emptyStr, 1)
+	nbox2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", nbox2, emptyPtr))
+	g.line(fmt.Sprintf("  ret ptr %s", nbox2))
+	// default → box_str(token)
+	g.line(fmt.Sprintf("%s:", defStrLbl))
+	dbox := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", dbox, br))
+	g.line(fmt.Sprintf("  ret ptr %s", dbox))
 	g.line("}")
 	g.line("")
 }

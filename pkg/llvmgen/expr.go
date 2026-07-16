@@ -21,6 +21,12 @@ func LLVMType(typeName string) string {
 		return "ptr" // pointer to i8 (null-terminated)
 	case "char":
 		return "i8"
+	case "variant":
+		// v5.0.0: a Variant storage slot holds a pointer to a boxed
+		// {i32 tag, i64 payload} value. The "variant" pseudo-type (returned
+		// by emitExpr for Variant *values*) is handled in emitInfix/WriteLn,
+		// not via LLVMType.
+		return "ptr"
 	default:
 		return "i64" // fallback
 	}
@@ -233,10 +239,24 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 		llvmT = "ptr"
 	} else if strings.HasSuffix(allocaReg, "_map") {
 		llvmT = "ptr"
+	} else if strings.HasSuffix(allocaReg, "_var") {
+		// v5.0.0: Variant local — load the box pointer; downstream
+		// emitInfix/emitWriteLn recognize the "variant" pseudo-type.
+		llvmT = variantT
 	}
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = load %s, ptr %s", r, llvmT, allocaReg))
+	g.line(fmt.Sprintf("  %s = load %s, ptr %s", r, llvmLoadType(llvmT), allocaReg))
 	return r, llvmT, nil
+}
+
+// llvmLoadType returns the real LLVM IR type to use in a load instruction for
+// the given (possibly pseudo) codegen type. The "variant" pseudo-type maps to
+// ptr (a box pointer is what's actually stored in the slot).
+func llvmLoadType(t string) string {
+	if t == variantT {
+		return "ptr"
+	}
+	return t
 }
 
 func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
@@ -247,6 +267,22 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 	rv, rt, err := g.emitExpr(e.Right)
 	if err != nil {
 		return "", "", err
+	}
+
+	// v5.0.0: Variant-aware comparison. If either operand is a Variant box
+	// (pseudo-type "variant") and the operator is relational, box the other
+	// operand and dispatch to the runtime comparator (numeric coercion + tag
+	// dispatch). Placed BEFORE the string-concat/coerce/numeric paths so a
+	// Variant never reaches the ptr/i64 strcmp/icmp paths (which would
+	// miscompare the box pointer or type-mismatch). Variant arithmetic
+	// (v+1) is out of v5.0.0 scope → emit a safe zero stub.
+	if isVariantOperand(lt) || isVariantOperand(rt) {
+		if isComparisonOp(e.Operator) {
+			return g.emitVariantCompare(e.Operator, lv, lt, rv, rt)
+		}
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; variant op %q unsupported (v5.0.x)", r, e.Operator))
+		return r, "i64", nil
 	}
 
 	// String concatenation: `+` on two ptr (string) operands → malloc + strcat.
@@ -535,6 +571,14 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 
 	// Built-in: Length(s)
 	if funcName == "Length" && len(e.Arguments) == 1 {
+		// v5.0.0: Length(arr) for a dynamic/static array must read the array's
+		// length (slice len word / static count), not strlen the data pointer.
+		// emitArrayLength already exists but was never wired up (dead code).
+		if ident, ok := e.Arguments[0].(*ast.Identifier); ok {
+			if _, hasInfo := g.arrayInfo[ident.Value]; hasInfo {
+				return g.emitArrayLength(e.Arguments[0])
+			}
+		}
 		return g.emitLength(e.Arguments[0])
 	}
 
@@ -620,6 +664,9 @@ func (g *Generator) emitWriteLn(arg ast.Expression) (string, string, error) {
 	}
 
 	switch t {
+	case "variant":
+		// v5.0.0: Variant box — dispatch to the runtime println (tag-aware).
+		return g.emitVariantPrint(v, true)
 	case "ptr":
 		// puts() prints the string + newline
 		r := g.tmp()
@@ -665,6 +712,9 @@ func (g *Generator) emitWrite(arg ast.Expression) (string, string, error) {
 		return "", "", err
 	}
 	switch t {
+	case "variant":
+		// v5.0.0: Variant box — dispatch to the runtime print (no newline).
+		return g.emitVariantPrint(v, false)
 	case "ptr":
 		fmtReg := g.addString("%s")
 		fmtPtr := g.ptrTo(fmtReg, len("%s")+1)
@@ -740,6 +790,10 @@ func (g *Generator) emitWriteLnMulti(args []ast.Expression) (string, string, err
 			return "", "", err
 		}
 		switch t {
+		case "variant":
+			// v5.0.0: unbox the Variant to a string and strcat it.
+			strReg := g.emitVariantAsStr(reg)
+			g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, strReg))
 		case "ptr":
 			g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, reg))
 		case "i64":

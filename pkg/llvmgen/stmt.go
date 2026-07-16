@@ -489,6 +489,24 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 		}
 	}
 
+	// v5.0.0: Variant-typed local. `var v: Variant` parses as Identifier
+	// (capital V is not the discriminated-union keyword `variant`). The slot
+	// holds a pointer to a boxed {i32 tag, i64 payload} value. Must come
+	// BEFORE the generic fallback below (which would allocate a ptr slot with
+	// the wrong _int suffix and crash on load).
+	if isVariantTypeExpr(varType) {
+		allocaReg := g.freshVarReg(name, "_var")
+		g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
+		g.line(fmt.Sprintf("  store ptr null, ptr %s", allocaReg))
+		g.locals[name] = allocaReg
+		g.localTypes[name] = "Variant"
+		g.needVariantRuntime = true
+		if g.debugInfo {
+			g.emitDbgDeclare(name, varDeclLine(varType), "ptr", allocaReg)
+		}
+		return nil
+	}
+
 	llvmT := "i64"
 	suffix := "_int"
 	kylixType := ""
@@ -677,6 +695,15 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		if err != nil {
 			return err
 		}
+		// v5.0.0: for `array of Variant`, box the RHS into a Variant before
+		// storing (the element slot holds a box pointer). A Variant RHS (e.g.
+		// arr[0] := arr[1]) is passed through; a scalar RHS is boxed by type.
+		if leftIdent, ok := idx.Left.(*ast.Identifier); ok {
+			if info, hasInfo := g.arrayInfo[leftIdent.Value]; hasInfo && info.IsVariant && t != variantT {
+				v = g.emitVariantBox(v, t)
+				elemType = "ptr"
+			}
+		}
 		g.line(fmt.Sprintf("  store %s %s, ptr %s", elemType, v, ptrReg))
 		return nil
 	}
@@ -739,6 +766,7 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 
 	// Infer actual type from alloca name
 	actualType := "i64"
+	isVariantSlot := strings.HasSuffix(allocaReg, "_var")
 	if strings.HasSuffix(allocaReg, "_bool") {
 		actualType = "i1"
 	} else if strings.HasSuffix(allocaReg, "_real") {
@@ -747,6 +775,10 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		actualType = "ptr"
 	} else if strings.HasSuffix(allocaReg, "_map") {
 		actualType = "ptr"
+	} else if isVariantSlot {
+		// v5.0.0: a Variant slot stores a box pointer (ptr). The RHS is
+		// boxed below before the store, so treat the slot as a ptr sink.
+		actualType = "ptr"
 	} else if allocaReg == "%result" && t != "" {
 		actualType = t
 	} else if kylixT, ok := g.localTypes[varName]; ok {
@@ -754,6 +786,14 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		if _, isClass := g.classes[kylixT]; isClass {
 			actualType = "ptr"
 		}
+	}
+
+	// v5.0.0: Variant assignment. Box the RHS into a Variant when storing
+	// into a Variant slot. A Variant RHS (v := otherVariant) is passed
+	// through unchanged; a scalar RHS is boxed by its evaluated type.
+	if isVariantSlot && t != variantT {
+		v = g.emitVariantBox(v, t)
+		t = "ptr" // the value is now a box pointer; skip coercion below.
 	}
 
 	// Type coercion: if RHS type doesn't match the alloca type, cast it.

@@ -25,14 +25,27 @@ type arrayInfo struct {
 	ElementType string // LLVM type, e.g. "i64", "double", "ptr"
 	Size        int64  // for static arrays only
 	LowerBound  int64  // Pascal range lower bound (default 1)
+	// v5.0.0: IsVariant marks `array of Variant` — elements are box pointers
+	// (ptr), and index reads return the "variant" pseudo-type so downstream
+	// comparisons/printing dispatch on the tag.
+	IsVariant bool
 }
 
 // emitArrayVarDecl allocates an array variable.
 // Returns true if the type was an array; false otherwise.
 func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 	elemType := "i64"
+	isVariant := false
 	if arr.ElementType != nil {
-		elemType = LLVMType(typeExprName(arr.ElementType))
+		// v5.0.0: detect Variant element → elements are box pointers (ptr),
+		// and flag IsVariant so index reads return the "variant" pseudo-type.
+		if isVariantTypeExpr(arr.ElementType) {
+			isVariant = true
+			elemType = "ptr"
+			g.needVariantRuntime = true
+		} else {
+			elemType = LLVMType(typeExprName(arr.ElementType))
+		}
 	}
 
 	if arr.Dynamic {
@@ -43,7 +56,7 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 		// Zero-init: data=null, len=0, cap=0
 		g.line(fmt.Sprintf("  store { ptr, i64, i64 } zeroinitializer, ptr %s", allocaReg))
 		g.locals[name] = allocaReg
-		g.arrayInfo[name] = &arrayInfo{IsDynamic: true, ElementType: elemType}
+		g.arrayInfo[name] = &arrayInfo{IsDynamic: true, ElementType: elemType, IsVariant: isVariant}
 		return true
 	}
 
@@ -76,6 +89,7 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 		ElementType: elemType,
 		Size:        size,
 		LowerBound:  lb,
+		IsVariant:   isVariant,
 	}
 	return true
 }
@@ -182,7 +196,19 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 	}
 
 	if asLValue {
+		// asLValue element type: for Variant arrays the slot stores a box
+		// pointer (ptr); for typed arrays it's the element type.
+		if info.IsVariant {
+			return ptr, "ptr", nil
+		}
 		return ptr, info.ElementType, nil
+	}
+	// v5.0.0: for Variant arrays, load the box pointer and return the
+	// "variant" pseudo-type so downstream comparisons/printing dispatch.
+	if info.IsVariant {
+		loaded := g.tmp()
+		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", loaded, ptr))
+		return loaded, variantT, nil
 	}
 	loaded := g.tmp()
 	g.line(fmt.Sprintf("  %s = load %s, ptr %s", loaded, info.ElementType, ptr))

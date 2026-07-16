@@ -1,0 +1,41 @@
+// example56_variant.klx — Variant runtime (v5.0.0)
+// Demonstrates the LLVM backend's tagged-union Variant type:
+//   - scalar `var v: Variant` holds any tagged value
+//   - `array of Variant` stores heterogeneous tagged elements
+//   - JsonGetArray now produces type-tagged Variant slices (not raw strings)
+//   - `arr[i] = 10.0` compares by runtime type (numeric coercion)
+//   - WriteLn(variantValue) prints by tag
+//
+// Output is byte-identical on the Go and LLVM backends (Variant = interface{}
+// on the Go side; boxed {tag, payload} on the LLVM side).
+
+program VariantDemo;
+uses jsonutil;
+
+var
+  arr: array of Variant;
+  v: Variant;
+  i: Integer;
+
+begin
+  // Scalar Variant assignment + comparison + print.
+  v := 10.0;
+  if v = 10.0 then WriteLn('scalar match');
+  WriteLn(v);
+
+  // JSON numeric array → array of Variant (each element boxed by inferred type).
+  arr := JsonGetArray(JsonDecodeMap('{"nums":[10,20,30]}'), 'nums');
+  if arr[0] = 10.0 then WriteLn('arr[0] is 10');
+  WriteLn(arr[1]);
+  WriteLn(Length(arr));
+
+  // JSON string array → Variant string elements.
+  arr := JsonGetArray(JsonDecodeMap('{"fruits":["apple","banana","cherry"]}'), 'fruits');
+  WriteLn(arr[1]);
+  if arr[2] = 'cherry' then WriteLn('cherry match');
+
+  // Iterate with Length.
+  arr := JsonGetArray(JsonDecodeMap('{"nums":[1,2,3]}'), 'nums');
+  for i := 0 to Length(arr) - 1 do
+    WriteLn(arr[i]);
+end.
