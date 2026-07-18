@@ -1,10 +1,39 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-07-17
-> 当前版本: v5.1.0 已发布
+> 最后更新: 2026-07-18
+> 当前版本: v5.2.0 已发布
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
+
+---
+
+## 🟠 v5.2.0 自举编译器残留限制
+
+v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行二进制，208→0 错误），但完整 round-trip（自举编译器能正确编译任意程序）未达成，留 v5.3。
+
+| 限制 | 影响 | 修复方向 | 状态 |
+|------|------|---------|------|
+| 自举 generator.klx codegen 保真度缺口 | `kylix_self` 产出的 Go 编译器（`kylix_self2`）构建成功但运行产出空——自举 generator.klx 自身是简化重实现，ClassIsBase/ClassFields 未填充（generator.klx:206-208 注释）、其余 codegen 路径不完整 | 补全自举 generator.klx 的 codegen（ClassIsBase/ClassFields 收集、类型表达式、语句/表达式全分支）使 `kylix_self2` 输出与宿主 kylix 逐字节一致 | 🟠 待 v5.3 |
+| 基类含字段 + 多态 | opt-in interface 方案仅支持「基类无字段无方法 + 多态靠 is/as」。若程序基类有字段且通过基类变量访问，或基类有虚方法需分派，会崩 | getter 转发（interface 方法 + 具体类实现）/ vtable；或 per-base 决策 | 🟠 待 v5.3 |
+| program-level 多态标志过宽 | 含 `is`/`as` 的程序会把所有「有子类的基类」都变 interface；混合程序（部分基类需字段继承、部分需多态）会误伤 | per-base 检测：仅对实际承载子类实例/作断言操作数的基类发射 interface | 🟠 待 v5.3 |
+| `Args` builtin 无变量名守卫 | `mapBuiltinFunction("Args")` 无 var 守卫，若用户程序声明 `var Args` 会被改写成 `os.Args[1:]` | 全仓库无此用例；可加 var-name 守卫或在标识符 codegen 查 var 表 | ⚪ 文档化为限制 |
+
+### ✅ v5.2.0 修复：自举编译器构建打通
+
+**症状**：自举源码 `src/*.klx`（7 文件 5250 行）经 Go 后端转译后 `go build` 失败 208 个错误，无法生成可运行的 `kylix_self`。
+
+**根因**：Go 后端把所有类发射成普通 struct + 嵌入父 struct（给字段继承但无多态）。自举源码用经典 Pascal OOP 多态：`decl: TNode; decl := prog.Declarations[i]; if decl is TClassDecl then cd := decl as TClassDecl`——异构 `array of TNode` 持有子类实例 + `is`/`as` 下转。struct 指针基类上 `x.(*TSub)` 非法、子类装不进 `[]*TBase`。`classIsBase` map 早已在 `collectClassTypes` 填充但 v3.1.0（KLX-C01）回退后从不读取（死代码）。
+
+**修复**（opt-in，避免回归教程 example19/example40 的字段继承）：
+- Parser 端 `parseIsExpression`/`parseAsExpression` 置 `p.usesPolymorphism=true` → `program.UsesPolymorphism`（新增 `ast.Program.UsesPolymorphism bool`）。
+- `collectClassTypes`（所有预扫描路径的公共咽喉）OR 进 `g.usesPolymorphism`，一处覆盖 Generate/GenerateMulti/CompileProject/CollectClassTypes。
+- `generateClassDecl`：`g.usesPolymorphism && g.classIsBase[name]` → `type TName interface{}`（跳过 struct 体与方法循环）；具体类父嵌入加条件 `!(poly && classIsBase[parent])`。
+- `generateTypeExpression`/`generateTypeExpressionForCast`：基类（poly）→ `TName`（interface，不带 `*`）；具体类 → `*TName`。
+- `mapBuiltinFunction` 加 `Args`→`os.Args[1:]`（main.klx 命令行参数）。
+- `src/parser.klx:448` 切片协变修复（`array of TStatement`→`array of TNode`，Go 切片不变式）。
+
+**验证**：`go build` 208→0 错误 → `kylix_self`（2.9MB）运行产出 5238 行 Go 编译器代码。go test 16 包全绿（+3 多态测试），教程 51/51 无回归。
 
 ---
 

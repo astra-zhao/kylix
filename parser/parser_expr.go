@@ -493,6 +493,7 @@ func (p *Parser) parseMemberExpression(left ast.Expression) ast.Expression {
 }
 
 func (p *Parser) parseIsExpression(left ast.Expression) ast.Expression {
+	p.usesPolymorphism = true
 	isToken := p.curToken
 	p.nextToken()
 	right := p.parseTypeExpression()
@@ -500,6 +501,7 @@ func (p *Parser) parseIsExpression(left ast.Expression) ast.Expression {
 }
 
 func (p *Parser) parseAsExpression(left ast.Expression) ast.Expression {
+	p.usesPolymorphism = true
 	asToken := p.curToken
 	p.nextToken()
 	right := p.parseTypeExpression()

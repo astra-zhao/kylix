@@ -4,6 +4,37 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v5.2.0 (2026-07-18) — 自举编译器构建打通（多态基类 opt-in interface codegen + Args builtin）
+
+> 🎯 **自举编译器源码 `src/*.klx`（7 文件、5250 行）首次构建成可运行的 `kylix_self` 二进制**。此前转译产物 `go build` 失败 208 个错误：130×`is`/`as` 类型断言作用在 struct 指针基类变量上（Go 断言要求 interface）、~75×子类实例无法赋值/追加到基类类型容器（无多态）、1×切片协变、3×`Args` builtin 缺失。根因：Go 后端把所有类发射成普通 struct + 嵌入父 struct——给字段继承但无多态；`classIsBase` map 早在 `collectClassTypes` 填充但 v3.1.0（KLX-C01）回退后从不读取（死代码）。
+
+### 多态基类 opt-in interface codegen
+
+**关键洞察**：自举源码的三个基类 `TNode`/`TStatement`/`TExpression` **无字段、无方法**（ast.klx:9-16），且源码从不通过基类类型变量直接访问字段——一律先 `is`/`as` 下转到具体子类再访问。故可发射成**空 interface**，无需 getter。而教程（example19/example40）有继承但不用 `is`/`as`、需字段继承——必须保留 struct 嵌入。**解法 opt-in**：仅当程序含 `is`/`as` 时才把「有子类的基类」发射成空 interface，否则保持 struct 嵌入。
+
+- `parser/parser_expr.go`：`parseIsExpression`/`parseAsExpression` 置 `p.usesPolymorphism=true`；`parser/parser.go` ParseProgram 末尾复制到 `program.UsesPolymorphism`（新增 `ast.Program.UsesPolymorphism bool`）。
+- `generator/generator.go`：`collectClassTypes`（所有预扫描路径的公共咽喉：Generate/GenerateMulti/CompileProject/CollectClassTypes）OR 进 `g.usesPolymorphism`。
+- `generator/generator_types.go` `generateClassDecl`：`g.usesPolymorphism && g.classIsBase[name]` → 发射 `type TName interface{}`（跳过 struct 体与方法循环，interface 不能有 `func (self *TName)` 接收者方法体）；具体类的父嵌入加条件 `!(poly && classIsBase[parent])`（父是 interface 时不嵌入，基类无字段可继承；src 无 `inherited` 已确认）。
+- `generateTypeExpression` 类分支：基类（poly）→ `TName`（interface，不带 `*`）；具体类 → `*TName`（现状，字段继承）。
+- `generateTypeExpressionForCast`：基类（poly）→ `TName`（保证 `x.(TBase)` 在 interface 上合法）。
+
+### Args builtin + 切片协变修复
+
+- `mapBuiltinFunction` 加 `"Args": "os.Args[1:]"`（import 开关已有 `os.` 分支自动注册 `os`）；`Length(Args)`→`len(os.Args[1:])`、`Args[i]`→`os.Args[1:][i]`（Go 允许 int64 索引切片）。解决 main.klx 命令行参数 `undefined: Args`。
+- `src/parser.klx:448` `var localDecls: array of TStatement` → `array of TNode`：Go 切片不变式，匹配 `TFunctionDecl.LocalDecls: array of TNode` 元素类型。自举编译器自身 `MapType`（generator.klx:1654）已硬编码三基类→interface{}，此源码改动不影响自举输出语义。
+
+### 验证
+
+- **自举构建打通**：`kylix build --backend=go src/*.klx` → 合并 main.go（8014 行）→ `go build` 退出 0（208→0 错误）→ `kylix_self`（2.9MB）。运行 `kylix_self`（无参 → 默认 6 文件 token/error/ast/lexer/parser/generator）→ stdout 产出 5238 行 Go 编译器代码，exit 0 无崩溃。
+- **go test** 16 包全绿（新增 `generator_polymorphism_test.go` 3 测试：is/as 程序基类→interface{} / 无 is/as 继承保留 struct 嵌入 / Args→os.Args[1:]+os 导入）。
+- **教程 51/51** 通过（example19/example40 继承用例不受影响——opt-in：无 is/as → 基类保持 struct 嵌入 → 字段继承保留）。
+- **round-trip**（bonus，未达成→v5.3）：`kylix_self` 产出再编译成 `kylix_self2`（构建成功 2.2MB），但运行产出空——自举 generator.klx 自身 codegen 保真度缺口（generator.klx:206-208 已注 ClassIsBase/ClassFields 未填充等）。完整 round-trip（自举编译器能正确编译任意程序）留 v5.3。
+
+### 范围与限制
+
+- 仅支持「基类无字段无方法 + 多态靠 is/as」模式（自举即此）。基类含字段且通过基类变量访问、或基类有虚方法需分派 → 留 v5.3（getter 转发 / vtable）。
+- program-level `is`/`as` 标志：含 `is`/`as` 的程序会把所有「有子类的基类」都变 interface；混合程序（部分基类需字段继承、部分需多态）的 per-base 检测留后续。
+
 ## v5.1.0 (2026-07-17) — 完成 Variant 运行时（map[String]Variant 真实化 + Variant 算术）
 
 > 🎯 **补齐 v5.0.0 留的两个 Variant 缺口**。v5.0.0 让标量 + `array of Variant` 成为真正的标签联合，但 `map[String]Variant` 仍是 htab 字符串（`m['pi']` 返回 C 串而非 Variant box → `m['pi']=3.14` 是 string-vs-double，错），且 Variant 算术（`v+1`）发 stub。v5.1.0：**(A) map[String]Variant 真实化**——htab 值槽存 Variant box 指针（htab 本身类型无关，不动结构，cache/string-map 不回归）；`emitMapVarDecl` 检测 Variant 值类型设 `variantMaps`；`emitMapIndexGet` 走新 `htab_get_variant`（miss 返回 nilbox 全局，tag=0 → as_* 走 nil 默认）返回 `"variant"`；`emitMapIndexPut` 装箱 RHS 存 box 指针（不 stringify）；jsonutil `parse_flat` 改调 `value_to_variant`（同 parse_array 的 v5.0.0 改动）让 JsonDecodeMap 产出真实 Variant map；`JsonGetString/Int/Float/Bool/Map/Array` 全部改 unbox（`htab_get_variant` + `variant_as_*`）。**(B) Variant 算术**——新增 `variant_add/sub/mul/div` 运行时（按标签派发：`+` 字符串拼接/双 int→int/else double，`-`,`*` 双 int→int else double，`/` 始终 double；`div`/`mod` 留 stub）；`emitInfix` 算术 stub 替换为 `emitVariantArith`；`coerceValue` 加 variant→concrete case（`n := v` 解箱 via `variant_as_int`，统一 emitAssign 内联 coercion 改调 coerceValue）。新增 `as_int`/`as_bool` unbox 主体 + `@__kylix_variant_nilbox` 全局。LLVM 测试 266→**274**（+8 Variant map/算术），教程通过率 **50→51**（新增 example57_variant_map 双端输出逐字节一致）无回归。Variant 算术仅 LLVM（Go `interface{}`不支持运算符），无共享教程。

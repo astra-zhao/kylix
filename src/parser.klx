@@ -445,7 +445,7 @@ end;
 
 function TParser.ParseFunctionDecl(): TFunctionDecl;
 var decl: TFunctionDecl; var isProcedure: Boolean; var hasFuncKeyword: Boolean;
-    var localDecls: array of TStatement;
+    var localDecls: array of TNode;  // v5.2.0: TNode (not TStatement) — matches TFunctionDecl.LocalDecls element type; Go slices are invariant.
 begin
   decl := TFunctionDecl.Create();
   localDecls := [];

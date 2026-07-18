@@ -31,20 +31,42 @@ func (g *Generator) generateTypeDecl(decl *ast.TypeDecl) {
 	g.write("\n\n")
 }
 
-// generateClassDecl emits a Go struct with embedded parent and methods.
-// All classes are plain structs; polymorphism is handled via interface{} at the
-// type-expression level for fields typed as base classes.
+// generateClassDecl emits a Go struct (or interface) for a Kylix class.
+// Under polymorphism (`is`/`as` in the program), inheritance-participating
+// base classes are emitted as empty Go interfaces to enable heterogeneous
+// collections and type assertions; concrete classes are plain structs with an
+// embedded parent (for field inheritance), skipping the embed when the parent
+// is a poly interface. See v5.2.0.
 func (g *Generator) generateClassDecl(decl *ast.ClassDecl) {
 	g.writeLineDirective(decl.Token.Line)
 	g.classTypes[decl.Name] = true
+
+	// v5.2.0: base classes (someone's parent) under polymorphism → empty
+	// interface. The bootstrap AST bases (TNode/TStatement/TExpression) have no
+	// fields/methods accessed through the base type, so an empty interface
+	// suffices and type assertions (`x.(*TSub)`) work directly.
+	if g.usesPolymorphism && g.classIsBase[decl.Name] {
+		g.write("type ")
+		g.write(decl.Name)
+		g.generateTypeParams(decl.TypeParams)
+		g.writeLine(" interface {")
+		// Empty: bootstrap bases declare no fields/methods. If a base declared
+		// methods they would appear here as interface signatures; method bodies
+		// are skipped because interfaces cannot have `func (self *TName)` defs.
+		g.indent++
+		g.indent--
+		g.writeLine("}")
+		g.writeLine("")
+		return
+	}
 
 	g.write("type ")
 	g.write(decl.Name)
 	g.generateTypeParams(decl.TypeParams)
 	g.writeLine(" struct {")
 	g.indent++
-	if decl.Parent != "" {
-		g.writeLine(decl.Parent) // embed parent struct
+	if decl.Parent != "" && !(g.usesPolymorphism && g.classIsBase[decl.Parent]) {
+		g.writeLine(decl.Parent) // embed parent struct (skip when parent is a poly interface)
 	}
 	for _, field := range decl.Fields {
 		for _, name := range field.Names {
@@ -521,11 +543,15 @@ func (g *Generator) generateTypeExpression(expr ast.Expression) {
 				return
 			}
 		}
-		if g.classTypes[typeName] {
-			// v3.1.0: Always emit *TypeName for class types.
-			// Previously emitted interface{} for base classes (to allow polymorphism),
-			// but that made fields inaccessible. Polymorphism in Kylix is rare and
-			// can be handled via interfaces or type assertions when needed.
+		if g.usesPolymorphism && g.classIsBase[typeName] {
+			// v5.2.0: base class under polymorphism → interface (no pointer), so
+			// `[]TBase` holds subclasses and `x.(*TSub)` assertions are valid.
+			g.write(typeName)
+		} else if g.classTypes[typeName] {
+			// v3.1.0: concrete class types emit *TypeName (field inheritance
+			// via embedding). Previously emitted interface{} for base classes,
+			// but that made fields inaccessible; polymorphism is now opt-in via
+			// `is`/`as` (see classIsBase branch above).
 			g.write("*" + typeName)
 		} else {
 			g.write(g.mapType(typeName))
@@ -591,9 +617,14 @@ func (g *Generator) generateTypeExpression(expr ast.Expression) {
 }
 
 // generateTypeExpressionForCast emits a concrete type for use in a Go type assertion.
-// Unlike generateTypeExpression, base class types → *ClassName (not interface{}).
+// Concrete class types → *ClassName; base classes under polymorphism → interface name.
 func (g *Generator) generateTypeExpressionForCast(expr ast.Expression) {
 	if ident, ok := expr.(*ast.Identifier); ok {
+		if g.usesPolymorphism && g.classIsBase[ident.Value] {
+			// v5.2.0: assert to a base interface (no pointer) — `x.(TBase)`.
+			g.write(ident.Value)
+			return
+		}
 		if g.classTypes[ident.Value] {
 			g.write("*" + ident.Value)
 			return
@@ -627,6 +658,7 @@ func (g *Generator) mapType(kylixType string) string {
 // which import packages are needed.
 func (g *Generator) mapBuiltinFunction(name string) string {
 	builtinMap := map[string]string{
+		"Args":      "os.Args[1:]",
 		"WriteLn":   "fmt.Println",
 		"Write":     "fmt.Print",
 		"ReadLn":    "fmt.Scanln",

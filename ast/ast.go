@@ -28,6 +28,11 @@ type Program struct {
 	Uses         []string
 	Declarations []Node
 	Statements   []Statement
+	// UsesPolymorphism is true if the program contains any `is`/`as` expression.
+	// The Go backend uses this to decide whether inheritance-participating
+	// base classes are emitted as Go interfaces (enabling polymorphism) or as
+	// plain structs (enabling field inheritance via embedding). See v5.2.0.
+	UsesPolymorphism bool
 }
 
 func (p *Program) TokenLiteral() string { return p.Name }

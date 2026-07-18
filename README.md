@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-5.1.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-5.2.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,9 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
-> 🎉 **v5.1.0**: 完成 Variant 运行时 — `map[String]Variant` 真实化（htab 值槽存 Variant box，`m['pi']=3.14` 按 `variant_compare` 标签派发，JsonDecodeMap 产出真实 Variant map，JsonGet\* 全部 unbox）+ Variant 算术（`variant_add/sub/mul/div` 按标签派发，`+` 字符串拼接/双 int→int/else double）+ `n := v` 解箱（coerceValue variant→concrete）。LLVM 测试 274，教程通过率 **51/51 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v5.2.0**: Self-hosting compiler builds — the bootstrap source `src/*.klx` (7 files, 5250 lines) now compiles into a runnable `kylix_self` binary (208 Go build errors → 0). Opt-in polymorphic base-class → interface codegen (programs using `is`/`as` emit base classes as empty interfaces; others keep struct embedding for field inheritance → no tutorial regression) + `Args` builtin. `kylix_self` runs and emits 5238 lines of Go compiler code. go test 16 packages green, tutorials **51/51 (100%)**. See [CHANGELOG.md](CHANGELOG.md).
+>
+> 🎉 **v5.1.0**: 完成 Variant 运行时 — `map[String]Variant` 真实化（htab 值槽存 Variant box，`m['pi']=3.14` 按 `variant_compare` 标签派发，JsonDecodeMap 产出真实 Variant map，JsonGet\* 全部 unbox）+ Variant 算术（`variant_add/sub/mul/div` 按标签派发，`+` 字符串拼接/双 int→int/else double）+ `n := v` 解箱（coerceValue variant→concrete）。LLVM 测试 274，教程通过率 **51/51 (100%)**。
 
 > 🎉 **v5.0.0**: Variant 运行时 — boxed-pointer `{tag, payload}` 动态值（标量 `var v: Variant` + `array of Variant`），赋值按类型装箱、比较按标签派发、`WriteLn` 按标签打印；jsonutil `JsonGetArray` 升级为类型标签化 Variant 切片（与 Go json float64 对齐 → 双端 parity）；顺带修复 `Length(arr)` 路由。LLVM 测试 266，教程通过率 **50/50 (100%)**。
 

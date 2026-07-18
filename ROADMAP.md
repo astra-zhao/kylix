@@ -40,7 +40,8 @@
 | **v4.9.0** | DWARF Phase 2（类方法/lambda DISubprogram + DILexicalBlock）+ jsonutil 嵌套数组 | ✅ 完成 | 2026-07-15 |
 | **v5.0.0** | Variant 运行时（标量 + `array of Variant` + JsonGetArray 类型标签化） | ✅ 完成 | 2026-07-17 |
 | **v5.1.0** | 完成 Variant 运行时（map[String]Variant 真实化 + Variant 算术） | ✅ 完成 | 2026-07-17 |
-| **v5.2.0+** | KylixRT 地基 + JetBrains 插件 + 自举编译器 + JsonEncode（Variant 序列化） | 📋 长期 | 2027+ |
+| **v5.2.0** | 自举编译器构建打通（多态基类 opt-in interface codegen + Args builtin；`src/*.klx` → 可运行 `kylix_self`，208→0 错误） | ✅ 完成 | 2026-07-18 |
+| **v5.3.0+** | 自举 round-trip（kylix_self 产出可正确编译程序）+ KylixRT + JetBrains 插件 + JsonEncode | 📋 长期 | 2027+ |
 
 ---
 

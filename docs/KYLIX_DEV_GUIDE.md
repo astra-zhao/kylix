@@ -14,6 +14,8 @@
 - [贡献指南](#贡献指南)
 - [路线图](#路线图)
 
+> 📌 **自举编译器**：开发自举功能（`src/*.klx` / 多态 codegen / round-trip）前请先读 [SELFHOSTING_DEV_GUIDE.md](SELFHOSTING_DEV_GUIDE.md) —— 自举源码结构、opt-in 多态基类→interface 规则、构建流程、v5.3 round-trip 目标的权威参考。
+
 ---
 
 ## 项目架构

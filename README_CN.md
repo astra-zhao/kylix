@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-5.1.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-5.2.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,9 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🎉 **v5.1.0**: 完成 Variant 运行时 — `map[String]Variant` 真实化（htab 值槽存 Variant box，`m['pi']=3.14` 按 `variant_compare` 标签派发，JsonDecodeMap 产出真实 Variant map，JsonGet\* 全部 unbox）+ Variant 算术（`variant_add/sub/mul/div` 按标签派发）+ `n := v` 解箱。LLVM 测试 274，教程通过率 **51/51 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🎉 **v5.2.0**: 自举编译器构建打通 — 自举源码 `src/*.klx`（7 文件 5250 行）首次构建成可运行的 `kylix_self` 二进制（208 个 Go 构建错误 → 0）。多态基类 opt-in interface codegen（程序含 `is`/`as` 时把「有子类的基类」发射成空 interface，否则保留 struct 嵌入 → 教程不回归）+ `Args` builtin。`kylix_self` 运行产出 5238 行 Go 编译器代码。go test 16 包全绿，教程 **51/51 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
+>
+> 🎉 **v5.1.0**: 完成 Variant 运行时 — `map[String]Variant` 真实化（htab 值槽存 Variant box，`m['pi']=3.14` 按 `variant_compare` 标签派发，JsonDecodeMap 产出真实 Variant map，JsonGet\* 全部 unbox）+ Variant 算术（`variant_add/sub/mul/div` 按标签派发）+ `n := v` 解箱。LLVM 测试 274，教程通过率 **51/51 (100%)**。
 
 > 🎉 **v5.0.0**: Variant 运行时 — boxed-pointer `{tag, payload}` 动态值（标量 `var v: Variant` + `array of Variant`），赋值按类型装箱、比较按标签派发、`WriteLn` 按标签打印；jsonutil `JsonGetArray` 升级为类型标签化 Variant 切片（与 Go json float64 对齐 → 双端 parity）；顺带修复 `Length(arr)` 路由。LLVM 测试 266，教程通过率 **50/50 (100%)**。
 

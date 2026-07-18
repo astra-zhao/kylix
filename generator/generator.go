@@ -51,6 +51,7 @@ type Generator struct {
 	ormRepositories  []ormRepository                 // ORM [Repository] classes
 	userFuncs        map[string]bool                 // user-defined function names (override built-in mapping)
 	usedModules      map[string]bool                 // modules imported via `uses` clause
+	usesPolymorphism bool                            // true if any compiled program uses `is`/`as` (→ base classes become interfaces). See v5.2.0.
 }
 
 func New() *Generator {
@@ -430,8 +431,12 @@ func (g *Generator) writeInterpolation(interp *ast.StringInterpolation) {
 // ── Pre-scan passes ──────────────────────────────────────────────────────────
 
 // collectClassTypes records all class names and parent–child relationships
-// so generateTypeExpression can decide interface{} vs *ClassName.
+// so generateTypeExpression can decide interface{} vs *ClassName. It also ORs
+// in Program.UsesPolymorphism — this is the universal prescan chokepoint (called
+// by Generate, GenerateMulti, CompileProject, and exported CollectClassTypes),
+// so the polymorphism flag is set for every codegen path. See v5.2.0.
 func (g *Generator) collectClassTypes(program *ast.Program) {
+	g.usesPolymorphism = g.usesPolymorphism || program.UsesPolymorphism
 	for _, decl := range program.Declarations {
 		switch d := decl.(type) {
 		case *ast.FunctionDecl:

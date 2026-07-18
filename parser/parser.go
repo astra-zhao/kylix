@@ -60,6 +60,11 @@ type Parser struct {
 
 	prefixParseFns map[token.TokenType]prefixParseFn
 	infixParseFns  map[token.TokenType]infixParseFn
+
+	// usesPolymorphism is true if any `is`/`as` expression was parsed. Copied
+	// into Program.UsesPolymorphism at the end of ParseProgram so the Go
+	// generator can opt into interface-based base class codegen. See v5.2.0.
+	usesPolymorphism bool
 }
 
 func New(l *lexer.Lexer) *Parser {
@@ -384,5 +389,6 @@ func (p *Parser) ParseProgram() *ast.Program {
 		}
 	}
 
+	program.UsesPolymorphism = p.usesPolymorphism
 	return program
 }
