@@ -4,6 +4,32 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v5.1.0 (2026-07-17) — 完成 Variant 运行时（map[String]Variant 真实化 + Variant 算术）
+
+> 🎯 **补齐 v5.0.0 留的两个 Variant 缺口**。v5.0.0 让标量 + `array of Variant` 成为真正的标签联合，但 `map[String]Variant` 仍是 htab 字符串（`m['pi']` 返回 C 串而非 Variant box → `m['pi']=3.14` 是 string-vs-double，错），且 Variant 算术（`v+1`）发 stub。v5.1.0：**(A) map[String]Variant 真实化**——htab 值槽存 Variant box 指针（htab 本身类型无关，不动结构，cache/string-map 不回归）；`emitMapVarDecl` 检测 Variant 值类型设 `variantMaps`；`emitMapIndexGet` 走新 `htab_get_variant`（miss 返回 nilbox 全局，tag=0 → as_* 走 nil 默认）返回 `"variant"`；`emitMapIndexPut` 装箱 RHS 存 box 指针（不 stringify）；jsonutil `parse_flat` 改调 `value_to_variant`（同 parse_array 的 v5.0.0 改动）让 JsonDecodeMap 产出真实 Variant map；`JsonGetString/Int/Float/Bool/Map/Array` 全部改 unbox（`htab_get_variant` + `variant_as_*`）。**(B) Variant 算术**——新增 `variant_add/sub/mul/div` 运行时（按标签派发：`+` 字符串拼接/双 int→int/else double，`-`,`*` 双 int→int else double，`/` 始终 double；`div`/`mod` 留 stub）；`emitInfix` 算术 stub 替换为 `emitVariantArith`；`coerceValue` 加 variant→concrete case（`n := v` 解箱 via `variant_as_int`，统一 emitAssign 内联 coercion 改调 coerceValue）。新增 `as_int`/`as_bool` unbox 主体 + `@__kylix_variant_nilbox` 全局。LLVM 测试 266→**274**（+8 Variant map/算术），教程通过率 **50→51**（新增 example57_variant_map 双端输出逐字节一致）无回归。Variant 算术仅 LLVM（Go `interface{}`不支持运算符），无共享教程。
+
+### map[String]Variant 真实化
+
+**问题**：v5.0.0 的 `JsonGetArray` 已产出 Variant box 切片，但 `JsonDecodeMap` 的 htab 仍存 C 字符串（`parse_flat` 用 `read_value`）。`var m: map[String]Variant; m := JsonDecodeMap(...); if m['pi'] = 3.14` —— `m['pi']` 返回字符串 ptr，`= 3.14` 是 string-vs-double。
+
+**修复**（htab 值槽类型无关，仅 map codegen 层 + jsonutil 改动，不动 htab 结构）：
+- `stdlib_map.go`：`emitMapVarDecl` 检测 `isVariantTypeExpr(mapT.ValueType)` → `variantMaps[name]=true` + `needVariantRuntime`；`emitMapIndexGet` 若 `variantMaps[name]` → `htab_get_variant` 返回 `"variant"`；`emitMapIndexPut` 装箱 RHS（`emitVariantBox`）存 box 指针。
+- `stdlib_hashtab.go`：新增 `htab_get_variant(ptr t, ptr key)→ptr`——call htab_find；miss 返回 `@__kylix_variant_nilbox`（tag=0 全局，as_* 走 nil 默认：str→""、int→0、float→0.0、bool→false）；hit 则 GEP node offset 8 load box ptr。受 `needVariantRuntime` 守卫（cache/string-map 模块不引入 Variant 运行时）。
+- `stdlib_jsonutil_parser.go`：`emitJsonParseFlat` 改 `read_value`→`value_to_variant`（htab 现存 box ptr）；`emitJsonValueToVariant` 移到 `emitJsonParserBodies`（基础集，让 parse_flat/parse_array 共享）。
+- `stdlib_jsonutil.go`：`JsonGetString`→`variant_as_str`、`JsonGetInt`→`variant_as_int`、`JsonGetFloat`→`variant_as_double`、`JsonGetBool`→`variant_as_bool`、`JsonGetMap`/`JsonGetArray`→`variant_as_str`(raw) 再 parse。全部 `htab_get_variant` 取 box。
+- `variant.go`：新增 `as_int`/`as_bool` 主体（按标签派发）+ `@__kylix_variant_nilbox` 全局 + `emitVariantNilboxBody`。
+
+**双端 parity**（example57）：`{"pi":3.14,"name":"Kylix","flag":true,"count":5}` —— Go: `m['pi']`=float64(3.14) `==3.14`→true；`m['flag']`=bool `==true`→true。LLVM: parse_flat 的 value_to_variant 把 `3.14`→box_float、`true`→box_bool；`m['pi']`→htab_get_variant→box_float→variant_compare 双 float→3.14==3.14→true；`m['flag']`→box_bool→bothNumeric→1.0==1.0→true。输出逐字节一致。
+
+### Variant 算术 + Variant→concrete 解箱
+
+**修复**：
+- `variant.go`：`variant_add`（either str→拼接；both int→int add；else double）、`variant_sub`/`variant_mul`（both int→int else double）、`variant_div`（始终 double）；call-site `emitVariantArith`。
+- `expr.go` `emitInfix`：算术 stub（`add i64 0, 0`）替换为 `emitVariantArith`（`+,-,*,/`），`div`/`mod` 仍 stub。
+- `expr.go` `coerceValue`：加 `variant→i64`=as_int、`→double`=as_double、`→ptr`=as_str、`→i1`=as_bool；`stmt.go` `emitAssign` 内联 coercion 改调 `coerceValue`（统一处理 `n := v` Variant→Integer、`s := v`、call-arg 强转 + 既有 i1↔i64/i64↔double）。
+
+**限制**：Variant 算术仅 LLVM（Go `interface{}+int` 是编译错误，无共享教程，IR 测试覆盖）。`div`/`mod` Variant 留 stub。box 内存不释放（no-GC 一致）。
+
 ## v5.0.0 (2026-07-17) — Variant 运行时（标量 + `array of Variant`）
 
 > 🎯 **第一个带类型标签的动态值运行时**。LLVM 后端此前把 `Variant` 静默当成 `i64` 别名——`var v: Variant; v := 1.0` 把 double 截断成 i64，`array of Variant` 元素槽是裸 i64 无类型标签，`arr[0] = 10.0` 比较的是位模式/指针而非数值。v5.0.0 实现 boxed-pointer Variant 运行时：一个 Variant 值是 `ptr`，指向 16 字节 `{i32 tag, i64 payload}`（tag 0=nil/1=int/2=float/3=str/4=bool）。`var v: Variant` + `array of Variant` 元素槽装 box 指针；赋值按 RHS 类型装箱（box_int/float/str/bool）；比较 `arr[0] = 10.0` 经运行时 `variant_compare` 按标签派发（数值双方提升为 double 比，字符串 strcmp，布尔按 payload，异类型不相等）；`WriteLn(variantValue)` 按标签打印。jsonutil `JsonGetArray` 从 v4.9.0 的「C 字符串指针切片」升级为**带类型标签的 Variant box 切片**——`value_to_variant` 窥首字符分类（`"`→str、`{`/`[`→str raw、`t`/`f`→bool、数字→float，与 Go json 把所有数字解析为 float64 对齐）。顺带修复 `Length(arr)` 路由 bug（`emitArrayLength` 是死代码，`Length` 只走 strlen 对数组返回 0；现按 arrayInfo 派发到 slice len word）。LLVM 测试 255→**266**（+11 Variant 测试），教程通过率 **49→50 (100%)** 新增 example56_variant（双后端输出逐字节一致），无回归。

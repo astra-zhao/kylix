@@ -797,24 +797,11 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 	}
 
 	// Type coercion: if RHS type doesn't match the alloca type, cast it.
+	// v5.1.0: a Variant RHS unboxes to the concrete slot type via coerceValue
+	// (variant→i64/double/ptr/i1 dispatch on tag); this also covers the
+	// legacy i1↔i64 / i64↔double casts.
 	if t != actualType {
-		cast := g.tmp()
-		switch {
-		case t == "i1" && actualType == "i64":
-			g.line(fmt.Sprintf("  %s = zext i1 %s to i64", cast, v))
-			v = cast
-		case t == "i64" && actualType == "i1":
-			// i64 → i1: truncate or compare to zero
-			cmp := g.tmp()
-			g.line(fmt.Sprintf("  %s = icmp ne i64 %s, 0", cmp, v))
-			v = cmp
-		case t == "i64" && actualType == "double":
-			g.line(fmt.Sprintf("  %s = sitofp i64 %s to double", cast, v))
-			v = cast
-		case t == "double" && actualType == "i64":
-			g.line(fmt.Sprintf("  %s = fptosi double %s to i64", cast, v))
-			v = cast
-		}
+		v, t = g.coerceValue(v, t, actualType)
 	}
 
 	g.line(fmt.Sprintf("  store %s %s, ptr %s", actualType, v, allocaReg))

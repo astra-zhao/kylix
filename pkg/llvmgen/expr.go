@@ -274,14 +274,19 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 	// operand and dispatch to the runtime comparator (numeric coercion + tag
 	// dispatch). Placed BEFORE the string-concat/coerce/numeric paths so a
 	// Variant never reaches the ptr/i64 strcmp/icmp paths (which would
-	// miscompare the box pointer or type-mismatch). Variant arithmetic
-	// (v+1) is out of v5.0.0 scope → emit a safe zero stub.
+	// miscompare the box pointer or type-mismatch).
 	if isVariantOperand(lt) || isVariantOperand(rt) {
 		if isComparisonOp(e.Operator) {
 			return g.emitVariantCompare(e.Operator, lv, lt, rv, rt)
 		}
+		// v5.1.0: Variant arithmetic (+,-,*,/) dispatches to the runtime
+		// (str concat for +, int/double per tag). Returns a Variant box.
+		if isArithOp(e.Operator) {
+			return g.emitVariantArith(e.Operator, lv, lt, rv, rt)
+		}
+		// div/mod on Variants still unsupported — safe zero stub.
 		r := g.tmp()
-		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; variant op %q unsupported (v5.0.x)", r, e.Operator))
+		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; variant op %q unsupported", r, e.Operator))
 		return r, "i64", nil
 	}
 
@@ -635,8 +640,27 @@ func (g *Generator) coerceValue(reg, fromT, toT string) (string, string) {
 	if fromT == toT {
 		return reg, fromT
 	}
+	// v5.1.0: Variant→concrete unbox needs the Variant runtime.
+	if fromT == variantT {
+		g.needVariantRuntime = true
+	}
 	cast := g.tmp()
 	switch {
+	// v5.1.0: Variant→concrete unbox (dispatches on tag at runtime). Enables
+	// `n := v` (Variant→Integer), `s := v`, and call-arg coercion. Without
+	// this, a variant value stored into a concrete slot would type-mismatch.
+	case fromT == variantT && toT == "i64":
+		g.line(fmt.Sprintf("  %s = call i64 @__kylix_variant_as_int(ptr %s)", cast, reg))
+		return cast, "i64"
+	case fromT == variantT && toT == "double":
+		g.line(fmt.Sprintf("  %s = call double @__kylix_variant_as_double(ptr %s)", cast, reg))
+		return cast, "double"
+	case fromT == variantT && toT == "ptr":
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %s)", cast, reg))
+		return cast, "ptr"
+	case fromT == variantT && toT == "i1":
+		g.line(fmt.Sprintf("  %s = call i1 @__kylix_variant_as_bool(ptr %s)", cast, reg))
+		return cast, "i1"
 	case fromT == "i64" && toT == "double":
 		g.line(fmt.Sprintf("  %s = sitofp i64 %s to double", cast, reg))
 		return cast, "double"

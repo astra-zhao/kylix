@@ -98,6 +98,67 @@ func (g *Generator) emitVariantAsStr(v string) string {
 	return r
 }
 
+// emitVariantAsInt unboxes a Variant box to an i64 (dispatches on tag).
+func (g *Generator) emitVariantAsInt(v string) string {
+	g.needVariantRuntime = true
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_variant_as_int(ptr %s)", r, v))
+	return r
+}
+
+// emitVariantAsBool unboxes a Variant box to an i1 (dispatches on tag).
+func (g *Generator) emitVariantAsBool(v string) string {
+	g.needVariantRuntime = true
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i1 @__kylix_variant_as_bool(ptr %s)", r, v))
+	return r
+}
+
+// emitVariantAsDouble unboxes a Variant box to a double (dispatches on tag).
+func (g *Generator) emitVariantAsDouble(v string) string {
+	g.needVariantRuntime = true
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call double @__kylix_variant_as_double(ptr %s)", r, v))
+	return r
+}
+
+// isArithOp reports whether the operator is a supported Variant arithmetic op.
+func isArithOp(op string) bool {
+	switch op {
+	case "+", "-", "*", "/":
+		return true
+	}
+	return false
+}
+
+// emitVariantArith boxes any non-Variant operand, then calls the runtime
+// arithmetic helper for the operator. Returns (boxPtr, "variant").
+func (g *Generator) emitVariantArith(op, lv, lt, rv, rt string) (string, string, error) {
+	g.needVariantRuntime = true
+	if lt != variantT {
+		lv = g.emitVariantBox(lv, lt)
+	}
+	if rt != variantT {
+		rv = g.emitVariantBox(rv, rt)
+	}
+	helper := map[string]string{
+		"+": "@__kylix_variant_add",
+		"-": "@__kylix_variant_sub",
+		"*": "@__kylix_variant_mul",
+		"/": "@__kylix_variant_div",
+	}[op]
+	if helper == "" {
+		// div/mod on Variants are unsupported — return the nil-box address
+		// (a Variant holding nil) so IR stays legal.
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds { i32, i64 }, ptr @__kylix_variant_nilbox, i32 0, i32 0", r))
+		return r, variantT, nil
+	}
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr %s(ptr %s, ptr %s)", r, helper, lv, rv))
+	return r, variantT, nil
+}
+
 // emitVariantCompare boxes any non-Variant operand, then calls the runtime
 // comparator and maps the i32 result (-1/0/1) to the requested comparison.
 // Returns (reg, "i1").
@@ -152,15 +213,30 @@ func (g *Generator) emitVariantRuntimeBodies() {
 		return
 	}
 	g.variantRuntimeEmitted = true
+	g.emitVariantNilboxGlobal()
 	g.emitVariantBoxInt()
 	g.emitVariantBoxFloat()
 	g.emitVariantBoxStr()
 	g.emitVariantBoxBool()
 	g.emitVariantAsDoubleBody()
 	g.emitVariantAsStrBody()
+	g.emitVariantAsIntBody()
+	g.emitVariantAsBoolBody()
 	g.emitVariantCompareBody()
+	g.emitVariantArithBody("+")
+	g.emitVariantArithBody("-")
+	g.emitVariantArithBody("*")
+	g.emitVariantArithBody("/")
 	g.emitVariantPrintBody(false) // print
 	g.emitVariantPrintBody(true)  // println
+}
+
+// emitVariantNilboxGlobal emits the global nil-box (tag=0, payload=0) used as
+// the "missing key" sentinel by htab_get_variant. A Variant holding nil reads
+// as the typed zero via as_* (tag 0 → nil branch).
+func (g *Generator) emitVariantNilboxGlobal() {
+	g.line("@__kylix_variant_nilbox = internal constant { i32, i64 } { i32 0, i64 0 }")
+	g.line("")
 }
 
 // boxAddr returns a register holding the address of field `idx` of the box at
@@ -604,6 +680,254 @@ func printSuffix(newline bool) string {
 		return "\n"
 	}
 	return ""
+}
+
+// as_int unboxes to i64 by tag: int→payload; float→fptosi; str→atoll; bool→payload; nil→0.
+func (g *Generator) emitVariantAsIntBody() {
+	g.line("define i64 @__kylix_variant_as_int(ptr %v) {")
+	g.line("entry:")
+	tagLoc := g.boxAddr("%v", 0)
+	tag := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", tag, tagLoc))
+	payloadLoc := g.boxAddr("%v", 1)
+	payload := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", payload, payloadLoc))
+	res := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", res))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", res)) // default nil
+	intLbl := g.label()
+	floatLbl := g.label()
+	strLbl := g.label()
+	boolLbl := g.label()
+	endLbl := g.label()
+	defLbl := g.label()
+	g.line(fmt.Sprintf("  switch i32 %s, label %%%s [", tag, defLbl))
+	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagInt, intLbl))
+	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagFloat, floatLbl))
+	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagStr, strLbl))
+	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagBool, boolLbl))
+	g.line(fmt.Sprintf("  ]"))
+	g.line(fmt.Sprintf("%s:", intLbl))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", payload, res))
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	g.line(fmt.Sprintf("%s:", floatLbl))
+	// float→fptosi: bitcast payload→double then fptosi→i64
+	fdbits := g.tmp()
+	g.line(fmt.Sprintf("  %s = bitcast i64 %s to double", fdbits, payload))
+	fi := g.tmp()
+	g.line(fmt.Sprintf("  %s = fptosi double %s to i64", fi, fdbits))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", fi, res))
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	g.line(fmt.Sprintf("%s:", boolLbl))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", payload, res))
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	g.line(fmt.Sprintf("%s:", strLbl))
+	sp := g.tmp()
+	g.line(fmt.Sprintf("  %s = inttoptr i64 %s to ptr", sp, payload))
+	sv := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", sv, sp))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", sv, res))
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	g.line(fmt.Sprintf("%s:", defLbl))
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	g.line(fmt.Sprintf("%s:", endLbl))
+	out := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", out, res))
+	g.line(fmt.Sprintf("  ret i64 %s", out))
+	g.line("}")
+	g.line("")
+}
+
+// as_bool unboxes to i1 by tag: bool→payload!=0; int→!=0; float→!=0.0; str→strcmp("true")==0; nil→0.
+func (g *Generator) emitVariantAsBoolBody() {
+	trueStr := g.addString("true")
+	g.line("define i1 @__kylix_variant_as_bool(ptr %v) {")
+	g.line("entry:")
+	tagLoc := g.boxAddr("%v", 0)
+	tag := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", tag, tagLoc))
+	payloadLoc := g.boxAddr("%v", 1)
+	payload := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", payload, payloadLoc))
+	res := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i1, align 1", res))
+	g.line(fmt.Sprintf("  store i1 0, ptr %s", res)) // default nil
+	intLbl := g.label()
+	floatLbl := g.label()
+	strLbl := g.label()
+	boolLbl := g.label()
+	endLbl := g.label()
+	defLbl := g.label()
+	g.line(fmt.Sprintf("  switch i32 %s, label %%%s [", tag, defLbl))
+	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagInt, intLbl))
+	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagFloat, floatLbl))
+	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagStr, strLbl))
+	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagBool, boolLbl))
+	g.line(fmt.Sprintf("  ]"))
+	g.line(fmt.Sprintf("%s:", intLbl))
+	iv := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ne i64 %s, 0", iv, payload))
+	g.line(fmt.Sprintf("  store i1 %s, ptr %s", iv, res))
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	g.line(fmt.Sprintf("%s:", boolLbl))
+	bv := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ne i64 %s, 0", bv, payload))
+	g.line(fmt.Sprintf("  store i1 %s, ptr %s", bv, res))
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	g.line(fmt.Sprintf("%s:", floatLbl))
+	fdbits := g.tmp()
+	g.line(fmt.Sprintf("  %s = bitcast i64 %s to double", fdbits, payload))
+	fv := g.tmp()
+	g.line(fmt.Sprintf("  %s = fcmp one double %s, 0.0", fv, fdbits))
+	g.line(fmt.Sprintf("  store i1 %s, ptr %s", fv, res))
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	g.line(fmt.Sprintf("%s:", strLbl))
+	sp := g.tmp()
+	g.line(fmt.Sprintf("  %s = inttoptr i64 %s to ptr", sp, payload))
+	truePtr := g.ptrTo(trueStr, len("true")+1)
+	scmp := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @strcmp(ptr %s, ptr %s)", scmp, sp, truePtr))
+	sv := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", sv, scmp))
+	g.line(fmt.Sprintf("  store i1 %s, ptr %s", sv, res))
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	g.line(fmt.Sprintf("%s:", defLbl))
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	g.line(fmt.Sprintf("%s:", endLbl))
+	out := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i1, ptr %s", out, res))
+	g.line(fmt.Sprintf("  ret i1 %s", out))
+	g.line("}")
+	g.line("")
+}
+
+// emitVariantArithBody emits the runtime arithmetic helper for op (+,-,*,/).
+// All return a fresh Variant box. Dispatch:
+//   + : either str → str concat; both int → int add; else → double add
+//   -,*: both int → int op; else → double op
+//   /  : always double (real division)
+func (g *Generator) emitVariantArithBody(op string) {
+	sym := map[string]string{"+": "add", "-": "sub", "*": "mul", "/": "div"}[op]
+	g.line(fmt.Sprintf("define ptr @__kylix_variant_%s(ptr %%a, ptr %%b) {", sym))
+	g.line("entry:")
+	tagALoc := g.boxAddr("%a", 0)
+	tagA := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", tagA, tagALoc))
+	tagBLoc := g.boxAddr("%b", 0)
+	tagB := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", tagB, tagBLoc))
+	payloadALoc := g.boxAddr("%a", 1)
+	payloadA := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", payloadA, payloadALoc))
+	payloadBLoc := g.boxAddr("%b", 1)
+	payloadB := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", payloadB, payloadBLoc))
+	res := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", res))
+	g.line(fmt.Sprintf("  store ptr null, ptr %s", res)) // default
+	// Category flags.
+	isAStr := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, %d", isAStr, tagA, varTagStr))
+	isBStr := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, %d", isBStr, tagB, varTagStr))
+	eitherStr := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i1 %s, %s", eitherStr, isAStr, isBStr))
+	bothInt := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i1 %s, %s", bothInt, g.icmpEqI32(tagA, varTagInt), g.icmpEqI32(tagB, varTagInt)))
+	strLbl := g.label()
+	intLbl := g.label()
+	dblLbl := g.label()
+	endLbl := g.label()
+	chkIntLbl := g.label()
+	// Dispatch by op. '+' concatenates on either-string; '-','*' coerce
+	// either-string to double; '/' always uses real (double) division.
+	switch op {
+	case "+":
+		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", eitherStr, strLbl, chkIntLbl))
+	case "-", "*":
+		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", eitherStr, dblLbl, chkIntLbl))
+	case "/":
+		g.line(fmt.Sprintf("  br label %%%s", dblLbl))
+	}
+	g.line(fmt.Sprintf("%s:", chkIntLbl))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", bothInt, intLbl, dblLbl))
+	// str concat (+ only): sa=as_str(a), sb=as_str(b), buf=malloc, strcpy+strcat, box_str
+	if op == "+" {
+		g.line(fmt.Sprintf("%s:", strLbl))
+		sa := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %%a)", sa))
+		sb := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %%b)", sb))
+		buf := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 512)", buf))
+		g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", buf, sa))
+		g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", buf, sb))
+		sbox := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", sbox, buf))
+		g.line(fmt.Sprintf("  store ptr %s, ptr %s", sbox, res))
+		g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	}
+	// both int → int op → box_int
+	g.line(fmt.Sprintf("%s:", intLbl))
+	var ir string
+	switch op {
+	case "+":
+		ir = g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, %s", ir, payloadA, payloadB))
+	case "-":
+		ir = g.tmp()
+		g.line(fmt.Sprintf("  %s = sub i64 %s, %s", ir, payloadA, payloadB))
+	case "*":
+		ir = g.tmp()
+		g.line(fmt.Sprintf("  %s = mul i64 %s, %s", ir, payloadA, payloadB))
+	case "/":
+		// both-int '/' still real division per design (Variant / always double);
+		// but bothInt branch is only taken for -,* ; '/' goes to dblLbl.
+		ir = g.tmp()
+		g.line(fmt.Sprintf("  %s = sdiv i64 %s, %s", ir, payloadA, payloadB))
+	}
+	ibox := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_int(i64 %s)", ibox, ir))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", ibox, res))
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	// else → double op → box_float
+	g.line(fmt.Sprintf("%s:", dblLbl))
+	da := g.tmp()
+	g.line(fmt.Sprintf("  %s = call double @__kylix_variant_as_double(ptr %%a)", da))
+	db := g.tmp()
+	g.line(fmt.Sprintf("  %s = call double @__kylix_variant_as_double(ptr %%b)", db))
+	var dr string
+	switch op {
+	case "+":
+		dr = g.tmp()
+		g.line(fmt.Sprintf("  %s = fadd double %s, %s", dr, da, db))
+	case "-":
+		dr = g.tmp()
+		g.line(fmt.Sprintf("  %s = fsub double %s, %s", dr, da, db))
+	case "*":
+		dr = g.tmp()
+		g.line(fmt.Sprintf("  %s = fmul double %s, %s", dr, da, db))
+	case "/":
+		dr = g.tmp()
+		g.line(fmt.Sprintf("  %s = fdiv double %s, %s", dr, da, db))
+	}
+	fbox := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_float(double %s)", fbox, dr))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", fbox, res))
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	g.line(fmt.Sprintf("%s:", endLbl))
+	out := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", out, res))
+	g.line(fmt.Sprintf("  ret ptr %s", out))
+	g.line("}")
+	g.line("")
+}
+
+// icmpEqI32 returns a register holding (icmp eq i32 a, b).
+func (g *Generator) icmpEqI32(a string, b int) string {
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, %d", r, a, b))
+	return r
 }
 
 // isVariantTypeExpr reports whether an AST type expression denotes Variant.

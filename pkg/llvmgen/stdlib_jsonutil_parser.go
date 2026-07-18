@@ -40,20 +40,20 @@ func (g *Generator) emitJsonParserBodies() {
 	g.emitJsonReadBare()
 	g.emitJsonSkipNested()
 	g.emitJsonReadValue()
+	g.emitJsonValueToVariant() // v5.1.0: shared by parse_flat & parse_array
 	g.emitJsonParseFlat()
 }
 
 // emitJsonArrayParserBodies emits the array parser, once per module. It is
 // guarded separately from the object parser (jsonParserEmitted) so a module
 // that only uses JsonGetArray still pulls in both — JsonGetArray's body calls
-// emitJsonParserBodies() first (for skip_ws/read_value/skip_nested), then
-// emitJsonArrayParserBodies() here.
+// emitJsonParserBodies() first (for skip_ws/value_to_variant/read_string/skip_nested),
+// then emitJsonArrayParserBodies() here.
 func (g *Generator) emitJsonArrayParserBodies() {
 	if g.jsonArrayParserEmitted {
 		return
 	}
 	g.jsonArrayParserEmitted = true
-	g.emitJsonValueToVariant()
 	g.emitJsonParseArray()
 }
 
@@ -519,7 +519,7 @@ func (g *Generator) emitJsonParseFlat() {
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", afterColon, posSlot))
 	g.line(fmt.Sprintf("  call void @__kylix_json_skip_ws(ptr %%s, ptr %s)", posSlot))
 	val := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_read_value(ptr %%s, ptr %s)", val, posSlot))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_value_to_variant(ptr %%s, ptr %s)", val, posSlot))
 	g.line(fmt.Sprintf("  call void @__kylix_htab_put(ptr %s, ptr %s, ptr %s)", htab, key, val))
 	g.line(fmt.Sprintf("  call void @__kylix_json_skip_ws(ptr %%s, ptr %s)", posSlot))
 	pos4 := g.tmp()
@@ -708,6 +708,9 @@ func (g *Generator) emitJsonParseArray() {
 // operands to double in variant_compare, so `arr[0] = 42` (int literal) still
 // matches Go's float64-vs-int (type-mismatch → false) behavior.
 func (g *Generator) emitJsonValueToVariant() {
+	// This body calls the Variant box_* helpers, so the Variant runtime must
+	// be emitted alongside it (checked at module end in emitProgram).
+	g.needVariantRuntime = true
 	emptyStr := g.addString("")
 	trueStr := g.addString("true")
 	falseStr := g.addString("false")

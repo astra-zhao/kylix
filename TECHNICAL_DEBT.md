@@ -1,7 +1,7 @@
 # Kylix 技术债务与后续开发清单
 
 > 最后更新: 2026-07-17
-> 当前版本: v5.0.0 已发布
+> 当前版本: v5.1.0 已发布
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
@@ -362,11 +362,27 @@
 |------|------|---------|------|
 | ~~`JsonGetArray` 返回 null~~ | ~~array of Variant 需 Variant 运行时~~ | ~~v4.9.0 字符串数组 slice；v5.0.0 类型标签 Variant box~~ | ✅ v5.0.0 已修复（类型标签 Variant box 切片） |
 | ~~`array of Variant` 数值比较（`arr[0] = 1.0`）~~ | ~~v4.9.0 字符串数组版不支持 Variant 数值索引~~ | ~~Variant 运行时（类型标签 + union + dispatch）~~ | ✅ v5.0.0 已修复（variant_compare 按标签派发） |
-| Variant 算术（`v + 1`、`v * 2`） | v5.0.0 未实现 Variant 运算符重载 | 运行时按标签算术派发 | 🟠 待 v5.1 |
-| `map[String]Variant` 真实化 | htab 值槽是字符串，Variant map 值需宽化 | htab 变体值槽（结构重写）或 Variant-valued map | 🟠 待 v5.1 |
+| Variant 算术（`v + 1`、`v * 2`） | v5.0.0 未实现 Variant 运算符重载 | 运行时按标签算术派发 | ✅ v5.1.0 已修复（variant_add/sub/mul/div，LLVM-only） |
+| ~~`map[String]Variant` 真实化~~ | ~~htab 值槽是字符串，Variant map 值需宽化~~ | ~~htab 变体值槽（结构重写）或 Variant-valued map~~ | ✅ v5.1.0 已修复（htab 值槽存 box ptr，不动结构） |
+| `div`/`mod` Variant | v5.1.0 算术只支持 `+,-,*,/`，`div`/`mod` 留 stub | 整数除/模按标签派发 | 🟠 待 v5.2 |
+| Variant 算术 Go 不支持 | Go `interface{}`不支持运算符，Variant 算术仅 LLVM | Go 端 type-switch codegen 或文档化 | ⚪ 文档化为限制 |
 | jsonutil 嵌套递归深度无界 | 超深 JSON 可能栈溢出 | 教程用例 2-3 层可接受；超深场景文档化为限制 | ⚪ 文档化为限制 |
-| null 打印分歧 | LLVM nil box → "nil"，Go `nil` → "<nil>" | 统一 null 语义（v5.1） | ⚪ 文档化为限制 |
+| null 打印分歧 | LLVM nil box → "nil"，Go `nil` → "<nil>" | 统一 null 语义（v5.2） | ⚪ 文档化为限制 |
 | ~~example21 泛型类方法 stub~~ | ~~`TStack<T>.Push/Pop` 输出 `Pop: 0`（unsupported receiver）~~ | ~~泛型类单态化后的方法 codegen~~ | ✅ v4.8.0 已修复 |
+
+---
+
+## ✅ v5.1.0 修复：完成 Variant 运行时（map[String]Variant 真实化 + Variant 算术）
+
+**症状**：v5.0.0 让标量 + `array of Variant` 成为真 Variant，但 `map[String]Variant` 仍是 htab 字符串（`m['pi']` 返回 C 串 → `m['pi']=3.14` 是 string-vs-double），Variant 算术（`v+1`）发 stub。
+
+**修复**：
+- **map[String]Variant 真实化**（htab 值槽类型无关，仅 map codegen 层 + jsonutil 改动，cache/string-map 不回归）：`stdlib_map.go` `emitMapVarDecl` 检测 Variant 值类型设 `variantMaps`；`emitMapIndexGet` 走 `htab_get_variant` 返回 `"variant"`；`emitMapIndexPut` 装箱 RHS。`stdlib_hashtab.go` 新增 `htab_get_variant`（miss 返回 `@__kylix_variant_nilbox` 全局 tag=0 → as_* 走 nil 默认，与「missing key 返回默认」契约一致）。`parse_flat` 改调 `value_to_variant` 让 JsonDecodeMap 产出 Variant map；`JsonGetString/Int/Float/Bool/Map/Array` 全部 unbox via `htab_get_variant` + `variant_as_*`。新增 `as_int`/`as_bool` 主体 + nilbox 全局。
+- **Variant 算术**：`variant_add`（either str→拼接/both int→int/else double）、`variant_sub`/`variant_mul`（both int→int else double）、`variant_div`（始终 double）；`emitInfix` 算术 stub 替换为 `emitVariantArith`；`coerceValue` 加 variant→concrete（`n := v` 解箱），`emitAssign` 内联 coercion 改调 `coerceValue` 统一处理。
+
+**验证**：example57_variant_map 双端输出逐字节一致（`m['pi']=3.14`/`m['flag']=true`/`WriteLn(m['name'])`）。LLVM 测试 266→274（+8 Variant map/算术），教程 50→51。
+
+**限制**：Variant 算术仅 LLVM（Go `interface{}`不支持运算符，无共享教程，IR 测试覆盖）。`div`/`mod` Variant 留 stub。box 内存不释放（no-GC 一致）。
 
 ---
 

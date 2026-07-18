@@ -23,6 +23,12 @@ import (
 // it with htab_new().
 func (g *Generator) emitMapVarDecl(name string, mapT *ast.MapType) error {
 	g.needHashtab = true
+	isVariant := isVariantTypeExpr(mapT.ValueType)
+	if isVariant {
+		// v5.1.0: map[String]Variant — the htab's value slots hold Variant
+		// box pointers (not C strings). Reads return "variant", writes box.
+		g.needVariantRuntime = true
+	}
 	allocaReg := g.freshVarReg(name, "_map")
 	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
 	// Initialize with htab_new()
@@ -31,12 +37,17 @@ func (g *Generator) emitMapVarDecl(name string, mapT *ast.MapType) error {
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", tbl, allocaReg))
 	g.locals[name] = allocaReg
 	g.mapVars[name] = true
+	if isVariant {
+		g.variantMaps[name] = true
+	}
 	return nil
 }
 
 // emitMapIndexGet handles m[key] for a map variable → htab_get.
-// Returns the value as a ptr (String) — callers that need Integer must
-// parse via atoll, but for WriteLn/concatenation a String is fine.
+// For Variant-valued maps, uses htab_get_variant (returns a box ptr or the
+// nil-box on miss) and returns the "variant" pseudo-type so downstream
+// comparisons/printing dispatch on the tag. Otherwise returns the value as
+// a ptr (String) — callers that need Integer must parse via atoll.
 func (g *Generator) emitMapIndexGet(idx *ast.IndexExpression) (string, string, error) {
 	leftIdent, ok := idx.Left.(*ast.Identifier)
 	if !ok {
@@ -54,12 +65,19 @@ func (g *Generator) emitMapIndexGet(idx *ast.IndexExpression) (string, string, e
 	}
 	g.needHashtab = true
 	r := g.tmp()
+	if g.variantMaps[leftIdent.Value] {
+		g.needVariantRuntime = true
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get_variant(ptr %s, ptr %s)", r, tbl, keyReg))
+		return r, variantT, nil
+	}
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", r, tbl, keyReg))
 	return r, "ptr", nil
 }
 
 // emitMapIndexPut handles m[key] := value for a map variable → htab_put.
-// The value is coerced to a String ptr (Integer → IntToStr → ptr).
+// For Variant-valued maps, boxes the RHS into a Variant (the value slot holds
+// a box pointer). Otherwise coerces the value to a String ptr (Integer →
+// IntToStr → ptr), since the hash table stores string→string.
 func (g *Generator) emitMapIndexPut(idx *ast.IndexExpression, valReg string, valType string) error {
 	leftIdent, ok := idx.Left.(*ast.Identifier)
 	if !ok {
@@ -75,9 +93,12 @@ func (g *Generator) emitMapIndexPut(idx *ast.IndexExpression, valReg string, val
 	if err != nil {
 		return err
 	}
-	// Coerce value to ptr (String). Integer values need IntToStr.
 	vPtr := valReg
-	if valType != "ptr" {
+	if g.variantMaps[leftIdent.Value] {
+		// Box the RHS into a Variant; the slot stores the box pointer.
+		vPtr = g.emitVariantBox(valReg, valType)
+	} else if valType != "ptr" {
+		// String map: coerce Integer values to a String ptr.
 		vPtr = g.emitIntToStrReg(valReg)
 	}
 	g.needHashtab = true

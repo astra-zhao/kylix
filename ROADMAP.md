@@ -1,9 +1,11 @@
 # Kylix Development Roadmap
 
 > 最后更新: 2026-07-17  
-> 当前版本: v5.0.0 ✅  
+> 当前版本: v5.1.0 ✅  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
+
+**✅ v5.1.0 已发布！** 完成 Variant 运行时——补齐 v5.0.0 留的两个缺口。(A) `map[String]Variant` 真实化：htab 值槽存 Variant box 指针（不动 htab 结构），`JsonDecodeMap` 产出真实 Variant map，`m['pi']=3.14` 按 `variant_compare` 标签派发；新增 `htab_get_variant`（miss 返回 nilbox 全局）+ `as_int`/`as_bool` unbox + `JsonGetString/Int/Float/Bool/Map/Array` 全部改 unbox。(B) Variant 算术：`variant_add/sub/mul/div` 按标签派发（`+` 字符串拼接/双 int→int/else double），`emitInfix` 算术 stub 替换；`coerceValue` 加 variant→concrete（`n := v` 解箱）。LLVM 测试 266→**274**，教程 **50→51**（新增 example57_variant_map 双端输出逐字节一致）。Variant 算术仅 LLVM（Go interface{} 不支持运算符）。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 **✅ v5.0.0 已发布！** Variant 运行时——第一个带类型标签的动态值运行时。LLVM 后端此前把 `Variant` 静默当 `i64` 别名，`var v: Variant; v := 1.0` 截断 double、`arr[0] = 10.0` 比较位模式。v5.0.0 实现 boxed-pointer Variant（`{i32 tag, i64 payload}`，tag nil/int/float/str/bool）：标量 `var v: Variant` + `array of Variant` 元素装 box 指针，赋值按类型装箱，比较经 `variant_compare` 按标签派发（数值提升 double、字符串 strcmp、布尔按 payload），`WriteLn(variantValue)` 按标签打印。jsonutil `JsonGetArray` 从 v4.9 字符串数组切片升级为**带类型标签的 Variant box 切片**（`value_to_variant` 窥首字符分类，数字→float 与 Go json 的 float64 对齐 → 双端 parity）。顺带修复 `Length(arr)` 路由（`emitArrayLength` 死代码 → 现派发到 slice len word）。LLVM 测试 255→**266**，教程 **49→50 (100%)** 新增 example56_variant（双后端输出逐字节一致）。详见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -37,7 +39,8 @@
 | **v4.8.0** | 泛型类方法 codegen + 类字段数组 GEP + DIBasicType 多类型 | ✅ 完成 | 2026-07-14 |
 | **v4.9.0** | DWARF Phase 2（类方法/lambda DISubprogram + DILexicalBlock）+ jsonutil 嵌套数组 | ✅ 完成 | 2026-07-15 |
 | **v5.0.0** | Variant 运行时（标量 + `array of Variant` + JsonGetArray 类型标签化） | ✅ 完成 | 2026-07-17 |
-| **v5.1.0+** | Variant 算术 + `map[String]Variant` 真实化 + KylixRT 地基 + JetBrains 插件 + 自举编译器 | 📋 长期 | 2027+ |
+| **v5.1.0** | 完成 Variant 运行时（map[String]Variant 真实化 + Variant 算术） | ✅ 完成 | 2026-07-17 |
+| **v5.2.0+** | KylixRT 地基 + JetBrains 插件 + 自举编译器 + JsonEncode（Variant 序列化） | 📋 长期 | 2027+ |
 
 ---
 
@@ -55,14 +58,14 @@
 | WASM 目标 | 2 (Go 标准 + TinyGo) |
 | WASI 目标 | 2 (Go wasip1 + TinyGo) |
 | LLVM 后端 | ✅ Milestone 4（stdlib Phase 3 完成，3 模块真实化）|
-| LLVM 测试 | 266 个（含 stdlib 60+ 个 + debug/DCE/cache 25 个 + 数组下界 2 个 + DIBasicType 1 个 + 方法/lambda subprogram + lexical block + Variant 11 个）|
-| LLVM 教程编译通过率 | 49→50（100%，含 example56_variant Variant 数组双端 parity；example33 多文件模块；example23 静态数组；example21 泛型类）|
+| LLVM 测试 | 274 个（含 stdlib 60+ 个 + debug/DCE/cache 25 个 + 数组下界 2 个 + DIBasicType 1 个 + 方法/lambda subprogram + lexical block + Variant 19 个）|
+| LLVM 教程编译通过率 | 49→51（100%，含 example56_variant Variant 数组 + example57_variant_map Variant map，双端 parity）|
 | LLVM 增量缓存 | ✅ v4.5.0（llc 跳过，32x 加速）|
 | LLVM 调试符号 | ✅ v4.6.0/v4.8.0/v4.9.0（DWARF `-g` flag，逐行单步 + 变量检视 + per-llvmType DIBasicType + 方法/lambda DISubprogram + DILexicalBlock）|
 | LLVM 静态数组 | ✅ v4.7.0（真实 LowerBound，array[0..N]/array[1..N]/array[5..N] 均正确）|
 | LLVM 泛型类 | ✅ v4.8.0（TStack<T>.Create() → Push/Pop 完整 codegen，example21 输出正确）|
 | LLVM jsonutil | ✅ v4.7.0/v4.9.0/v5.0.0（嵌套对象 JsonGetMap + 嵌套数组 JsonGetArray/JsonArrayLen/JsonArrayGetString + v5.0.0 类型标签 Variant box）|
-| LLVM Variant 运行时 | ✅ v5.0.0（boxed `{tag, payload}`：标量 + array of Variant + JsonGetArray 类型标签化 + variant_compare 按标签派发 + 双端 parity）|
+| LLVM Variant 运行时 | ✅ v5.0.0/v5.1.0（boxed `{tag, payload}`：标量 + array of Variant + JsonGetArray + **map[String]Variant 真实化** + variant_compare/as_int/as_bool + Variant 算术 add/sub/mul/div + 双端 parity）|
 | KylixBoot 测试 | 23 个 |
 | 包注册中心 | ✅ REST API + Web 前端 |
 | VS Code 扩展 | ✅ v1.1（语法高亮 + LSP + 代码片段 25 个）|

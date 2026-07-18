@@ -4,8 +4,9 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 
 **重要：始终用中文回答用户，不论用户用什么语言提问，回复一律使用中文。**
 
-## 当前状态：v5.0.0（2026-07-17）
+## 当前状态：v5.1.0（2026-07-17）
 
+- v5.1.0 已发布：完成 Variant 运行时。补齐 v5.0.0 留的两个缺口：(A) `map[String]Variant` 真实化——htab 值槽存 Variant box 指针（不动 htab 结构，cache/string-map 不回归），`emitMapVarDecl` 检测 Variant 值类型设 `variantMaps`，`emitMapIndexGet` 走新 `htab_get_variant`（miss 返回 nilbox 全局 tag=0 → as_* 走 nil 默认）返回 `"variant"`，`emitMapIndexPut` 装箱 RHS；jsonutil `parse_flat` 改调 `value_to_variant` 让 `JsonDecodeMap` 产出真实 Variant map，`JsonGetString/Int/Float/Bool/Map/Array` 全部改 unbox（`variant_as_str/int/double/bool`）。(B) Variant 算术——`variant_add/sub/mul/div` 按标签派发（`+` 字符串拼接/双 int→int/else double），`emitInfix` 算术 stub 替换为 `emitVariantArith`，`coerceValue` 加 variant→concrete（`n := v` 解箱，`emitAssign` 内联 coercion 改调 coerceValue 统一）。新增 `as_int`/`as_bool` unbox + `@__kylix_variant_nilbox` 全局。LLVM 测试 266→274，教程 50→51（新增 example57_variant_map 双端输出逐字节一致）无回归。Variant 算术仅 LLVM（Go `interface{}`不支持运算符），`div`/`mod` Variant 留 stub。
 - v5.0.0 已发布：Variant 运行时（标量 + `array of Variant`）。LLVM 后端此前把 `Variant` 静默当 `i64` 别名——`var v: Variant; v := 1.0` 截断 double、`array of Variant` 元素无类型标签、`arr[0] = 10.0` 比较位模式。v5.0.0 实现 boxed-pointer Variant（`%struct.kylix_variant = {i32 tag, i64 payload}`，tag nil/int/float/str/bool）：标量 `_var` alloca + Variant 数组 `arrayInfo.IsVariant`，赋值按类型装箱（box_int/float/str/bool），比较经 `variant_compare` 按标签派发（数值提升 double、字符串 strcmp、布尔 payload），`WriteLn(variantValue)` 按标签打印。jsonutil `JsonGetArray` 从 v4.9 字符串数组切片升级为**带类型标签的 Variant box 切片**（`value_to_variant` 窥首字符分类，数字→float box 与 Go json float64 对齐 → 双端 parity）。顺带修复 `Length(arr)` 路由（`emitArrayLength` 死代码 → 现派发 slice len word）。LLVM 测试 255→266，教程通过率 49→50（新增 example56_variant 双端输出逐字节一致）无回归。Variant 算术（`v+1`）与 `map[String]Variant` 真实化留 v5.1。
 - v4.9.0 已发布：DWARF 调试信息 Phase 2 + jsonutil 嵌套数组。类方法/lambda 注册独立 DISubprogram（define 行附 `!dbg`、`self`/参数/捕获变量声明为调试局部变量），v4.8.0 泛型类方法可逐行单步 + LLDB 检视 receiver/捕获值。新增 DILexicalBlock——块内 `var` 归属正确的嵌套作用域。jsonutil `JsonGetArray` 从返回 null 的 stub 升级为真实解析器：把 JSON 数组解析为字符串数组 slice `{ptr items, i64 len, i64 cap}`（标量存文本、嵌套对象/数组存 raw 子串），新增 `JsonArrayLen`/`JsonArrayGetString`。顺手修复 `skip_nested` 丢失闭合 `]`/`}` 的 off-by-one（length `end-start` → `endAfter-start`）。LLVM 测试 250→255，教程通过率 49/49（100%）无回归。
 - v4.8.0 已发布：泛型类方法 codegen + DIBasicType 多类型。修复 example21 泛型类 stub（`TStack<Integer>.Push/Pop` 从 `Pop: 0` → 与 Go 后端一致 `Pop: 30`），打通泛型类 `var x := TStack<T>.Create()` → `x.Method()` 完整链路：单态化 walk VarDecl.Value + constructor inference 处理 GenericType/CallExpression + 类字段数组 `self.Items[i]` GEP（FieldInfo.ArrayType + emitArrayIndex MemberExpression 分支）。DWARF 调试信息从单一 int64 升级为按 llvmType 发射独立 DIBasicType（double→DW_ATE_float、ptr→DW_ATE_address、i1→DW_ATE_boolean），LLDB `frame variable` 显示正确类型。LLVM 测试 249→250，教程通过率 48/48（100%），example21 从 stub → 输出正确。
@@ -20,9 +21,10 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - v3.3.0：KylixBoot 框架完善 —— Body 绑定 + JWT + OpenAPI 3.1 自动生成
 - v3.2.0：KylixBoot 注解栈 + LLVM M2 完整 + stdlib Phase 6
 - v1.5.0：stdlib `.klx` 声明文件 + 包管理器
-- 所有 Go 测试通过（16 个包，LLVM 后端 266 测试）
-- 教程 50/50 测试通过（Go 后端，`examples/complete-tutorial/`）
-- LLVM 后端 49→50 教程编译通过（100%，含 example56_variant Variant 数组双端 parity；01-04 章节 19 个文件与 Go 后端输出逐字节一致；example33 多文件模块经 `multifile.go` MergePrograms 合并声明后通过）
+- 所有 Go 测试通过（16 个包，LLVM 后端 274 测试）
+- 教程 51/51 测试通过（Go 后端，`examples/complete-tutorial/`）
+- LLVM 后端 49→51 教程编译通过（100%，含 example56_variant Variant 数组 + example57_variant_map Variant map 双端 parity；01-04 章节 19 个文件与 Go 后端输出逐字节一致；example33 多文件模块经 `multifile.go` MergePrograms 合并声明后通过）
+- v5.1.0 新增：map[String]Variant 真实化（htab 值槽存 Variant box，htab_get_variant + as_int/as_bool + JsonGet* unbox）+ Variant 算术（variant_add/sub/mul/div + emitVariantArith + coerceValue variant→concrete）+ emitAssign 统一 coerce
 - v5.0.0 新增：Variant 运行时（boxed `{tag, payload}`：标量 + `array of Variant` + JsonGetArray 类型标签化 + `variant_compare` 按标签派发 + `Length(arr)` 路由修复 + 双端 parity）
 - v4.9.0 新增：类方法/lambda DISubprogram（OOP 方法逐行调试 + self/参数/捕获变量检视）+ DILexicalBlock（块作用域 scope 正确）+ jsonutil `JsonGetArray`/`JsonArrayLen`/`JsonArrayGetString`（嵌套数组字符串数组版）+ `skip_nested` 闭合 char off-by-one 修复
 - v4.8.0 新增：泛型类方法 codegen（`TStack<T>.Create()` → `Push/Pop` 完整链路，example21 输出正确）+ 类字段数组 `self.Items[i]` GEP + DIBasicType 多类型（per-llvmType，LLDB 显示正确类型）
@@ -65,7 +67,7 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
   - `stmt_flow.go` — 控制流 codegen（if/while/for/case/match/try）
   - `class.go` — 类/vtable/构造/方法 codegen
   - `stdlib_*.go` — 标准库模块 IR 实现（encoding/net/crypto/db/cache/jsonutil/boot/jwt/httpclient/sysutil/datetime）
-  - `variant.go` — Variant 运行时（v5.0.0）：boxed `{i32 tag, i64 payload}` + box/unbox/compare/print helpers + call-site 装箱/比较
+  - `variant.go` — Variant 运行时（v5.0.0）：boxed `{i32 tag, i64 payload}` + box/unbox(as_double/as_str/as_int/as_bool)/compare/arith(add/sub/mul/div)/print helpers + nilbox 全局 + call-site 装箱/比较/算术/unbox
   - `debug.go` — DWARF 调试符号生成（`-g` flag）：per-instruction DILocation + DILocalVariable + `#dbg_declare`（v4.6.0 逐行调试）+ per-llvmType DIBasicType（v4.8.0 类型精度）
   - `passes.go` — IR 优化 pass 管线（DCE + ConstantFold）
   - `cache.go` — 增量编译缓存（SHA256 键控 .o 复用）
@@ -148,5 +150,5 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 | 18_cache | 1 | ✅ v4.0 |
 | 19_http | 1 | ✅ v4.0 |
 | 20_websocket | 1 | ✅ v4.0 |
-| 21_variant | 1 | ✅ v5.0 |
-| **合计** | **49 文件** | **50/50 通过** |
+| 21_variant | 2 | ✅ v5.0/v5.1 |
+| **合计** | **50 文件** | **51/51 通过** |

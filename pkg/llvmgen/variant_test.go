@@ -161,3 +161,113 @@ func containsCount(s, substr string) int {
 	}
 	return n
 }
+
+// ===== v5.1.0: Variant arithmetic + map[String]Variant + Variant→concrete =====
+
+func TestVariant_ArithIntAdd(t *testing.T) {
+	ir := generateIR(t, `program p;
+var v: Variant;
+begin
+  v := 5;
+  v := v + 3;
+end.`)
+	// Variant '+' dispatches to the runtime add helper (returns a box).
+	assertIRContains(t, ir, "call ptr @__kylix_variant_add(ptr")
+	assertIRContains(t, ir, "define ptr @__kylix_variant_add(ptr")
+}
+
+func TestVariant_ArithStrConcat(t *testing.T) {
+	ir := generateIR(t, `program p;
+var v: Variant;
+begin
+  v := 'a';
+  v := v + 'b';
+end.`)
+	// '+' with a string operand → variant_add; the str-concat branch calls as_str.
+	assertIRContains(t, ir, "call ptr @__kylix_variant_add(ptr")
+	assertIRContains(t, ir, "call ptr @__kylix_variant_as_str(ptr")
+}
+
+func TestVariant_ArithAllOpsEmitted(t *testing.T) {
+	ir := generateIR(t, `program p;
+var v: Variant;
+begin
+  v := 1.0;
+  v := v + 2.0;
+  v := v - 1.0;
+  v := v * 2.0;
+  v := v / 2.0;
+end.`)
+	assertIRContains(t, ir, "define ptr @__kylix_variant_add(ptr")
+	assertIRContains(t, ir, "define ptr @__kylix_variant_sub(ptr")
+	assertIRContains(t, ir, "define ptr @__kylix_variant_mul(ptr")
+	assertIRContains(t, ir, "define ptr @__kylix_variant_div(ptr")
+}
+
+func TestVariant_AsIntAndAsBoolHelpers(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses jsonutil;
+begin
+  var m := JsonDecodeMap('{"a":1,"b":true}');
+  WriteLn(JsonGetInt(m, 'a'));
+  if JsonGetBool(m, 'b') then WriteLn('yes');
+end.`)
+	// JsonGetInt/JsonGetBool now unbox via variant_as_int/variant_as_bool.
+	assertIRContains(t, ir, "call i64 @__kylix_variant_as_int(ptr")
+	assertIRContains(t, ir, "define i64 @__kylix_variant_as_int(ptr")
+	assertIRContains(t, ir, "call i1 @__kylix_variant_as_bool(ptr")
+	assertIRContains(t, ir, "define i1 @__kylix_variant_as_bool(ptr")
+}
+
+func TestVariant_VariantToConcreteAssign(t *testing.T) {
+	// `n := v` (Variant→Integer) unboxes via coerceValue (variant_as_int).
+	ir := generateIR(t, `program p;
+var
+  v: Variant;
+  n: Integer;
+begin
+  v := 42;
+  n := v;
+end.`)
+	assertIRContains(t, ir, "call i64 @__kylix_variant_as_int(ptr")
+}
+
+func TestVariant_MapVariantDeclAndIndex(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses jsonutil;
+var m: map[String]Variant;
+begin
+  m := JsonDecodeMap('{"pi":3.14}');
+  if m['pi'] = 3.14 then WriteLn('match');
+end.`)
+	// map[String]Variant → htab_get_variant (returns a box).
+	assertIRContains(t, ir, "call ptr @__kylix_htab_get_variant(ptr")
+	assertIRContains(t, ir, "define ptr @__kylix_htab_get_variant(ptr")
+	// m['pi'] (Variant) vs 3.14 (double) → variant_compare.
+	assertIRContains(t, ir, "call i32 @__kylix_variant_compare(ptr")
+	// parse_flat now produces boxes via value_to_variant.
+	assertIRContains(t, ir, "call ptr @__kylix_json_value_to_variant(ptr")
+}
+
+func TestVariant_MapVariantWriteBoxes(t *testing.T) {
+	// Direct `m['k'] := v` on a Variant map boxes the value (no stringify).
+	ir := generateIR(t, `program p;
+var m: map[String]Variant;
+begin
+  m['k'] := 7;
+end.`)
+	// map[String]Variant put → htab_put with a boxed value (box_int).
+	assertIRContains(t, ir, "call ptr @__kylix_variant_box_int(i64")
+	assertIRContains(t, ir, "call void @__kylix_htab_put(ptr")
+}
+
+func TestVariant_NilboxGlobalEmitted(t *testing.T) {
+	ir := generateIR(t, `program p;
+var v: Variant;
+begin
+  v := 1;
+end.`)
+	// The nilbox global (htab_get_variant's miss sentinel) is emitted.
+	assertIRContains(t, ir, "@__kylix_variant_nilbox =")
+}
+

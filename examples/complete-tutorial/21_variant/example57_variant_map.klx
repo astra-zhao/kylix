@@ -1,0 +1,33 @@
+// example57_variant_map.klx — Variant map (v5.1.0)
+// Demonstrates map[String]Variant with real Variant box values (v5.0.0 made
+// scalar/array Variant real; v5.1.0 completes the map side). JsonDecodeMap now
+// produces a map whose values are type-tagged Variant boxes, so direct indexing
+// `m['key']` returns a Variant and comparisons/printing dispatch by runtime tag.
+//
+// Output is byte-identical on the Go and LLVM backends (Variant = interface{}
+// on the Go side; boxed {tag, payload} + variant_compare on the LLVM side).
+// Note: Variant arithmetic (v+1) is LLVM-only — Go's interface{} can't do
+// operator arithmetic, so this example uses comparisons and printing only.
+
+program VariantMapDemo;
+uses jsonutil;
+
+var
+  m: map[String]Variant;
+
+begin
+  m := JsonDecodeMap('{"pi":3.14,"name":"Kylix","flag":true,"count":5}');
+
+  // Direct indexing returns a Variant; comparisons dispatch by tag.
+  // (Compare count against the float literal 5.0 — Go's json decodes every
+  // number as float64, so `m['count'] = 5` (int literal) would be false on Go
+  // but true on LLVM; 5.0 matches on both.)
+  if m['pi'] = 3.14 then WriteLn('pi match');
+  WriteLn(m['name']);
+  if m['flag'] = true then WriteLn('flag match');
+  WriteLn(m['count']);
+  if m['count'] = 5.0 then WriteLn('count match');
+
+  // String and bool elements print by tag.
+  WriteLn(m['name']);
+end.

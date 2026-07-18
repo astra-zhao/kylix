@@ -46,6 +46,12 @@ func (g *Generator) emitHashtabBodies() {
 	g.emitHashtabFind() // helper: returns ptr-to-node-or-null
 	g.emitHashtabPut()
 	g.emitHashtabGet()
+	// v5.1.0: htab_get_variant (Variant-box-valued map reads) references the
+	// Variant nilbox global, so emit it only when the Variant runtime is in
+	// use — keeps cache/string-map modules free of Variant bloat.
+	if g.needVariantRuntime {
+		g.emitHashtabGetVariant()
+	}
 	g.emitHashtabHas()
 	g.emitHashtabDel()
 	g.emitHashtabSize()
@@ -263,6 +269,37 @@ func (g *Generator) emitHashtabGet() {
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isNull, retNullLbl, retValLbl))
 	g.line(fmt.Sprintf("%s:", retNullLbl))
 	g.line(fmt.Sprintf("  ret ptr %s", emptyPtr))
+	g.line(fmt.Sprintf("%s:", retValLbl))
+	valPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", valPtr, node))
+	v := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", v, valPtr))
+	g.line(fmt.Sprintf("  ret ptr %s", v))
+	g.line("}")
+	g.line("")
+}
+
+// htab_get_variant: ptr @__kylix_htab_get_variant(ptr %t, ptr %key)
+// v5.1.0: like htab_get but the value slot holds a Variant box pointer. On
+// miss returns the global nil-box (@__kylix_variant_nilbox, tag=0) so callers
+// (Variant map reads, JsonGet*) always receive a valid box — as_* dispatch on
+// tag 0 → the typed zero (str→"", int→0, float→0.0, bool→false). Variant
+// runtime is required (the nilbox global lives there); htab_find is shared.
+func (g *Generator) emitHashtabGetVariant() {
+	g.needVariantRuntime = true
+	g.line("define ptr @__kylix_htab_get_variant(ptr %t, ptr %key) {")
+	g.line("entry:")
+	nilPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { i32, i64 }, ptr @__kylix_variant_nilbox, i32 0, i32 0", nilPtr))
+	node := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_find(ptr %%t, ptr %%key)", node))
+	isNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", isNull, node))
+	retNilLbl := g.label()
+	retValLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isNull, retNilLbl, retValLbl))
+	g.line(fmt.Sprintf("%s:", retNilLbl))
+	g.line(fmt.Sprintf("  ret ptr %s", nilPtr))
 	g.line(fmt.Sprintf("%s:", retValLbl))
 	valPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", valPtr, node))

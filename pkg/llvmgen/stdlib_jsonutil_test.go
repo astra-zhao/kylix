@@ -57,7 +57,10 @@ begin
   var s := JsonGetString(m, 'a');
 end.`)
 	assertIRContains(t, ir, "call ptr @__kylix_json_JsonGetString")
-	assertIRContains(t, ir, "call ptr @__kylix_htab_get")
+	// v5.1.0: jsonutil maps hold Variant boxes; JsonGetString unboxes via
+	// htab_get_variant + variant_as_str (not htab_get + raw ptr).
+	assertIRContains(t, ir, "call ptr @__kylix_htab_get_variant")
+	assertIRContains(t, ir, "call ptr @__kylix_variant_as_str(ptr")
 }
 
 func TestJson_GetInt_Dispatch(t *testing.T) {
@@ -68,7 +71,9 @@ begin
   var n := JsonGetInt(m, 'a');
 end.`)
 	assertIRContains(t, ir, "call i64 @__kylix_json_JsonGetInt")
-	assertIRContains(t, ir, "call i64 @atoll")
+	// v5.1.0: JsonGetInt unboxes via variant_as_int (atoll now lives inside
+	// the as_int body, not the JsonGetInt body).
+	assertIRContains(t, ir, "call i64 @__kylix_variant_as_int(ptr")
 }
 
 func TestJson_GetBool_Dispatch(t *testing.T) {
@@ -79,7 +84,8 @@ begin
   var b := JsonGetBool(m, 'a');
 end.`)
 	assertIRContains(t, ir, "call i1 @__kylix_json_JsonGetBool")
-	assertIRContains(t, ir, "call i32 @strcmp")
+	// v5.1.0: JsonGetBool unboxes via variant_as_bool (strcmp now inside as_bool).
+	assertIRContains(t, ir, "call i1 @__kylix_variant_as_bool(ptr")
 }
 
 func TestJson_GetFloat_Real(t *testing.T) {
@@ -90,7 +96,8 @@ begin
   var f := JsonGetFloat(m, 'a');
 end.`)
 	assertIRContains(t, ir, "call double @__kylix_json_JsonGetFloat")
-	assertIRContains(t, ir, "call double @strtod")
+	// v5.1.0: JsonGetFloat unboxes via variant_as_double (strtod inside as_double).
+	assertIRContains(t, ir, "call double @__kylix_variant_as_double(ptr")
 }
 
 func TestJson_Decode_AliasParseFlat(t *testing.T) {

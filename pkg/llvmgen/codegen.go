@@ -118,6 +118,11 @@ type Generator struct {
 	// holds a ptr to an @__kylix_htab_* table. Indexing/assignment on these
 	// routes to htab_get/htab_put instead of the array-index path.
 	mapVars map[string]bool
+
+	// variantMaps (v5.1.0) tracks map[String]Variant locals — the htab's
+	// value slots hold Variant box pointers (not C strings), so reads return
+	// the "variant" pseudo-type and writes box the RHS before htab_put.
+	variantMaps map[string]bool
 }
 
 type stringConst struct {
@@ -158,6 +163,7 @@ func NewGenerator(moduleName string) *Generator {
 		closureParams:    make(map[string][]string),
 		stdlibEmitted:    make(map[string]bool),
 		mapVars:          make(map[string]bool),
+		variantMaps:      make(map[string]bool),
 		strDedup:         make(map[string]string),
 	}
 }

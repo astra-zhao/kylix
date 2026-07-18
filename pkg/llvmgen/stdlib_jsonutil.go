@@ -240,10 +240,14 @@ func (g *Generator) emitJsonGetStringCall(args []ast.Expression) (string, string
 }
 
 func (g *Generator) emitJsonGetStringBody() {
+	// v5.1.0: the map's value slots hold Variant boxes; unbox to string.
+	g.needVariantRuntime = true
 	g.line("define ptr @__kylix_json_JsonGetString(ptr %m, ptr %k) {")
 	g.line("entry:")
+	box := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get_variant(ptr %%m, ptr %%k)", box))
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %%m, ptr %%k)", r))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %s)", r, box))
 	g.line(fmt.Sprintf("  ret ptr %s", r))
 	g.line("}")
 	g.line("")
@@ -270,12 +274,14 @@ func (g *Generator) emitJsonGetIntCall(args []ast.Expression) (string, string, e
 }
 
 func (g *Generator) emitJsonGetIntBody() {
+	// v5.1.0: unbox the Variant (variant_as_int dispatches by tag).
+	g.needVariantRuntime = true
 	g.line("define i64 @__kylix_json_JsonGetInt(ptr %m, ptr %k) {")
 	g.line("entry:")
-	s := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %%m, ptr %%k)", s))
+	box := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get_variant(ptr %%m, ptr %%k)", box))
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", r, s))
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_variant_as_int(ptr %s)", r, box))
 	g.line(fmt.Sprintf("  ret i64 %s", r))
 	g.line("}")
 	g.line("")
@@ -302,16 +308,14 @@ func (g *Generator) emitJsonGetBoolCall(args []ast.Expression) (string, string, 
 }
 
 func (g *Generator) emitJsonGetBoolBody() {
-	trueStr := g.addString("true")
+	// v5.1.0: unbox the Variant (variant_as_bool dispatches by tag).
+	g.needVariantRuntime = true
 	g.line("define i1 @__kylix_json_JsonGetBool(ptr %m, ptr %k) {")
 	g.line("entry:")
-	s := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %%m, ptr %%k)", s))
-	truePtr := g.ptrTo(trueStr, 5)
-	cmp := g.tmp()
-	g.line(fmt.Sprintf("  %s = call i32 @strcmp(ptr %s, ptr %s)", cmp, s, truePtr))
+	box := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get_variant(ptr %%m, ptr %%k)", box))
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", r, cmp))
+	g.line(fmt.Sprintf("  %s = call i1 @__kylix_variant_as_bool(ptr %s)", r, box))
 	g.line(fmt.Sprintf("  ret i1 %s", r))
 	g.line("}")
 	g.line("")
@@ -368,12 +372,14 @@ func (g *Generator) emitJsonGetFloatCall(args []ast.Expression) (string, string,
 }
 
 func (g *Generator) emitJsonGetFloatBody() {
+	// v5.1.0: unbox the Variant (variant_as_double dispatches by tag).
+	g.needVariantRuntime = true
 	g.line("define double @__kylix_json_JsonGetFloat(ptr %m, ptr %k) {")
 	g.line("entry:")
-	s := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %%m, ptr %%k)", s))
+	box := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get_variant(ptr %%m, ptr %%k)", box))
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = call double @strtod(ptr %s, ptr null)", r, s))
+	g.line(fmt.Sprintf("  %s = call double @__kylix_variant_as_double(ptr %s)", r, box))
 	g.line(fmt.Sprintf("  ret double %s", r))
 	g.line("}")
 	g.line("")
@@ -407,11 +413,15 @@ func (g *Generator) emitJsonGetMapCall(args []ast.Expression) (string, string, e
 func (g *Generator) emitJsonGetMapBody() {
 	// Ensure parse_flat + helpers are emitted (JsonGetMap depends on parse_flat).
 	g.emitJsonParserBodies()
+	// v5.1.0: the map's value slots hold Variant boxes; the nested object's
+	// raw substring is stored as a str box, so unbox it before re-parsing.
+	g.needVariantRuntime = true
 	g.line("define ptr @__kylix_json_JsonGetMap(ptr %m, ptr %k) {")
 	g.line("entry:")
-	// raw = htab_get(m, k) — the nested object's raw JSON substring (or "" on miss).
+	box := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get_variant(ptr %%m, ptr %%k)", box))
 	raw := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %%m, ptr %%k)", raw))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %s)", raw, box))
 	// If raw is empty (miss or non-object value), return null.
 	emptyStr := g.addString("")
 	emptyPtr := g.ptrTo(emptyStr, 1)
@@ -484,9 +494,11 @@ func (g *Generator) emitJsonGetArrayBody() {
 	emptyStr := g.addString("")
 	g.line("define void @__kylix_json_JsonGetArray(ptr %out, ptr %m, ptr %k) {")
 	g.line("entry:")
-	// raw = htab_get(m, k) — the array's raw JSON substring (or "" on miss).
+	// v5.1.0: the array's raw substring is stored as a str box; unbox first.
+	box := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get_variant(ptr %%m, ptr %%k)", box))
 	raw := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %%m, ptr %%k)", raw))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %s)", raw, box))
 	// If raw is empty (miss or non-array value), write a zero-length slice.
 	emptyPtr := g.ptrTo(emptyStr, 1)
 	cmp := g.tmp()
