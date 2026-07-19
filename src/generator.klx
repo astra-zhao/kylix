@@ -20,6 +20,14 @@ type
     ClassTypes: map[String]Boolean;  // track which user-defined types are classes
     ClassIsBase: map[String]Boolean; // true if class is parent of another class
     ClassFields: map[String]array of String; // class name → ordered field names
+    // v5.3.0: conditional import flags — set by CollectImports scanning the
+    // generated body; BuildImportBlock emits only the packages actually used.
+    NeedFmt: Boolean;
+    NeedStrings: Boolean;
+    NeedStrconv: Boolean;
+    NeedOS: Boolean;
+    NeedMath: Boolean;
+    NeedRand: Boolean;
 
     constructor Create;
     begin
@@ -30,6 +38,12 @@ type
       self.NeedsException := false;
       self.MultiReturn := false;
       self.MultiReturnN := 0;
+      self.NeedFmt := false;
+      self.NeedStrings := false;
+      self.NeedStrconv := false;
+      self.NeedOS := false;
+      self.NeedMath := false;
+      self.NeedRand := false;
     end;
 
     procedure Write(s: String);
@@ -46,21 +60,60 @@ type
       self.Output := self.Output + s + '\n';
     end;
 
-    // Write a Go-escaped string: handle \, ", and newlines
+    // Write a Go-escaped string: handle \, ", and the \n \t \r escape sequences.
+    // v5.3.0 (G14): a 2-char lookahead preserves \n \t \r as Go escape sequences
+    // (Go interprets them as newline/tab/CR). Without this, the backslash was
+    // doubled to \\n, emitting a literal backslash-n instead of a newline —
+    // which broke the bootstrap round-trip (gen2 output had literal \n where
+    // real newlines were needed). Backslash + other char (or a trailing lone
+    // backslash) is still doubled to \\ so it stays a literal backslash. Write
+    // the backslash and the letter as two separate Write calls so the emitted
+    // Go source contains \n (two chars: backslash, n) — not a real newline
+    // inside a string literal, which Go forbids.
     procedure WriteEscapedGoString(s: String);
     var
-      j: Integer;
-      ch: String;
+      j, n: Integer;
+      ch, nx: String;
     begin
-      for j := 0 to Length(s) - 1 do
+      n := Length(s);
+      j := 0;
+      while j < n do
       begin
         ch := s[j:j+1];
         if ch = '\' then
-          self.Write('\\')
+        begin
+          if j + 1 < n then
+          begin
+            nx := s[j+1:j+2];
+            if (nx = 'n') or (nx = 't') or (nx = 'r') then
+            begin
+              self.Write('\');
+              self.Write(nx);
+              j := j + 2;
+            end
+            else
+            begin
+              self.Write('\\');
+              j := j + 1;
+            end;
+          end
+          else
+          begin
+            // trailing lone backslash — escape it
+            self.Write('\\');
+            j := j + 1;
+          end;
+        end
         else if ch = '"' then
-          self.Write('\"')
+        begin
+          self.Write('\"');
+          j := j + 1;
+        end
         else
+        begin
           self.Write(ch);
+          j := j + 1;
+        end;
       end;
     end;
 
@@ -81,13 +134,11 @@ type
       self.ScanImports(prog);
       self.ScanForException(prog);
 
-      if prog.IsUnit then
-        self.WriteLine('package main // unit: ' + prog.UnitName)
-      else
-        self.WriteLine('package main');
-      self.WriteLine('');
-      self.GenerateImports;
-
+      // v5.3.0: body is generated into self.Output first; package line and
+      // the import block are assembled at the end, after CollectImports has
+      // scanned the body for actually-referenced packages (conditional imports
+      // — so programs using only WriteLn emit only "fmt", avoiding Go's
+      // "imported and not used" error).
       self.GenerateTypes(prog);
       self.GenerateExceptionTypes;
       self.GenerateGlobals(prog);
@@ -103,7 +154,11 @@ type
           self.WriteLine('}');
         end;
 
-      result := self.Output;
+      self.CollectImports;
+      if prog.IsUnit then
+        result := 'package main // unit: ' + prog.UnitName + '\n' + '\n' + self.BuildImportBlock() + self.Output
+      else
+        result := 'package main' + '\n' + '\n' + self.BuildImportBlock() + self.Output;
     end;
 
     // GenerateMulti compiles multiple Kylix source files into a single Go package.
@@ -121,9 +176,8 @@ type
         self.ScanForException(prog);
       end;
 
-      self.WriteLine('package main');
-      self.WriteLine('');
-      self.GenerateImports;
+      // v5.3.0: body generated first; package + conditional imports assembled
+      // at the end (see Generate).
 
       // Generate types from all programs
       for pi := 0 to Length(progs) - 1 do
@@ -168,21 +222,76 @@ type
       if hasMain = false then
         self.WriteLine('func main() {}');
 
-      result := self.Output;
+      self.CollectImports;
+      result := 'package main' + '\n' + '\n' + self.BuildImportBlock() + self.Output;
     end;
 
-    // Generate import block
-    procedure GenerateImports;
+    // BuildImportBlock returns the Go import block from the Need* flags. Called
+    // at the end of Generate/GenerateMulti after CollectImports has scanned the
+    // body. v5.3.0: conditional imports — only packages actually referenced
+    // are emitted, so small programs (e.g. hello → only fmt) compile without
+    // Go's "imported and not used" error.
+    function BuildImportBlock: String;
+    var s: String;
     begin
-      // Always include fmt for WriteLn etc.
-      self.WriteLine('import (');
-      self.IncreaseIndent;
-      self.WriteLine('"fmt"');
-      self.WriteLine('"strings"');
-      self.WriteLine('"strconv"');
-      self.DecreaseIndent;
-      self.WriteLine(')');
-      self.WriteLine('');
+      s := 'import (' + '\n';
+      if self.NeedFmt then s := s + '  "fmt"' + '\n';
+      if self.NeedStrings then s := s + '  "strings"' + '\n';
+      if self.NeedStrconv then s := s + '  "strconv"' + '\n';
+      if self.NeedOS then s := s + '  "os"' + '\n';
+      if self.NeedMath then s := s + '  "math"' + '\n';
+      if self.NeedRand then s := s + '  "math/rand"' + '\n';
+      s := s + ')' + '\n' + '\n';
+      result := s;
+    end;
+
+    // StrContains reports whether haystack contains needle. Hand-written to
+    // avoid Pos (which the host maps to strings.Index with mismatched argument
+    // order/semantics). Uses Length + 0-based slicing, matching the pattern in
+    // WriteEscapedGoString.
+    function StrContains(haystack, needle: String): Boolean;
+    var
+      i, nl: Integer;
+      found: Boolean;
+    begin
+      found := false;
+      nl := Length(needle);
+      if nl = 0 then
+        found := true
+      else if Length(haystack) >= nl then
+      begin
+        i := 0;
+        while (found = false) and (i <= Length(haystack) - nl) do
+        begin
+          if haystack[i:i+nl] = needle then
+            found := true
+          else
+            i := i + 1;
+        end;
+      end;
+      result := found;
+    end;
+
+    // CollectImports scans the generated body (self.Output) for package-qualified
+    // references and sets the corresponding Need* flags. Called at the end of
+    // Generate/GenerateMulti, after the body is fully written.
+    //
+    // v5.3.0 self-detection guard: each needle is split into a concatenation
+    // ('fmt' + '.') so the generated Go source contains "fmt" + "." as separate
+    // tokens — which does NOT contain the substring "fmt.". This prevents the
+    // compiler from matching its own CollectImports literals when self-compiling
+    // (the bootstrap generator's output includes this very procedure). Real
+    // references (fmt.Println, strings.ToLower, strconv.ParseFloat, os.Args[1:])
+    // are still detected correctly. 'os.Args' (not 'os.') avoids matching the
+    // bare 'os' identifier.
+    procedure CollectImports;
+    begin
+      if self.StrContains(self.Output, 'fmt' + '.') then self.NeedFmt := true;
+      if self.StrContains(self.Output, 'strings' + '.') then self.NeedStrings := true;
+      if self.StrContains(self.Output, 'strconv' + '.') then self.NeedStrconv := true;
+      if self.StrContains(self.Output, 'os' + '.Args') then self.NeedOS := true;
+      if self.StrContains(self.Output, 'math' + '.') then self.NeedMath := true;
+      if self.StrContains(self.Output, 'rand' + '.') then self.NeedRand := true;
     end;
 
     // ========================================================================
@@ -1670,7 +1779,9 @@ type
     // Map builtin function names to Go equivalents
     function MapBuiltinFunction(name: String): String;
     begin
-      if name = 'WriteLn' then
+      if name = 'Args' then
+        result := 'os.Args[1:]'
+      else if name = 'WriteLn' then
         result := 'fmt.Println'
       else if name = 'Write' then
         result := 'fmt.Print'

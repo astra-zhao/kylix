@@ -1,10 +1,48 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-07-18
-> 当前版本: v5.2.0 已发布
+> 最后更新: 2026-07-19
+> 当前版本: v5.3.0 已发布
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
+
+---
+
+## ✅ v5.3.0 修复：自举编译器 round-trip 打通 + 自繁殖
+
+**症状**：v5.2.0 打通自举「构建」（`src/*.klx` → `kylix_self`），但 `kylix_self2`（自举产出的编译器）构建成功却运行产出空/错误——自举 `generator.klx` 的 codegen 保真度缺口。
+
+**诊断**：自举 7 文件产出 `self_7.go` 全量 `go build` 仅 4 个错误（`Args`×3 + `os`×1）。自举源码不实际用 match/try/async/插值/lambda/注解/stdlib 模块（只在 token.klx 关键字表，是数据非代码）。故 G1–G27 大缺口不阻断自举自编译 round-trip。
+
+**修复**（三处，都在 `src/generator.klx`，宿主 `generator/` 包零改动）：
+- **`Args` builtin**：`MapBuiltinFunction` 加 `Args`→`os.Args[1:]`（main.klx 命令行参数）。
+- **条件导入**：`GenerateImports` 硬编码 fmt/strings/strconv → 末尾组装（`CollectImports` 手写 `StrContains` 扫描 body 前缀设 `Need*` 标志，`BuildImportBlock` 按标志构造）。扫描 needle 拆分 `'fmt'+'.'` 避免编译器扫描自己输出时自检测（CollectImports 字面量 `"fmt."` 永远命中 → math/rand 假阳性未使用导入）。
+- **字符串转义（G14）**：`WriteEscapedGoString` 逐字符转义把 `\n` 反斜杠加倍成 `\\n`（字面 backslash-n 而非真换行）→ 2-char 前瞻，`\n`/`\t`/`\r` 序列不加倍反斜杠。这是 round-trip 关键运行时 bug——gen1（宿主编译）的 `'\n'` 由宿主正确发射，但 gen2（自举编译）经自举 WriteEscapedGoString 发成字面 `\n` 致 `invalid character U+005C`。
+
+**验证**：`kylix_self2` 编译 hello.klx → 可运行 Go 输出 `Hello, World!`；`kylix_self3`（kylix_self2 重新编译 src/*.klx）自繁殖同样正确；`self_7.go` 与 `self_7_gen2.go` 均 5390 行（接近不动点）。宿主 go test / 教程无回归（host 代码未改）。
+
+---
+
+## 🟠 v5.4 自举编译器通用 codegen 缺口（不阻断自举自编译）
+
+v5.3 让自举编译器能正确编译**自举源码自身用到的特性子集**。自举源码不用的特性仍 stub/缺失——这些只影响「自举编译器编译用了这些特性的*其它*程序」，留 v5.4。详见 v5.3 规划期的 `src/generator.klx` 缺口清单（G1–G27）。
+
+| 缺口 | 描述 | generator.klx 位置 | 宿主对应 | 状态 |
+|------|------|---------------------|---------|------|
+| G2 | 字符串插值 `` `Hello ${name}` `` 未实现 | GenerateExpression 无 TStringInterpolation 分支 | generator_expr.go:25-26 + generator.go:400-429 | 🟠 v5.4 |
+| G7 | match 语句用 `switch expr`（Go case 不接受模式） | :1190-1223 | generator_stmt.go:348-405 | 🟠 v5.4 |
+| G8 | try/except 缺 FinallyBlock/re-raise/nameMap | :1225-1272 | generator_stmt.go:408-490 | 🟠 v5.4 |
+| G11 | lambda/await/tuple 表达式未处理 | GenerateExpression 缺分支 | generator_expr.go:101-124,276-324 | 🟠 v5.4 |
+| G15 | async 函数未实现 | GenerateFunctionDecl 无 IsAsync 分支 | generator_types.go:334-336,408-455 | 🟠 v5.4 |
+| G16 | variant 类型未处理 | GenerateTypeExpression 缺 TVariantType | generator_types.go:241-264 | 🟠 v5.4 |
+| G6 | 多返回值链断裂 | GenerateFunctionDecl/Assignment/Return | generator_stmt.go:175-206,506-524 | 🟠 v5.4 |
+| G3 | stdlib 模块派发（uses web/orm/jsonutil/...）未实现 | 无 resolveStdlibFunc | generator_stdlib.go | 🟠 v5.4 |
+| G22-G24 | KylixBoot/Validation/ORM 注解自动装配未实现 | 无 | generator_*_annotations.go | 🟠 v5.4 |
+| G1/G5/G25 | CollectClassTypes 空（ClassIsBase/ClassFields 未填充） | :199-208 | generator.go:438-472 | 🟠 v5.4（自举源码不用多态构造/基类，故自编译不触发；但编译其它有多态程序时会触发） |
+| G4 | MapBuiltinFunction 仅映射 13/31 项（缺 math/rand/Copy/Pos/Trim 等） | :1671-1701 | generator_types.go:660-727 | 🟠 v5.4 |
+| G10 | TFloatLiteral 硬编码 `0.0` | :1326 | generator_expr.go:22 | 🟠 v5.4 |
+| G17 | GenerateFunctionDecl/ClassDecl 不跳过 Body==nil 前向声明 | :408-412,763 | generator_types.go:91-93,325-327 | 🟠 v5.4 |
+| G19 | 无 //line 指令 | 全文 | generator.go:391-396 | 🟠 v5.4（调试体验，非正确性） |
 
 ---
 

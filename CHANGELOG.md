@@ -4,6 +4,36 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v5.3.0 (2026-07-19) — 自举编译器 round-trip 打通（条件导入 + 字符串转义 + 自繁殖）
+
+> 🎯 **自举编译器完成完整 round-trip**：`kylix_self2`（自举产出的编译器）能正确编译程序，且**自繁殖**——`kylix_self2` 重新编译 `src/*.klx` 得到 `kylix_self3`，后者同样能正确编译程序。编译器能编译自己。v5.2.0 只打通「构建」（自举源码 → 可运行 `kylix_self`）；v5.3.0 打通「运行时正确性」——自举编译器产出的编译器功能正确。
+
+### 验收（端到端实测）
+
+- **hello round-trip**：`kylix_self2` 编译 `hello.klx` → 产出的 Go `go build` → 运行输出 `Hello, World!`。
+- **自繁殖**：`kylix_self2` → `src/*.klx` → `self_7_gen2.go`（5390 行）→ `go build` → `kylix_self3` → `kylix_self3` 编译 `hello.klx` 输出正确。`self_7.go`（gen1）与 `self_7_gen2.go`（gen2）行数一致（5390），自举接近不动点。
+- 宿主 `generator/` 包**零改动**（所有修改在自举源码 `src/generator.klx`，是被编译对象）→ go test / 教程无回归。
+
+### 三处修复（都在 `src/generator.klx`）
+
+诊断发现自举 7 文件产出 `self_7.go` 全量 `go build` 仅 4 个错误（`Args`×3 + `os`×1），自举源码不实际用 match/try/async/插值/lambda/注解/stdlib 模块（只在 token.klx 关键字表）。故 G1–G27 大缺口不阻断自举自编译 round-trip，只修了实际阻断项 + 一个运行时 bug：
+
+- **`Args` builtin（G4 局部）**：`MapBuiltinFunction` 加 `Args`→`os.Args[1:]` 分支。`main.klx` 用 `Length(Args)`/`Args[i]` 读命令行参数，此前自举 generator 不映射 `Args` → 产 `undefined: Args`。
+- **条件导入（G3 局部）**：`GenerateImports` 硬编码 `fmt`/`strings`/`strconv` → 对只用 `fmt` 的程序（hello）产生未使用导入。改为**末尾组装**：body 先写进 `self.Output`，`CollectImports` 用手写 `StrContains`（避开 `Pos`——宿主把 `Pos`→`strings.Index` 有参数顺序/语义 bug，自举作者刻意回避；用 `Length`+0-based 切片）扫描 body 前缀设 `Need*` 标志，`BuildImportBlock` 按标志构造导入块，`Generate`/`GenerateMulti` 末尾组装 `package main + 导入块 + body`。
+  - **自检测 bug 修复**：扫描 needle 拆成拼接（`'fmt' + '.'`）——否则编译器扫描自己的输出时，CollectImports 的扫描条件字面量 `"fmt."` 永远命中 → 所有 `Need*` 恒真 → math/rand 等未用包假阳性。拆分后生成的 Go 源含 `"fmt" + "."` 分离 token（不含 `fmt.` 子串），不自检测；真实引用（`fmt.Println`、`os.Args[1:]`）仍正确命中。
+- **字符串转义（G14）**：`WriteEscapedGoString` 逐字符转义把 `\n` 的反斜杠加倍成 `\\n` → 自举编译器产出的 Go 含字面 `\n`（backslash-n）而非真换行 → `invalid character U+005C '\'`。改用 2-char 前瞻：`\n`/`\t`/`\r` 序列不加倍反斜杠（保持为 Go 转义），反斜杠+其它字符或末尾孤立反斜杠仍加倍。这是自举 round-trip 的关键运行时 bug——gen1（宿主编译）的 `'\n'` 由宿主正确发射，但 gen2（自举编译）经自举 WriteEscapedGoString 发成字面 `\n`。
+
+### 验证
+
+- `go build -o /tmp/kylix_bin ./cmd/kylix/` 退出 0（宿主不变）。
+- 自举构建链：宿主 → `src/*.klx` → `kylix_self`（0 错）→ `src/*.klx` → `self_7.go`（5390 行，0 错）→ `kylix_self2`（2.9MB）→ `hello.klx` → 可运行 Go → `Hello, World!`。
+- 自繁殖：`kylix_self2` → `src/*.klx` → `kylix_self3` → 编译 `hello.klx` 输出正确。
+- 文件行数：`src/generator.klx` 1702 → ~1820（增 ~120 行）。
+
+### 范围与限制
+
+v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子集**（类/继承/is-as/数组/for/if/WriteLn/ReadFile/append/字符串拼接 + Args）。自举源码不用的特性（字符串插值、match、try/except、lambda、async、注解、stdlib 模块派发、variant、多返回值）仍 stub/缺失——这些是 G2/G7/G8/G11/G15/G16/G22-G24/G6 等，留 v5.4（让自举编译器能编译用了这些特性的*其它*程序）。
+
 ## v5.2.0 (2026-07-18) — 自举编译器构建打通（多态基类 opt-in interface codegen + Args builtin）
 
 > 🎯 **自举编译器源码 `src/*.klx`（7 文件、5250 行）首次构建成可运行的 `kylix_self` 二进制**。此前转译产物 `go build` 失败 208 个错误：130×`is`/`as` 类型断言作用在 struct 指针基类变量上（Go 断言要求 interface）、~75×子类实例无法赋值/追加到基类类型容器（无多态）、1×切片协变、3×`Args` builtin 缺失。根因：Go 后端把所有类发射成普通 struct + 嵌入父 struct——给字段继承但无多态；`classIsBase` map 早在 `collectClassTypes` 填充但 v3.1.0（KLX-C01）回退后从不读取（死代码）。
