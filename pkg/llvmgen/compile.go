@@ -177,14 +177,19 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 
 	if !cachedHit {
 		llcArgs := []string{"-filetype=obj"}
-		if opts.OptLevel != "" {
-			// LLVM 22 doesn't accept letter levels (s/z) on llc directly; clamp them.
-			switch opts.OptLevel {
-			case "0", "1", "2", "3":
-				llcArgs = append(llcArgs, "-O="+opts.OptLevel)
-			default:
-				llcArgs = append(llcArgs, "-O=2")
-			}
+		// v5.4.0: force -O0 when no explicit level — LLVM 22 llc defaults to
+		// -O2 (the full optimization pipeline), which mis-optimizes the vtable
+		// load sequence (folding obj[0]=vtable-ptr + vtable[idx] into obj[idx*8],
+		// corrupting indirect calls). -O0 keeps the IR's explicit load/GEP steps.
+		optLevel := opts.OptLevel
+		if optLevel == "" {
+			optLevel = "0"
+		}
+		switch optLevel {
+		case "0", "1", "2", "3":
+			llcArgs = append(llcArgs, "-O="+optLevel)
+		default:
+			llcArgs = append(llcArgs, "-O=2")
 		}
 		llcArgs = append(llcArgs, "-o", objFile, irFile)
 		llcCmd := exec.Command(llvmPaths.LLC, llcArgs...)

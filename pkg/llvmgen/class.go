@@ -630,6 +630,24 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 		}
 	}
 
+	// v5.4.0: call the user-defined Create method (if any) to initialize fields
+	// (e.g. TGenerator.Create sets Output/Indent/...). Without this the object's
+	// fields stay garbage after malloc, crashing on first use (e.g. strlen(null)
+	// on an uninitialized String field in WriteLine).
+	hasCreate := false
+	for _, m := range info.Methods {
+		if m.Name == "Create" {
+			hasCreate = true
+			break
+		}
+	}
+	if _, ok := g.funcSigs[className+".Create"]; ok {
+		hasCreate = true
+	}
+	if hasCreate {
+		g.line(fmt.Sprintf("  call void @%s_Create(ptr %s)", className, allocReg))
+	}
+
 	return allocReg, nil
 }
 

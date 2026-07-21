@@ -97,6 +97,15 @@ func (g *Generator) loadObjectPtr(obj ast.Expression, typeName string) (string, 
 	}
 	// `self` is registered as "%self" (a function parameter, already a ptr);
 	// other locals are "%v_name" allocas that need a load to dereference.
+	// v5.4.0: a global (`@__kylix_g_*`) stores the object pointer — load it
+	// into a fresh register so downstream GEP/load use the object, not the
+	// global address (which llc could mis-optimize by forward-substituting the
+	// global's stored value and conflating object/vtable offsets).
+	if strings.HasPrefix(alloca, "@__kylix_g_") {
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", r, alloca))
+		return r, "ptr", nil
+	}
 	if !strings.HasPrefix(alloca, "%v_") {
 		return alloca, "ptr", nil
 	}
