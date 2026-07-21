@@ -340,6 +340,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
+	g.registerGlobalsInScope() // v5.4.0: make globals visible in this lambda
 	g.funcName = fmt.Sprintf("__lambda_%d", pl.id)
 
 	envT := envTypeLiteral(pl.captures)

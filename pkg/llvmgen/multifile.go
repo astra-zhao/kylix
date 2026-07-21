@@ -99,6 +99,7 @@ func MergePrograms(programs []*ast.Program) (*ast.Program, error) {
 		Uses:         uses,
 		Declarations: decls,
 		Statements:   main.Statements,
+		IsMerged:     true, // v5.4.0: signal multi-file → top-level vars become globals
 	}
 	return merged, nil
 }

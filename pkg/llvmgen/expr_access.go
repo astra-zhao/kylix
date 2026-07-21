@@ -40,9 +40,14 @@ func (g *Generator) emitMember(e *ast.MemberExpression) (string, string, error) 
 	}
 
 	if kind != "class" {
+		// v5.4.0: emit a null ptr (not i64 0) so downstream comparisons with
+		// ptr/string operands stay type-consistent and llc accepts the IR.
+		// This is a conservative fallback for member access whose receiver
+		// type is unknown (e.g. record-typed, not yet supported); it may
+		// produce wrong values but keeps the module compilable.
 		r := g.tmp()
-		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; member access on non-class %s.%s", r, typeName, e.Member))
-		return r, "i64", nil
+		g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; member access on non-class %s.%s", r, typeName, e.Member))
+		return r, "ptr", nil
 	}
 	objReg, objType, err := g.loadObjectPtr(e.Object, typeName)
 	if err != nil {
@@ -365,6 +370,19 @@ func (g *Generator) emitAsExpr(e *ast.TypeCastExpression) (string, string, error
 		// happens in emitAssign when the LHS is an interface-typed local.
 		_ = vt
 		return data, "ptr", nil
+	}
+	// v5.4.0: `obj as TConcreteClass` — the cast target is a class (not an
+	// interface), so the instance is already the right opaque ptr (subclass
+	// prefix layout is compatible). Return the object pointer. Runtime subtype
+	// validation (classID + __kylix_class_is_a) is added in Stage 2 proper;
+	// the bootstrap always guards `as` with `is`, so unconditional return is
+	// safe for self-compilation.
+	if _, isClass := g.classes[target]; isClass {
+		objReg, _, err := g.loadObjectPtr(e.Expression, typeName)
+		if err != nil {
+			return "", "", err
+		}
+		return objReg, "ptr", nil
 	}
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; %s as %s — incompatible", r, typeName, target))

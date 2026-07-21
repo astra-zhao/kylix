@@ -2,6 +2,7 @@ package llvmgen
 
 import (
 	"fmt"
+	"strings"
 
 	"kylix/ast"
 )
@@ -71,6 +72,111 @@ func (g *Generator) emitMapIndexGet(idx *ast.IndexExpression) (string, string, e
 		return r, variantT, nil
 	}
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", r, tbl, keyReg))
+	mr, mt2 := g.mapReadResult(r, idx.Left)
+	return mr, mt2, nil
+}
+
+// mapReadResult converts a raw htab_get result (ptr) to the map's value type
+// when the value isn't a string (e.g. Integer/enum → atoll → i64). v5.4.0.
+func (g *Generator) mapReadResult(rawReg string, left ast.Expression) (string, string) {
+	vt := g.mapValueKylixType(left)
+	if g.isIntegerLikeType(vt) {
+		g.needAtoll = true
+		conv := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", conv, rawReg))
+		return conv, "i64"
+	}
+	return rawReg, "ptr"
+}
+
+// isIntegerLikeType reports whether a Kylix type name is an integer/enum type
+// (so map values of that type should be atoll-converted on read). v5.4.0.
+func (g *Generator) isIntegerLikeType(t string) bool {
+	switch strings.ToLower(t) {
+	case "integer", "int", "int64", "longint", "word", "cardinal", "byte":
+		return true
+	}
+	if t == "" {
+		return false
+	}
+	if _, isClass := g.classes[t]; isClass {
+		return false
+	}
+	if g.records[t] {
+		return false
+	}
+	if strings.HasPrefix(t, "T") {
+		return true // enum (T-prefixed, not class/record)
+	}
+	return false
+}
+
+// mapValueKylixType resolves the value type name for a map index expression's
+// target (local/param map via globalMapValueTypes, or class field map).
+// v5.4.0.
+func (g *Generator) mapValueKylixType(left ast.Expression) string {
+	if left == nil {
+		return ""
+	}
+	if ident, ok := left.(*ast.Identifier); ok {
+		if vt, ok := g.globalMapValueTypes[ident.Value]; ok {
+			return vt
+		}
+		return "String"
+	}
+	if member, ok := left.(*ast.MemberExpression); ok {
+		kind, tn := g.receiverKind(member.Object)
+		if kind == "class" {
+			if info, ok := g.classes[tn]; ok {
+				for _, f := range info.Fields {
+					if f.Name == member.Member && f.MapType != nil {
+						return typeExprName(f.MapType.ValueType)
+					}
+				}
+			}
+		}
+	}
+	return "String"
+}
+
+// emitMapFieldIndexGet handles obj.Field[key] for a map-typed class field → load
+// the htab handle from the field slot, then htab_get. v5.4.0.
+//
+// Array-valued maps (map[K]array of T): the LLVM htab stores string→string, so
+// it cannot represent slice values. The bootstrap only reads (never writes)
+// these maps (e.g. TGenerator.ClassFields), so they're always empty — return a
+// zero slice, the correct "absent" value, so Length(fields)=0 and indexing is
+// skipped.
+func (g *Generator) emitMapFieldIndexGet(typeName, objReg, fieldName string, mt *ast.MapType, idx *ast.IndexExpression) (string, string, error) {
+	if mt != nil {
+		if _, ok := mt.ValueType.(*ast.ArrayType); ok {
+			// v5.4.0: return a zero slice SSA struct value (not an alloca ptr)
+			// so downstream `store {ptr,i64,i64} %v` is well-typed.
+			z := g.tmp()
+			g.line(fmt.Sprintf("  %s = insertvalue { ptr, i64, i64 } undef, ptr null, 0", z))
+			return z, "{ ptr, i64, i64 }", nil
+		}
+	}
+	fieldAddr, _, err := g.emitFieldStore(typeName, objReg, fieldName)
+	if err != nil {
+		return "", "", err
+	}
+	tbl := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", tbl, fieldAddr))
+	keyReg, _, err := g.emitExpr(idx.Index)
+	if err != nil {
+		return "", "", err
+	}
+	g.needHashtab = true
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", r, tbl, keyReg))
+	// v5.4.0: typed map field reads — convert to the value type (e.g. enum→i64).
+	if mt != nil && g.isIntegerLikeType(typeExprName(mt.ValueType)) {
+		g.needAtoll = true
+		conv := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", conv, r))
+		return conv, "i64", nil
+	}
 	return r, "ptr", nil
 }
 

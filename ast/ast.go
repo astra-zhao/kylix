@@ -33,6 +33,12 @@ type Program struct {
 	// base classes are emitted as Go interfaces (enabling polymorphism) or as
 	// plain structs (enabling field inheritance via embedding). See v5.2.0.
 	UsesPolymorphism bool
+	// IsMerged is true when this Program was produced by merging multiple
+	// source files (units + program). The LLVM backend uses it to emit
+	// top-level VarDecls as module-level globals (so unit vars like
+	// token.Keywords are visible to every function, not just main). Single-file
+	// programs keep top-level vars as main-local allocas. v5.4.0.
+	IsMerged bool
 }
 
 func (p *Program) TokenLiteral() string { return p.Name }

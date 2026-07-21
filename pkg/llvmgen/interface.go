@@ -144,7 +144,21 @@ func (g *Generator) interfaceMethodCount(ifaceName string) int {
 func (g *Generator) receiverKind(obj ast.Expression) (kind, typeName string) {
 	ident, ok := obj.(*ast.Identifier)
 	if !ok {
-		return "", ""
+		// v5.4.0: handle member-access chains (X.Y.Z) — resolve the object's
+		// Kylix type via exprKylixType (which recurses through field accesses),
+		// then classify as class/interface. Previously non-Identifier receivers
+		// returned ""/"", breaking `X.Y.Field[i]` and `X.Y.Method()`.
+		t := g.exprKylixType(obj)
+		if t == "" {
+			return "", ""
+		}
+		if _, isClass := g.classes[t]; isClass {
+			return "class", t
+		}
+		if _, isIface := g.interfaces[t]; isIface {
+			return "interface", t
+		}
+		return "", t
 	}
 	t, ok := g.localTypes[ident.Value]
 	if !ok {

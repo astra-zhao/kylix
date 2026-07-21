@@ -46,6 +46,37 @@ func typeExprName(expr ast.Expression) string {
 	return expr.TokenLiteral()
 }
 
+// llvmTypeOfExpr maps a Kylix AST type expression to its LLVM IR type.
+// v5.4.0: handles array of T (dynamic slice {ptr,i64,i64} / static [N x elem]),
+// map[K]V (htab handle → ptr), and class types (ptr) directly from the AST.
+// This supersedes the LLVMType(typeExprName(...)) pattern, which collapsed
+// `array of T` and class types to the i64 fallback (the root cause of the
+// "variable progs is not an array" bootstrap error and class-param i64 bugs).
+func (g *Generator) llvmTypeOfExpr(expr ast.Expression) string {
+	if expr == nil {
+		return "i64"
+	}
+	switch t := expr.(type) {
+	case *ast.ArrayType:
+		if t.Dynamic {
+			return "{ ptr, i64, i64 }"
+		}
+		size := int64(1)
+		if t.Size != nil {
+			size = evalConstInt(t.Size)
+		}
+		return fmt.Sprintf("[%d x %s]", size, g.llvmTypeOfExpr(t.ElementType))
+	case *ast.MapType:
+		return "ptr" // htab handle
+	case *ast.Identifier:
+		if _, ok := g.classes[t.Value]; ok {
+			return "ptr"
+		}
+		return LLVMType(t.Value)
+	}
+	return LLVMType(typeExprName(expr))
+}
+
 // emitExpr generates code for an expression, returning the SSA register holding the result.
 // Returns ("", type, error).
 func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, err error) {
@@ -125,16 +156,16 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 		return g.emitLambda(e)
 
 	case *ast.ArrayLiteral:
-		// Array literals — allocate a heap buffer and store each element.
-		// Conservative: uses i64 element type for all literals.
-		n := len(e.Elements)
-		size := int64(8 * (n + 1)) // +1 for length word
+		// v5.4.0: array literal → {ptr,len,cap} slice struct value (SSA, via
+		// insertvalue — not an alloca ptr, so downstream `store {ptr,i64,i64} %v`
+		// works directly for both call-returned slices and literals).
+		n := int64(len(e.Elements))
+		bufSize := int64(8 * (n + 1))
 		buf := g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", buf, size))
-		// store length at index 0
+		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", buf, bufSize))
 		lenPtr := g.tmp()
 		g.line(fmt.Sprintf("  %s = getelementptr inbounds i64, ptr %s, i64 0", lenPtr, buf))
-		g.line(fmt.Sprintf("  store i64 %d, ptr %s", int64(n), lenPtr))
+		g.line(fmt.Sprintf("  store i64 %d, ptr %s", n, lenPtr))
 		for i, elem := range e.Elements {
 			v, _, err := g.emitExpr(elem)
 			if err != nil {
@@ -144,7 +175,14 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 			g.line(fmt.Sprintf("  %s = getelementptr inbounds i64, ptr %s, i64 %d", ep, buf, int64(i+1)))
 			g.line(fmt.Sprintf("  store i64 %s, ptr %s", v, ep))
 		}
-		return buf, "ptr", nil
+		// Build slice struct via insertvalue (SSA value, not alloca).
+		sliceVal := g.tmp()
+		g.line(fmt.Sprintf("  %s = insertvalue { ptr, i64, i64 } undef, ptr %s, 0", sliceVal, buf))
+		sliceVal2 := g.tmp()
+		g.line(fmt.Sprintf("  %s = insertvalue { ptr, i64, i64 } %s, i64 %d, 1", sliceVal2, sliceVal, n))
+		sliceVal3 := g.tmp()
+		g.line(fmt.Sprintf("  %s = insertvalue { ptr, i64, i64 } %s, i64 %d, 2", sliceVal3, sliceVal2, n))
+		return sliceVal3, "{ ptr, i64, i64 }", nil
 
 	case *ast.SliceExpression:
 		// String slice s[start:end] — allocate a new buffer, memcpy the
@@ -223,6 +261,37 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 		return g.emitExpr(constExpr)
 	}
 
+	// v5.4.0: the `result` variable is the function's return slot — its alloca
+	// type is the return type (tracked in resultLLVMType), not inferable from a
+	// suffix since it's named "%result" (no _int/_bool/etc).
+	if name == "result" && g.resultLLVMType != "" {
+		llvmT := g.resultLLVMType
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = load %s, ptr %%result", r, llvmLoadType(llvmT)))
+		return r, llvmT, nil
+	}
+
+	// v5.4.0: Args builtin — the command-line arguments (excluding argv[0]).
+	// Returns a {ptr,len,cap} slice loaded from the @__kylix_args global, which
+	// main() populates from argc/argv. Registered in arrayInfo so Length(Args)
+	// and Args[i] work.
+	if name == "Args" {
+		g.needArgs = true
+		g.arrayInfo["Args"] = &arrayInfo{IsDynamic: true, ElementType: "ptr", ElementKylixType: "String"}
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = load { ptr, i64, i64 }, ptr @__kylix_args", r))
+		return r, "{ ptr, i64, i64 }", nil
+	}
+
+	// v5.4.0: global variable — load from its @__kylix_g_<name> symbol (the
+	// type is tracked in globalTypes, since globals have no alloca-name suffix).
+	if sym, ok := g.globals[name]; ok {
+		llvmT := g.globalTypes[name]
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = load %s, ptr %s", r, llvmLoadType(llvmT), sym))
+		return r, llvmT, nil
+	}
+
 	allocaReg, ok := g.locals[name]
 	if !ok {
 		r := g.tmp()
@@ -237,12 +306,22 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 		llvmT = "double"
 	} else if strings.HasSuffix(allocaReg, "_str") {
 		llvmT = "ptr"
+	} else if strings.HasSuffix(allocaReg, "_dyn") {
+		// v5.4.0: dynamic-array (slice) local/param — load the {ptr,len,cap}
+		// struct (e.g. when passing a slice to another function).
+		llvmT = "{ ptr, i64, i64 }"
 	} else if strings.HasSuffix(allocaReg, "_map") {
 		llvmT = "ptr"
 	} else if strings.HasSuffix(allocaReg, "_var") {
 		// v5.0.0: Variant local — load the box pointer; downstream
 		// emitInfix/emitWriteLn recognize the "variant" pseudo-type.
 		llvmT = variantT
+	} else if kylixT, ok := g.localTypes[name]; ok {
+		// v5.4.0: no-suffix alloca (class-typed local/param declared with
+		// `var x: TFoo` or a class param) — hold a ptr to the heap instance.
+		if _, isClass := g.classes[kylixT]; isClass {
+			llvmT = "ptr"
+		}
 	}
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = load %s, ptr %s", r, llvmLoadType(llvmT), allocaReg))
@@ -294,6 +373,17 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 	// (Pascal `+` on strings concatenates; numeric `+` adds.)
 	if e.Operator == "+" && (lt == "ptr" || rt == "ptr") {
 		return g.emitStringConcat(lv, rv), "ptr", nil
+	}
+
+	// v5.4.0: emitMember returns a Kylix class name (e.g. "TExpression") as the
+	// llvmType for class-typed fields so downstream method dispatch resolves the
+	// receiver. For arithmetic/comparison ops, normalize it to "ptr" (the actual
+	// LLVM type) so type-based dispatch (isFloat, icmp, ptr-compare) works.
+	if _, isClass := g.classes[lt]; isClass {
+		lt = "ptr"
+	}
+	if _, isClass := g.classes[rt]; isClass {
+		rt = "ptr"
 	}
 
 	// Coerce mixed int/double operands to a common type (double wins) so
@@ -366,6 +456,9 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 	case "=":
 		if isFloat {
 			g.line(fmt.Sprintf("  %s = fcmp oeq double %s, %s", r, lv, rv))
+		} else if lt == "i1" || rt == "i1" {
+			// v5.4.0: Boolean comparison — operands are i1, not i64.
+			g.line(fmt.Sprintf("  %s = icmp eq i1 %s, %s", r, lv, rv))
 		} else {
 			g.line(fmt.Sprintf("  %s = icmp eq i64 %s, %s", r, lv, rv))
 		}
@@ -373,6 +466,9 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 	case "<>":
 		if isFloat {
 			g.line(fmt.Sprintf("  %s = fcmp one double %s, %s", r, lv, rv))
+		} else if lt == "i1" || rt == "i1" {
+			// v5.4.0: Boolean comparison — operands are i1, not i64.
+			g.line(fmt.Sprintf("  %s = icmp ne i1 %s, %s", r, lv, rv))
 		} else {
 			g.line(fmt.Sprintf("  %s = icmp ne i64 %s, %s", r, lv, rv))
 		}
@@ -522,6 +618,85 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		funcName = ident.Value
 	}
 
+	// v5.4.0: Ord(s) builtin — return the ASCII code of the first char (0 if empty).
+	if funcName == "Ord" && len(e.Arguments) == 1 {
+		s, _, err := g.emitExpr(e.Arguments[0])
+		if err != nil {
+			return "", "", err
+		}
+		ch := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i8, ptr %s", ch, s))
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = zext i8 %s to i64", r, ch))
+		return r, "i64", nil
+	}
+
+	// v5.4.0: StrToInt64(s) → atoll(s) (i64); StrToFloat(s) → strtod(s, nil) (double).
+	if (funcName == "StrToInt64" || funcName == "StrToFloat") && len(e.Arguments) == 1 {
+		s, _, err := g.emitExpr(e.Arguments[0])
+		if err != nil {
+			return "", "", err
+		}
+		if funcName == "StrToInt64" {
+			g.needAtoll = true
+			r := g.tmp()
+			g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", r, s))
+			return r, "i64", nil
+		}
+		g.needStrtod = true
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = call double @strtod(ptr %s, ptr null)", r, s))
+		return r, "double", nil
+	}
+
+	// v5.4.0: ReadFile(path) builtin — read a file into a heap-allocated,
+	// null-terminated string. The bootstrap reads .klx sources with this.
+	// Implemented with libc fopen/fseek/ftell/malloc/fread so it works without
+	// a Go stdlib. Returns "" (empty ptr to a NUL) on failure.
+	if funcName == "ReadFile" && len(e.Arguments) == 1 {
+		path, _, err := g.emitExpr(e.Arguments[0])
+		if err != nil {
+			return "", "", err
+		}
+		g.needReadFile = true
+		mode := g.addString("r")
+		modePtr := g.ptrTo(mode, 2)
+		fp := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @fopen(ptr %s, ptr %s)", fp, path, modePtr))
+		// If fopen fails, return empty string.
+		nullCk := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", nullCk, fp))
+		emptyStr := g.addString("")
+		emptyPtr := g.ptrTo(emptyStr, 1)
+		retReg := g.tmp()
+		g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", retReg, nullCk, emptyPtr, emptyPtr))
+		okLbl := g.label()
+		exitLbl := g.label()
+		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", nullCk, exitLbl, okLbl))
+		g.line(fmt.Sprintf("%s:", okLbl))
+		g.line(fmt.Sprintf("  call i32 @fseek(ptr %s, i64 0, i32 2)", fp)) // SEEK_END=2
+		sizeReg := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @ftell(ptr %s)", sizeReg, fp))
+		g.line(fmt.Sprintf("  call i32 @fseek(ptr %s, i64 0, i32 0)", fp)) // SEEK_SET=0
+		allocSize := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, 1", allocSize, sizeReg))
+		buf := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, allocSize))
+		readN := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @fread(ptr %s, i64 1, i64 %s, ptr %s)", readN, buf, sizeReg, fp))
+		_ = readN
+		term := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", term, buf, sizeReg))
+		g.line(fmt.Sprintf("  store i8 0, ptr %s", term))
+		g.line(fmt.Sprintf("  call i32 @fclose(ptr %s)", fp))
+		g.line(fmt.Sprintf("  store ptr %s, ptr %s", buf, retReg))
+		g.line(fmt.Sprintf("  br label %%%s", exitLbl))
+		g.line(fmt.Sprintf("%s:", exitLbl))
+		res := g.tmp()
+		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", res, retReg))
+		return res, "ptr", nil
+	}
+
 	// Bare-name stdlib call: `ReadFile(...)` (no `sysutil.` qualifier) resolved
 	// to an imported module. User-defined functions (in funcSigs) take
 	// precedence, matching the Go backend's resolveStdlibFunc behavior.
@@ -587,6 +762,74 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		return g.emitLength(e.Arguments[0])
 	}
 
+	// v5.4.0: append(slice, elem) → new {ptr,len,cap} slice with elem appended.
+	// Grows capacity (doubling) via realloc when len==cap. Returns an SSA slice
+	// struct value. The bootstrap appends to dynamic arrays pervasively
+	// (Errors, Declarations, Statements, ...).
+	if funcName == "append" && len(e.Arguments) == 2 {
+		return g.emitAppend(e.Arguments[0], e.Arguments[1])
+	}
+
+	// v5.4.0: LowerCase(s)/UpperCase(s) → ptr to a heap-allocated lower/upper
+	// copy (via libc tolower/toupper per char). The bootstrap uses these for
+	// keyword matching (LookupIdent).
+	if (funcName == "LowerCase" || funcName == "UpperCase") && len(e.Arguments) == 1 {
+		src, _, err := g.emitExpr(e.Arguments[0])
+		if err != nil {
+			return "", "", err
+		}
+		g.needToLower = true
+		// strlen(src) + 1 for the new buffer.
+		n := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr noundef %s)", n, src))
+		sizeReg := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, 1", sizeReg, n))
+		buf := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, sizeReg))
+		fn := "tolower"
+		if funcName == "UpperCase" {
+			fn = "toupper"
+		}
+		// Loop i from 0 to n, copying each char lower/upper-cased.
+		i := g.tmp()
+		g.line(fmt.Sprintf("  %s = alloca i64, align 8", i))
+		g.line(fmt.Sprintf("  store i64 0, ptr %s", i))
+		header := g.label()
+		body := g.label()
+		exit := g.label()
+		g.line(fmt.Sprintf("  br label %%%s", header))
+		g.line(fmt.Sprintf("%s:", header))
+		icur := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i64, ptr %s", icur, i))
+		cond := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp slt i64 %s, %s", cond, icur, n))
+		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", cond, body, exit))
+		g.line(fmt.Sprintf("%s:", body))
+		srcp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", srcp, src, icur))
+		ch := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i8, ptr %s", ch, srcp))
+		chext := g.tmp()
+		g.line(fmt.Sprintf("  %s = zext i8 %s to i32", chext, ch))
+		res := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i32 @%s(i32 %s)", res, fn, chext))
+		resc := g.tmp()
+		g.line(fmt.Sprintf("  %s = trunc i32 %s to i8", resc, res))
+		dstp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dstp, buf, icur))
+		g.line(fmt.Sprintf("  store i8 %s, ptr %s", resc, dstp))
+		inext := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, 1", inext, icur))
+		g.line(fmt.Sprintf("  store i64 %s, ptr %s", inext, i))
+		g.line(fmt.Sprintf("  br label %%%s", header))
+		g.line(fmt.Sprintf("%s:", exit))
+		// Null-terminate.
+		term := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", term, buf, n))
+		g.line(fmt.Sprintf("  store i8 0, ptr %s", term))
+		return buf, "ptr", nil
+	}
+
 	// Generic function call
 	sig := g.funcSigs[funcName]
 
@@ -600,7 +843,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		// Coerce the argument to match the declared parameter type (e.g. an
 		// Integer literal passed to a Real parameter needs sitofp).
 		if sig != nil && i < len(sig.Parameters) && sig.Parameters[i].Type != nil {
-			wantT := LLVMType(typeExprName(sig.Parameters[i].Type))
+			wantT := g.llvmTypeOfExpr(sig.Parameters[i].Type)
 			if wantT != t {
 				r, t = g.coerceValue(r, t, wantT)
 			}
@@ -614,7 +857,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		// Multi-return function: returns a struct.
 		retType = fmt.Sprintf("%%__ret_%s", funcName)
 	} else if sig != nil && sig.ReturnType != nil {
-		retType = LLVMType(typeExprName(sig.ReturnType))
+		retType = g.llvmTypeOfExpr(sig.ReturnType)
 	} else if sig != nil {
 		retType = "void"
 	}
@@ -774,6 +1017,55 @@ func (g *Generator) emitIntToStr(arg ast.Expression) (string, string, error) {
 }
 
 // emitLength returns the length of a string via strlen.
+// emitAppend lowers `append(slice, elem)` → new {ptr,len,cap} slice struct.
+// Conservative: allocates a new buffer of len+1, copies the old data, stores
+// the new element, returns a fresh slice (cap=len+1). Correct but not optimal.
+// v5.4.0.
+func (g *Generator) emitAppend(sliceArg, elemArg ast.Expression) (string, string, error) {
+	sliceVal, _, err := g.emitExpr(sliceArg)
+	if err != nil {
+		return "", "", err
+	}
+	elemReg, elemT, err := g.emitExpr(elemArg)
+	if err != nil {
+		return "", "", err
+	}
+	// Coerce Kylix class-name element type to ptr.
+	if _, isClass := g.classes[elemT]; isClass {
+		elemT = "ptr"
+	}
+	// Extract data/len from the slice struct (SSA value).
+	dataPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = extractvalue { ptr, i64, i64 } %s, 0", dataPtr, sliceVal))
+	oldLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = extractvalue { ptr, i64, i64 } %s, 1", oldLen, sliceVal))
+	newLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", newLen, oldLen))
+	// Element size: ptr/i64 = 8 bytes.
+	elemSize := int64(8)
+	newSize := g.tmp()
+	g.line(fmt.Sprintf("  %s = mul i64 %s, %d", newSize, newLen, elemSize))
+	newData := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", newData, newSize))
+	// memcpy old data (oldLen * elemSize bytes) if oldLen > 0.
+	oldBytes := g.tmp()
+	g.line(fmt.Sprintf("  %s = mul i64 %s, %d", oldBytes, oldLen, elemSize))
+	g.needMemcpy = true
+	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", newData, dataPtr, oldBytes))
+	// Store the new element at index oldLen.
+	elemSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds %s, ptr %s, i64 %s", elemSlot, elemT, newData, oldLen))
+	g.line(fmt.Sprintf("  store %s %s, ptr %s", elemT, elemReg, elemSlot))
+	// Build new slice struct.
+	s1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = insertvalue { ptr, i64, i64 } undef, ptr %s, 0", s1, newData))
+	s2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = insertvalue { ptr, i64, i64 } %s, i64 %s, 1", s2, s1, newLen))
+	s3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = insertvalue { ptr, i64, i64 } %s, i64 %s, 2", s3, s2, newLen))
+	return s3, "{ ptr, i64, i64 }", nil
+}
+
 func (g *Generator) emitLength(arg ast.Expression) (string, string, error) {
 	v, t, err := g.emitExpr(arg)
 	if err != nil {

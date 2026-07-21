@@ -23,6 +23,10 @@ import (
 type arrayInfo struct {
 	IsDynamic   bool
 	ElementType string // LLVM type, e.g. "i64", "double", "ptr"
+	// ElementKylixType is the Kylix type name of elements (v5.4.0), so that
+	// `arr[i].Method()` / `arr[i] is TFoo` can resolve the receiver type when
+	// the element is a class (e.g. array of TNode → elements are TNode).
+	ElementKylixType string
 	Size        int64  // for static arrays only
 	LowerBound  int64  // Pascal range lower bound (default 1)
 	// v5.0.0: IsVariant marks `array of Variant` — elements are box pointers
@@ -35,8 +39,10 @@ type arrayInfo struct {
 // Returns true if the type was an array; false otherwise.
 func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 	elemType := "i64"
+	elemKylix := ""
 	isVariant := false
 	if arr.ElementType != nil {
+		elemKylix = typeExprName(arr.ElementType)
 		// v5.0.0: detect Variant element → elements are box pointers (ptr),
 		// and flag IsVariant so index reads return the "variant" pseudo-type.
 		if isVariantTypeExpr(arr.ElementType) {
@@ -44,7 +50,10 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 			elemType = "ptr"
 			g.needVariantRuntime = true
 		} else {
-			elemType = LLVMType(typeExprName(arr.ElementType))
+			// v5.4.0: resolve element type via the AST (class elements → ptr,
+			// instead of the old LLVMType(typeExprName(...)) which fell back
+			// to i64 for every class/nested-array element).
+			elemType = g.llvmTypeOfExpr(arr.ElementType)
 		}
 	}
 
@@ -56,7 +65,7 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 		// Zero-init: data=null, len=0, cap=0
 		g.line(fmt.Sprintf("  store { ptr, i64, i64 } zeroinitializer, ptr %s", allocaReg))
 		g.locals[name] = allocaReg
-		g.arrayInfo[name] = &arrayInfo{IsDynamic: true, ElementType: elemType, IsVariant: isVariant}
+		g.arrayInfo[name] = &arrayInfo{IsDynamic: true, ElementType: elemType, ElementKylixType: elemKylix, IsVariant: isVariant}
 		return true
 	}
 
@@ -85,11 +94,12 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 
 	g.locals[name] = allocaReg
 	g.arrayInfo[name] = &arrayInfo{
-		IsDynamic:   false,
-		ElementType: elemType,
-		Size:        size,
-		LowerBound:  lb,
-		IsVariant:   isVariant,
+		IsDynamic:        false,
+		ElementType:      elemType,
+		ElementKylixType: elemKylix,
+		Size:             size,
+		LowerBound:       lb,
+		IsVariant:        isVariant,
 	}
 	return true
 }
@@ -98,10 +108,13 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 // Returns (resultReg, elementType, error). For assignment context, returns
 // the pointer register (use g.line to emit a store yourself).
 func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (string, string, error) {
-	// Class field array: self.Items[i] — Left is a MemberExpression whose
-	// Object is an identifier (self) and Member is the array field name.
-	// Resolve the field address (the [N x T] storage embedded in the struct)
-	// via emitFieldStore (GEP without load), then index into it.
+	// Class field array: self.Items[i] / rec.Fields[i] — Left is a
+	// MemberExpression whose Object is a class-typed identifier and Member is
+	// the array field name. Resolve the field address (the [N x T] static
+	// storage or the {ptr,len,cap} dynamic slice embedded in the struct) via
+	// emitFieldStore (GEP without load), then index into it.
+	// v5.4.0: handles dynamic array fields (slice GEP) in addition to static,
+	// and uses llvmTypeOfExpr so class elements resolve to ptr (not i64).
 	if member, ok := idx.Left.(*ast.MemberExpression); ok {
 		kind, typeName := g.receiverKind(member.Object)
 		if kind == "class" {
@@ -113,42 +126,90 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 			if err != nil {
 				return "", "", err
 			}
-			// The field is a static array embedded in the struct; its LLVM
-			// type is [N x T]. Look up array metadata from the class field
-			// (stored when buildClassInfo ran). For generics, the field type
-			// is already substituted to concrete (array[0..99] of Integer).
-			elemType := "i64"
-			arrSize := int64(0)
-			lb := int64(0)
+			// Look up the field's array/map metadata (recorded by buildClassInfo).
+			var at *ast.ArrayType
+			var mt *ast.MapType
 			if info, ok := g.classes[typeName]; ok {
 				for _, f := range info.Fields {
 					if f.Name == member.Member {
-						if at := f.ArrayType; at != nil {
-							if at.ElementType != nil {
-								elemType = LLVMType(typeExprName(at.ElementType))
-							}
-							if at.Size != nil {
-								arrSize = evalConstInt(at.Size)
-							}
-							if at.LowerBound != nil {
-								lb = evalConstInt(at.LowerBound)
-							}
-						}
+						at = f.ArrayType
+						mt = f.MapType
 						break
 					}
 				}
 			}
-			if arrSize == 0 {
-				arrSize = 1 // safety
+			if mt != nil {
+				// v5.4.0: map field obj.Field[key] → load the htab handle from the
+				// field slot, then htab_get(handle, key).
+				return g.emitMapFieldIndexGet(typeName, objReg, member.Member, mt, idx)
 			}
-			return g.emitStaticArrayGEP(fieldAddr, arrSize, elemType, lb, idx.Index, asLValue)
+			if at == nil {
+				return "", "", fmt.Errorf("class field %s.%s is not an array or map", typeName, member.Member)
+			}
+			elemT := "i64"
+			if at.ElementType != nil {
+				elemT = g.llvmTypeOfExpr(at.ElementType)
+			}
+			if at.Dynamic {
+				// Dynamic slice field {ptr,len,cap} embedded in the struct:
+				// load data ptr (offset 0), then GEP element.
+				idxReg, _, err := g.emitExpr(idx.Index)
+				if err != nil {
+					return "", "", err
+				}
+				zeroIdx := g.tmp()
+				lb := int64(0)
+				if at.LowerBound != nil {
+					lb = evalConstInt(at.LowerBound)
+				}
+				if lb != 0 {
+					g.line(fmt.Sprintf("  %s = sub i64 %s, %d", zeroIdx, idxReg, lb))
+				} else {
+					g.line(fmt.Sprintf("  %s = add i64 %s, 0", zeroIdx, idxReg))
+				}
+				dataPtrLoc := g.tmp()
+				g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr %s, i32 0, i32 0",
+					dataPtrLoc, fieldAddr))
+				dataPtr := g.tmp()
+				g.line(fmt.Sprintf("  %s = load ptr, ptr %s", dataPtr, dataPtrLoc))
+				ptr := g.tmp()
+				g.line(fmt.Sprintf("  %s = getelementptr inbounds %s, ptr %s, i64 %s",
+					ptr, elemT, dataPtr, zeroIdx))
+				if asLValue {
+					return ptr, elemT, nil
+				}
+				loaded := g.tmp()
+				g.line(fmt.Sprintf("  %s = load %s, ptr %s", loaded, elemT, ptr))
+				return loaded, elemT, nil
+			}
+			// Static array field [N x T] embedded in the struct.
+			arrSize := int64(1)
+			if at.Size != nil {
+				arrSize = evalConstInt(at.Size)
+			}
+			if arrSize <= 0 {
+				arrSize = 1
+			}
+			lb := int64(0)
+			if at.LowerBound != nil {
+				lb = evalConstInt(at.LowerBound)
+			}
+			return g.emitStaticArrayGEP(fieldAddr, arrSize, elemT, lb, idx.Index, asLValue)
 		}
 	}
 
 	// Resolve the array variable
 	leftIdent, ok := idx.Left.(*ast.Identifier)
 	if !ok {
-		return "", "", fmt.Errorf("array index target must be an identifier")
+		// v5.4.0 diagnostic: identify why the class-field branch above didn't
+		// handle this MemberExpression index (e.g. receiver not recognized as a
+		// class, or the Object is a non-Identifier expression).
+		if m, mok := idx.Left.(*ast.MemberExpression); mok {
+			kind, tn := g.receiverKind(m.Object)
+			return "", "", fmt.Errorf("array index target must be an identifier (member %q, object type %T, receiverKind=%q/%q)",
+				m.Member, m.Object, kind, tn)
+		}
+		return "", "", fmt.Errorf("array index target must be an identifier (left type %T)", idx.Left)
 	}
 
 	// Map variable? Route to htab_get (map indexing reuses the hash-table
@@ -316,4 +377,114 @@ func evalConstInt(e ast.Expression) int64 {
 		}
 	}
 	return 0
+}
+
+// indexElementKylixType returns the Kylix type name of an array-index
+// expression's element (e.g. rec.Fields[i] → "TVarDecl"), or "" if unknown.
+// Used by emitAssign to type-infer `field := rec.Fields[i]` locals so a later
+// `field.Names[j]` resolves the receiver class. v5.4.0.
+func (g *Generator) indexElementKylixType(idx *ast.IndexExpression) string {
+	if idx == nil {
+		return ""
+	}
+	// Local/param slice: arrayInfo carries ElementKylixType.
+	if left, ok := idx.Left.(*ast.Identifier); ok {
+		if info, ok := g.arrayInfo[left.Value]; ok && info.ElementKylixType != "" {
+			return info.ElementKylixType
+		}
+	}
+	// Class field array: obj.Field[i] — look up the field's array element type.
+	if member, ok := idx.Left.(*ast.MemberExpression); ok {
+		kind, typeName := g.receiverKind(member.Object)
+		if kind == "class" {
+			if info, ok := g.classes[typeName]; ok {
+				for _, f := range info.Fields {
+					if f.Name == member.Member && f.ArrayType != nil && f.ArrayType.ElementType != nil {
+						return typeExprName(f.ArrayType.ElementType)
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// callReturnKylixType returns the Kylix type name returned by a call, or "" if
+// unknown. Used by exprKylixType for `x := func()`/`x := obj.Method()`/`x :=
+// TFoo.Create()` type-inferred locals. v5.4.0.
+func (g *Generator) callReturnKylixType(call *ast.CallExpression) string {
+	if call == nil {
+		return ""
+	}
+	// MemberExpression func: obj.Method() or TFoo.Create() constructor.
+	if member, ok := call.Function.(*ast.MemberExpression); ok {
+		// Constructor: TFoo.Create() — Object is a class name.
+		if ident, ok := member.Object.(*ast.Identifier); ok {
+			if _, isClass := g.classes[ident.Value]; isClass {
+				return ident.Value
+			}
+		}
+		// Method: obj.Method() — find the method's RetKylixType in hierarchy.
+		kind, tn := g.receiverKind(member.Object)
+		if kind == "class" {
+			if _, meth := g.findMethodInHierarchy(tn, member.Member); meth != nil {
+				return meth.RetKylixType
+			}
+		}
+		return ""
+	}
+	// Identifier func: top-level function (e.g. NewLexer) — funcSigs.
+	if ident, ok := call.Function.(*ast.Identifier); ok {
+		if sig, ok := g.funcSigs[ident.Value]; ok && sig.ReturnType != nil {
+			return typeExprName(sig.ReturnType)
+		}
+	}
+	return ""
+}
+
+// exprKylixType returns the Kylix type name of an expression, for type-inferring
+// `x := <expr>` locals so later field/array/method access resolves the
+// receiver class. Covers identifier, array index, `as TClass` cast, function
+// call, and field access. v5.4.0.
+func (g *Generator) exprKylixType(expr ast.Expression) string {
+	if expr == nil {
+		return ""
+	}
+	switch e := expr.(type) {
+	case *ast.Identifier:
+		return g.localTypes[e.Value]
+	case *ast.IndexExpression:
+		return g.indexElementKylixType(e)
+	case *ast.TypeCastExpression:
+		// `x as TFoo` → TFoo (runtime check is emitAsExpr's job; the static
+		// type for inference is the cast target).
+		if e.TargetType != nil {
+			return typeExprName(e.TargetType)
+		}
+	case *ast.CallExpression:
+		return g.callReturnKylixType(e)
+	case *ast.MemberExpression:
+		// Constructor pattern: TFoo.Create (no parens, used as a value) → TFoo.
+		if e.Member == "Create" {
+			if ident, ok := e.Object.(*ast.Identifier); ok {
+				if _, isClass := g.classes[ident.Value]; isClass {
+					return ident.Value
+				}
+			}
+		}
+		// obj.Field → field's declared Kylix type (for `x := obj.Field` where
+		// Field is a class-typed field). Recursive on e.Object so chained access
+		// (X.Y.Z) resolves through each field's class type. v5.4.0.
+		objType := g.exprKylixType(e.Object)
+		if objType != "" {
+			if info, ok := g.classes[objType]; ok {
+				for _, f := range info.Fields {
+					if f.Name == e.Member && f.KylixType != "" {
+						return f.KylixType
+					}
+				}
+			}
+		}
+	}
+	return ""
 }

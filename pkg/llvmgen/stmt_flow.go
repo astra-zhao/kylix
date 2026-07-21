@@ -10,11 +10,30 @@ import (
 	"kylix/ast"
 )
 
+// coerceToBool converts a condition value of any type (i1/i64/ptr) to an i1
+// for use as a branch condition. v5.4.0: a map lookup (htab_get) or a class
+// field read returns a ptr — `if map[key]` / `if obj.Field` must test non-null.
+func (g *Generator) coerceToBool(v, t string) string {
+	switch t {
+	case "i1":
+		return v
+	case "ptr":
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp ne ptr %s, null", r, v))
+		return r
+	default: // i64, double, etc.
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp ne i64 %s, 0", r, v))
+		return r
+	}
+}
+
 func (g *Generator) emitIf(s *ast.IfStatement) error {
-	cond, _, err := g.emitExpr(s.Condition)
+	cond, t, err := g.emitExpr(s.Condition)
 	if err != nil {
 		return err
 	}
+	cond = g.coerceToBool(cond, t)
 
 	thenLbl := g.label()
 	mergeLbl := g.label()
@@ -55,10 +74,11 @@ func (g *Generator) emitWhile(s *ast.WhileStatement) error {
 	g.line(fmt.Sprintf("  br label %%%s", headerLbl))
 	g.line(fmt.Sprintf("%s:", headerLbl))
 
-	cond, _, err := g.emitExpr(s.Condition)
+	cond, ct, err := g.emitExpr(s.Condition)
 	if err != nil {
 		return err
 	}
+	cond = g.coerceToBool(cond, ct)
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", cond, bodyLbl, exitLbl))
 
 	savedBreak, savedContinue := g.breakLabel, g.continueLabel
@@ -156,10 +176,11 @@ func (g *Generator) emitRepeat(s *ast.RepeatStatement) error {
 
 	g.breakLabel, g.continueLabel = savedBreak, savedContinue
 
-	cond, _, err := g.emitExpr(s.Condition)
+	cond, ct, err := g.emitExpr(s.Condition)
 	if err != nil {
 		return err
 	}
+	cond = g.coerceToBool(cond, ct)
 	// repeat until cond → loop while !cond
 	notCond := g.tmp()
 	g.line(fmt.Sprintf("  %s = xor i1 %s, 1", notCond, cond))

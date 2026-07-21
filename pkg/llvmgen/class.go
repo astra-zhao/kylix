@@ -33,6 +33,7 @@ type FieldInfo struct {
 	KylixType string // original Kylix type name (e.g. "TUserRepository", "Integer")
 	Index     int
 	ArrayType *ast.ArrayType // v4.8.0: set when the field is a static array (array[lo..hi] of T); enables self.Items[i] GEP
+	MapType   *ast.MapType   // v5.4.0: set when the field is a map (map[K]V); enables self.MapField[key] htab_get
 }
 
 // MethodInfo describes a class method in the vtable.
@@ -40,6 +41,7 @@ type MethodInfo struct {
 	Name           string
 	VtableIdx      int
 	RetType        string
+	RetKylixType   string // v5.4.0: original Kylix return type name (for type inference on `x := obj.Method()`)
 	Params         []string
 	DefiningClass  string // class where this method's implementation lives (for vtable emit)
 }
@@ -92,6 +94,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 					LLVMType:  f.LLVMType,
 					KylixType: f.KylixType,
 					ArrayType: f.ArrayType,
+					MapType:   f.MapType,
 					Index:     idx,
 				})
 				idx++
@@ -104,28 +107,43 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 		}
 		llvmT := "i64"
 		kylixT := ""
-		// v4.8.0: capture the ArrayType for static-array fields so
-		// self.Items[i] can GEP into the embedded [N x T] storage. The
-		// field's LLVM type is [N x T] (not the fallback i64 that
-		// llvmTypeFor gives for "array" name).
+		// v4.8.0/v5.4.0: capture ArrayType for array fields (static AND dynamic)
+		// so obj.Field[i] can GEP into the embedded storage. Dynamic slices use
+		// the {ptr,len,cap} struct; static arrays use [N x T]. Element types use
+		// llvmTypeOfExpr so class elements resolve to ptr (not the i64 fallback).
 		var arrT *ast.ArrayType
-		if at, ok := f.Type.(*ast.ArrayType); ok && !at.Dynamic {
+		var mapT *ast.MapType
+		if at, ok := f.Type.(*ast.ArrayType); ok {
 			arrT = at
-			elemT := "i64"
-			if at.ElementType != nil {
-				elemT = LLVMType(typeExprName(at.ElementType))
+			if at.Dynamic {
+				llvmT = "{ ptr, i64, i64 }"
+			} else {
+				elemT := "i64"
+				if at.ElementType != nil {
+					elemT = g.llvmTypeOfExpr(at.ElementType)
+				}
+				size := int64(0)
+				if at.Size != nil {
+					size = evalConstInt(at.Size)
+				}
+				if size <= 0 {
+					size = 1
+				}
+				llvmT = fmt.Sprintf("[%d x %s]", size, elemT)
 			}
-			size := int64(0)
-			if at.Size != nil {
-				size = evalConstInt(at.Size)
+		} else if mt, ok := f.Type.(*ast.MapType); ok {
+			// v5.4.0: map field — stored as an htab handle (ptr). Marked so the
+			// constructor initializes it (htab_new) and obj.Field[key] routes to
+			// htab_get instead of the array GEP path.
+			mapT = mt
+			llvmT = "ptr"
+			g.needHashtab = true
+			if isVariantTypeExpr(mt.ValueType) {
+				g.needVariantRuntime = true
 			}
-			if size <= 0 {
-				size = 1
-			}
-			llvmT = fmt.Sprintf("[%d x %s]", size, elemT)
 		} else if f.Type != nil {
 			kylixT = typeExprName(f.Type)
-			llvmT = g.llvmTypeFor(kylixT)
+			llvmT = g.llvmTypeOfExpr(f.Type)
 		}
 		for _, name := range f.Names {
 			info.Fields = append(info.Fields, FieldInfo{
@@ -133,6 +151,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 				LLVMType:  llvmT,
 				KylixType: kylixT,
 				ArrayType: arrT,
+				MapType:   mapT,
 				Index:     idx,
 			})
 			idx++
@@ -150,6 +169,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 					Name:          pm.Name,
 					VtableIdx:     pm.VtableIdx,
 					RetType:       pm.RetType,
+					RetKylixType:  pm.RetKylixType,
 					Params:        pm.Params,
 					DefiningClass: pm.DefiningClass, // inherited — still points to original definer
 				}
@@ -159,14 +179,16 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 	}
 	for _, m := range decl.Methods {
 		retType := "void"
+		retKylix := ""
 		if m.ReturnType != nil {
 			retType = g.llvmTypeFor(typeExprName(m.ReturnType))
+			retKylix = typeExprName(m.ReturnType)
 		}
 		var paramTypes []string
-		for _, p := range m.Parameters {
+		for _, p := range normalizeParams(m.Parameters) {
 			pt := "i64"
 			if p.Type != nil {
-				pt = g.llvmTypeFor(typeExprName(p.Type))
+				pt = g.llvmTypeOfExpr(p.Type)
 			}
 			paramTypes = append(paramTypes, pt)
 		}
@@ -176,6 +198,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 		for i := range info.Methods {
 			if info.Methods[i].Name == m.Name {
 				info.Methods[i].RetType = retType
+				info.Methods[i].RetKylixType = retKylix
 				info.Methods[i].Params = paramTypes
 				info.Methods[i].DefiningClass = decl.Name
 				overrode = true
@@ -187,6 +210,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 				Name:          m.Name,
 				VtableIdx:     len(info.Methods),
 				RetType:       retType,
+				RetKylixType:  retKylix,
 				Params:        paramTypes,
 				DefiningClass: decl.Name,
 			})
@@ -194,6 +218,64 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 	}
 
 	return info
+}
+
+// emitRecordDecl registers a record type as a class without methods (vtable
+// slot stays null). This lets record-typed locals/params/fields reuse the
+// existing class field-access machinery (emitFieldAccess/GEP, emitMember,
+// receiverKind). v5.4.0.
+func (g *Generator) emitRecordDecl(name string, rec *ast.RecordType) error {
+	info := &ClassInfo{Name: name, Parent: ""}
+	idx := 1 // slot 0 reserved (vtable ptr, null for records) so field indices
+	// match the class layout and emitFieldAccess works unchanged.
+	for _, f := range rec.Fields {
+		if len(f.Names) == 0 {
+			continue
+		}
+		llvmT := "i64"
+		kylixT := ""
+		var arrT *ast.ArrayType
+		var mapT *ast.MapType
+		if at, ok := f.Type.(*ast.ArrayType); ok {
+			arrT = at
+			if at.Dynamic {
+				llvmT = "{ ptr, i64, i64 }"
+			} else {
+				elemT := "i64"
+				if at.ElementType != nil {
+					elemT = g.llvmTypeOfExpr(at.ElementType)
+				}
+				size := int64(1)
+				if at.Size != nil {
+					size = evalConstInt(at.Size)
+				}
+				llvmT = fmt.Sprintf("[%d x %s]", size, elemT)
+			}
+		} else if mt, ok := f.Type.(*ast.MapType); ok {
+			mapT = mt
+			llvmT = "ptr"
+			g.needHashtab = true
+		} else if f.Type != nil {
+			kylixT = typeExprName(f.Type)
+			llvmT = g.llvmTypeOfExpr(f.Type)
+		}
+		for _, fname := range f.Names {
+			info.Fields = append(info.Fields, FieldInfo{
+				Name:      fname,
+				LLVMType:  llvmT,
+				KylixType: kylixT,
+				ArrayType: arrT,
+				MapType:   mapT,
+				Index:     idx,
+			})
+			idx++
+		}
+	}
+	g.classes[name] = info
+	g.records[name] = true
+	g.emitStructType(info)
+	g.line("")
+	return nil
 }
 
 // emitStructType emits:  %TPoint = type { ptr, i64, i64, ... }
@@ -230,11 +312,28 @@ func (g *Generator) emitVtable(info *ClassInfo, decl *ast.ClassDecl) {
 		info.Name, len(slots), strings.Join(slots, ", ")))
 }
 
+// normalizeParams fills in nil Type fields for multi-name parameter groups
+// (e.g. `level, msg: String` — the parser leaves `level`.Type nil because the
+// colon+type come after `msg`). It back-propagates each group's type to all
+// preceding nil-typed params in the same semicolon-separated group. v5.4.0.
+func normalizeParams(params []*ast.Parameter) []*ast.Parameter {
+	lastType := ast.Expression(nil)
+	for i := len(params) - 1; i >= 0; i-- {
+		if params[i].Type != nil {
+			lastType = params[i].Type
+		} else if lastType != nil {
+			params[i].Type = lastType
+		}
+	}
+	return params
+}
+
 // emitMethod emits a class method:  define <ret> @TFoo_Bar(ptr %self, ...) { ... }
 func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error {
+	method.Parameters = normalizeParams(method.Parameters) // v5.4.0: `level, msg: String`
 	retType := "void"
 	if method.ReturnType != nil {
-		retType = g.llvmTypeFor(typeExprName(method.ReturnType))
+		retType = g.llvmTypeOfExpr(method.ReturnType)
 	}
 
 	// Annotation-generated methods (ORM [Query], [Repository]) have no body —
@@ -246,7 +345,7 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 		for _, p := range method.Parameters {
 			llvmT := "i64"
 			if p.Type != nil {
-				llvmT = g.llvmTypeFor(typeExprName(p.Type))
+				llvmT = g.llvmTypeOfExpr(p.Type)
 			}
 			params = append(params, fmt.Sprintf("%s %%%s", llvmT, p.Name))
 		}
@@ -275,7 +374,7 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	for _, p := range method.Parameters {
 		llvmT := "i64"
 		if p.Type != nil {
-			llvmT = g.llvmTypeFor(typeExprName(p.Type))
+			llvmT = g.llvmTypeOfExpr(p.Type)
 		}
 		params = append(params, fmt.Sprintf("%s %%%s", llvmT, p.Name))
 	}
@@ -300,6 +399,7 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
+	g.registerGlobalsInScope() // v5.4.0: make globals visible in this method
 	g.funcName = className + "_" + method.Name
 	g.curClassName = className
 	g.curMethodName = method.Name
@@ -324,9 +424,16 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	for _, p := range method.Parameters {
 		llvmT := "i64"
 		kylixType := ""
+		isSlice := false
+		var elemT, elemKylixT string
 		if p.Type != nil {
 			kylixType = typeExprName(p.Type)
-			llvmT = LLVMType(kylixType)
+			llvmT = g.llvmTypeOfExpr(p.Type)
+			if at, ok := p.Type.(*ast.ArrayType); ok && at.Dynamic {
+				isSlice = true
+				elemKylixT = typeExprName(at.ElementType)
+				elemT = g.llvmTypeOfExpr(at.ElementType)
+			}
 		}
 		// Suffix by type so emitIdentLoad infers the load type correctly.
 		suffix := "_int"
@@ -337,6 +444,8 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 			suffix = "_real"
 		case "ptr":
 			suffix = "_str"
+		case "{ ptr, i64, i64 }":
+			suffix = "_dyn"
 		}
 		allocaReg := fmt.Sprintf("%%v_%s%s", p.Name, suffix)
 		g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, llvmT))
@@ -344,6 +453,10 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 		g.locals[p.Name] = allocaReg
 		if kylixType != "" {
 			g.localTypes[p.Name] = kylixType
+		}
+		// v5.4.0: register slice params in arrayInfo (same as emitFunctionDecl).
+		if isSlice {
+			g.arrayInfo[p.Name] = &arrayInfo{IsDynamic: true, ElementType: elemT, ElementKylixType: elemKylixT}
 		}
 		// v4.9.0: declare the parameter as a debug local.
 		if g.debugInfo {
@@ -359,8 +472,21 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	if retType != "void" {
 		g.line(fmt.Sprintf("  %%result = alloca %s, align 8", retType))
 		g.locals["result"] = "%result"
+		g.resultLLVMType = retType // v5.4.0
 		if g.debugInfo {
 			g.emitDbgDeclare("result", method.Token.Line, retType, "%result")
+		}
+	}
+
+	// v5.4.0: emit method-local var/const declarations (method.Body.Statements
+	// are emitted below, but LocalDecls — the `var` block — were previously
+	// skipped, so locals like `d: TDiagnostic` were auto-declared as i64 on
+	// first assignment). Mirrors emitFunctionDecl's LocalDecls loop.
+	for _, ld := range method.LocalDecls {
+		if vd, ok := ld.(*ast.VarDecl); ok {
+			if err := g.emitVarDecl(vd); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -480,6 +606,30 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 		g.line(fmt.Sprintf("  store ptr @%s_vtable, ptr %s", className, vtablePtr))
 	}
 
+	// v5.4.0: initialize map fields (htab_new) and zero-init dynamic slice
+	// fields so they aren't garbage after malloc. The bootstrap's TGenerator
+	// has map fields (ClassTypes/ClassIsBase/ClassFields/...) that are read
+	// (never written) — they must be valid (non-null) empty htabs so htab_get
+	// returns null instead of crashing on a garbage handle.
+	for _, f := range info.Fields {
+		if f.MapType != nil {
+			g.needHashtab = true
+			slot, _, err := g.emitFieldStore(className, allocReg, f.Name)
+			if err != nil {
+				continue
+			}
+			tbl := g.tmp()
+			g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_new()", tbl))
+			g.line(fmt.Sprintf("  store ptr %s, ptr %s", tbl, slot))
+		} else if f.ArrayType != nil && f.ArrayType.Dynamic {
+			slot, _, err := g.emitFieldStore(className, allocReg, f.Name)
+			if err != nil {
+				continue
+			}
+			g.line(fmt.Sprintf("  store { ptr, i64, i64 } zeroinitializer, ptr %s", slot))
+		}
+	}
+
 	return allocReg, nil
 }
 
@@ -539,6 +689,32 @@ func (g *Generator) emitVirtualCall(className, objReg, methodName string, argReg
 		}
 	}
 	if meth == nil {
+		// v5.4.0: external method `procedure ClassName.Method` — defined outside
+		// the class body, so not in the vtable. If a matching @ClassName_Method
+		// function signature exists, call it directly with self + args.
+		extSym := className + "_" + methodName
+		if sig, ok := g.funcSigs[className+"."+methodName]; ok {
+			retT := "void"
+			if sig.ReturnType != nil {
+				retT = g.llvmTypeOfExpr(sig.ReturnType)
+			}
+			var callArgs []string
+			callArgs = append(callArgs, "ptr "+objReg)
+			for i, r := range argRegs {
+				at := argTypes[i]
+				if _, isClass := g.classes[at]; isClass {
+					at = "ptr"
+				}
+				callArgs = append(callArgs, at+" "+r)
+			}
+			if retT == "void" {
+				g.line(fmt.Sprintf("  call void @%s(%s)", extSym, strings.Join(callArgs, ", ")))
+				return "0", "void", nil
+			}
+			result := g.tmp()
+			g.line(fmt.Sprintf("  %s = call %s @%s(%s)", result, retT, extSym, strings.Join(callArgs, ", ")))
+			return result, retT, nil
+		}
 		// Annotation-generated methods (IsValid/Validate from [Required]/
 		// [Email] etc.) don't exist in the LLVM backend (no KylixBoot
 		// codegen pass). Return a stub so the code at least compiles:
@@ -586,7 +762,15 @@ func (g *Generator) emitVirtualCall(className, objReg, methodName string, argReg
 	var callArgs []string
 	callArgs = append(callArgs, "ptr "+objReg) // self
 	for i, r := range argRegs {
-		callArgs = append(callArgs, argTypes[i]+" "+r)
+		// v5.4.0: argTypes may carry a Kylix class name (emitMember returns the
+		// class name for class-typed fields so downstream method dispatch can
+		// resolve the receiver). Coerce to the LLVM type (ptr for classes) so
+		// the call instruction is well-typed.
+		at := argTypes[i]
+		if _, isClass := g.classes[at]; isClass {
+			at = "ptr"
+		}
+		callArgs = append(callArgs, at+" "+r)
 	}
 
 	// Build function type signature for indirect call.

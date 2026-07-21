@@ -170,6 +170,20 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	if decl.Body == nil {
 		return nil // forward declaration, skip
 	}
+	decl.Parameters = normalizeParams(decl.Parameters) // v5.4.0: `level, msg: String`
+
+	// v5.4.0: external method definition `procedure ClassName.MethodName` —
+	// the name contains a dot. Lower to @ClassName_MethodName with a leading
+	// `ptr %self` parameter (mirroring emitMethod), and register self's class
+	// so `self.Field` / `self.Method()` resolve. Without this, external methods
+	// (most of the bootstrap's TLexer/TParser/TGenerator methods) had no self.
+	extClassName, extMethodName := "", ""
+	funcSymbol := decl.Name
+	if idx := strings.Index(decl.Name, "."); idx >= 0 {
+		extClassName = decl.Name[:idx]
+		extMethodName = decl.Name[idx+1:]
+		funcSymbol = extClassName + "_" + extMethodName
+	}
 
 	// Determine return type: check multi-return first, then single, else void.
 	retType := "void"
@@ -178,20 +192,23 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 		retType = fmt.Sprintf("%%__ret_%s", decl.Name)
 		isMultiRet = true
 	} else if decl.ReturnType != nil {
-		retType = LLVMType(typeExprName(decl.ReturnType))
+		retType = g.llvmTypeOfExpr(decl.ReturnType)
 	}
 
 	// Build parameter list
 	var params []string
+	if extClassName != "" {
+		params = append(params, "ptr %self") // v5.4.0: external method receiver
+	}
 	for _, p := range decl.Parameters {
 		llvmT := "i64"
 		if p.Type != nil {
-			llvmT = LLVMType(typeExprName(p.Type))
+			llvmT = g.llvmTypeOfExpr(p.Type)
 		}
 		params = append(params, fmt.Sprintf("%s %%%s", llvmT, p.Name))
 	}
 
-	defineLine := fmt.Sprintf("define %s @%s(%s) {", retType, decl.Name, strings.Join(params, ", "))
+	defineLine := fmt.Sprintf("define %s @%s(%s) {", retType, funcSymbol, strings.Join(params, ", "))
 	var funcSpID int
 	if g.debugInfo {
 		funcSpID = g.registerSubprogram(decl.Name, decl.Token.Line)
@@ -206,6 +223,12 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
+	g.registerGlobalsInScope() // v5.4.0: make globals visible in this function
+	// v5.4.0: external method receiver — register self as the class instance.
+	if extClassName != "" {
+		g.locals["self"] = "%self"
+		g.localTypes["self"] = extClassName
+	}
 	// v4.6.0: scope for DILocations inside this function = its subprogram.
 	// Position the entry-block setup at the function's declaration line so the
 	// %result alloca + parameter stores carry a valid !dbg before the body
@@ -219,6 +242,7 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	if retType != "void" {
 		g.line(fmt.Sprintf("  %%result = alloca %s, align 8", retType))
 		g.locals["result"] = "%result"
+		g.resultLLVMType = retType // v5.4.0: so emitIdentLoad loads `result` as the right type
 		if isMultiRet {
 			// Mark result as a tuple so assignment can detect it.
 			g.localTypes["result"] = "__tuple__"
@@ -235,9 +259,16 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	for _, p := range decl.Parameters {
 		llvmT := "i64"
 		kylixType := ""
+		isSlice := false
+		var elemT, elemKylixT string
 		if p.Type != nil {
 			kylixType = typeExprName(p.Type)
-			llvmT = LLVMType(kylixType)
+			llvmT = g.llvmTypeOfExpr(p.Type)
+			if at, ok := p.Type.(*ast.ArrayType); ok && at.Dynamic {
+				isSlice = true
+				elemKylixT = typeExprName(at.ElementType)
+				elemT = g.llvmTypeOfExpr(at.ElementType)
+			}
 		}
 		// Use suffix convention so emitIdentLoad can infer type from alloca name.
 		suffix := "_int"
@@ -248,6 +279,8 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 			suffix = "_real"
 		case "ptr":
 			suffix = "_str"
+		case "{ ptr, i64, i64 }":
+			suffix = "_dyn"
 		}
 		allocaReg := fmt.Sprintf("%%v_%s%s", p.Name, suffix)
 		g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, llvmT))
@@ -255,6 +288,12 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 		g.locals[p.Name] = allocaReg
 		if kylixType != "" {
 			g.localTypes[p.Name] = kylixType
+		}
+		// v5.4.0: register slice params in arrayInfo so Length(p)/p[i] work
+		// (previously function array-of-T params weren't tracked, causing
+		// "variable progs is not an array" when indexing them).
+		if isSlice {
+			g.arrayInfo[p.Name] = &arrayInfo{IsDynamic: true, ElementType: elemT, ElementKylixType: elemKylixT}
 		}
 		// v4.6.0: declare the parameter as a debug local so LLDB can show it.
 		if g.debugInfo {
@@ -479,6 +518,20 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 
 	// Plain class-typed local: hold a ptr to the heap-allocated instance.
 	if ident, ok := varType.(*ast.Identifier); ok {
+		if g.records[ident.Value] {
+			// v5.4.0: record local — heap-allocate the struct now (records have
+			// no Create method, so `var tok: TToken` must malloc the storage
+			// up front so `tok.Field := x` GEPs into valid memory).
+			allocaReg := g.freshVarReg(name, "")
+			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
+			size := 8 * (1 + len(g.classes[ident.Value].Fields))
+			rec := g.tmp()
+			g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", rec, size))
+			g.line(fmt.Sprintf("  store ptr %s, ptr %s", rec, allocaReg))
+			g.locals[name] = allocaReg
+			g.localTypes[name] = ident.Value
+			return nil
+		}
 		if _, isClass := g.classes[ident.Value]; isClass {
 			allocaReg := g.freshVarReg(name, "")
 			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
@@ -720,6 +773,21 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 			if err != nil {
 				return err
 			}
+			// v5.4.0: a class/record-typed field's RHS may carry the Kylix type
+			// name (emitMember returns it for receiver resolution). Coerce to
+			// ptr (the actual LLVM type) so the store is well-typed.
+			if _, isClass := g.classes[fieldType]; isClass {
+				fieldType = "ptr"
+			}
+			if _, isClass := g.classes[t]; isClass {
+				t = "ptr"
+			}
+			// v5.4.0: slice field — RHS is an SSA struct value (from call or
+			// ArrayLiteral insertvalue), store directly.
+			if fieldType == "{ ptr, i64, i64 }" && t == "{ ptr, i64, i64 }" {
+				g.line(fmt.Sprintf("  store { ptr, i64, i64 } %s, ptr %s", v, gepReg))
+				return nil
+			}
 			// Coerce the RHS to the field's declared type.
 			if t != fieldType {
 				v, t = g.coerceValue(v, t, fieldType)
@@ -744,11 +812,44 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 
 	allocaReg, ok := g.locals[varName]
 	if !ok {
-		// Auto-declare as i64
-		allocaReg = g.freshVarReg(varName, "_int")
-		g.line(fmt.Sprintf("  %s = alloca i64, align 8", allocaReg))
-		g.locals[varName] = allocaReg
-		t = "i64"
+		// v5.4.0: type-inferred local — choose the alloca type from the RHS's
+		// LLVM type (t), so a ptr/string RHS gets a _str slot (not the default
+		// i64, which type-mismatches on store). Also try exprKylixType for
+		// class-typed RHS so receiverKind resolves for later field/method access.
+		elemKylix := g.exprKylixType(s.Value)
+		if _, isClass := g.classes[elemKylix]; isClass {
+			allocaReg = g.freshVarReg(varName, "_str")
+			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
+			g.locals[varName] = allocaReg
+			g.localTypes[varName] = elemKylix
+			t = "ptr"
+		} else if t == "{ ptr, i64, i64 }" {
+			allocaReg = g.freshVarReg(varName, "_dyn")
+			g.line(fmt.Sprintf("  %s = alloca { ptr, i64, i64 }, align 8", allocaReg))
+			g.line(fmt.Sprintf("  store { ptr, i64, i64 } zeroinitializer, ptr %s", allocaReg))
+			g.locals[varName] = allocaReg
+			g.arrayInfo[varName] = &arrayInfo{IsDynamic: true, ElementType: "ptr"}
+		} else if t == "ptr" {
+			// v5.4.0: string/ptr RHS (e.g. map lookup, LowerCase, ReadFile) →
+			// _str slot so the value isn't truncated to i64.
+			allocaReg = g.freshVarReg(varName, "_str")
+			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
+			g.locals[varName] = allocaReg
+		} else if t == "double" {
+			allocaReg = g.freshVarReg(varName, "_real")
+			g.line(fmt.Sprintf("  %s = alloca double, align 8", allocaReg))
+			g.locals[varName] = allocaReg
+		} else if t == "i1" {
+			allocaReg = g.freshVarReg(varName, "_bool")
+			g.line(fmt.Sprintf("  %s = alloca i1, align 1", allocaReg))
+			g.locals[varName] = allocaReg
+		} else {
+			// Auto-declare as i64
+			allocaReg = g.freshVarReg(varName, "_int")
+			g.line(fmt.Sprintf("  %s = alloca i64, align 8", allocaReg))
+			g.locals[varName] = allocaReg
+			t = "i64"
+		}
 	}
 
 	// v4.9.0: dynamic-array assignment. `arr := JsonGetArray(...)` (or any RHS
@@ -758,9 +859,9 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 	// a slice struct value (carried as a pointer to a temporary alloca), load
 	// the struct from the RHS alloca and store it into the LHS alloca.
 	if strings.HasSuffix(allocaReg, "_dyn") && t == "{ ptr, i64, i64 }" {
-		loaded := g.tmp()
-		g.line(fmt.Sprintf("  %s = load { ptr, i64, i64 }, ptr %s", loaded, v))
-		g.line(fmt.Sprintf("  store { ptr, i64, i64 } %s, ptr %s", loaded, allocaReg))
+		// v5.4.0: slice RHS is an SSA struct value (from call or ArrayLiteral
+		// insertvalue) — store directly, no load needed.
+		g.line(fmt.Sprintf("  store { ptr, i64, i64 } %s, ptr %s", v, allocaReg))
 		return nil
 	}
 
@@ -781,6 +882,9 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		actualType = "ptr"
 	} else if allocaReg == "%result" && t != "" {
 		actualType = t
+	} else if gt, ok := g.globalTypes[varName]; ok {
+		// v5.4.0: global variable — use its declared LLVM type for the store.
+		actualType = gt
 	} else if kylixT, ok := g.localTypes[varName]; ok {
 		// Class-typed local (alloca %v_name, no suffix) holds a ptr.
 		if _, isClass := g.classes[kylixT]; isClass {

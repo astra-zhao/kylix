@@ -31,8 +31,20 @@ type Generator struct {
 	localTypes       map[string]string            // var name → Kylix type name (class/interface)
 	arrayInfo        map[string]*arrayInfo        // var name → array metadata
 	varNameSeq       map[string]int               // Kylix var name → count of allocas emitted so far
+	// v5.4.0: top-level (unit/program) VarDecls are emitted as LLVM globals so
+	// they're accessible from every function (e.g. token.Kewords is set in
+	// InitKeywords and read in the lexer). globals maps name→"@__kylix_g_<name>";
+	// globalTypes holds the LLVM type (for emitIdentLoad); globalMaps/globalArrays
+	// flag map/array globals so indexing routes correctly.
+	globals       map[string]string         // name → global ptr symbol (e.g. "@__kylix_g_Keywords")
+	globalTypes   map[string]string         // name → LLVM type
+	globalKylixTypes map[string]string      // name → Kylix type name (class/interface), for receiverKind
+	globalMaps    map[string]bool           // name → is a map[K]V global
+	globalMapValueTypes map[string]string    // name → Kylix value type name (v5.4.0: for typed map reads)
+	globalArrays  map[string]*arrayInfo     // name → array metadata (for array globals)
 	program          *ast.Program                 // current AST root (for cross-pass access)
 	funcName         string                       // current function being generated
+	resultLLVMType   string                       // v5.4.0: current function's return LLVM type (for loading `result`)
 	strings          []stringConst                // string constants (emitted at module level)
 
 	// Exception handling (M3): global exception slot + setjmp/longjmp.
@@ -106,6 +118,32 @@ type Generator struct {
 	// the helpers only if actually needed (avoids bloating every module).
 	needHashtab bool
 
+	// needArgs is set when the Args builtin (command-line arguments) is used;
+	// main() then declares argc/argv params and populates @__kylix_args. v5.4.0.
+	needArgs bool
+
+	// records tracks record type names (registered via emitRecordDecl) so
+	// record-typed locals can be heap-allocated (records have no Create method).
+	// v5.4.0.
+	records map[string]bool
+
+	// needToLower is set when LowerCase/UpperCase is used; emitRuntimeDecls
+	// then declares tolower/toupper. v5.4.0.
+	needToLower bool
+
+	// needAtoll is set when a typed map read converts a string value to i64.
+	// v5.4.0.
+	needAtoll bool
+
+	// needReadFile is set when the ReadFile builtin is used. v5.4.0.
+	needReadFile bool
+
+	// needStrtod is set when StrToFloat is used. v5.4.0.
+	needStrtod bool
+
+	// needMemcpy is set when append copies data. v5.4.0.
+	needMemcpy bool
+
 	// needLibcrypto is set when crypto module functions are used; the compile
 	// driver checks for crypto symbols in the IR and adds -lcrypto at link.
 	needLibcrypto bool
@@ -156,8 +194,15 @@ func NewGenerator(moduleName string) *Generator {
 		localTypes:       make(map[string]string),
 		arrayInfo:        make(map[string]*arrayInfo),
 		varNameSeq:       make(map[string]int),
+		globals:          make(map[string]string),
+		globalTypes:      make(map[string]string),
+		globalKylixTypes: make(map[string]string),
+		globalMaps:       make(map[string]bool),
+		globalMapValueTypes: make(map[string]string),
+		globalArrays:     make(map[string]*arrayInfo),
 		exceptionTypeIDs: make(map[string]int),
 		nextExcTypeID:    2, // 1 reserved for Exception itself
+		records:          make(map[string]bool),
 		closureLocals:    make(map[string]bool),
 		closureSigs:      make(map[string]string),
 		closureParams:    make(map[string][]string),
@@ -192,6 +237,101 @@ func GenerateWithOpts(prog *ast.Program, srcFile string, opts CompileOpts) (stri
 
 // ===== Module-level emission =====
 
+// collectGlobals emits top-level (unit/program) VarDecls as LLVM globals so
+// they're accessible from every function (e.g. token.Keywords is set in
+// InitKeywords and read in the lexer — a main-local alloca wouldn't be visible
+// there). Registers each global's symbol/type/map/array metadata so existing
+// access code finds it via registerGlobalsInScope. v5.4.0.
+func (g *Generator) collectGlobals(prog *ast.Program) {
+	// v5.4.0: only multi-file (merged) programs emit top-level vars as globals
+	// (so unit vars like token.Keywords are visible to every function). Single-file
+	// programs keep top-level vars as main-local allocas (preserves existing
+	// debug/IR test expectations).
+	if !prog.IsMerged {
+		return
+	}
+	// v5.4.0: pre-register the Args builtin as a global slice so Args[i] /
+	// Length(Args) resolve via the normal array path (the slice is populated
+	// from argc/argv in main). needArgs is set so main() declares argc/argv
+	// and emits the @__kylix_args global.
+	g.needArgs = true
+	g.globals["Args"] = "@__kylix_args"
+	g.globalTypes["Args"] = "{ ptr, i64, i64 }"
+	g.globalArrays["Args"] = &arrayInfo{IsDynamic: true, ElementType: "ptr", ElementKylixType: "String"}
+	for _, decl := range prog.Declarations {
+		vd, ok := decl.(*ast.VarDecl)
+		if !ok || len(vd.Names) == 0 {
+			continue
+		}
+		for _, name := range vd.Names {
+			sym := "@__kylix_g_" + name
+			llvmT := "i64"
+			if vd.Type != nil {
+				switch t := vd.Type.(type) {
+				case *ast.MapType:
+					llvmT = "ptr"
+					g.globalMaps[name] = true
+					g.needHashtab = true
+					if vt := typeExprName(t.ValueType); vt != "" {
+						g.globalMapValueTypes[name] = vt
+					}
+					if isVariantTypeExpr(t.ValueType) {
+						g.needVariantRuntime = true
+						g.variantMaps[name] = true
+					}
+				case *ast.ArrayType:
+					if t.Dynamic {
+						llvmT = "{ ptr, i64, i64 }"
+						g.globalArrays[name] = &arrayInfo{IsDynamic: true, ElementType: g.llvmTypeOfExpr(t.ElementType), ElementKylixType: typeExprName(t.ElementType)}
+					} else {
+						size := int64(1)
+						if t.Size != nil {
+							size = evalConstInt(t.Size)
+						}
+						llvmT = fmt.Sprintf("[%d x %s]", size, g.llvmTypeOfExpr(t.ElementType))
+						g.globalArrays[name] = &arrayInfo{IsDynamic: false, ElementType: g.llvmTypeOfExpr(t.ElementType), Size: size}
+					}
+				default:
+					llvmT = g.llvmTypeOfExpr(vd.Type)
+				}
+			}
+			g.globals[name] = sym
+			g.globalTypes[name] = llvmT
+			// v5.4.0: record the Kylix class/interface name so receiverKind
+			// resolves class-typed globals (e.g. main's `Par: TParser` global →
+			// `Par.Errors` finds TParser's Fields).
+			if vd.Type != nil {
+				if _, ok := vd.Type.(*ast.Identifier); ok {
+					kn := typeExprName(vd.Type)
+					if _, isClass := g.classes[kn]; isClass {
+						g.globalKylixTypes[name] = kn
+					}
+				}
+			}
+			g.line(fmt.Sprintf("%s = global %s zeroinitializer", sym, llvmT))
+		}
+	}
+}
+
+// registerGlobalsInScope re-adds global symbols into the current scope's
+// locals/mapVars/arrayInfo (which are reset per function) so existing access
+// code (emitIdentLoad/emitArrayIndex/emitMapIndexGet/emitAssign) finds them.
+// Call after `g.locals = make(...)` in each function entry. v5.4.0.
+func (g *Generator) registerGlobalsInScope() {
+	for name, sym := range g.globals {
+		g.locals[name] = sym
+		if kn, ok := g.globalKylixTypes[name]; ok {
+			g.localTypes[name] = kn
+		}
+		if g.globalMaps[name] {
+			g.mapVars[name] = true
+		}
+		if ai, ok := g.globalArrays[name]; ok && ai != nil {
+			g.arrayInfo[name] = ai
+		}
+	}
+}
+
 func (g *Generator) emitProgram(prog *ast.Program) error {
 	g.program = prog
 	g.emitHeader()
@@ -222,6 +362,33 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 			}
 		}
 	}
+
+	// v5.4.0: emit top-level VarDecls as LLVM globals (accessible from every
+	// function) before emitting declarations/function bodies.
+	// Pre-register class names so collectGlobals can tell a class-typed global
+	// (e.g. `Par: TParser`) from a primitive — g.classes is otherwise populated
+	// incrementally by emitClassDecl, which runs after this.
+	for _, decl := range prog.Declarations {
+		if cd, ok := decl.(*ast.ClassDecl); ok {
+			if g.classes[cd.Name] == nil {
+				g.classes[cd.Name] = &ClassInfo{Name: cd.Name, Parent: cd.Parent, Interfaces: cd.Interfaces}
+			}
+		}
+		if td, ok := decl.(*ast.TypeDecl); ok {
+			if cd, ok := td.Type.(*ast.ClassDecl); ok {
+				cd.Name = td.Name
+				if g.classes[cd.Name] == nil {
+					g.classes[cd.Name] = &ClassInfo{Name: cd.Name, Parent: cd.Parent, Interfaces: cd.Interfaces}
+				}
+			}
+			// v5.4.0: pre-register record types too (so record-typed globals
+			// like `var tok: TToken` resolve before emitRecordDecl runs).
+			if recDecl, ok := td.Type.(*ast.RecordType); ok {
+				g.emitRecordDecl(td.Name, recDecl)
+			}
+		}
+	}
+	g.collectGlobals(prog)
 
 	// Emit declarations and function bodies
 	for _, decl := range prog.Declarations {
@@ -270,6 +437,24 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	// value was used. Idempotent.
 	if g.needVariantRuntime {
 		g.emitVariantRuntimeBodies()
+	}
+
+	// v5.4.0: declare libc tolower/toupper for LowerCase/UpperCase builtins.
+	if g.needToLower {
+		g.line("declare i32 @tolower(i32)")
+		g.line("declare i32 @toupper(i32)")
+	}
+	if g.needAtoll {
+		// atoll is already declared in emitRuntimeDecls; nothing extra here.
+		_ = g.needAtoll
+	}
+	if g.needReadFile {
+		// fopen/fseek/ftell/fread/fclose are declared in emitRuntimeDecls.
+		_ = g.needReadFile
+	}
+	if g.needMemcpy {
+		// memcpy is declared in emitRuntimeDecls.
+		_ = g.needMemcpy
 	}
 
 	// Emit string constants at the end
@@ -381,7 +566,13 @@ func (g *Generator) emitRuntimeDecls() {
 
 func (g *Generator) emitMain(stmts []ast.Statement) error {
 	g.line("; ===== Entry point =====")
+	// v5.4.0: when the Args builtin is used, main takes argc/argv and populates
+	// @__kylix_args (a {ptr,len,cap} slice of argv[1:] as C strings).
 	defineLine := "define i32 @main() {"
+	if g.needArgs {
+		defineLine = "define i32 @main(i32 %argc, ptr %argv) {"
+		g.line("@__kylix_args = global { ptr, i64, i64 } { ptr null, i64 0, i64 0 }")
+	}
 	var mainSpID int
 	if g.debugInfo {
 		mainLine := 1
@@ -396,6 +587,7 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	g.funcName = "main"
 	g.locals = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
+	g.registerGlobalsInScope() // v5.4.0: make globals visible in main
 	// Scope for DILocations inside main = the main subprogram.
 	if g.debugInfo {
 		g.setDbgScope(mainSpID)
@@ -409,14 +601,52 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 		}
 	}
 
-	// Emit top-level VarDecl as local allocas inside main().
-	// (Top-level `var x: T;` declarations live in prog.Declarations.)
-	for _, decl := range g.program.Declarations {
-		if vd, ok := decl.(*ast.VarDecl); ok {
-			if err := g.emitVarDecl(vd); err != nil {
-				return err
+	// v5.4.0: top-level VarDecls. For multi-file (merged) programs they're LLVM
+	// globals (see collectGlobals) — at main() entry, initialize map globals with
+	// htab_new so they're non-null before any function (e.g. InitKeywords)
+	// populates them. For single-file programs, emit them as main-local allocas
+	// (the original behavior).
+	if g.program.IsMerged {
+		for name, sym := range g.globals {
+			if g.globalMaps[name] {
+				g.needHashtab = true
+				tbl := g.tmp()
+				g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_new()", tbl))
+				g.line(fmt.Sprintf("  store ptr %s, ptr %s", tbl, sym))
 			}
 		}
+	} else {
+		for _, decl := range g.program.Declarations {
+			if vd, ok := decl.(*ast.VarDecl); ok {
+				if err := g.emitVarDecl(vd); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	// v5.4.0: populate @__kylix_args with argv[1:] as a {ptr,len,cap} slice of
+	// C-string pointers. len = max(0, argc-1); data = argv+1.
+	if g.needArgs {
+		n := g.tmp()
+		g.line(fmt.Sprintf("  %s = sub i32 %s, 1", n, "%argc"))
+		nneg := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp sgt i32 %s, 0", nneg, n))
+		count := g.tmp()
+		g.line(fmt.Sprintf("  %s = select i1 %s, i32 %s, i32 0", count, nneg, n))
+		count64 := g.tmp()
+		g.line(fmt.Sprintf("  %s = zext i32 %s to i64", count64, count))
+		dataPtr := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr ptr, ptr %s, i64 1", dataPtr, "%argv"))
+		argsSlot := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr @__kylix_args, i32 0, i32 0", argsSlot))
+		g.line(fmt.Sprintf("  store ptr %s, ptr %s", dataPtr, argsSlot))
+		lenSlot := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr @__kylix_args, i32 0, i32 1", lenSlot))
+		g.line(fmt.Sprintf("  store i64 %s, ptr %s", count64, lenSlot))
+		capSlot := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr @__kylix_args, i32 0, i32 2", capSlot))
+		g.line(fmt.Sprintf("  store i64 %s, ptr %s", count64, capSlot))
 	}
 
 	for _, stmt := range stmts {
@@ -482,6 +712,19 @@ func (g *Generator) emitDecl(node ast.Node) error {
 		if ifaceDecl, ok := d.Type.(*ast.InterfaceDecl); ok {
 			ifaceDecl.Name = d.Name
 			return g.emitInterfaceDecl(ifaceDecl)
+		}
+		// v5.4.0: record type — register as a "class without methods/vtable" so
+		// the existing field-access machinery (receiverKind/emitMember/GEP)
+		// works for record-typed locals, params, and class fields (e.g.
+		// TToken, used pervasively in the bootstrap AST). Records are heap-
+		// allocated (ptr) like classes; the value-vs-reference distinction
+		// doesn't affect the bootstrap, which doesn't rely on record copy
+		// independence.
+		if _, ok := d.Type.(*ast.RecordType); ok {
+			// v5.4.0: records are pre-emitted in collectGlobals (before the
+			// emitDecl loop) so cross-file field access works regardless of
+			// declaration order. Skip here to avoid duplicate struct emission.
+			return nil
 		}
 	case *ast.InterfaceDecl:
 		return g.emitInterfaceDecl(d)
