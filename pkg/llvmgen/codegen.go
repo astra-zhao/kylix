@@ -835,6 +835,12 @@ func (g *Generator) freshVarReg(name, suffix string) string {
 
 // addString adds a string constant and returns its global register name.
 func (g *Generator) addString(val string) string {
+	// v5.4.0: decode Kylix source escape sequences (\n, \t, \r, \\, \") into
+	// real bytes. The lexer leaves the raw source bytes (e.g. 'a\nb' is 4
+	// bytes: a, \, n, b); the Go backend relies on the Go compiler to
+	// interpret these inside Go string literals, but the LLVM backend emits
+	// raw bytes into IR constants, so it must decode them itself.
+	val = decodeKylixString(val)
 	// Deduplicate by content: identical string literals share one global.
 	if g.strDedup != nil {
 		if reg, ok := g.strDedup[val]; ok {
@@ -851,6 +857,44 @@ func (g *Generator) addString(val string) string {
 		g.strDedup[val] = reg
 	}
 	return reg
+}
+
+// decodeKylixString decodes backslash escape sequences in a Kylix source string
+// literal (the lexer keeps them raw). Supports \n \t \r \\ \" \'. v5.4.0.
+func decodeKylixString(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case 'n':
+				b.WriteByte('\n')
+				i++
+				continue
+			case 't':
+				b.WriteByte('\t')
+				i++
+				continue
+			case 'r':
+				b.WriteByte('\r')
+				i++
+				continue
+			case '\\':
+				b.WriteByte('\\')
+				i++
+				continue
+			case '"':
+				b.WriteByte('"')
+				i++
+				continue
+			case '\'':
+				b.WriteByte('\'')
+				i++
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // ptrTo returns a getelementptr instruction to get a pointer to a string constant.
