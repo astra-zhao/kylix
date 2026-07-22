@@ -598,13 +598,16 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 	allocReg := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", allocReg, size))
 
-	// Store vtable pointer at offset 0
-	if len(info.Methods) > 0 {
-		vtablePtr := g.tmp()
-		g.line(fmt.Sprintf("  %s = getelementptr inbounds %%%s, ptr %s, i32 0, i32 0",
-			vtablePtr, className, allocReg))
-		g.line(fmt.Sprintf("  store ptr @%s_vtable, ptr %s", className, vtablePtr))
-	}
+	// v5.4.0: ALWAYS store the vtable pointer at offset 0, even for classes
+	// with no methods. Previously only classes with methods got their vtable
+	// stored; classes like TClassDecl/TVarDecl (no methods) had garbage at
+	// offset 0, so `is TClassDecl` (which loads obj[0] as the vtable ptr)
+	// matched against garbage and always returned false → all type dispatch
+	// branches were dead → empty output.
+	vtablePtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds %%%s, ptr %s, i32 0, i32 0",
+		vtablePtr, className, allocReg))
+	g.line(fmt.Sprintf("  store ptr @%s_vtable, ptr %s", className, vtablePtr))
 
 	// v5.4.0: initialize map fields (htab_new) and zero-init dynamic slice
 	// fields so they aren't garbage after malloc. The bootstrap's TGenerator

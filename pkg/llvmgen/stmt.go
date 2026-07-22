@@ -30,6 +30,38 @@ func (g *Generator) emitStatement(node ast.Statement) error {
 	case *ast.AssignmentStatement:
 		return g.emitAssign(s)
 	case *ast.ExpressionStatement:
+		// v5.4.0: statement-style `append(slice, elem)` is a mutating call —
+		// the new slice must be stored back to the original variable/field.
+		// Without this, `append(Files, x)` discards the result and Files stays
+		// empty → GenerateMulti gets no input → empty output.
+		if call, ok := s.Expression.(*ast.CallExpression); ok && len(call.Arguments) == 2 {
+			if ident, ok := call.Function.(*ast.Identifier); ok && ident.Value == "append" {
+				result, _, err := g.emitAppend(call.Arguments[0], call.Arguments[1])
+				if err != nil {
+					return err
+				}
+				// Store result back to the first argument.
+				if member, ok := call.Arguments[0].(*ast.MemberExpression); ok {
+					kind, typeName := g.receiverKind(member.Object)
+					if kind == "class" {
+						objReg, _, err := g.loadObjectPtr(member.Object, typeName)
+						if err == nil {
+							gepReg, _, err := g.emitFieldStore(typeName, objReg, member.Member)
+							if err == nil {
+								g.line(fmt.Sprintf("  store { ptr, i64, i64 } %s, ptr %s", result, gepReg))
+							}
+						}
+						return nil
+					}
+				}
+				if leftIdent, ok := call.Arguments[0].(*ast.Identifier); ok {
+					if allocaReg, ok := g.locals[leftIdent.Value]; ok {
+						g.line(fmt.Sprintf("  store { ptr, i64, i64 } %s, ptr %s", result, allocaReg))
+					}
+				}
+				return nil
+			}
+		}
 		_, _, err := g.emitExpr(s.Expression)
 		return err
 	case *ast.BlockStatement:

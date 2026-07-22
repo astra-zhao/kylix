@@ -663,13 +663,14 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		modePtr := g.ptrTo(mode, 2)
 		fp := g.tmp()
 		g.line(fmt.Sprintf("  %s = call ptr @fopen(ptr %s, ptr %s)", fp, path, modePtr))
-		// If fopen fails, return empty string.
-		nullCk := g.tmp()
-		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", nullCk, fp))
+		// Use an alloca for the return value (can't store to a string constant).
+		retSlot := g.tmp()
+		g.line(fmt.Sprintf("  %s = alloca ptr, align 8", retSlot))
 		emptyStr := g.addString("")
 		emptyPtr := g.ptrTo(emptyStr, 1)
-		retReg := g.tmp()
-		g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", retReg, nullCk, emptyPtr, emptyPtr))
+		g.line(fmt.Sprintf("  store ptr %s, ptr %s", emptyPtr, retSlot))
+		nullCk := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", nullCk, fp))
 		okLbl := g.label()
 		exitLbl := g.label()
 		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", nullCk, exitLbl, okLbl))
@@ -689,11 +690,11 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", term, buf, sizeReg))
 		g.line(fmt.Sprintf("  store i8 0, ptr %s", term))
 		g.line(fmt.Sprintf("  call i32 @fclose(ptr %s)", fp))
-		g.line(fmt.Sprintf("  store ptr %s, ptr %s", buf, retReg))
+		g.line(fmt.Sprintf("  store ptr %s, ptr %s", buf, retSlot))
 		g.line(fmt.Sprintf("  br label %%%s", exitLbl))
 		g.line(fmt.Sprintf("%s:", exitLbl))
 		res := g.tmp()
-		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", res, retReg))
+		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", res, retSlot))
 		return res, "ptr", nil
 	}
 
@@ -1070,6 +1071,12 @@ func (g *Generator) emitLength(arg ast.Expression) (string, string, error) {
 	v, t, err := g.emitExpr(arg)
 	if err != nil {
 		return "", "", err
+	}
+	// v5.4.0: slice struct {ptr,len,cap} — extract the len field (index 1).
+	if t == "{ ptr, i64, i64 }" {
+		lenReg := g.tmp()
+		g.line(fmt.Sprintf("  %s = extractvalue { ptr, i64, i64 } %s, 1", lenReg, v))
+		return lenReg, "i64", nil
 	}
 	if t != "ptr" {
 		// For non-strings, return 0

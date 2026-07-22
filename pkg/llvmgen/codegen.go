@@ -144,6 +144,10 @@ type Generator struct {
 	// needMemcpy is set when append copies data. v5.4.0.
 	needMemcpy bool
 
+	// needClassRTTI is set when is/as class checks are used; emitClassRuntime
+	// emits the edge table + __kylix_class_is_a helper. v5.4.0.
+	needClassRTTI bool
+
 	// needLibcrypto is set when crypto module functions are used; the compile
 	// driver checks for crypto symbols in the IR and adds -lcrypto at link.
 	needLibcrypto bool
@@ -361,6 +365,18 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 				g.line(fmt.Sprintf("%%__ret_%s = type { %s }", fd.Name, strings.Join(llvmTypes, ", ")))
 			}
 		}
+		// v5.4.0: register enum constants so `tkProgram` etc. resolve to their
+		// ordinal value (i64) instead of being treated as undefined variables.
+		// Without this, InitKeywords stores 0 for every keyword token type,
+		// LookupIdent always returns tkIdent, and the parser's if-else-if chain
+		// in NextToken never matches → infinite loop.
+		if td, ok := decl.(*ast.TypeDecl); ok {
+			if et, ok := td.Type.(*ast.EnumType); ok {
+				for i, name := range et.Names {
+					g.constants[name] = &ast.IntegerLiteral{Value: int64(i)}
+				}
+			}
+		}
 	}
 
 	// v5.4.0: emit top-level VarDecls as LLVM globals (accessible from every
@@ -455,6 +471,10 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	if g.needMemcpy {
 		// memcpy is declared in emitRuntimeDecls.
 		_ = g.needMemcpy
+	}
+	// v5.4.0: class hierarchy RTTI for is/as class checks.
+	if g.needClassRTTI {
+		g.emitClassRuntime()
 	}
 
 	// Emit string constants at the end

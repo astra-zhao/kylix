@@ -353,12 +353,31 @@ func (g *Generator) emitClosureCall(varName string, args []ast.Expression) (stri
 func (g *Generator) emitIsExpr(e *ast.IsExpression) (string, string, error) {
 	target := typeExprName(e.TargetType)
 	kind, typeName := g.receiverKind(e.Expression)
-	val := 0
+	// Interface target: old compile-time check (classImplementsInterface).
 	if kind == "class" && g.classImplementsInterface(typeName, target) {
-		val = 1
+		val := 1
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i1 0, %d ; %s is %s", r, val, typeName, target))
+		return r, "i1", nil
+	}
+	// v5.4.0: class target — runtime subtype check via vtable hierarchy.
+	// `obj is TClass` where obj's compile-time type is a base class (or the
+	// same class): load obj's vtable ptr and walk the class edge table to see
+	// if TClass is an ancestor. This is what makes the bootstrap's ~95
+	// `decl is TClassDecl` type-dispatch sites actually branch correctly.
+	if _, isClassTarget := g.classes[target]; isClassTarget {
+		objReg, _, err := g.loadObjectPtr(e.Expression, typeName)
+		if err != nil {
+			return "", "", err
+		}
+		r, err := g.classIsACall(objReg, target)
+		if err != nil {
+			return "", "", err
+		}
+		return r, "i1", nil
 	}
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = add i1 0, %d ; %s is %s", r, val, typeName, target))
+	g.line(fmt.Sprintf("  %s = add i1 0, 0 ; %s is %s (unsupported)", r, typeName, target))
 	return r, "i1", nil
 }
 
