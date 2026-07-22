@@ -181,7 +181,14 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 		retType := "void"
 		retKylix := ""
 		if m.ReturnType != nil {
-			retType = g.llvmTypeFor(typeExprName(m.ReturnType))
+			// v5.5.0: use llvmTypeOfExpr (not llvmTypeFor) so array-of-T / map
+			// return types get the correct LLVM type ({ptr,i64,i64} / ptr).
+			// Previously this returned i64 for `array of T`, mismatching
+			// emitMethod's signature (which uses llvmTypeOfExpr correctly),
+			// causing emitVirtualCall to truncate the return value to 8 bytes
+			// (dropping slice len/cap) → Length(call.Arguments)=0 → no args
+			// emitted → fmt.Println() with no arguments.
+			retType = g.llvmTypeOfExpr(m.ReturnType)
 			retKylix = typeExprName(m.ReturnType)
 		}
 		var paramTypes []string
@@ -593,8 +600,16 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 		return r, nil
 	}
 
-	// Calculate struct size: 8 bytes per field + 8 for vtable ptr
-	size := 8 * (1 + len(info.Fields))
+	// v5.5.0: calculate struct size from actual field LLVM types, not 8 × count.
+	// The old formula `8 * (1 + len(fields))` under-allocates when fields have
+	// types larger than 8 bytes (e.g. {ptr,i64,i64} = 24 for slices/maps). This
+	// caused heap buffer overflow on TParser (Errors: array of String = 24 bytes
+	// → CurToken/PeekToken fields overflowed the 40-byte allocation → TokenType
+	// read as 0/garbage → "no prefix parse function for 0").
+	size := int64(8) // vtable ptr
+	for _, f := range info.Fields {
+		size += llvmTypeSize(f.LLVMType)
+	}
 	allocReg := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", allocReg, size))
 
@@ -897,4 +912,32 @@ func (g *Generator) emitInherited(s *ast.InheritedStatement) error {
 		g.line(fmt.Sprintf("  store %s %s, ptr %%result", meth.RetType, result))
 	}
 	return nil
+}
+
+// llvmTypeSize returns the byte size of an LLVM IR type string. v5.5.0.
+// Used by emitConstructor to compute the correct malloc size for class/record
+// instances — the old `8 * fieldCount` formula under-allocated when fields
+// had types larger than 8 bytes (slices {ptr,i64,i64}=24, static arrays, etc.).
+func llvmTypeSize(t string) int64 {
+	t = strings.TrimSpace(t)
+	switch t {
+	case "ptr", "i64", "i32", "i1", "double", "float":
+		return 8
+	case "{ ptr, i64, i64 }":
+		return 24
+	}
+	// Static array: [N x T]
+	if strings.HasPrefix(t, "[") {
+		// Parse [N x T]
+		rest := t[1:]
+		sp := strings.Index(rest, " x ")
+		if sp > 0 {
+			var n int64
+			fmt.Sscanf(rest[:sp], "%d", &n)
+			elemT := strings.TrimSpace(rest[sp+3 : len(rest)-1])
+			return n * llvmTypeSize(elemT)
+		}
+	}
+	// Default: 8 bytes per field (conservative for unknown types).
+	return 8
 }

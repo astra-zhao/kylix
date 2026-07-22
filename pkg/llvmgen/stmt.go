@@ -554,9 +554,14 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 			// v5.4.0: record local — heap-allocate the struct now (records have
 			// no Create method, so `var tok: TToken` must malloc the storage
 			// up front so `tok.Field := x` GEPs into valid memory).
+			// v5.5.0: use llvmTypeSize for correct sizing (slice/map fields are
+			// >8 bytes; the old 8×count formula under-allocated).
 			allocaReg := g.freshVarReg(name, "")
 			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
-			size := 8 * (1 + len(g.classes[ident.Value].Fields))
+			size := int64(8) // vtable ptr
+			for _, f := range g.classes[ident.Value].Fields {
+				size += llvmTypeSize(f.LLVMType)
+			}
 			rec := g.tmp()
 			g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", rec, size))
 			g.line(fmt.Sprintf("  store ptr %s, ptr %s", rec, allocaReg))
