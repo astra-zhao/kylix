@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-5.3.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-5.4.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,9 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🔥 **v5.3.0**: 自举编译器完成 round-trip 并自繁殖 — 自举产出的编译器 `kylix_self2` 能正确编译程序（hello.klx → `Hello, World!`），且 `kylix_self2` 重新编译 `src/*.klx` 得到 `kylix_self3`（后者同样能正确编译 hello）——编译器能编译自己。三处修复（都在 `src/generator.klx`，宿主 `generator/` 包零改动）：`Args` builtin、条件导入（扫描 needle 拆分避免编译器扫描自己输出时自检测）、`WriteEscapedGoString` 的 `\n`/`\t`/`\r` 转义保护。`self_7.go` ≡ `self_7_gen2.go`（5390 行，接近不动点）。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🔥 **v5.4.0**: LLVM 后端自举编译打通 — 自举源码 `src/*.klx`（7 文件 5250 行）经 LLVM 后端编译成原生二进制 `kylix_self_llvm`（127KB，**无 Go 依赖**），推进 KylixRT 里程碑（「LLVM 后端可编译 Kylix 编译器自身」）。IR 生成成功（736KB）→ llc 通过 → 链接成原生二进制 → 运行 exit 0 产出 Go 代码（含真换行 + WriteLn 语句识别 + is/as 运行时类型分派）。本轮修复 20+ 个 LLVM 后端缺口（类型系统、全局变量、record 支持、外部方法、is/as 运行时、map 值类型化、builtin 等）。go test 16 包全绿，教程 **51/51 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
+>
+> 🔥 **v5.3.0**: 自举编译器完成 round-trip 并自繁殖 — 自举产出的编译器 `kylix_self2` 能正确编译程序（hello.klx → `Hello, World!`），且 `kylix_self2` 重新编译 `src/*.klx` 得到 `kylix_self3`（后者同样能正确编译 hello）——编译器能编译自己。三处修复（都在 `src/generator.klx`，宿主 `generator/` 包零改动）：`Args` builtin、条件导入（扫描 needle 拆分避免编译器扫描自己输出时自检测）、`WriteEscapedGoString` 的 `\n`/`\t`/`\r` 转义保护。`self_7.go` ≡ `self_7_gen2.go`（5390 行，接近不动点）。
 >
 > 🎉 **v5.2.0**: 自举编译器构建打通 — 自举源码 `src/*.klx`（7 文件 5250 行）首次构建成可运行的 `kylix_self` 二进制（208 个 Go 构建错误 → 0）。多态基类 opt-in interface codegen（程序含 `is`/`as` 时把「有子类的基类」发射成空 interface，否则保留 struct 嵌入 → 教程不回归）+ `Args` builtin。`kylix_self` 运行产出 5238 行 Go 编译器代码。go test 16 包全绿，教程 **51/51 (100%)**。
 >

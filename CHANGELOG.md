@@ -4,6 +4,35 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v5.4.0 (2026-07-22) — LLVM 后端自举编译打通（类层次 RTTI + 全局变量 + record + 外部方法 + 20+ 运行时修复）
+
+> 🎯 **LLVM 后端能编译自举源码 `src/*.klx`（7 文件、5250 行）成原生二进制 `kylix_self_llvm`（127KB，无 Go 依赖）**，推进 KylixRT 里程碑（「LLVM 后端可编译 Kylix 编译器自身」）。v5.2-v5.3 在 Go 后端达成自举构建+round-trip+不动点；v5.4.0 让 **LLVM 后端**也能编译自举源码——IR 生成成功（main.ll 736KB）→ llc 验证通过 → 链接成原生二进制 → 运行 exit 0 产出 Go 代码（含真换行 + WriteLn 语句识别）。
+
+### 本轮修复的 LLVM 后端缺口（20+ 项）
+
+- **类型系统**：`llvmTypeOfExpr`（array/class/map 统一类型推断）、函数/方法 `array of T` 参数（此前 fallback i64）、`normalizeParams`（多变量参数 `level,msg:String`）、`ArrayLiteral` 发 slice struct（insertvalue）、`emitMember` non-class 发 ptr null（降级）
+- **全局变量**：`collectGlobals`（Keywords 等 unit var → `@__kylix_g_*`，IsMerged 窄化避免破坏单文件测试）、class-typed 全局（`Par: TParser` 设 localTypes）、`Args` builtin（argc/argv → `@__kylix_args` slice）
+- **类/record**：record 类型支持（`emitRecordDecl` 无方法 class + struct）、类字段 dynamic 数组（`rec.Fields[i]`）、map 字段（`self.ClassFields[key]` → htab_get）、构造函数字段初始化（map htab_new + slice 零初始化 + call Create 方法体）
+- **方法**：外部方法（`procedure ClassName.Method` → `@ClassName_Method` + `ptr %self` + localTypes）、方法局部 LocalDecls（此前被忽略）
+- **类型推断**：`exprKylixType`（IndexExpression/TypeCastExpression/CallExpression/MemberExpression 递归）、auto-declare 按 RHS LLVM 类型分派（ptr→_str/double→_real/i1→_bool）、`result` 变量 load 用返回类型、链式字段访问（`X.Y.Z` receiverKind 递归）、局部变量遮蔽全局（local-before-global 查找）
+- **is/as 运行时**：vtable ptr 子类型判定（`@__kylix_classtab` 边表 + `@__kylix_class_is_a` 运行时 + emitIsExpr null guard phi）、`as TClass` 返回对象 ptr、emitConstructor 始终存 vtable
+- **map 值类型化**：enum/Integer 值 map 读取 atoll → i64（`Keywords[key]` 返回 enum 值）
+- **builtin**：Args/Ord/StrToInt64/StrToFloat/LowerCase/UpperCase/ReadFile（fopen/fseek/ftell/fread）/append（malloc+memcpy+insertvalue slice）
+- **其它**：Boolean 比较（`icmp eq i1`）、条件 coerce（ptr→i1 `icmp ne null`）、语句风格 append store-back、emitLength slice struct（extractvalue len）、G14 字符串转义解码（`\n`→真换行）、llc 强制 -O0、loadObjectPtr 全局先 load
+
+### 验证
+
+- `kylix build --backend=llvm src/*.klx` → main.ll（736KB）→ main.o → `main`（127KB 原生二进制）
+- `./main hello.klx` → exit 0 产出 Go 代码（`package main` + `import` + `func main` + `fmt.Println()`）
+- is/as 运行时类型分派工作（GenerateStatement 的 `is TExpressionStatement` 等分支正确命中）
+- 回归：go test 16 包全绿、教程 51/51 无回归（Go 后端不受影响）
+
+### 剩余（自举 parser 深层 bug，留 v5.5+）
+
+- 整数解析失败（`WriteLn(42)` → "no prefix parse function for 0"）
+- 字符串参数未传递到输出（`fmt.Println()` 缺参数）
+- 这两个是 2400 行 parser.klx 编译成 LLVM 后的运行时 bug，需逐行追踪 IR 定位
+
 ## v5.3.0 (2026-07-19) — 自举编译器 round-trip 打通（条件导入 + 字符串转义 + 自繁殖）
 
 > 🎯 **自举编译器完成完整 round-trip**：`kylix_self2`（自举产出的编译器）能正确编译程序，且**自繁殖**——`kylix_self2` 重新编译 `src/*.klx` 得到 `kylix_self3`，后者同样能正确编译程序。编译器能编译自己。v5.2.0 只打通「构建」（自举源码 → 可运行 `kylix_self`）；v5.3.0 打通「运行时正确性」——自举编译器产出的编译器功能正确。

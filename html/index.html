@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <!-- ============ SEO: Primary Meta ============ -->
-<title>Kylix v5.1.0 — Modern Pascal, Compiled to Go &amp; LLVM | KylixBoot &amp; Annotations</title>
+<title>Kylix v5.4.0 — Modern Pascal, Compiled to Go &amp; LLVM | KylixBoot &amp; Annotations</title>
 <meta name="description" content="Kylix 是一个现代 Pascal 编译器：双后端（Go 转译 + LLVM 原生）。带类型推导、泛型、async/await、模式匹配、注解语法、KylixBoot Web 框架、ORM、包注册中心、WASM/WASI 支持，以及完整 IDE 工具链。MIT 开源。">
 <meta name="keywords" content="Kylix, Pascal, Go, LLVM, transpiler, compiler, KylixBoot, annotations, WASM, WASI, modern Pascal, Pascal to Go, open source, IDE, LSP, ORM, dependency injection">
 <meta name="author" content="astra-zhao">
@@ -16,7 +16,7 @@
 <meta property="og:type" content="website">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:site_name" content="Kylix">
-<meta property="og:title" content="Kylix v5.1.0 — Modern Pascal, Compiled to Go &amp; LLVM">
+<meta property="og:title" content="Kylix v5.4.0 — Modern Pascal, Compiled to Go &amp; LLVM">
 <meta property="og:description" content="KylixBoot 框架、注解语法、LLVM 原生后端、WASI、包注册中心 — 用 Pascal 编写，编译为 Go 或原生二进制。">
 <meta property="og:url" content="https://kylix.top/">
 <meta property="og:image" content="https://kylix.top/og-image.png">
@@ -26,7 +26,7 @@
 
 <!-- ============ SEO: Twitter Card ============ -->
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Kylix v5.1.0 — Modern Pascal, Compiled to Go &amp; LLVM">
+<meta name="twitter:title" content="Kylix v5.4.0 — Modern Pascal, Compiled to Go &amp; LLVM">
 <meta name="twitter:description" content="KylixBoot 框架、注解语法、LLVM 原生后端、WASI、包注册中心 — Pascal 焕发新生。">
 <meta name="twitter:image" content="https://kylix.top/og-image.png">
 <meta name="twitter:image:alt" content="Kylix - Modern Pascal, Compiled to Go &amp; LLVM">
@@ -38,7 +38,7 @@
   "@type": "SoftwareSourceCode",
   "name": "Kylix",
   "description": "A modern Pascal compiler that transpiles to Go and compiles to native via LLVM. Features KylixBoot framework, annotation syntax, generics, async/await, pattern matching, full IDE toolchain, WASM/WASI support, and a package registry.",
-  "version": "3.1.0",
+  "version": "5.4.0",
   "license": "https://opensource.org/licenses/MIT",
   "url": "https://kylix.top",
   "codeRepository": "https://github.com/astra-zhao/kylix",
@@ -542,7 +542,7 @@ img { max-width: 100%; }
 <header class="hero" id="hero">
   <div class="hero-inner">
     <div class="badges">
-      <span class="badge badge-accent"><span class="badge-dot accent"></span> v5.1.0</span>
+      <span class="badge badge-accent"><span class="badge-dot accent"></span> v5.4.0</span>
       <span class="badge badge-green"><span class="badge-dot green"></span> MIT License</span>
       <span class="badge">Go 1.18+</span>
       <span class="badge">LLVM 后端</span>
@@ -569,7 +569,7 @@ img { max-width: 100%; }
         <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
         GitHub
       </a>
-      <a href="md-viewer.html?file=CHANGELOG.md" class="btn btn-accent">📝 v5.1.0 更新日志</a>
+      <a href="md-viewer.html?file=CHANGELOG.md" class="btn btn-accent">📝 v5.4.0 更新日志</a>
     </div>
 
     <!-- Hero code example -->
@@ -770,9 +770,9 @@ end.</code></pre>
 <!-- ====================== WHATS NEW v3.1 ====================== -->
 <section class="section" id="whatsnew">
   <div class="section-inner">
-    <p class="section-label">v5.1.0 亮点</p>
-    <h2 class="section-title">完成 Variant 运行时：map[String]Variant + 算术 🎉</h2>
-    <p class="section-desc">2026-07-17 发布。补齐 v5.0.0 留的两个缺口：(A) <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">map[String]Variant</code> 真实化——htab 值槽存 Variant box（不动结构），<code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">m['pi']=3.14</code> 经 <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">variant_compare</code> 按标签派发，<code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">JsonDecodeMap</code> 产出真实 Variant map，<code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">JsonGet*</code> 全部 unbox；(B) Variant 算术（<code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">v+1</code>）<code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">variant_add/sub/mul/div</code> 按标签派发 + <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">n := v</code> 解箱。教程通过率 51/51 (100%)。</p>
+    <p class="section-label">v5.4.0 亮点</p>
+    <h2 class="section-title">LLVM 后端自举编译打通：原生二进制无 Go 依赖 🔥</h2>
+    <p class="section-desc">2026-07-22 发布。自举源码 <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">src/*.klx</code>（7 文件 5250 行）经 LLVM 后端编译成原生二进制 <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">kylix_self_llvm</code>（127KB，无 Go 依赖），推进 KylixRT 里程碑。IR 生成成功（736KB）→ llc 通过 → 链接成原生二进制 → 运行 exit 0 产出 Go 代码（含真换行 + WriteLn 语句识别 + <code style="background:var(--bg-code);padding:2px 8px;border-radius:4px;color:var(--c-accent);">is/as</code> 运行时类型分派）。本轮修复 20+ 个 LLVM 后端缺口：类型系统、全局变量、record 支持、外部方法、is/as 运行时 RTTI、map 值类型化、builtin 等。教程通过率 51/51 (100%)。</p>
 
     <div class="features-grid">
       <div class="feature-card">
@@ -1336,7 +1336,7 @@ kylix build --wasi hello.klx                   # WASI (Wasmtime)</code></pre>
       <a href="https://github.com/astra-zhao/kylix/issues">Issue</a>
     </div>
     <p class="footer-copy">
-      Kylix v5.1.0 &middot; Built with ❤️ by <a href="https://github.com/astra-zhao">astra-zhao</a> &middot; Pascal → Go &amp; LLVM &middot; Simple, Modern, Fast
+      Kylix v5.4.0 &middot; Built with ❤️ by <a href="https://github.com/astra-zhao">astra-zhao</a> &middot; Pascal → Go &amp; LLVM &middot; Simple, Modern, Fast
     </p>
   </div>
 </footer>

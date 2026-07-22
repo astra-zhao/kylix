@@ -1,10 +1,31 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-07-19
-> 当前版本: v5.3.0 已发布
+> 最后更新: 2026-07-22
+> 当前版本: v5.4.0 已发布
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
+
+---
+
+## ✅ v5.4.0 修复：LLVM 后端自举编译打通（类层次 RTTI + 全局变量 + record + 外部方法 + 20+ 运行时修复）
+
+**症状**：v5.3.0 在 Go 后端达成自举不动点（`kylix_self2` ≡ `kylix_self3` 逐字节），但 LLVM 后端无法编译自举源码——`kylix build --backend=llvm src/*.klx` 失败，暴露整套类层次多态 + 类型系统缺失。
+
+**根因**：LLVM 后端在自举源码（5250 行重多态）上暴露 20+ 缺口——类型系统（LLVMType 不感知 class/array）、函数 array 参数（fallback i64）、is/as 只支持 interface、异构 array of TBase（元素 i64）、无 collectClassTypes/classIsBase、无全局变量支持、无 record 支持、无外部方法支持。
+
+**修复**（详见 CHANGELOG v5.4.0）：类型系统（llvmTypeOfExpr）、全局变量（collectGlobals + IsMerged 窄化）、record 支持（emitRecordDecl）、外部方法（@ClassName_Method + self）、类型推断（exprKylixType 递归 + auto-declare 按 RHS 类型 + 局部遮蔽全局）、is/as 运行时（vtable 边表 + class_is_a + null guard）、map 值类型化、builtin（Args/Ord/StrToFloat/LowerCase/ReadFile/append）、Boolean 比较 + 条件 coerce + G14 转义解码 + llc -O0 + emitConstructor call Create。
+
+**验证**：`kylix build --backend=llvm src/*.klx` → 原生二进制 127KB → 运行 hello.klx exit 0 产出 Go 代码。回归 16 包 + 51 教程全绿。
+
+### 🟠 v5.5 自举 parser 深层 bug（LLVM 后端运行时）
+
+v5.4 让 LLVM 自举二进制能运行产出 Go 代码，但自举 parser（2400 行 parser.klx）编译成 LLVM 后有运行时 bug：
+
+| 限制 | 影响 | 修复方向 | 状态 |
+|------|------|---------|------|
+| 整数解析失败 | `WriteLn(42)` → "no prefix parse function for 0" | 追踪 parseInteger 的 LLVM IR（整数 token 解析逻辑） | 🟠 v5.5 |
+| 字符串参数未传递 | `fmt.Println()` 缺参数 | 追踪 GenerateCallExpression args 循环 + GenerateExpression(TStringLiteral) | 🟠 v5.5 |
 
 ---
 
