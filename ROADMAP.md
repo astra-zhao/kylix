@@ -43,7 +43,8 @@
 | **v5.2.0** | 自举编译器构建打通（多态基类 opt-in interface codegen + Args builtin；`src/*.klx` → 可运行 `kylix_self`，208→0 错误） | ✅ 完成 | 2026-07-18 |
 | **v5.3.0** | 自举编译器 round-trip 打通 + 自繁殖（条件导入 + 字符串转义；`kylix_self2` 编译 hello 输出 `Hello, World!`，`kylix_self3` 自繁殖正确） | ✅ 完成 | 2026-07-19 |
 | **v5.4.0** | LLVM 后端自举编译打通（类层次 RTTI + 全局变量 + record + 外部方法 + 20+ 运行时修复；`src/*.klx` → 原生二进制 127KB，运行产出 Go 代码） | ✅ 完成 | 2026-07-22 |
-| **v5.5.0+** | LLVM 自举 parser 深层 bug 修复（整数解析 + 字符串参数传递）+ 自举通用 codegen 补全 + KylixRT + JetBrains 插件 + JsonEncode | 📋 长期 | 2027+ |
+| **v5.5.0** | LLVM 自举 parser 深层 bug 修复（分配大小 + 返回类型 + record 返回槽；`WriteLn('Hello')`→完整参数 + `WriteLn(42)`→整数正确） | ✅ 完成 | 2026-07-22 |
+| **v5.6.0+** | LLVM 自举 round-trip + 自举通用 codegen 补全 + KylixRT + JetBrains 插件 + JsonEncode | 📋 长期 | 2027+ |
 
 ---
 

@@ -4,7 +4,7 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 
 **重要：始终用中文回答用户，不论用户用什么语言提问，回复一律使用中文。**
 
-## 当前状态：v5.4.0（2026-07-22）
+## 当前状态：v5.5.0（2026-07-22）
 
 - v5.4.0 已发布：LLVM 后端自举编译打通。自举源码 `src/*.klx`（7 文件、5250 行）经 LLVM 后端编译成原生二进制 `kylix_self_llvm`（127KB，**无 Go 依赖**），推进 KylixRT 里程碑（「LLVM 后端可编译 Kylix 编译器自身」）。v5.3.0 在 Go 后端达成自举不动点；v5.4.0 让 LLVM 后端也能编译自举源码。IR 生成成功（main.ll 736KB）→ llc 验证通过 → 链接成原生二进制 → 运行 exit 0 产出 Go 代码（含真换行 + WriteLn 语句识别 + is/as 运行时类型分派）。本轮修复 20+ 个 LLVM 后端缺口：(1) 类型系统——`llvmTypeOfExpr`（array/class/map）、函数 array 参数、`normalizeParams`、ArrayLiteral slice struct；(2) 全局变量——`collectGlobals`（Keywords 等 unit var→`@__kylix_g_*`，IsMerged 窄化）、class-typed 全局、`Args` builtin；(3) 类/record——record 类型支持（`emitRecordDecl`）、类字段 dynamic 数组/map 字段、构造函数 call Create + 字段初始化；(4) 外部方法——`procedure ClassName.Method`→`@ClassName_Method`+self；(5) 类型推断——`exprKylixType` 递归、auto-declare 按 RHS 类型、`result` load 用返回类型、局部遮蔽全局；(6) is/as 运行时——vtable 边表 + `@__kylix_class_is_a` + null guard phi；(7) map 值类型化——enum/Integer→atoll→i64；(8) builtin——Args/Ord/StrToInt64/StrToFloat/LowerCase/UpperCase/ReadFile/append。回归 16 包 + 51 教程全绿。剩余：自举 parser 深层 bug（整数解析失败 + 字符串参数未传递）留 v5.5。
 - v5.3.0 已发布：自举编译器 round-trip 打通 + 自繁殖。v5.2.0 只打通「构建」；v5.3.0 打通「运行时正确性」——`kylix_self2` 能正确编译程序，且自繁殖（`kylix_self3` 同样正确）。三处修复（都在 `src/generator.klx`，宿主零改动）：`Args` builtin、条件导入（扫描 needle 拆分避自检测）、`WriteEscapedGoString` 2-char 前瞻转义保护。`self_7.go` ≡ `self_7_gen2.go`（5390 行逐字节一致，真正不动点）。

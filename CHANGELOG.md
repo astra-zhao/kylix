@@ -4,6 +4,40 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v5.5.0 (2026-07-22) — LLVM 自举 parser 深层 bug 修复（分配大小 + 返回类型 + record 返回槽）
+
+> 🎯 **修复两个根因 bug，让 LLVM 自举二进制产出完整正确的 Go 代码**：`WriteLn('Hello')` → `fmt.Println("Hello from LLVM self!")`（完整参数），`WriteLn(42)` → `fmt.Println(42)`（整数正确）。此前产出 `fmt.Println()` 缺参数 + 整数报 "no prefix parse function for 0"。
+
+### Bug 1：emitConstructor 分配大小不足（堆溢出）
+
+**根因**：`emitConstructor`（class.go:596）用 `size := 8 * (1 + len(info.Fields))` 假设每字段 8 字节。但 `TParser.Errors: array of String` 是 `{ptr, i64, i64}` = 24 字节。TParser struct 实际 56 字节但只分 40 → CurToken/PeekToken 字段溢出 → TokenType 读为 0/garbage → "no prefix parse function for 0"。
+
+**修复**：新增 `llvmTypeSize` helper（`ptr`/`i64`→8，`{ptr,i64,i64}`→24，`[N×T]`→N×size(T)）。`emitConstructor` + `emitVarDeclSingle`(record) 改用按实际字段类型大小求和。
+
+### Bug 2：buildClassInfo 方法返回类型不一致（slice 截断）
+
+**根因**：`buildClassInfo`（class.go:184）用旧 `g.llvmTypeFor(typeExprName(m.ReturnType))` 算方法返回类型——对 `array of T` 返回 `i64`。但 `emitMethod`（class.go:336）用新 `g.llvmTypeOfExpr` 正确返回 `{ptr,i64,i64}`。两处不一致 → `emitVirtualCall` 用错误 `meth.RetType`（i64）定型 call → 只取 8 字节 data ptr 丢弃 len/cap → `Length(Arguments)=0` → args 循环不执行 → `fmt.Println()` 缺参数。
+
+**修复**：`buildClassInfo` 改用 `g.llvmTypeOfExpr(m.ReturnType)`，与 `emitMethod` 一致。
+
+### Bug 3：record 返回槽字段赋值缺失
+
+**根因**：`TLexer.ReadNumber` 返回 TToken（record），`result.TokenType := tokType` 经 `emitAssign` 的 class 字段存储路径——但 `receiverKind(result)` 返回 `("", "")`（因 `localTypes["result"]` 未设 record 类型）→ "unhandled member assignment .TokenType"。
+
+**修复**：`emitFunctionDecl` 对 record/class 返回类型设 `localTypes["result"] = retKylix` + malloc struct 存进 `%result`（record 无 Create）+ `loadObjectPtr` 对 `%result` 先 load。
+
+### Bug 4：record 无 vtable 常量
+
+**根因**：`emitClassRuntime` 的 vtable fallback 跳过 record（`if g.records[name] { continue }`），但 `emitFunctionDecl` 对 record 返回槽存 vtable → `@TToken_vtable` 未定义 → llc 报错。
+
+**修复**：fallback 对 record 也发 `@TName_vtable = constant [0 x ptr] []`。
+
+### 验证
+
+- `./main hello.klx` → `fmt.Println("Hello from LLVM self!")`（完整参数 + 真换行）✅
+- `./main int.klx`（`WriteLn(42)`）→ `fmt.Println(42)`（整数正确）✅
+- 回归：go test 16 包全绿、教程 51/51 无回归
+
 ## v5.4.0 (2026-07-22) — LLVM 后端自举编译打通（类层次 RTTI + 全局变量 + record + 外部方法 + 20+ 运行时修复）
 
 > 🎯 **LLVM 后端能编译自举源码 `src/*.klx`（7 文件、5250 行）成原生二进制 `kylix_self_llvm`（127KB，无 Go 依赖）**，推进 KylixRT 里程碑（「LLVM 后端可编译 Kylix 编译器自身」）。v5.2-v5.3 在 Go 后端达成自举构建+round-trip+不动点；v5.4.0 让 **LLVM 后端**也能编译自举源码——IR 生成成功（main.ll 736KB）→ llc 验证通过 → 链接成原生二进制 → 运行 exit 0 产出 Go 代码（含真换行 + WriteLn 语句识别）。

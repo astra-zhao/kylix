@@ -48,10 +48,9 @@ func (g *Generator) emitClassRuntime() {
 	// vtable constant. Classes with no methods get an empty [0 x ptr] vtable
 	// from emitVtable, but if it wasn't emitted for any reason, emit a
 	// fallback here so all @TFoo_vtable references resolve.
+	// v5.5.0: records also need a vtable (emitFunctionDecl stores it for
+	// record return types so `is` checks work).
 	for name, info := range g.classes {
-		if g.records[name] {
-			continue
-		}
 		if info != nil && len(info.Methods) == 0 {
 			g.line(fmt.Sprintf("@%s_vtable = constant [0 x ptr] []", name))
 		}

@@ -278,6 +278,29 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 		if isMultiRet {
 			// Mark result as a tuple so assignment can detect it.
 			g.localTypes["result"] = "__tuple__"
+		} else if decl.ReturnType != nil {
+			// v5.5.0: set localTypes["result"] to the Kylix return type name so
+			// receiverKind(result) resolves it for `result.Field := x` on
+			// class/record return types (e.g. TLexer.ReadNumber returns TToken,
+			// and `result.TokenType := tokType` needs to GEP into TToken).
+			retKylix := typeExprName(decl.ReturnType)
+			if _, isClass := g.classes[retKylix]; isClass {
+				g.localTypes["result"] = retKylix
+				// v5.5.0: for record/class return types, malloc the struct and
+				// store its pointer into %result so `result.Field := x` GEPs
+				// into valid memory (not null). Records have no Create method.
+				if g.records[retKylix] {
+					size := int64(8) // vtable ptr
+					for _, f := range g.classes[retKylix].Fields {
+						size += llvmTypeSize(f.LLVMType)
+					}
+					recReg := g.tmp()
+					g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", recReg, size))
+					// Store vtable for is/as (records have [0 x ptr] vtable).
+					g.line(fmt.Sprintf("  store ptr @%s_vtable, ptr %s", retKylix, recReg))
+					g.line(fmt.Sprintf("  store ptr %s, ptr %%result", recReg))
+				}
+			}
 		}
 		// v4.6.0: declare `result` as a debug local so LLDB can show its
 		// value while stepping through the function body (it's the implicit

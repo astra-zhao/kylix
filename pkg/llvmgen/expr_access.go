@@ -106,6 +106,15 @@ func (g *Generator) loadObjectPtr(obj ast.Expression, typeName string) (string, 
 		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", r, alloca))
 		return r, "ptr", nil
 	}
+	// v5.5.0: `result` for a class/record return type is an alloca ptr that
+	// stores the object pointer — load it so `result.Field := x` GEPs into
+	// the object, not the alloca. Without this, `result.TokenType := tokType`
+	// in TLexer.ReadNumber (returns TToken) was "unhandled member assignment".
+	if alloca == "%result" {
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", r, alloca))
+		return r, "ptr", nil
+	}
 	if !strings.HasPrefix(alloca, "%v_") {
 		return alloca, "ptr", nil
 	}
