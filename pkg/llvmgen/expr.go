@@ -261,30 +261,61 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 		return g.emitExpr(constExpr)
 	}
 
-	// v5.4.0: the `result` variable is the function's return slot — its alloca
-	// type is the return type (tracked in resultLLVMType), not inferable from a
-	// suffix since it's named "%result" (no _int/_bool/etc).
-	if name == "result" && g.resultLLVMType != "" {
-		llvmT := g.resultLLVMType
+	// v5.4.0: check LOCALS before globals — a local variable (e.g. the loop
+	// counter `i` in `for i := 0 to N do stmts[i]`) must shadow a same-named
+	// global (e.g. main's global `i`). Without this, `stmts[i]` loads the
+	// global i (stale value from an outer scope) instead of the local loop
+	// counter → wrong index → null element → all `is` checks fail → empty output.
+	if allocaReg, ok := g.locals[name]; ok {
+		// v5.4.0: the `result` variable is the function's return slot.
+		if name == "result" && g.resultLLVMType != "" {
+			llvmT := g.resultLLVMType
+			r := g.tmp()
+			g.line(fmt.Sprintf("  %s = load %s, ptr %%result", r, llvmLoadType(llvmT)))
+			return r, llvmT, nil
+		}
+		// v5.4.0: Args builtin — registered in arrayInfo so Length/Args[i] work.
+		if name == "Args" {
+			g.needArgs = true
+			g.arrayInfo["Args"] = &arrayInfo{IsDynamic: true, ElementType: "ptr", ElementKylixType: "String"}
+			r := g.tmp()
+			g.line(fmt.Sprintf("  %s = load { ptr, i64, i64 }, ptr @__kylix_args", r))
+			return r, "{ ptr, i64, i64 }", nil
+		}
+		// v5.4.0: global variable registered in locals by registerGlobalsInScope.
+		// But a REAL local (alloca %v_*) takes precedence — if the alloca starts
+		// with %v_ or is %self, it's a local. If it's @__kylix_g_*, it's a global.
+		if strings.HasPrefix(allocaReg, "@__kylix_g_") {
+			llvmT := g.globalTypes[name]
+			r := g.tmp()
+			g.line(fmt.Sprintf("  %s = load %s, ptr %s", r, llvmLoadType(llvmT), allocaReg))
+			return r, llvmT, nil
+		}
+		// Determine type from alloca name convention: %v_name_TYPE
+		llvmT := "i64" // default
+		if strings.HasSuffix(allocaReg, "_bool") {
+			llvmT = "i1"
+		} else if strings.HasSuffix(allocaReg, "_real") {
+			llvmT = "double"
+		} else if strings.HasSuffix(allocaReg, "_str") {
+			llvmT = "ptr"
+		} else if strings.HasSuffix(allocaReg, "_dyn") {
+			llvmT = "{ ptr, i64, i64 }"
+		} else if strings.HasSuffix(allocaReg, "_map") {
+			llvmT = "ptr"
+		} else if strings.HasSuffix(allocaReg, "_var") {
+			llvmT = variantT
+		} else if kylixT, ok := g.localTypes[name]; ok {
+			if _, isClass := g.classes[kylixT]; isClass {
+				llvmT = "ptr"
+			}
+		}
 		r := g.tmp()
-		g.line(fmt.Sprintf("  %s = load %s, ptr %%result", r, llvmLoadType(llvmT)))
+		g.line(fmt.Sprintf("  %s = load %s, ptr %s", r, llvmLoadType(llvmT), allocaReg))
 		return r, llvmT, nil
 	}
 
-	// v5.4.0: Args builtin — the command-line arguments (excluding argv[0]).
-	// Returns a {ptr,len,cap} slice loaded from the @__kylix_args global, which
-	// main() populates from argc/argv. Registered in arrayInfo so Length(Args)
-	// and Args[i] work.
-	if name == "Args" {
-		g.needArgs = true
-		g.arrayInfo["Args"] = &arrayInfo{IsDynamic: true, ElementType: "ptr", ElementKylixType: "String"}
-		r := g.tmp()
-		g.line(fmt.Sprintf("  %s = load { ptr, i64, i64 }, ptr @__kylix_args", r))
-		return r, "{ ptr, i64, i64 }", nil
-	}
-
-	// v5.4.0: global variable — load from its @__kylix_g_<name> symbol (the
-	// type is tracked in globalTypes, since globals have no alloca-name suffix).
+	// v5.4.0: global variable not shadowed by a local.
 	if sym, ok := g.globals[name]; ok {
 		llvmT := g.globalTypes[name]
 		r := g.tmp()
@@ -292,40 +323,18 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 		return r, llvmT, nil
 	}
 
-	allocaReg, ok := g.locals[name]
-	if !ok {
+	// v5.4.0: Args builtin when not in locals (shouldn't happen with
+	// registerGlobalsInScope, but as a fallback).
+	if name == "Args" {
+		g.needArgs = true
 		r := g.tmp()
-		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; undefined var %s", r, name))
-		return r, "i64", nil
+		g.line(fmt.Sprintf("  %s = load { ptr, i64, i64 }, ptr @__kylix_args", r))
+		return r, "{ ptr, i64, i64 }", nil
 	}
-	// Determine type from alloca name convention: %v_name_TYPE
-	llvmT := "i64" // default
-	if strings.HasSuffix(allocaReg, "_bool") {
-		llvmT = "i1"
-	} else if strings.HasSuffix(allocaReg, "_real") {
-		llvmT = "double"
-	} else if strings.HasSuffix(allocaReg, "_str") {
-		llvmT = "ptr"
-	} else if strings.HasSuffix(allocaReg, "_dyn") {
-		// v5.4.0: dynamic-array (slice) local/param — load the {ptr,len,cap}
-		// struct (e.g. when passing a slice to another function).
-		llvmT = "{ ptr, i64, i64 }"
-	} else if strings.HasSuffix(allocaReg, "_map") {
-		llvmT = "ptr"
-	} else if strings.HasSuffix(allocaReg, "_var") {
-		// v5.0.0: Variant local — load the box pointer; downstream
-		// emitInfix/emitWriteLn recognize the "variant" pseudo-type.
-		llvmT = variantT
-	} else if kylixT, ok := g.localTypes[name]; ok {
-		// v5.4.0: no-suffix alloca (class-typed local/param declared with
-		// `var x: TFoo` or a class param) — hold a ptr to the heap instance.
-		if _, isClass := g.classes[kylixT]; isClass {
-			llvmT = "ptr"
-		}
-	}
+
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = load %s, ptr %s", r, llvmLoadType(llvmT), allocaReg))
-	return r, llvmT, nil
+	g.line(fmt.Sprintf("  %s = add i64 0, 0 ; undefined var %s", r, name))
+	return r, "i64", nil
 }
 
 // llvmLoadType returns the real LLVM IR type to use in a load instruction for
