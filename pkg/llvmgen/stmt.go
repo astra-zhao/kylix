@@ -842,6 +842,38 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 			if _, isClass := g.classes[t]; isClass {
 				t = "ptr"
 			}
+			// v5.6.0: record field assignment (e.g. self.CurToken := self.PeekToken)
+			// must deep-copy the record struct (value semantics, matching Go's
+			// `self.CurToken = self.PeekToken` which copies the entire TToken struct).
+			// Without this, CurToken and PeekToken share the same TToken object —
+			// subsequent PeekToken updates corrupt CurToken → lexer state corruption.
+			if fieldKylixT := fieldKylixType(typeName, member.Member, g); fieldKylixT != "" && g.records[fieldKylixT] {
+				// Branch: if RHS is null, store null; else malloc+memcpy+store.
+				nullCk := g.tmp()
+				g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", nullCk, v))
+				storeNullLbl := g.label()
+				copyLbl := g.label()
+				doneLbl := g.label()
+				g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", nullCk, storeNullLbl, copyLbl))
+				// Null branch: store null.
+				g.line(fmt.Sprintf("%s:", storeNullLbl))
+				g.line(fmt.Sprintf("  store ptr null, ptr %s", gepReg))
+				g.line(fmt.Sprintf("  br label %%%s", doneLbl))
+				// Copy branch: malloc + memcpy + store.
+				g.line(fmt.Sprintf("%s:", copyLbl))
+				recSize := int64(8) // vtable ptr
+				for _, f := range g.classes[fieldKylixT].Fields {
+					recSize += llvmTypeSize(f.LLVMType)
+				}
+				newRec := g.tmp()
+				g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", newRec, recSize))
+				g.needMemcpy = true
+				g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %d)", newRec, v, recSize))
+				g.line(fmt.Sprintf("  store ptr %s, ptr %s", newRec, gepReg))
+				g.line(fmt.Sprintf("  br label %%%s", doneLbl))
+				g.line(fmt.Sprintf("%s:", doneLbl))
+				return nil
+			}
 			// v5.4.0: slice field — RHS is an SSA struct value (from call or
 			// ArrayLiteral insertvalue), store directly.
 			if fieldType == "{ ptr, i64, i64 }" && t == "{ ptr, i64, i64 }" {
@@ -970,6 +1002,21 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 
 	g.line(fmt.Sprintf("  store %s %s, ptr %s", actualType, v, allocaReg))
 	return nil
+}
+
+// fieldKylixType returns the Kylix type name of a class field, or "" if not
+// found. v5.6.0.
+func fieldKylixType(className, fieldName string, g *Generator) string {
+	info, ok := g.classes[className]
+	if !ok {
+		return ""
+	}
+	for _, f := range info.Fields {
+		if f.Name == fieldName {
+			return f.KylixType
+		}
+	}
+	return ""
 }
 
 // emitReturn generates a return via the result variable.
