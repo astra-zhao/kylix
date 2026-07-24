@@ -30,6 +30,17 @@ func (g *Generator) emitStatement(node ast.Statement) error {
 	case *ast.AssignmentStatement:
 		return g.emitAssign(s)
 	case *ast.ExpressionStatement:
+		// v5.6.0: Pascal `Exit` (and `exit`) is parsed as an expression
+		// statement whose expression is a bare TIdentifier("Exit"). It means
+		// "return from the current function/procedure" — lower it to a branch
+		// to the function's exit block. Before this, `Exit` was emitted as a
+		// no-op identifier evaluation and fell through, so e.g. an assignment
+		// built in `if c then begin …; result := x; Exit; end;` was overwritten
+		// by the fall-through code (`x := 1` → bare `x`).
+		if ident, ok := s.Expression.(*ast.Identifier); ok && (ident.Value == "Exit" || ident.Value == "exit") {
+			g.emitEarlyReturn()
+			return nil
+		}
 		// v5.4.0: statement-style `append(slice, elem)` is a mutating call —
 		// the new slice must be stored back to the original variable/field.
 		// Without this, `append(Files, x)` discards the result and Files stays
@@ -252,6 +263,8 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	savedLocals := g.locals
 	savedTypes := g.localTypes
 	savedVarSeq := g.varNameSeq
+	savedFuncExit := g.funcExitLabel // v5.6.0: restore on exit (external methods can nest in class emission)
+	g.funcExitLabel = g.label()      // v5.6.0: exit block for `Exit`/`return`
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
@@ -381,20 +394,16 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 		}
 	}
 
-	// Return result
-	if retType != "void" {
-		r := g.tmp()
-		g.line(fmt.Sprintf("  %s = load %s, ptr %%result", r, retType))
-		g.line(fmt.Sprintf("  ret %s %s", retType, r))
-	} else {
-		g.line("  ret void")
-	}
+	// Return result — v5.6.0: via the shared exit block so `Exit`/`return`
+	// (which branch to funcExitLabel) actually return this value.
+	g.emitFuncEpilogue(retType)
 
 	g.line("}")
 	g.line("")
 	g.locals = savedLocals
 	g.localTypes = savedTypes
 	g.varNameSeq = savedVarSeq
+	g.funcExitLabel = savedFuncExit // v5.6.0
 	// Leaving this function: clear the debug scope + position so subsequent
 	// module-level code (other functions, stdlib defines, metadata) doesn't
 	// attach a stale !dbg.
@@ -1019,7 +1028,11 @@ func fieldKylixType(className, fieldName string, g *Generator) string {
 	return ""
 }
 
-// emitReturn generates a return via the result variable.
+// emitReturn generates a return via the result variable. v5.6.0: branch to
+// the function's shared exit block (which holds `ret %result`) and open a
+// fresh unreachable block so following IR stays valid — the pre-v5.6.0 code
+// branched to a freshly-created dead label and then fell through to the rest
+// of the body, so `return` never actually returned.
 func (g *Generator) emitReturn(s *ast.ReturnStatement) error {
 	if s.Value != nil {
 		v, t, err := g.emitExpr(s.Value)
@@ -1028,10 +1041,7 @@ func (g *Generator) emitReturn(s *ast.ReturnStatement) error {
 		}
 		g.line(fmt.Sprintf("  store %s %s, ptr %%result", t, v))
 	}
-	// Jump to exit label (we use a single exit block approach)
-	exitLbl := g.label()
-	g.line(fmt.Sprintf("  br label %%%s", exitLbl))
-	g.line(fmt.Sprintf("%s:", exitLbl))
+	g.emitEarlyReturn()
 	return nil
 }
 

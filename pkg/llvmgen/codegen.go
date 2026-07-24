@@ -165,6 +165,18 @@ type Generator struct {
 	// value slots hold Variant box pointers (not C strings), so reads return
 	// the "variant" pseudo-type and writes box the RHS before htab_put.
 	variantMaps map[string]bool
+
+	// funcExitLabel (v5.6.0) is the current function's single exit block —
+	// the block that ends with `ret %result`/`ret void`. `Exit`/`return`
+	// branch here instead of falling through, so an early return actually
+	// leaves the function rather than executing the statements that follow
+	// (pre-v5.6.0 codegen dropped `Exit` entirely, so e.g. an assignment
+	// built in `if c then begin …; result := x; Exit; end;` was silently
+	// overwritten by the fall-through expression-statement builder —
+	// `x := 1` emitted as bare `x`). Set at the start of every user-code
+	// function emitter (emitFunctionDecl/emitMethod/emitLambdaFunc/
+	// emitProgram). "" outside a function.
+	funcExitLabel string
 }
 
 type stringConst struct {
@@ -605,6 +617,7 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	g.line(defineLine)
 	g.line("entry:")
 	g.funcName = "main"
+	g.funcExitLabel = g.label() // v5.6.0: exit block for `Exit`/`return` in main
 	g.locals = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
 	g.registerGlobalsInScope() // v5.4.0: make globals visible in main
@@ -676,8 +689,11 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	}
 
 	// ret i32 0 is synthetic (implicit program exit); clear any !dbg so it
-	// doesn't claim a source line it doesn't correspond to.
+	// doesn't claim a source line it doesn't correspond to. v5.6.0: branch
+	// to main's exit block so `Exit`/`return` in the program body land here.
 	g.clearDbgPos()
+	g.line(fmt.Sprintf("  br label %%%s", g.funcExitLabel))
+	g.line(fmt.Sprintf("%s:", g.funcExitLabel))
 	g.line("  ret i32 0")
 	g.line("}")
 	g.line("")
@@ -829,6 +845,38 @@ func (g *Generator) label() string {
 	l := fmt.Sprintf("lbl%d", g.labelCount)
 	g.labelCount++
 	return l
+}
+
+// emitEarlyReturn (v5.6.0) implements Pascal `Exit` / `return`: branch to the
+// current function's exit block (the block holding `ret %result`/`ret void`)
+// and open a fresh unreachable block afterwards so any IR emitted for the
+// statements that follow remains structurally valid (a basic block must not
+// contain instructions after a terminator). Mirrors emitBreak/emitContinue's
+// `br … ; deadLbl:` pattern. Requires funcExitLabel to be set (caller is
+// inside a user-code function emitter).
+func (g *Generator) emitEarlyReturn() {
+	g.line(fmt.Sprintf("  br label %%%s", g.funcExitLabel))
+	dead := g.label()
+	g.line(fmt.Sprintf("%s:", dead))
+}
+
+// emitFuncEpilogue (v5.6.0) emits the function's single exit block: a branch
+// from the (always-open) end of the body into the funcExitLabel block, which
+// loads %result and returns it (or `ret void` for void functions). Called at
+// the end of every user-code function emitter in place of the former inline
+// `ret`. Branching to one shared exit block is what lets `Exit`/`return`
+// actually leave the function.
+func (g *Generator) emitFuncEpilogue(retType string) {
+	g.clearDbgPos() // the exit block's ret is synthetic, not source-mapped
+	g.line(fmt.Sprintf("  br label %%%s", g.funcExitLabel))
+	g.line(fmt.Sprintf("%s:", g.funcExitLabel))
+	if retType == "void" {
+		g.line("  ret void")
+		return
+	}
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = load %s, ptr %%result", r, retType))
+	g.line(fmt.Sprintf("  ret %s %s", retType, r))
 }
 
 // freshVarReg returns a fresh, function-scope-unique LLVM register name for a

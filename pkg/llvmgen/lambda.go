@@ -332,6 +332,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 	savedTypes := g.localTypes
 	savedVarSeq := g.varNameSeq
 	savedFuncName := g.funcName
+	savedFuncExit := g.funcExitLabel // v5.6.0
 	savedDbgScope := 0
 	if g.debugInfo {
 		savedDbgScope = g.dbg.curScope
@@ -342,6 +343,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 	g.varNameSeq = make(map[string]int)
 	g.registerGlobalsInScope() // v5.4.0: make globals visible in this lambda
 	g.funcName = fmt.Sprintf("__lambda_%d", pl.id)
+	g.funcExitLabel = g.label() // v5.6.0: exit block for `Exit`/`return`
 
 	envT := envTypeLiteral(pl.captures)
 
@@ -451,6 +453,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 					g.localTypes = savedTypes
 					g.varNameSeq = savedVarSeq
 					g.funcName = savedFuncName
+					g.funcExitLabel = savedFuncExit // v5.6.0
 					if g.debugInfo {
 						g.setDbgScope(savedDbgScope)
 						g.clearDbgPos()
@@ -459,14 +462,9 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 				}
 			}
 		}
-		g.clearDbgPos() // synthetic ret
-		if pl.retType == "void" {
-			g.line("  ret void")
-		} else {
-			r := g.tmp()
-			g.line(fmt.Sprintf("  %s = load %s, ptr %%result", r, pl.retType))
-			g.line(fmt.Sprintf("  ret %s %s", pl.retType, r))
-		}
+		// v5.6.0: return via the shared exit block so `Exit`/`return` in the
+		// lambda body branch to it and actually return this value.
+		g.emitFuncEpilogue(pl.retType)
 	}
 
 	g.line("}")
@@ -477,6 +475,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 	g.localTypes = savedTypes
 	g.varNameSeq = savedVarSeq
 	g.funcName = savedFuncName
+	g.funcExitLabel = savedFuncExit // v5.6.0
 	if g.debugInfo {
 		g.setDbgScope(savedDbgScope)
 		g.clearDbgPos()

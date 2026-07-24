@@ -403,6 +403,8 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	savedFunc := g.funcName
 	savedClass := g.curClassName
 	savedMethod := g.curMethodName
+	savedFuncExit := g.funcExitLabel // v5.6.0
+	g.funcExitLabel = g.label()      // v5.6.0: exit block for `Exit`/`return`
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
@@ -506,13 +508,9 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 		}
 	}
 
-	if retType != "void" {
-		r := g.tmp()
-		g.line(fmt.Sprintf("  %s = load %s, ptr %%result", r, retType))
-		g.line(fmt.Sprintf("  ret %s %s", retType, r))
-	} else {
-		g.line("  ret void")
-	}
+	// v5.6.0: return via the shared exit block so `Exit`/`return` in the
+	// method body branch to it and actually return this value.
+	g.emitFuncEpilogue(retType)
 
 	g.line("}")
 	g.line("")
@@ -523,6 +521,7 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	g.funcName = savedFunc
 	g.curClassName = savedClass
 	g.curMethodName = savedMethod
+	g.funcExitLabel = savedFuncExit // v5.6.0
 	// Leaving this method: clear the debug scope + position so subsequent
 	// module-level code doesn't attach a stale !dbg.
 	if g.debugInfo {
