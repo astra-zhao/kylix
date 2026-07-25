@@ -129,7 +129,9 @@ func (g *Generator) emitCacheGetStringCall(receiver string, args []ast.Expressio
 	g.needHashtab = true
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", r, receiver, kReg))
-	return r, "ptr", nil
+	// v5.6.0: htab_get returns null on miss; null-guard so a missing cache key
+	// yields the empty string rather than a null ptr that segfaults downstream.
+	return g.nullGuardString(r), "ptr", nil
 }
 
 // ---- c.Has(k) -> i1 ----

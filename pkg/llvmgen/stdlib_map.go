@@ -76,17 +76,30 @@ func (g *Generator) emitMapIndexGet(idx *ast.IndexExpression) (string, string, e
 	return mr, mt2, nil
 }
 
-// mapReadResult converts a raw htab_get result (ptr) to the map's value type
-// when the value isn't a string (e.g. Integer/enum → atoll → i64). v5.4.0.
+// mapReadResult converts a raw htab_get result (ptr, now null on miss per
+// v5.6.0) to the map's value type. v5.6.0:
+//   - Boolean value → `icmp ne ptr, null` (presence: present→true, miss→false).
+//     This is the set-membership semantic the bootstrap relies on for
+//     ClassIsBase/ClassTypes (fixes "user type → interface{}"). Returning i1
+//     also avoids the ptr→i1 store type mismatch when a Boolean map read is
+//     assigned to a Boolean var.
+//   - Integer/enum → null-guard (null→"") then atoll → i64 (miss → 0).
+//   - String → null-guard (null→"") → ptr (miss → "").
 func (g *Generator) mapReadResult(rawReg string, left ast.Expression) (string, string) {
 	vt := g.mapValueKylixType(left)
+	if strings.EqualFold(vt, "Boolean") {
+		b := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp ne ptr %s, null", b, rawReg))
+		return b, "i1"
+	}
+	guarded := g.nullGuardString(rawReg)
 	if g.isIntegerLikeType(vt) {
 		g.needAtoll = true
 		conv := g.tmp()
-		g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", conv, rawReg))
+		g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", conv, guarded))
 		return conv, "i64"
 	}
-	return rawReg, "ptr"
+	return guarded, "ptr"
 }
 
 // isIntegerLikeType reports whether a Kylix type name is an integer/enum type
@@ -170,14 +183,28 @@ func (g *Generator) emitMapFieldIndexGet(typeName, objReg, fieldName string, mt 
 	g.needHashtab = true
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", r, tbl, keyReg))
-	// v5.4.0: typed map field reads — convert to the value type (e.g. enum→i64).
-	if mt != nil && g.isIntegerLikeType(typeExprName(mt.ValueType)) {
-		g.needAtoll = true
-		conv := g.tmp()
-		g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", conv, r))
-		return conv, "i64", nil
+	// v5.6.0: htab_get returns null on miss; null-guard before atoll/use as
+	// string (Boolean field maps use the raw ptr via the caller's icmp ne null,
+	// but typed map fields here are Integer/String — guard those).
+	if mt != nil {
+		vn := typeExprName(mt.ValueType)
+		if strings.EqualFold(vn, "Boolean") {
+			b := g.tmp()
+			g.line(fmt.Sprintf("  %s = icmp ne ptr %s, null", b, r))
+			return b, "i1", nil
+		}
+		guarded := g.nullGuardString(r)
+		if g.isIntegerLikeType(vn) {
+			g.needAtoll = true
+			conv := g.tmp()
+			g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", conv, guarded))
+			return conv, "i64", nil
+		}
+		return guarded, "ptr", nil
 	}
-	return r, "ptr", nil
+	// Untyped map field (value type unknown) — null-guard so a miss yields the
+	// empty string rather than a null ptr that segfaults downstream.
+	return g.nullGuardString(r), "ptr", nil
 }
 
 // emitMapIndexPut handles m[key] := value for a map variable → htab_put.

@@ -253,13 +253,18 @@ func (g *Generator) emitHashtabPut() {
 }
 
 // htab_get: ptr @__kylix_htab_get(ptr %t, ptr %key) — value or null.
+// v5.6.0: returns null on miss (was the empty-string ptr). The non-null
+// miss return broke Boolean/presence tests: `if m[key]` lowers to
+// `htab_get → icmp ne null`, so a miss (emptyStr, non-null) read as TRUE —
+// e.g. the bootstrap's `self.ClassIsBase[type]` / `self.ClassTypes[type]`
+// returned true for every user type → MapType emitted `interface{}` for all
+// record/class-typed vars → field access "undefined (type interface{})".
+// String/Integer map reads null-guard the result (null → "" / 0) at the call
+// site (stdlib_map.go/stdlib_cache.go); Boolean reads convert via icmp ne null
+// (null → false). htab_get_variant already returned a nilbox on miss.
 func (g *Generator) emitHashtabGet() {
-	emptyStr := g.addString("") // @.str.N for "" — returned on miss so callers
 	g.line("define ptr @__kylix_htab_get(ptr %t, ptr %key) {")
 	g.line("entry:")
-	// Compute the empty-string pointer inside the function body (GEP must be
-	// in a function, not at module top level).
-	emptyPtr := g.ptrTo(emptyStr, 1)
 	node := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_find(ptr %%t, ptr %%key)", node))
 	isNull := g.tmp()
@@ -268,7 +273,7 @@ func (g *Generator) emitHashtabGet() {
 	retValLbl := g.label()
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isNull, retNullLbl, retValLbl))
 	g.line(fmt.Sprintf("%s:", retNullLbl))
-	g.line(fmt.Sprintf("  ret ptr %s", emptyPtr))
+	g.line("  ret ptr null")
 	g.line(fmt.Sprintf("%s:", retValLbl))
 	valPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", valPtr, node))
