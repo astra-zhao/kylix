@@ -830,6 +830,27 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		if leftIdent, ok := idx.Left.(*ast.Identifier); ok && g.mapVars[leftIdent.Value] {
 			return g.emitMapIndexPut(idx, v, t)
 		}
+		// v5.6.0: map-typed CLASS FIELD assignment `obj.MapField[k] := v` →
+		// emitMapFieldIndexPut (htab_put into the field's htab). Without this,
+		// emitAssign fell through to emitArrayIndex→emitMapFieldIndexGet (a READ)
+		// and stored the RHS to the read result (e.g. `self.ClassTypes[name] :=
+		// true` became `store i1 …, ptr <icmp-result>` → llc type error).
+		if member, ok := idx.Left.(*ast.MemberExpression); ok {
+			kind, typeName := g.receiverKind(member.Object)
+			if kind == "class" {
+				if info, ok := g.classes[typeName]; ok {
+					for _, f := range info.Fields {
+						if f.Name == member.Member && f.MapType != nil {
+							objReg, _, err := g.loadObjectPtr(member.Object, typeName)
+							if err != nil {
+								return err
+							}
+							return g.emitMapFieldIndexPut(typeName, objReg, member.Member, f.MapType, idx, v, t)
+						}
+					}
+				}
+			}
+		}
 		ptrReg, elemType, err := g.emitArrayIndex(idx, true)
 		if err != nil {
 			return err

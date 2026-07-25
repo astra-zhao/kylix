@@ -207,6 +207,50 @@ func (g *Generator) emitMapFieldIndexGet(typeName, objReg, fieldName string, mt 
 	return g.nullGuardString(r), "ptr", nil
 }
 
+// emitMapFieldIndexPut handles `obj.MapField[key] := value` for a map-typed
+// class field → htab_put. v5.6.0: previously unimplemented — emitAssign fell
+// through to emitArrayIndex→emitMapFieldIndexGet (a READ) and tried to store
+// the RHS to the read result (e.g. `self.ClassTypes[name] := true` became
+// `store i1 …, ptr <icmp-result>`, an llc type error). Now mirrors
+// emitMapFieldIndexGet's field resolution + emitMapIndexPut's value coercion.
+func (g *Generator) emitMapFieldIndexPut(typeName, objReg, fieldName string, mt *ast.MapType, idx *ast.IndexExpression, valReg, valType string) error {
+	fieldAddr, _, err := g.emitFieldStore(typeName, objReg, fieldName)
+	if err != nil {
+		return err
+	}
+	tbl := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", tbl, fieldAddr))
+	keyReg, _, err := g.emitExpr(idx.Index)
+	if err != nil {
+		return err
+	}
+	vPtr := valReg
+	vn := ""
+	if mt != nil {
+		vn = typeExprName(mt.ValueType)
+	}
+	if strings.EqualFold(vn, "Boolean") {
+		// Boolean value → zext i1→i64 then stringify (htab stores string ptrs;
+		// reads use presence via icmp ne null, so the stored "1"/"0" content is
+		// irrelevant — any non-null string for true suffices).
+		z := g.tmp()
+		g.line(fmt.Sprintf("  %s = zext i1 %s to i64", z, valReg))
+		vPtr = g.emitIntToStrReg(z)
+	} else if valType == "i1" {
+		// Untyped-as-Boolean fallback (valType i1 with no map value type known).
+		z := g.tmp()
+		g.line(fmt.Sprintf("  %s = zext i1 %s to i64", z, valReg))
+		vPtr = g.emitIntToStrReg(z)
+	} else if valType != "ptr" {
+		vPtr = g.emitIntToStrReg(valReg)
+	}
+	g.needHashtab = true
+	g.line(fmt.Sprintf("  call void @__kylix_htab_put(ptr %s, ptr %s, ptr %s)", tbl, keyReg, vPtr))
+	return nil
+}
+
+// emitMapIndexPut handles m[key] := value for a map variable → htab_put.
+
 // emitMapIndexPut handles m[key] := value for a map variable → htab_put.
 // For Variant-valued maps, boxes the RHS into a Variant (the value slot holds
 // a box pointer). Otherwise coerces the value to a String ptr (Integer →
@@ -230,6 +274,14 @@ func (g *Generator) emitMapIndexPut(idx *ast.IndexExpression, valReg string, val
 	if g.variantMaps[leftIdent.Value] {
 		// Box the RHS into a Variant; the slot stores the box pointer.
 		vPtr = g.emitVariantBox(valReg, valType)
+	} else if valType == "i1" {
+		// v5.6.0: Boolean map value — zext i1→i64 then stringify (snprintf
+		// "%lld" expects i64; passing i1 crashed llc). The stored "1"/"0"
+		// string's content is irrelevant for reads (Boolean reads use presence
+		// via icmp ne null), so any non-null string for `true` suffices.
+		z := g.tmp()
+		g.line(fmt.Sprintf("  %s = zext i1 %s to i64", z, valReg))
+		vPtr = g.emitIntToStrReg(z)
 	} else if valType != "ptr" {
 		// String map: coerce Integer values to a String ptr.
 		vPtr = g.emitIntToStrReg(valReg)

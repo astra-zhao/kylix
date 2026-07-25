@@ -304,16 +304,31 @@ type
       i: Integer;
       decl: TNode;
       cd: TClassDecl;
+      td: TTypeDecl;
     begin
+      // v5.6.0: populate ClassTypes so MapType distinguishes class (*Type) from
+      // record/enum (value type). Without this every user type fell to MapType's
+      // else branch — combined with the htab_get null-on-miss fix that made
+      // ClassIsBase/ClassTypes reads return false, records/enums emitted *T
+      // (should be value type T) → nil-deref / type-mismatch. ClassIsBase is
+      // intentionally NOT populated (no usesPolymorphism gate in this port) so
+      // base classes stay *Base (concrete) like the host's no-polymorphism path.
       for i := 0 to Length(prog.Declarations) - 1 do
       begin
         decl := prog.Declarations[i];
         if decl is TClassDecl then
         begin
           cd := decl as TClassDecl;
-          // Note: ClassTypes and ClassIsBase maps may not be initialized
-          // in the self-hosted compiler. We skip the map write and rely on
-          // MapType's fallback logic instead.
+          self.ClassTypes[cd.Name] := true;
+        end
+        else if decl is TTypeDecl then
+        begin
+          td := decl as TTypeDecl;
+          if td.DeclType is TClassDecl then
+          begin
+            cd := td.DeclType as TClassDecl;
+            self.ClassTypes[td.Name] := true;
+          end;
         end;
       end;
     end;
@@ -1771,8 +1786,10 @@ type
         else if self.ClassTypes[kylixType] then
           result := '*' + kylixType
         else
-          // Default: assume pointer type for class-like types
-          result := '*' + kylixType;
+          // v5.6.0: record/enum value type (was '*' + kylixType — a port gap
+          // from generator.go whose mapType returns kylixType as-is for user
+          // types, adding '*' for classes only in generateTypeExpression).
+          result := kylixType;
       end;
     end;
 
