@@ -558,6 +558,12 @@ func (g *Generator) emitPtrCompare(op, lv, rv string) (string, string, error) {
 // addresses, not string contents, so this must not go through emitInfix's
 // normal numeric-comparison path.
 func (g *Generator) emitStringCompare(op, lv, rv string) (string, string, error) {
+	// v5.6.0: null-guard operands. Unset String fields (e.g. a class with no
+	// parent → cd.Parent) are null ptrs in the LLVM backend (Go backend uses
+	// "" by default). strcmp(null, ...) segfaults, so normalize null → the
+	// empty-string global before comparing.
+	lv = g.nullGuardString(lv)
+	rv = g.nullGuardString(rv)
 	cmp := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i32 @strcmp(ptr %s, ptr %s)", cmp, lv, rv))
 	r := g.tmp()
@@ -612,6 +618,10 @@ func (g *Generator) emitPrefix(e *ast.PrefixExpression) (string, string, error) 
 // unescaped newlines inside string literals → "newline in string" errors,
 // making the bootstrap's output non-compilable for any non-trivial program).
 func (g *Generator) emitStringConcat(lv, rv string) string {
+	// v5.6.0: null-guard operands (unset String fields are null ptrs;
+	// strcpy/strcat/strlen on null segfaults). See emitStringCompare.
+	lv = g.nullGuardString(lv)
+	rv = g.nullGuardString(rv)
 	lenL := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr noundef %s)", lenL, lv))
 	lenR := g.tmp()
@@ -625,6 +635,19 @@ func (g *Generator) emitStringConcat(lv, rv string) string {
 	g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", buf, lv))
 	g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", buf, rv))
 	return buf
+}
+
+// nullGuardString returns a register equal to v, except null is replaced with
+// the empty-string global. The LLVM backend represents unset String fields as
+// null ptrs (Go backend uses ""), and libc string routines (strcmp/strlen/
+// strcpy/strcat) segfault on null. Routing every string operand through this
+// normalizes null → "" so the two backends agree. v5.6.0.
+func (g *Generator) nullGuardString(v string) string {
+	isNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", isNull, v))
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr @__kylix_emptystr, ptr %s", r, isNull, v))
+	return r
 }
 
 // emitCall generates a function call expression.

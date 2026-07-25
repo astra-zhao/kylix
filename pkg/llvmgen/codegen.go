@@ -505,6 +505,7 @@ func (g *Generator) emitHeader() {
 
 func (g *Generator) emitRuntimeDecls() {
 	g.line("; ===== Runtime declarations (libc) =====")
+	g.line("@__kylix_emptystr = global [1 x i8] c\"\\00\" ; empty C string; null string operands are normalized to this (v5.6.0)")
 	g.line("declare i32 @printf(ptr noundef, ...)")
 	g.line("declare i32 @puts(ptr noundef)")
 	g.line("declare ptr @malloc(i64 noundef)")
