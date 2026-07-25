@@ -602,9 +602,26 @@ func (g *Generator) emitPrefix(e *ast.PrefixExpression) (string, string, error) 
 
 // emitStringConcat concatenates two string pointers (ptr operands) into a
 // freshly malloc'd buffer via strcpy + strcat, returning the result ptr.
+// v5.6.0: the buffer is sized to strlen(lv)+strlen(rv)+1. Previously every
+// concat did `malloc(512)` — a fixed 512-byte buffer that overflowed as soon
+// as the accumulated result exceeded 512 bytes (strcpy/strcat wrote past the
+// end → heap corruption → garbage leaked into the output). This bit the
+// bootstrap hard: generator.klx builds the entire Go output by repeatedly
+// doing `self.Output := self.Output + s`, so once Output crossed 512 bytes the
+// buffer overflowed and the generated Go got corrupted (stray "strings.",
+// unescaped newlines inside string literals → "newline in string" errors,
+// making the bootstrap's output non-compilable for any non-trivial program).
 func (g *Generator) emitStringConcat(lv, rv string) string {
+	lenL := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr noundef %s)", lenL, lv))
+	lenR := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr noundef %s)", lenR, rv))
+	size := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %s", size, lenL, lenR))
+	size1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", size1, size))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 512)", buf))
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, size1))
 	g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", buf, lv))
 	g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", buf, rv))
 	return buf

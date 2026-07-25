@@ -858,10 +858,9 @@ func (g *Generator) emitVariantArithBody(op string) {
 		g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %%a)", sa))
 		sb := g.tmp()
 		g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %%b)", sb))
-		buf := g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 512)", buf))
-		g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", buf, sa))
-		g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", buf, sb))
+		// v5.6.0: sized concat (was fixed malloc(512) → overflow on long
+		// variant-string concatenations).
+		buf := g.emitStringConcat(sa, sb)
 		sbox := g.tmp()
 		g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", sbox, buf))
 		g.line(fmt.Sprintf("  store ptr %s, ptr %s", sbox, res))
