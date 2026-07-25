@@ -9,6 +9,29 @@ import (
 	"kylix/ast"
 )
 
+// memberIsMethod reports whether e.Member is a method of e.Object's receiver
+// class. Used by emitStatement to distinguish a bare parameterless method-call
+// statement (`self.CollectImports;`) from a field access — Pascal writes such
+// calls without parentheses, so the AST is a bare MemberExpression that must be
+// lowered to a method call, not a field load (which would emit a no-op "field
+// not found" and silently drop the call). v5.6.0.
+func (g *Generator) memberIsMethod(e *ast.MemberExpression) bool {
+	kind, typeName := g.receiverKind(e.Object)
+	if kind != "class" {
+		return false
+	}
+	info, ok := g.classes[typeName]
+	if !ok {
+		return false
+	}
+	for _, m := range info.Methods {
+		if m.Name == e.Member {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *Generator) emitMember(e *ast.MemberExpression) (string, string, error) {
 	// Constructor pattern: TFoo.Create or TBox<Integer>.Create — return a
 	// fresh heap-allocated instance of the (specialized) class.

@@ -41,6 +41,23 @@ func (g *Generator) emitStatement(node ast.Statement) error {
 			g.emitEarlyReturn()
 			return nil
 		}
+		// v5.6.0: bare parameterless method call as a statement —
+		// `self.CollectImports;` / `self.IncreaseIndent;`. In Pascal these are
+		// written without parentheses, so the AST is a bare MemberExpression
+		// (not a CallExpression wrapping one). emitExpr→emitMember would treat
+		// the member as a FIELD, fail to find it ("field CollectImports not found
+		// in TGenerator"), and emit a no-op — silently dropping the call. That
+		// dropped `self.CollectImports` so no imports were ever emitted (the
+		// bootstrap's output had an empty `import ()` block → non-compilable Go),
+		// and dropped IncreaseIndent/DecreaseIndent (cosmetic). If the member
+		// resolves to a method of the receiver's class, emit a zero-argument
+		// method call instead.
+		if member, ok := s.Expression.(*ast.MemberExpression); ok && g.memberIsMethod(member) {
+			if _, _, err := g.emitMethodCall(member, nil); err != nil {
+				return err
+			}
+			return nil
+		}
 		// v5.4.0: statement-style `append(slice, elem)` is a mutating call —
 		// the new slice must be stored back to the original variable/field.
 		// Without this, `append(Files, x)` discards the result and Files stays
