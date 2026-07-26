@@ -117,6 +117,31 @@ begin
   append(self.Errors, msg);
 end;
 
+// v5.6.0: SkipAttributes consumes one or more [Attribute] forms at the
+// current position. parser.klx has no KylixBoot annotation codegen (unlike
+// host parser_attribute.go), so attributes are ignored — but they must still
+// be SKIPPED, else `[Get('/')]` before a member/decl is mis-parsed: the `[`
+// falls to `NextToken` then `Get` (ident) is parsed as a VarDecl field →
+// `[Get]`×2 produces two `Get` fields → "Get redeclared" (example41/45/46/47/
+// 49/51). Called at the top-level decl loop and class-member loop entry.
+procedure TParser.SkipAttributes();
+var depth: Integer;
+begin
+  while self.CurTokenIs(tkLBracket) do
+  begin
+    depth := 1;
+    self.NextToken();
+    while (depth > 0) and (self.CurTokenIs(tkEOF) = false) do
+    begin
+      if self.CurTokenIs(tkLBracket) then
+        depth := depth + 1
+      else if self.CurTokenIs(tkRBracket) then
+        depth := depth - 1;
+      self.NextToken();
+    end;
+  end;
+end;
+
 function TParser.IsIdentOrSoftKeyword(): Boolean;
 begin
   // Identifiers plus Pascal keywords that can also be used as identifiers
@@ -229,6 +254,10 @@ begin
       append(self.Errors, 'parser exceeded max iterations');
       break;
     end;
+
+    self.SkipAttributes(); // v5.6.0: skip [Attribute] before a decl
+    if self.CurTokenIs(tkEOF) or self.CurTokenIs(tkEnd) or self.CurTokenIs(tkDot) then
+      break;
 
     if self.CurTokenIs(tkVar) then
     begin
@@ -710,6 +739,9 @@ begin
   // Parse class body
   while (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkEOF) = false) do
   begin
+    self.SkipAttributes(); // v5.6.0: skip [Attribute] before a member
+    if self.CurTokenIs(tkEnd) or self.CurTokenIs(tkEOF) then
+      break;
     if self.CurTokenIs(tkPublic) or self.CurTokenIs(tkPrivate) or self.CurTokenIs(tkProtected) then
     begin
       decl.Visibility := self.CurToken.TokenType;
