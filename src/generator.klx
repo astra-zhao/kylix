@@ -751,6 +751,7 @@ type
     begin
       for i := 0 to Length(vd.Names) - 1 do
       begin
+        self.Variables[vd.Names[i]] := 'var'; // v5.6.0
         self.Write('var ' + vd.Names[i]);
         if vd.VarType <> nil then
         begin
@@ -795,6 +796,7 @@ type
     begin
       for i := 0 to Length(vd.Names) - 1 do
       begin
+        self.Variables[vd.Names[i]] := 'var'; // v5.6.0
         self.Write('var ' + vd.Names[i] + ' ');
         if vd.VarType <> nil then
           self.GenerateTypeExpression(vd.VarType)
@@ -1163,6 +1165,7 @@ type
     begin
       for i := 0 to Length(vd.Names) - 1 do
       begin
+        self.Variables[vd.Names[i]] := 'var'; // v5.6.0: register so bare calls to vars (e.g. greet('Alice') where greet is a func-typed local) aren't mis-mapped to stdlib
         if vd.Inferred then
         begin
           self.Write(vd.Names[i] + ' := ');
@@ -1744,6 +1747,7 @@ type
         var callee: TIdentifier;
         callee := call.Func as TIdentifier;
         if (self.UserFuncs[callee.Value] = false) and
+           (self.Variables[callee.Value] = '') and
            (self.MapBuiltinFunction(callee.Value) = callee.Value) then
         begin
           self.NeedStdlib := true;
