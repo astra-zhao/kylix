@@ -140,7 +140,6 @@ type
       // — so programs using only WriteLn emit only "fmt", avoiding Go's
       // "imported and not used" error).
       self.GenerateTypes(prog);
-      self.GenerateExceptionTypes;
       self.GenerateGlobals(prog);
       self.GenerateFunctions(prog);
 
@@ -153,6 +152,14 @@ type
           self.DecreaseIndent;
           self.WriteLine('}');
         end;
+
+      // v5.6.0: emit Exception type AFTER the body — NeedsException is set
+      // during body generation (GenerateTryStatement on a try/except), not in
+      // the pre-scan (ScanForException is a stub here, unlike host's
+      // scanForException). Emitting before the body saw NeedsException=false
+      // so `type Exception struct` was never written → `panic(&Exception{…})`
+      // referenced an undefined type (example27_try_except).
+      self.GenerateExceptionTypes;
 
       self.CollectImports;
       if prog.IsUnit then
@@ -185,8 +192,6 @@ type
         prog := progs[pi];
         self.GenerateTypes(prog);
       end;
-
-      self.GenerateExceptionTypes;
 
       // Generate globals from all programs
       for pi := 0 to Length(progs) - 1 do
@@ -221,6 +226,10 @@ type
       end;
       if hasMain = false then
         self.WriteLine('func main() {}');
+
+      // v5.6.0: emit Exception type AFTER the body (NeedsException is set
+      // during body generation, not in the stub pre-scan). See Generate.
+      self.GenerateExceptionTypes;
 
       self.CollectImports;
       result := 'package main' + '\n' + '\n' + self.BuildImportBlock() + self.Output;
