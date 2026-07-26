@@ -28,6 +28,8 @@ type
     NeedOS: Boolean;
     NeedMath: Boolean;
     NeedRand: Boolean;
+    NeedStdlib: Boolean; // v5.6.0: any stdlib.FuncName call used → import kylix/stdlib
+    UserFuncs: map[String]Boolean; // v5.6.0: user-defined functions (so bare calls to them aren't mis-mapped to stdlib)
 
     constructor Create;
     begin
@@ -44,6 +46,7 @@ type
       self.NeedOS := false;
       self.NeedMath := false;
       self.NeedRand := false;
+      self.NeedStdlib := false;
     end;
 
     procedure Write(s: String);
@@ -250,6 +253,7 @@ type
       if self.NeedOS then s := s + '  "os"' + '\n';
       if self.NeedMath then s := s + '  "math"' + '\n';
       if self.NeedRand then s := s + '  "math/rand"' + '\n';
+      if self.NeedStdlib then s := s + '  "kylix/stdlib"' + '\n';
       s := s + ')' + '\n' + '\n';
       result := s;
     end;
@@ -301,6 +305,7 @@ type
       if self.StrContains(self.Output, 'os' + '.Args') then self.NeedOS := true;
       if self.StrContains(self.Output, 'math' + '.') then self.NeedMath := true;
       if self.StrContains(self.Output, 'rand' + '.') then self.NeedRand := true;
+      if self.StrContains(self.Output, 'stdlib' + '.') then self.NeedStdlib := true; // v5.6.0
     end;
 
     // ========================================================================
@@ -338,6 +343,15 @@ type
             cd := td.DeclType as TClassDecl;
             self.ClassTypes[td.Name] := true;
           end;
+        end
+        else if decl is TFunctionDecl then
+        begin
+          // v5.6.0: track user-defined functions so bare calls to them aren't
+          // mis-mapped to stdlib.FuncName by the GenerateCallExpression fallback.
+          var fd: TFunctionDecl;
+          fd := decl as TFunctionDecl;
+          if fd.Name <> '' then
+            self.UserFuncs[fd.Name] := true;
         end;
       end;
     end;
@@ -1668,9 +1682,38 @@ type
         end;
         if ident.Value = 'ReadFile' then
         begin
+          self.NeedOS := true; // v5.6.0: the inline uses os.ReadFile → need "os"
           self.Write('func() string { data, _ := os.ReadFile(');
           self.GenerateExpression(call.Arguments[0]);
           self.Write('); return string(data) }()');
+          Exit;
+        end;
+      end;
+
+      // v5.6.0: stdlib module function call heuristic. A bare TIdentifier call
+      // that is NOT a user-defined function and NOT a builtin (MapBuiltinFunction
+      // leaves the name unchanged) is a stdlib module function (sysutil/datetime/
+      // cache/crypto/net/regex/db/http ...). Emit stdlib.Name(args) and flag the
+      // kylix/stdlib import. This mirrors the host's resolveStdlibFunc→
+      // generateStdlibCall without porting the full per-module whitelist (the
+      // not-UserFuncs + not-builtin guard is sufficient for the tutorials and
+      // is safe: a genuinely-undefined call would fail go-build either way).
+      if call.Func is TIdentifier then
+      begin
+        var callee: TIdentifier;
+        callee := call.Func as TIdentifier;
+        if (self.UserFuncs[callee.Value] = false) and
+           (self.MapBuiltinFunction(callee.Value) = callee.Value) then
+        begin
+          self.Write('stdlib.' + callee.Value + '(');
+          for i := 0 to Length(call.Arguments) - 1 do
+          begin
+            if i > 0 then
+              self.Write(', ');
+            self.GenerateExpression(call.Arguments[i]);
+          end;
+          self.Write(')');
+          self.NeedStdlib := true;
           Exit;
         end;
       end;
