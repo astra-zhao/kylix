@@ -165,8 +165,14 @@ func (g *Generator) emitMapFieldIndexGet(typeName, objReg, fieldName string, mt 
 		if _, ok := mt.ValueType.(*ast.ArrayType); ok {
 			// v5.4.0: return a zero slice SSA struct value (not an alloca ptr)
 			// so downstream `store {ptr,i64,i64} %v` is well-typed.
+			// v5.6.0: base on zeroinitializer (was undef) — undef left len/cap
+			// as garbage, so `Length(fields)` on a miss read a garbage len and
+			// `if i < Length(fields)` wrongly entered the fields[i] branch,
+			// GEP-ing the null data ptr → segfault (example27_try_except crashed
+			// in GenerateCallExpression's `fields := self.ClassFields[typeName]`
+			// because ClassFields is never populated → miss → undef len).
 			z := g.tmp()
-			g.line(fmt.Sprintf("  %s = insertvalue { ptr, i64, i64 } undef, ptr null, 0", z))
+			g.line(fmt.Sprintf("  %s = insertvalue { ptr, i64, i64 } zeroinitializer, ptr null, 0", z))
 			return z, "{ ptr, i64, i64 }", nil
 		}
 	}
