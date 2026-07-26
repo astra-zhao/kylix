@@ -1628,7 +1628,21 @@ type
         end;
         self.Write(') ');
         if lam.Body <> nil then
-          self.GenerateStatement(lam.Body);
+        begin
+          // v5.6.0: emit braces explicitly — GenerateStatement(BlockStatement)
+          // doesn't emit { } (just the statements), so `func(params) <stmts>`
+          // would be parsed as a return type.
+          self.WriteLine('{');
+          self.IncreaseIndent;
+          var lamBlock: TBlockStatement;
+          lamBlock := lam.Body as TBlockStatement;
+          for iParam := 0 to Length(lamBlock.Statements) - 1 do
+            self.GenerateStatement(lamBlock.Statements[iParam]);
+          self.DecreaseIndent;
+          self.Write('}');
+        end
+        else
+          self.Write('{}');
       end;
     end;
 
