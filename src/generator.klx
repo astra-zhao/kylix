@@ -1457,6 +1457,9 @@ type
       slice: TSliceExpression;
       isExpr: TIsExpression;
       asExpr: TTypeCastExpression;
+      lam: TLambdaExpression;
+      iParam: Integer;
+      param: TParameter;
       i: Integer;
       op: String;
     begin
@@ -1602,6 +1605,30 @@ type
         self.Write('.(');
         self.GenerateTypeExpressionForCast(asExpr.TargetType);
         self.Write(')');
+      end
+      // v5.6.0: anonymous function/lambda → Go func literal. Ported from
+      // host generateLambdaExpression. `var greet := procedure(name: String)
+      // begin ... end;` → `var greet = func(name string) { ... }`. Without this
+      // the lambda was dropped → "undefined: greet" (example15_lambda).
+      else if expr is TLambdaExpression then
+      begin
+        lam := expr as TLambdaExpression;
+        self.Write('func(');
+        for iParam := 0 to Length(lam.Parameters) - 1 do
+        begin
+          if iParam > 0 then
+            self.Write(', ');
+          param := lam.Parameters[iParam];
+          self.Write(param.Name);
+          if param.Type <> nil then
+          begin
+            self.Write(' ');
+            self.GenerateTypeExpression(param.Type);
+          end;
+        end;
+        self.Write(') ');
+        if lam.Body <> nil then
+          self.GenerateStatement(lam.Body);
       end;
     end;
 
