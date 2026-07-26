@@ -1130,6 +1130,10 @@ begin
   begin
     self.NextToken();
     stmt.Condition := self.ParseExpression(PREC_LOWEST);
+    self.NextToken(); // v5.6.0: advance past the condition's last token
+    // (host parser.go:223 has this; without it CurToken stays on the
+    // condition's RHS, so the enclosing block re-parses it as a statement —
+    // `until i > 5;` emitted a bare `5` statement after the repeat).
   end;
 
   result := stmt;
