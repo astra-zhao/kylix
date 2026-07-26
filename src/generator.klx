@@ -1759,7 +1759,22 @@ type
       if expr is TIdentifier then
       begin
         ident := expr as TIdentifier;
-        self.Write(self.MapType(ident.Value));
+        // v5.6.0: KylixBoot types from `uses boot` → *stdlib.BootRequest /
+        // *stdlib.BootResponse (host generator_types.go:536). These types only
+        // appear with `uses boot`, so mapping them always is safe and avoids
+        // porting usedModules tracking. Flag kylix/stdlib import.
+        if (ident.Value = 'TRequest') or (ident.Value = 'BootRequest') then
+        begin
+          self.Write('*stdlib.BootRequest');
+          self.NeedStdlib := true;
+        end
+        else if (ident.Value = 'TResponse') or (ident.Value = 'BootResponse') then
+        begin
+          self.Write('*stdlib.BootResponse');
+          self.NeedStdlib := true;
+        end
+        else
+          self.Write(self.MapType(ident.Value));
       end
       else if expr is TArrayType then
       begin
@@ -1803,7 +1818,18 @@ type
       if expr is TIdentifier then
       begin
         ident := expr as TIdentifier;
-        if self.ClassIsBase[ident.Value] then
+        // v5.6.0: KylixBoot types (see GenerateTypeExpression). For `x as TRequest`.
+        if (ident.Value = 'TRequest') or (ident.Value = 'BootRequest') then
+        begin
+          self.Write('*stdlib.BootRequest');
+          self.NeedStdlib := true;
+        end
+        else if (ident.Value = 'TResponse') or (ident.Value = 'BootResponse') then
+        begin
+          self.Write('*stdlib.BootResponse');
+          self.NeedStdlib := true;
+        end
+        else if self.ClassIsBase[ident.Value] then
           self.Write('*' + ident.Value)
         else
           self.Write(self.MapType(ident.Value));
