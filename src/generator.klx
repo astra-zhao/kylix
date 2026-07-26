@@ -1705,15 +1705,28 @@ type
         if (self.UserFuncs[callee.Value] = false) and
            (self.MapBuiltinFunction(callee.Value) = callee.Value) then
         begin
-          self.Write('stdlib.' + callee.Value + '(');
+          self.NeedStdlib := true;
+          // v5.6.0: stdlib funcs returning (T, error) must be wrapped to
+          // discard the error and return T, else `ln := stdlib.TcpListen(p)`
+          // is multiple-value-in-single-value-context. Bare call is fine for
+          // error-procedures (WriteFile) used as statements and for normal
+          // funcs (Sha256 returns string).
+          var retT: String;
+          retT := self.StdlibErrorReturnType(callee.Value);
+          if retT <> '' then
+            self.Write('func() ' + retT + ' { _v, _ := stdlib.' + callee.Value + '(')
+          else
+            self.Write('stdlib.' + callee.Value + '(');
           for i := 0 to Length(call.Arguments) - 1 do
           begin
             if i > 0 then
               self.Write(', ');
             self.GenerateExpression(call.Arguments[i]);
           end;
-          self.Write(')');
-          self.NeedStdlib := true;
+          if retT <> '' then
+            self.Write('); return _v }()')
+          else
+            self.Write(')');
           Exit;
         end;
       end;
@@ -1879,5 +1892,66 @@ type
       else
         result := name;
     end;
+
+  // v5.6.0: StdlibErrorReturnType returns the Go return type of a stdlib
+  // function that returns (T, error), or '' if it isn't one. Used to wrap
+  // stdlib calls so the error is discarded and the value is returned:
+  //   func() T { _v, _ := stdlib.Name(args); return _v }()
+  // Without this, `ln := stdlib.TcpListen(18080)` is a multiple-value-in-
+  // single-value-context Go error (TcpListen returns (*TTcpListener, error)).
+  // Ported from host generator_stdlib.go stdlibErrorFuncReturnTypes.
+  // Functions returning error only (WriteFile etc.) are NOT here — bare
+  // `stdlib.X(args)` as a statement is fine (Go discards return values).
+  function StdlibErrorReturnType(name: String): String;
+  begin
+    if name = 'ReadFile' then result := 'string'
+    else if name = 'ParseDate' then result := '*stdlib.TDateTime'
+    else if name = 'ParseDateTime' then result := '*stdlib.TDateTime'
+    else if name = 'RegexCompile' then result := '*stdlib.TRegex'
+    else if name = 'HttpGet' then result := 'string'
+    else if name = 'HttpPost' then result := 'string'
+    else if name = 'HttpGetJSON' then result := 'map[string]interface{}'
+    else if name = 'HttpPut' then result := 'string'
+    else if name = 'HttpDelete' then result := 'string'
+    else if name = 'HttpPostJSON' then result := 'map[string]interface{}'
+    else if name = 'HttpDoGet' then result := '*stdlib.THttpResponse'
+    else if name = 'HttpDoPost' then result := '*stdlib.THttpResponse'
+    else if name = 'WsDial' then result := '*stdlib.TWsConn'
+    else if name = 'WsAccept' then result := '*stdlib.TWsConn'
+    else if name = 'WsRecv' then result := 'string'
+    else if name = 'ListDir' then result := '[]string'
+    else if name = 'ListFiles' then result := '[]string'
+    else if name = 'ReadLines' then result := '[]string'
+    else if name = 'GetFileSize' then result := 'int64'
+    else if name = 'FileOpen' then result := '*stdlib.TTextFile'
+    else if name = 'JsonDecode' then result := 'interface{}'
+    else if name = 'JsonDecodeMap' then result := 'map[string]interface{}'
+    else if name = 'JsonDecodeArray' then result := '[]interface{}'
+    else if name = 'JsonReadFile' then result := 'interface{}'
+    else if name = 'TcpDial' then result := '*stdlib.TTcpConn'
+    else if name = 'TcpListen' then result := '*stdlib.TTcpListener'
+    else if name = 'UdpDial' then result := '*stdlib.TUdpConn'
+    else if name = 'DnsLookup' then result := '[]string'
+    else if name = 'DnsLookupCNAME' then result := 'string'
+    else if name = 'AesEncrypt' then result := 'string'
+    else if name = 'AesDecrypt' then result := 'string'
+    else if name = 'BCryptHash' then result := 'string'
+    else if name = 'RandomBytes' then result := 'string'
+    else if name = 'RandomToken' then result := 'string'
+    else if name = 'Base64Decode' then result := 'string'
+    else if name = 'HexDecode' then result := 'string'
+    else if name = 'UrlDecode' then result := 'string'
+    else if name = 'CsvDecode' then result := '[][]string'
+    else if name = 'JsonLinesDecode' then result := '[]map[string]interface{}'
+    else if name = 'JwtSign' then result := 'string'
+    else if name = 'JwtVerify' then result := 'map[string]interface{}'
+    else if name = 'DbOpen' then result := '*stdlib.Database'
+    else if name = 'DbOpenSQLite' then result := '*stdlib.Database'
+    else if name = 'DbExec' then result := 'int64'
+    else if name = 'DbQueryRows' then result := '[]map[string]interface{}'
+    else if name = 'DbQueryScalar' then result := 'string'
+    else
+      result := '';
+  end;
   end;
 end.
