@@ -96,20 +96,20 @@ type
             end
             else
             begin
-              self.Write('\\');
+              self.Write('\\' + '\\');
               j := j + 1;
             end;
           end
           else
           begin
             // trailing lone backslash — escape it
-            self.Write('\\');
+            self.Write('\\' + '\\');
             j := j + 1;
           end;
         end
         else if ch = '"' then
         begin
-          self.Write('\"');
+          self.Write('\\' + '"');
           j := j + 1;
         end
         else
