@@ -854,6 +854,9 @@ type
       fullName: String;
     begin
       hasReturn := (fd.ReturnType <> nil) or (Length(fd.ReturnTypes) > 0);
+      // v5.6.0: multi-return function (>1 ReturnTypes) — `result := (a, b)`
+      // emits `return a, b`. Ported from host generateFunctionDecl:331.
+      self.MultiReturn := Length(fd.ReturnTypes) > 1;
 
       // Check if this is a class method: ClassName.MethodName
       fullName := fd.Name;
@@ -937,8 +940,11 @@ type
         end;
       end;
 
+      // v5.6.0: skip `return result` for multi-return (body's result:=(a,b)
+      // already emits `return a, b`; result var isn't declared for multi-return).
       if hasReturn then
-        self.WriteLine('return result');
+        if self.MultiReturn = false then
+          self.WriteLine('return result');
 
       self.DecreaseIndent;
       self.WriteLine('}');
@@ -1191,7 +1197,59 @@ type
     end;
 
     procedure GenerateAssignment(asgn: TAssignmentStatement);
+    var
+      i: Integer;
+      tuple: TTupleLiteral;
+      elem: TExpression;
+      n: TIdentifier;
     begin
+      // v5.6.0: Multi-return: `result := (a, b)` → `return a, b` (host
+      // generator_stmt.go:176). Without this, the tuple RHS emits empty →
+      // `result = ` then the implicit `return result` → "unexpected return".
+      if self.MultiReturn then
+      begin
+        if asgn.Name is TIdentifier then
+        begin
+          n := asgn.Name as TIdentifier;
+          if n.Value = 'result' then
+          begin
+            self.Write('return ');
+            if asgn.Value is TTupleLiteral then
+            begin
+              tuple := asgn.Value as TTupleLiteral;
+              for i := 0 to Length(tuple.Elements) - 1 do
+              begin
+                if i > 0 then
+                  self.Write(', ');
+                elem := tuple.Elements[i];
+                self.GenerateExpression(elem);
+              end;
+            end
+            else
+              self.GenerateExpression(asgn.Value);
+            self.WriteLine('');
+            Exit;
+          end;
+        end;
+      end;
+
+      // v5.6.0: Multi-var LHS: `(x, y) := Func()` → `x, y := Func()` (host:195).
+      if asgn.Name is TTupleLiteral then
+      begin
+        tuple := asgn.Name as TTupleLiteral;
+        for i := 0 to Length(tuple.Elements) - 1 do
+        begin
+          if i > 0 then
+            self.Write(', ');
+          elem := tuple.Elements[i];
+          self.GenerateExpression(elem);
+        end;
+        self.Write(' := ');
+        self.GenerateExpression(asgn.Value);
+        self.WriteLine('');
+        Exit;
+      end;
+
       self.GenerateExpression(asgn.Name);
       self.Write(' = ');
       self.GenerateExpression(asgn.Value);
