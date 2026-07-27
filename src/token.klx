@@ -27,7 +27,7 @@ type
     tkTry, tkExcept, tkFinally, tkRaise, tkOn,
     tkClass, tkInterface, tkObject, tkRecord, tkArray, tkSet,
     tkPacked, tkFile, tkMap, tkVariant,
-    tkInherits, tkImplements,
+    tkInherits, tkImplements, tkImplementation,
     tkPublic, tkPrivate, tkProtected, tkPublished,
     tkProperty, tkRead, tkWrite, tkDefault, tkStored,
     tkVirtual, tkOverride, tkAbstract, tkStatic, tkDynamic,
@@ -104,6 +104,7 @@ begin
   Keywords['variant'] := tkVariant;
   Keywords['inherits'] := tkInherits;
   Keywords['implements'] := tkImplements;
+  Keywords['implementation'] := tkImplementation;
 
   // Visibility
   Keywords['public'] := tkPublic;

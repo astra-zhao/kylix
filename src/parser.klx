@@ -294,7 +294,20 @@ begin
     else if self.CurTokenIs(tkClass) then
       append(prog.Declarations, self.ParseClassDecl())
     else if self.CurTokenIs(tkInterface) then
-      append(prog.Declarations, self.ParseInterfaceDecl())
+    begin
+      // v5.6.0: unit section marker `interface` vs interface type decl.
+      // In unit files, `interface` is a section marker (skip). Otherwise it's
+      // an interface type declaration.
+      if prog.IsUnit then
+        self.NextToken()
+      else
+        append(prog.Declarations, self.ParseInterfaceDecl());
+    end
+    else if self.CurTokenIs(tkImplementation) then
+    begin
+      // v5.6.0: unit section marker `implementation` — skip.
+      self.NextToken();
+    end
     else if self.CurTokenIs(tkBegin) then
     begin
       var block: TBlockStatement;
