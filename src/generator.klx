@@ -555,7 +555,7 @@ type
       for i := 0 to Length(cd.Methods) - 1 do
       begin
         method := cd.Methods[i];
-        self.GenerateClassMethod(cd.Name, method);
+        self.GenerateClassMethod(cd.Name, cd.TypeParams, method);
       end;
 
       for i := 0 to Length(cd.Properties) - 1 do
@@ -565,7 +565,7 @@ type
       end;
     end;
 
-    procedure GenerateClassMethod(className: String; method: TFunctionDecl);
+    procedure GenerateClassMethod(className: String; typeParams: array of TTypeParameter; method: TFunctionDecl);
     var
       hasReturn: Boolean;
       i: Integer;
@@ -577,7 +577,20 @@ type
     begin
       hasReturn := (method.ReturnType <> nil) or (Length(method.ReturnTypes) > 0);
 
-      self.Write('func (self *' + className + ') ' + method.Name);
+      // v5.6.0: generic receiver — func (self *TStack[T]) Push(...), not *TStack
+      self.Write('func (self *' + className);
+      if Length(typeParams) > 0 then
+      begin
+        self.Write('[');
+        for i := 0 to Length(typeParams) - 1 do
+        begin
+          if i > 0 then
+            self.Write(', ');
+          self.Write(typeParams[i].Name);
+        end;
+        self.Write(']');
+      end;
+      self.Write(') ' + method.Name);
       self.GenerateFunctionSignature(method);
       self.WriteLine(' {');
       self.IncreaseIndent;
@@ -1573,6 +1586,25 @@ type
           self.Write('}');
         end;
       end
+      // v5.6.0: Generic type as expression: Foo<T> → Foo[T] (Go generics)
+      else if expr is TGenericType then
+      begin
+        var genExp: TGenericType;
+        genExp := expr as TGenericType;
+        self.Write(genExp.Base);
+        if Length(genExp.TypeParams) > 0 then
+        begin
+          self.Write('[');
+          for i := 0 to Length(genExp.TypeParams) - 1 do
+          begin
+            if i > 0 then
+              self.Write(', ');
+            elem := genExp.TypeParams[i];
+            self.GenerateTypeExpression(elem);
+          end;
+          self.Write(']');
+        end;
+      end
       else if expr is TPrefixExpression then
       begin
         prefix := expr as TPrefixExpression;
@@ -1626,6 +1658,11 @@ type
             self.Write('&' + ident.Value + '{}');
             Exit;
           end;
+          // v5.6.0: Fallback for non-TIdentifier Object (GenericType etc.)
+          self.Write('&');
+          self.GenerateExpression(member.Obj);
+          self.Write('{}');
+          Exit;
         end;
         self.GenerateExpression(member.Obj);
         self.Write('.' + member.Member);
@@ -1738,6 +1775,20 @@ type
             self.Write('}');
             Exit;
           end;
+          // v5.6.0: Fallback for non-TIdentifier Object (GenericType etc.):
+          // &<GenerateExpression(Obj)>{} — avoids `is TGenericType` which
+          // didn't fire at runtime. For GenericType → &TStack[int64]{}.
+          self.Write('&');
+          self.GenerateExpression(member.Obj);
+          self.Write('{');
+          for i := 0 to Length(call.Arguments) - 1 do
+          begin
+            if i > 0 then
+              self.Write(', ');
+            self.GenerateExpression(call.Arguments[i]);
+          end;
+          self.Write('}');
+          Exit;
         end;
       end;
 

@@ -1580,13 +1580,18 @@ begin
        self.PeekTokenIs(tkAsterisk) or self.PeekTokenIs(tkSlash) or
        self.PeekTokenIs(tkDiv) or self.PeekTokenIs(tkMod) or
        self.PeekTokenIs(tkAssign) or self.PeekTokenIs(tkEQ) or
-       self.PeekTokenIs(tkNotEQ) or self.PeekTokenIs(tkLT) or
+       self.PeekTokenIs(tkNotEQ) or
        self.PeekTokenIs(tkLTEQ) or self.PeekTokenIs(tkGT) or
        self.PeekTokenIs(tkGTEQ) or self.PeekTokenIs(tkAnd) or
        self.PeekTokenIs(tkOr) or self.PeekTokenIs(tkXor) then
     begin
       self.NextToken();
       leftExp := self.ParseInfixExpression(leftExp);
+    end
+    else if self.PeekTokenIs(tkLT) then
+    begin
+      self.NextToken();
+      leftExp := self.ParseLTExpression(leftExp);
     end
     else if self.PeekTokenIs(tkLParen) then
     begin
@@ -1715,6 +1720,53 @@ begin
   self.NextToken();
   expr.Right := self.ParseExpression(prec);
   result := expr;
+end;
+
+// v5.6.0: ParseLTExpression handles < ambiguity: generic instantiation
+// (TStack<Integer>) vs comparison (a < b). Ported from host parser_expr.go:750.
+function TParser.ParseLTExpression(left: TExpression): TExpression;
+var leftIdent: TIdentifier; var gen: TGenericType; var tp: TExpression;
+begin
+  if left is TIdentifier then
+  begin
+    leftIdent := left as TIdentifier;
+    // Heuristic: uppercase first char + peek looks like a type arg
+    if (Length(leftIdent.Value) > 0) and (leftIdent.Value[0:1] >= 'A') and (leftIdent.Value[0:1] <= 'Z') then
+    begin
+      if (self.PeekTokenIs(tkIdent)) or self.PeekTokenIs(tkArray) or self.PeekTokenIs(tkMap) or self.PeekTokenIs(tkRecord) then
+      begin
+        if self.PeekTokenIs(tkIdent) then
+        begin
+          // Check peek ident also starts uppercase
+          if (Length(self.PeekToken.Literal) > 0) and (self.PeekToken.Literal[0:1] >= 'A') and (self.PeekToken.Literal[0:1] <= 'Z') then
+          begin
+            gen := TGenericType.Create();
+            gen.Base := leftIdent.Value;
+            self.NextToken(); // skip <
+            while (self.CurTokenIs(tkGT) = false) and (self.CurTokenIs(tkEOF) = false) do
+            begin
+              tp := self.ParseTypeExpression();
+              if tp <> nil then
+                append(gen.TypeParams, tp);
+              if self.CurTokenIs(tkComma) then
+                self.NextToken()
+              else
+                break;
+            end;
+            // v5.6.0: do NOT consume > — leave it as CurToken so the infix
+            // loop sees PeekToken = . (PREC_MEMBER) and continues to parse
+            // .Create(). Consuming > left PeekToken = Create (PREC_LOWEST) →
+            // loop exited → .Create() unparsed → TStack<Integer> returned
+            // alone, Create() became a separate stdlib.Create call.
+            result := gen;
+            Exit;
+          end;
+        end;
+      end;
+    end;
+  end;
+  // Not generic — fall back to comparison
+  result := self.ParseInfixExpression(left);
 end;
 
 function TParser.ParseGroupedExpression(): TExpression;
