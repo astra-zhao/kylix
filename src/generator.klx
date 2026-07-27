@@ -563,6 +563,29 @@ type
         prop := cd.Properties[i] as TPropertyDecl;
         self.GeneratePropertyAccessors(cd.Name, prop);
       end;
+
+      // v5.6.0: stub IsValid for all classes (validation annotation codegen
+      // not ported; SkipAttributes dropped [Email]/[Required] etc. so the
+      // generator can't detect annotated fields). Returns true (no validation).
+      // Without this, user.IsValid() → "undefined: IsValid" (example45).
+      self.Write('func (self *' + cd.Name);
+      if Length(cd.TypeParams) > 0 then
+      begin
+        self.Write('[');
+        for i := 0 to Length(cd.TypeParams) - 1 do
+        begin
+          if i > 0 then
+            self.Write(', ');
+          self.Write(cd.TypeParams[i].Name);
+        end;
+        self.Write(']');
+      end;
+      self.WriteLine(') IsValid() bool {');
+      self.IncreaseIndent;
+      self.WriteLine('return true');
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
     end;
 
     procedure GenerateClassMethod(className: String; typeParams: array of TTypeParameter; method: TFunctionDecl);
