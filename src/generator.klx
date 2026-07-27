@@ -1623,10 +1623,10 @@ type
             self.Write(', ');
           param := lam.Parameters[iParam];
           self.Write(param.Name);
-          if param.Type <> nil then
+          if param.ParamType <> nil then
           begin
             self.Write(' ');
-            self.GenerateTypeExpression(param.Type);
+            self.GenerateTypeExpression(param.ParamType);
           end;
         end;
         self.Write(') ');
