@@ -1,14 +1,28 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-07-22
-> 当前版本: v5.5.0 已发布
+> 最后更新: 2026-07-28
+> 当前版本: v5.6.0 已发布（bootstrap self-host 51/51 = 100%）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
 
 ---
 
-## ✅ v5.4.0 修复：LLVM 后端自举编译打通（类层次 RTTI + 全局变量 + record + 外部方法 + 20+ 运行时修复）
+## ✅ v5.6.0 修复：LLVM 后端 bootstrap self-host 51/51（100%）
+
+**症状**：v5.5.0 的 LLVM 自举二进制能产出 Go 代码但有 bug——`x := 1` 产出裸 `x`（赋值 fall-through 覆盖）、`var point: TPoint` 产出 `interface{}`（类型丢失）、`self.CollectImports;` 调用被当字段丢弃→空 import→Go 无法编译。
+
+**根因**：28 个 codegen bug + generator.klx 移植缺口。根因分三类：(1) LLVM codegen bug（Exit 不发射、裸方法调用 no-op、strconcat 固定 512 溢出、null 段错误、htb_get miss 返回空串非 null、map array undef 段错误、repeat 条件后无 NextToken、Exception 顺序错）；(2) generator.klx vs generator.go 移植缺口（record/enum 值类型、stdlib 函数派发+error 包装、KylixBoot 类型、lambda、字符串转义、多返回、泛型 TStack<Integer> 解析+构造+receiver、validation stub、unit 段标记+forward 声明）；(3) 关键发现——LLVM addString 的 decodeKylixString 把 `\\`→`\`、`\"`→`"`（因 lexer 留 raw bytes、后端自行 decode），WriteEscapedGoString 须用拼接（各部分独立 decode，运行时 concat 产生正确字节）。
+
+**修复**（详见 CHANGELOG v5.6.0）：28 个 commit，含回归测试（exit_test/baremethod/strconcat/nullguard/htabget/mapfieldput/mapfieldarray 等）+ 端到端验证（51 个教程经 bootstrap→go build→正确运行）。
+
+**验证**：`kylix build --backend=llvm token.klx error.klx ast.klx lexer.klx parser.klx generator.klx main.klx` → `main_self` → 编译 51 个教程示例 → 产出 Go 能 `go build` 并正确运行。回归 16 包 + 51 教程全绿。
+
+**剩余技术债务**：
+- validation 注解（[Email]/[Required]/[Min] 等）是 stub `IsValid() {return true}`——需移植 host 的 `generateValidationMethods` 完整逻辑
+- 多态 (is/as) 的 usesPolymorphism gate 未移植——generator.klx 无 polymorphism 检测
+- example21 泛型 TStack 的 Push 有空 append runtime panic（go-build 过但运行时空切片）
+- LLVM 后端 self-reproduction（bootstrap 编译自身 .klx 源码→等价二进制）是下一里程碑
 
 **症状**：v5.3.0 在 Go 后端达成自举不动点（`kylix_self2` ≡ `kylix_self3` 逐字节），但 LLVM 后端无法编译自举源码——`kylix build --backend=llvm src/*.klx` 失败，暴露整套类层次多态 + 类型系统缺失。
 

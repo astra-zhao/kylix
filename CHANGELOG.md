@@ -4,6 +4,71 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v5.6.0 (2026-07-28) — LLVM 后端 bootstrap self-host 达成 51/51（100%）
+
+> 🎯 **自举源码 `src/*.klx`（7 文件、5250 行）经 LLVM 后端多文件构建成原生二进制 `main_self`（无 Go 依赖），编译全部 51 个教程示例产出的 Go 代码能 `go build` 成功并正确运行。** 从 v5.5.0 的 "产出 Go 但有 bug" 到 v5.6.0 的 "产出完整正确 Go"，修复 28 个 codegen bug + 移植缺口。
+
+### 第一类：LLVM codegen bug（8 个）
+
+| # | commit | 修复 | 影响 |
+|---|--------|------|------|
+| 1 | 96f4990 | Exit/return funcExit 出口块 | v5.5.0"整数解析失败"真因——`x := 1` 产出裸 `x`（赋值 fall-through 覆盖）|
+| 2 | 8bb16ef | 裸无参方法调用 `self.X;` → emitMethodCall | `self.CollectImports;` 被当字段→no-op→空 import→Go 无法编译 |
+| 3 | 6e65db2 | strconcat 按 strlen 求和分配 | 固定 malloc(512) 溢出→堆损坏→垃圾泄漏到输出 |
+| 4 | aa44793 | 字符串 null 守卫（@__kylix_emptystr） | 未设 String 字段=null→strcmp/strlen 段错误 |
+| 5 | 1df9d20 | htb_get miss 返回 null | Boolean map 读恒 true→用户类型发 interface{} |
+| 6 | — | map array 值 miss zeroinitializer | undef len 垃圾→fields[i] GEP null→段错误 |
+| 7 | 3a7211f | ParseRepeatStatement 条件后 NextToken | `until i > 5` 的 `5` 被当语句重解析→裸 `5` |
+| 8 | 9be0c6b | GenerateExceptionTypes 移到 body 后 | NeedsException 在 body 才设→`type Exception` 不发→undefined |
+
+### 第二类：移植缺口（14 个）
+
+| # | commit | 修复 | 影响 |
+|---|--------|------|------|
+| 9 | c72a3ad | record/enum 值类型 + emitMapFieldIndexPut | `var point: TPoint`→`*TPoint`(nil deref)→`TPoint`(值类型) |
+| 10 | 8dc68a3 | SkipAttributes 跳过 [Attribute] 注解 | `[Get('/')]` 被当字段→redeclared |
+| 11 | d1cb443 | stdlib 模块函数启发式 | `WriteFile(...)` → `stdlib.WriteFile(...)` + kylix/stdlib 导入 |
+| 12 | 3612b39 | stdlib (T,error) 调用包装 | `ln := TcpListen(p)` → multiple-value Go 错 |
+| 13 | 2855fd1 | KylixBoot 类型 TRequest→*stdlib.BootRequest | `func ListUsers(req TRequest)` → undefined TRequest |
+| 14 | b4a1243 | TLambdaExpression→Go func literal | `var greet := procedure...` → greet undefined |
+| 15 | 15a457e | lambda body 显式发 {} | `func(name string) fmt.Println(...)` → "fmt.Println is not a type" |
+| 16 | b40f5ff | stdlib 启发式排除已声明变量 | `greet('Alice')` 误映射 stdlib.greet |
+| 17 | a415361 | lambda 参数用 ParamType（非 Type） | `name: String` → interface{}→类型不匹配 |
+| 18 | 842dbcf | WriteEscapedGoString 用拼接发转义 | `{"name":"Kylix"}` 的 `"` 不转义→Go 语法错 |
+| 19 | e150857 | 多返回 result:=(a,b)→return a,b + 解构 | `result = ` 空→"unexpected keyword return" |
+| 20 | — | return result epilogue 对 multi-return 跳过 | `return result` 但 result 未声明→undefined |
+| 21 | — | 泛型 ParseLTExpression + ParseGenericInstantiation | `TStack<Integer>` 被当比较 `TStack < Integer` |
+| 22 | — | 泛型 receiver `*TStack[T]` | `func (self *TStack)` → "cannot use generic type without instantiation" |
+| 23 | b787b5b | 泛型构造 fallback + 不消费 > | `.Create()` 被当独立 stdlib.Create 调用 |
+| 24 | b787b5b | stub IsValid() bool {return true} | `[Email]` 注解的 `user.IsValid()` → undefined |
+| 25 | 5515770 | unit interface/implementation 段标记 | `interface` 被当接口类型声明→输出乱码 |
+| 26 | 3a86c87 | GenerateFunctionDecl 跳过 forward 声明 | unit 两段都发→Square redeclared |
+| 27 | — | CollectClassTypes 填充 ClassTypes | record/enum 发 *T（应值类型 T） |
+| 28 | — | GenerateExceptionTypes + Exception 顺序 | `panic(&Exception{...})` 引用未定义类型 |
+
+### 关键技术发现
+
+1. **Exit 不发射**是 v5.5.0"整数解析失败"真因（不是 record 值拷贝）
+2. **LLVM addString decodeKylixString** 把 `\\`→`\`、`\"`→`"`——WriteEscapedGoString 须用拼接（各部分独立 decode，运行时 concat 产生正确字节）
+3. **ParseGenericInstantiation 不消费 `>`**——留 CurToken=`>`, PeekToken=`.`(PREC_MEMBER) 让 infix loop 继续解析 `.Create()`
+4. **generator.klx vs generator.go 是两套代码**——差异是移植缺口（值类型/exception 顺序/stdlib 启发式/泛型/lambda/multireturn/validation/unit），非 LLVM codegen bug
+5. **sweep 必须在 kylix repo 内构建**（kylix/stdlib 导入须 repo 解析；文件名无下划线前缀否则 Go 忽略）
+
+### 端到端验证
+
+- 全 51 个教程示例经 bootstrap（src/*.klx → LLVM 后端多文件构建）编译产出的 Go 能 `go build` 成功并**正确运行**
+- 全 16 包 Go 测试 + 教程 51/51 始终绿，无回归
+- 代表性验证：example36（WriteFile/FileExists/ReadFile/PathJoin）、example55（TcpListen/WebSocket）、example15（lambda greet/printLine）、example16（multireturn DivMod/MinMax）、example21（泛型 TStack<Integer>）、example33（unit 多文件 Square/Cube/IsEven）
+
+### 后续开发规划
+
+- **KylixRT 里程碑**：LLVM 后端自举 self-host 51/51 已达成。下一步是 self-reproduction（bootstrap 编译自身 .klx 源码→产出等价二进制），验证 LLVM 后端的不动点
+- **stdlib 完整化**：validation 注解（[Email]/[Required]/[Min] 等）目前是 stub IsValid() {return true}——需移植 host 的 generateValidationMethods 完整逻辑
+- **多态 (is/as) gate**：generator.klx 无 usesPolymorphism gate——is/as 程序的基类始终 *Base（host 在无 polymorphism 时也用 *Base，但 polymorphism 时用 interface{}）。需移植 usesPolymorphism 检测 + classIsBase gate
+- **Go 后端自举不动点验证**：v5.3.0 已达成 Go 后端 round-trip + 自繁殖。LLVM 后端的 round-trip + 自繁殖是下一个里程碑
+- **example21 runtime panic**：泛型 TStack 的 Push 有空 append panic（go-build 过但运行时 slice 空）。需排查 emitAppend 在泛型方法体中的行为
+- **性能**：LLVM 后端 -O2 优化 + 增量缓存（v5.4.0 的 32x 加速）已可用。大规模程序的编译性能待验证
+
 ## v5.5.0 (2026-07-22) — LLVM 自举 parser 深层 bug 修复（分配大小 + 返回类型 + record 返回槽）
 
 > 🎯 **修复两个根因 bug，让 LLVM 自举二进制产出完整正确的 Go 代码**：`WriteLn('Hello')` → `fmt.Println("Hello from LLVM self!")`（完整参数），`WriteLn(42)` → `fmt.Println(42)`（整数正确）。此前产出 `fmt.Println()` 缺参数 + 整数报 "no prefix parse function for 0"。

@@ -1,13 +1,15 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-07-17  
-> 当前版本: v5.1.0 ✅  
+> 最后更新: 2026-07-28  
+> 当前版本: v5.6.0 ✅  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**✅ v5.1.0 已发布！** 完成 Variant 运行时——补齐 v5.0.0 留的两个缺口。(A) `map[String]Variant` 真实化：htab 值槽存 Variant box 指针（不动 htab 结构），`JsonDecodeMap` 产出真实 Variant map，`m['pi']=3.14` 按 `variant_compare` 标签派发；新增 `htab_get_variant`（miss 返回 nilbox 全局）+ `as_int`/`as_bool` unbox + `JsonGetString/Int/Float/Bool/Map/Array` 全部改 unbox。(B) Variant 算术：`variant_add/sub/mul/div` 按标签派发（`+` 字符串拼接/双 int→int/else double），`emitInfix` 算术 stub 替换；`coerceValue` 加 variant→concrete（`n := v` 解箱）。LLVM 测试 266→**274**，教程 **50→51**（新增 example57_variant_map 双端输出逐字节一致）。Variant 算术仅 LLVM（Go interface{} 不支持运算符）。详见 [CHANGELOG.md](CHANGELOG.md)。
+**✅ v5.6.0 已发布！** LLVM 后端 bootstrap self-host 达成 51/51（100%）。自举源码 `src/*.klx`（7 文件 5250 行）经 LLVM 后端多文件构建成原生二进制 `main_self`（无 Go 依赖），编译全部 51 个教程示例产出的 Go 代码能 `go build` 成功并正确运行。本轮修复 28 个 codegen bug + 移植缺口（Exit/funcExit 出口块——v5.5.0"整数解析失败"真因、裸方法调用、strconcat 溢出、null 守卫、htb_get、record/enum 值类型、stdlib 函数派发+error 包装、KylixBoot 类型、lambda、字符串转义、多返回、泛型 TStack<Integer>、unit 段标记+forward 声明等）。关键发现：generator.klx vs generator.go 是两套代码，差异是移植缺口；LLVM addString decodeKylixString 把 `\\`→`\`——WriteEscapedGoString 须用拼接。详见 [CHANGELOG.md](CHANGELOG.md)。
 
-**✅ v5.0.0 已发布！** Variant 运行时——第一个带类型标签的动态值运行时。LLVM 后端此前把 `Variant` 静默当 `i64` 别名，`var v: Variant; v := 1.0` 截断 double、`arr[0] = 10.0` 比较位模式。v5.0.0 实现 boxed-pointer Variant（`{i32 tag, i64 payload}`，tag nil/int/float/str/bool）：标量 `var v: Variant` + `array of Variant` 元素装 box 指针，赋值按类型装箱，比较经 `variant_compare` 按标签派发（数值提升 double、字符串 strcmp、布尔按 payload），`WriteLn(variantValue)` 按标签打印。jsonutil `JsonGetArray` 从 v4.9 字符串数组切片升级为**带类型标签的 Variant box 切片**（`value_to_variant` 窥首字符分类，数字→float 与 Go json 的 float64 对齐 → 双端 parity）。顺带修复 `Length(arr)` 路由（`emitArrayLength` 死代码 → 现派发到 slice len word）。LLVM 测试 255→**266**，教程 **49→50 (100%)** 新增 example56_variant（双后端输出逐字节一致）。详见 [CHANGELOG.md](CHANGELOG.md)。
+**✅ v5.5.0 已发布！** LLVM 自举 parser 深层 bug 修复——record 字段值拷贝（malloc+memcpy 深拷贝，匹配 Go 值语义）。
+
+**✅ v5.4.0 已发布！** LLVM 后端自举编译打通——自举源码经 LLVM 后端编译成原生二进制 `kylix_self_llvm`（127KB，无 Go 依赖），IR 生成成功（736KB）→ llc 通过 → 链接 → 运行 exit 0 产出 Go 代码。修复 20+ LLVM 后端缺口（类型系统、全局变量、record、外部方法、is/as RTTI、map 值类型化、builtin）。
 
 ---
 

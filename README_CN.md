@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-5.5.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-5.6.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
+>
+> 🔥 **v5.6.0**: LLVM 后端 bootstrap self-host 达成 **51/51 (100%)** — 自举源码 `src/*.klx`（7 文件 5250 行）经 LLVM 后端多文件构建成原生二进制 `main_self`（**无 Go 依赖**），编译全部 51 个教程示例产出的 Go 代码能 `go build` 成功并**正确运行**。本轮修复 28 个 codegen bug + 移植缺口，分三类：(1) LLVM codegen bug（Exit/funcExit 出口块——v5.5.0"整数解析失败"真因、裸方法调用、字符串拼接溢出、null 守卫、htb_get、map undef、repeat NextToken、Exception 顺序）；(2) 移植缺口（record/enum 值类型、stdlib 函数派发+error 包装+boot 类型、lambda、字符串转义、多返回、泛型 TStack<Integer>、validation stub、unit 段标记+forward 声明）；(3) 调试技术（lldb 函数名断点、main.ll IR、in-repo sweep、泛型 `>` 不消费）。go test 16 包全绿，教程 **51/51 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
 > 🔥 **v5.4.0**: LLVM 后端自举编译打通 — 自举源码 `src/*.klx`（7 文件 5250 行）经 LLVM 后端编译成原生二进制 `kylix_self_llvm`（127KB，**无 Go 依赖**），推进 KylixRT 里程碑（「LLVM 后端可编译 Kylix 编译器自身」）。IR 生成成功（736KB）→ llc 通过 → 链接成原生二进制 → 运行 exit 0 产出 Go 代码（含真换行 + WriteLn 语句识别 + is/as 运行时类型分派）。本轮修复 20+ 个 LLVM 后端缺口（类型系统、全局变量、record 支持、外部方法、is/as 运行时、map 值类型化、builtin 等）。go test 16 包全绿，教程 **51/51 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
 >

@@ -4,9 +4,9 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 
 **重要：始终用中文回答用户，不论用户用什么语言提问，回复一律使用中文。**
 
-## 当前状态：v5.5.0（2026-07-22）
+## 当前状态：v5.6.0（2026-07-28）
 
-- v5.4.0 已发布：LLVM 后端自举编译打通。自举源码 `src/*.klx`（7 文件、5250 行）经 LLVM 后端编译成原生二进制 `kylix_self_llvm`（127KB，**无 Go 依赖**），推进 KylixRT 里程碑（「LLVM 后端可编译 Kylix 编译器自身」）。v5.3.0 在 Go 后端达成自举不动点；v5.4.0 让 LLVM 后端也能编译自举源码。IR 生成成功（main.ll 736KB）→ llc 验证通过 → 链接成原生二进制 → 运行 exit 0 产出 Go 代码（含真换行 + WriteLn 语句识别 + is/as 运行时类型分派）。本轮修复 20+ 个 LLVM 后端缺口：(1) 类型系统——`llvmTypeOfExpr`（array/class/map）、函数 array 参数、`normalizeParams`、ArrayLiteral slice struct；(2) 全局变量——`collectGlobals`（Keywords 等 unit var→`@__kylix_g_*`，IsMerged 窄化）、class-typed 全局、`Args` builtin；(3) 类/record——record 类型支持（`emitRecordDecl`）、类字段 dynamic 数组/map 字段、构造函数 call Create + 字段初始化；(4) 外部方法——`procedure ClassName.Method`→`@ClassName_Method`+self；(5) 类型推断——`exprKylixType` 递归、auto-declare 按 RHS 类型、`result` load 用返回类型、局部遮蔽全局；(6) is/as 运行时——vtable 边表 + `@__kylix_class_is_a` + null guard phi；(7) map 值类型化——enum/Integer→atoll→i64；(8) builtin——Args/Ord/StrToInt64/StrToFloat/LowerCase/UpperCase/ReadFile/append。回归 16 包 + 51 教程全绿。剩余：自举 parser 深层 bug（整数解析失败 + 字符串参数未传递）留 v5.5。
+- v5.6.0 已发布：LLVM 后端 bootstrap self-host 达成 51/51（100%）。自举源码 `src/*.klx`（7 文件、5250 行）经 LLVM 后端多文件构建成原生二进制 `main_self`（**无 Go 依赖**），编译全部 51 个教程示例产出的 Go 代码能 `go build` 成功并正确运行。本轮修复 28 个 codegen bug + 移植缺口，分三类：(1) **LLVM codegen bug**（8 个）——Exit/return funcExit 出口块（v5.5.0"整数解析失败"真因）、裸无参方法调用 self.X; → emitMethodCall、strconcat 固定 512 缓冲区溢出、字符串 null 守卫（@__kylix_emptystr）、htab_get miss 返回 null、map array 值 miss zeroinitializer、ParseRepeatStatement 条件后 NextToken、GenerateExceptionTypes 移到 body 后；(2) **移植缺口**（14 个）——record/enum 值类型 + emitMapFieldIndexPut、SkipAttributes 跳过 [Attribute] 注解、stdlib 模块函数启发式 + (T,error) 包装 + boot 类型 TRequest→*stdlib.BootRequest、TLambdaExpression→Go func literal、WriteEscapedGoString 用拼接发转义（LLVM decodeKylixString 把 \\→\）、多返回 result:=(a,b)→return a,b + 解构、泛型实例化 TStack<Integer> 解析+构造+receiver [T]、validation stub IsValid()、unit interface/implementation 段标记 + forward 声明跳过；(3) **调试要点**（6 个）——lldb 函数名断点、main.ll IR 优先、in-repo sweep（kylix/stdlib 导入须 repo 解析）、无下划线文件名（Go 忽略 _ 前缀）、多文件 unit 构建（`build unit.klx main.klx`）、ParseGenericInstantiation 不消费 >（留 PeekToken=. PREC_MEMBER 让 infix loop 继续）。关键发现：generator.klx vs generator.go 是两套代码，差异是移植缺口；LLVM addString decodeKylixString 把 \\→\、\"→"（因 lexer 留 raw bytes、后端 decode），WriteEscapedGoString 须用拼接（各部分独立 decode，运行时 concat 产生正确字节）。回归 16 包 + 51 教程全绿。
 - v5.3.0 已发布：自举编译器 round-trip 打通 + 自繁殖。v5.2.0 只打通「构建」；v5.3.0 打通「运行时正确性」——`kylix_self2` 能正确编译程序，且自繁殖（`kylix_self3` 同样正确）。三处修复（都在 `src/generator.klx`，宿主零改动）：`Args` builtin、条件导入（扫描 needle 拆分避自检测）、`WriteEscapedGoString` 2-char 前瞻转义保护。`self_7.go` ≡ `self_7_gen2.go`（5390 行逐字节一致，真正不动点）。
 - v5.2.0 已发布：自举编译器构建打通。自举源码 `src/*.klx`（7 文件、5250 行）首次构建成可运行的 `kylix_self` 二进制。此前转译产物 `go build` 失败 208 个错误（130×`is`/`as` 在 struct 指针基类上非法、~75×子类装不进基类容器无多态、1×切片协变、3×`Args` builtin 缺失）。根因：Go 后端把所有类发射成普通 struct + 嵌入父 struct——给字段继承但无多态；`classIsBase` map 早已填充但 v3.1.0 回退后从不读取。**opt-in 修复**：仅当程序含 `is`/`as`（多态信号）时，把「有子类的基类」发射成空 interface（自举三基类 TNode/TStatement/TExpression 无字段无方法，且从不通过基类变量直接访问字段 → 空 interface 足够，无需 getter）；否则保留 struct 嵌入（字段继承，教程 example19/example40 不回归）。Parser 端 `parseIs/parseAs` 置 `program.UsesPolymorphism`，`collectClassTypes`（公共预扫描咽喉）OR 进 `g.usesPolymorphism`；`generateClassDecl`/`generateTypeExpression`/`generateTypeExpressionForCast` 按标志派发。新增 `Args` builtin（`os.Args[1:]`）；`src/parser.klx:448` 切片协变修复（`array of TStatement`→`array of TNode`）。`go build` 208→0 错误 → `kylix_self`（2.9MB）运行产出 5238 行 Go 编译器代码。go test 16 包全绿（+3 多态测试），教程 51/51 无回归。round-trip（kylix_self 产出再编译能正确编译程序）留 v5.3（自举 generator.klx codegen 保真度缺口）。
 - v5.1.0 已发布：完成 Variant 运行时。补齐 v5.0.0 留的两个缺口：(A) `map[String]Variant` 真实化——htab 值槽存 Variant box 指针（不动 htab 结构，cache/string-map 不回归），`emitMapVarDecl` 检测 Variant 值类型设 `variantMaps`，`emitMapIndexGet` 走新 `htab_get_variant`（miss 返回 nilbox 全局 tag=0 → as_* 走 nil 默认）返回 `"variant"`，`emitMapIndexPut` 装箱 RHS；jsonutil `parse_flat` 改调 `value_to_variant` 让 `JsonDecodeMap` 产出真实 Variant map，`JsonGetString/Int/Float/Bool/Map/Array` 全部改 unbox（`variant_as_str/int/double/bool`）。(B) Variant 算术——`variant_add/sub/mul/div` 按标签派发（`+` 字符串拼接/双 int→int/else double），`emitInfix` 算术 stub 替换为 `emitVariantArith`，`coerceValue` 加 variant→concrete（`n := v` 解箱，`emitAssign` 内联 coercion 改调 coerceValue 统一）。新增 `as_int`/`as_bool` unbox + `@__kylix_variant_nilbox` 全局。LLVM 测试 266→274，教程 50→51（新增 example57_variant_map 双端输出逐字节一致）无回归。Variant 算术仅 LLVM（Go `interface{}`不支持运算符），`div`/`mod` Variant 留 stub。
@@ -27,15 +27,17 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - 所有 Go 测试通过（16 个包，LLVM 后端 274 测试）
 - 教程 51/51 测试通过（Go 后端，`examples/complete-tutorial/`）
 - LLVM 后端 49→51 教程编译通过（100%，含 example56_variant Variant 数组 + example57_variant_map Variant map 双端 parity；01-04 章节 19 个文件与 Go 后端输出逐字节一致；example33 多文件模块经 `multifile.go` MergePrograms 合并声明后通过）
-- v5.3.0 新增：自举编译器 round-trip 打通 + 自繁殖（`src/generator.klx` 三修：`Args` builtin + 条件导入末尾组装 `CollectImports`/`BuildImportBlock`/`StrContains` + `WriteEscapedGoString` 2-char 前瞻 `\n`/`\t`/`\r` 转义保护；宿主 `generator/` 包零改动）——`kylix_self2` 编译 hello 输出 `Hello, World!`，`kylix_self3` 自繁殖正确
-- v5.2.0 新增：自举编译器构建打通（多态基类 opt-in interface codegen——`is`/`as` 触发 `program.UsesPolymorphism`，`collectClassTypes` OR 进 `g.usesPolymorphism`，`generateClassDecl`/`generateTypeExpression`/`generateTypeExpressionForCast` 按标志派发；`classIsBase` map 从死代码复活）+ `Args` builtin（`os.Args[1:]`）+ `src/parser.klx` 切片协变修复
-- v5.1.0 新增：map[String]Variant 真实化（htab 值槽存 Variant box，htab_get_variant + as_int/as_bool + JsonGet* unbox）+ Variant 算术（variant_add/sub/mul/div + emitVariantArith + coerceValue variant→concrete）+ emitAssign 统一 coerce
-- v5.0.0 新增：Variant 运行时（boxed `{tag, payload}`：标量 + `array of Variant` + JsonGetArray 类型标签化 + `variant_compare` 按标签派发 + `Length(arr)` 路由修复 + 双端 parity）
-- v4.9.0 新增：类方法/lambda DISubprogram（OOP 方法逐行调试 + self/参数/捕获变量检视）+ DILexicalBlock（块作用域 scope 正确）+ jsonutil `JsonGetArray`/`JsonArrayLen`/`JsonArrayGetString`（嵌套数组字符串数组版）+ `skip_nested` 闭合 char off-by-one 修复
-- v4.8.0 新增：泛型类方法 codegen（`TStack<T>.Create()` → `Push/Pop` 完整链路，example21 输出正确）+ 类字段数组 `self.Items[i]` GEP + DIBasicType 多类型（per-llvmType，LLDB 显示正确类型）
-- v4.7.0 新增：静态数组真实 LowerBound（`array[0..N]` 不再段错误）+ jsonutil `JsonGetMap` 递归嵌套对象解析
-- v4.6.0 新增：DWARF 逐行调试（per-instruction DILocation + DILocalVariable + `#dbg_declare`，LLDB 逐行单步 + `frame variable` 变量检视）
-- v4.5.0 新增：进程内 IR 优化 pass（DCE，默认运行）+ 增量编译缓存（llc 跳过，32x 加速）+ DWARF 调试符号（`kylix build --backend=llvm -g`）
+- v5.6.0 新增：28 个 LLVM 后端 codegen bug + generator.klx 移植缺口修复，bootstrap self-host 51/51（100%）。详见 CHANGELOG.md
+- v5.3.0 新增：自举编译器 round-trip 打通 + 自繁殖（`src/generator.klx` 三修：`Args` builtin + 条件导入 + `WriteEscapedGoString` 转义保护）
+- v5.2.0 新增：自举编译器构建打通（多态基类 opt-in interface codegen）+ `Args` builtin + 切片协变修复
+- v5.1.0 新增：map[String]Variant 真实化 + Variant 算术
+- v5.0.0 新增：Variant 运行时（boxed `{tag, payload}`）
+- v4.9.0 新增：类方法/lambda DISubprogram + DILexicalBlock + jsonutil `JsonGetArray`
+- v4.8.0 新增：泛型类方法 codegen + DIBasicType 多类型
+- v4.7.0 新增：静态数组真实 LowerBound + jsonutil `JsonGetMap` 递归嵌套对象
+- v4.6.0 新增：DWARF 逐行调试（per-instruction DILocation + DILocalVariable + `#dbg_declare`）
+- v5.5.0 新增：record 字段值拷贝（malloc+memcpy 深拷贝，匹配 Go 值语义）
+- v5.4.0 新增：进程内 IR 优化 pass（DCE，默认运行）+ 增量编译缓存（llc 跳过，32x 加速）+ DWARF 调试符号（`kylix build --backend=llvm -g`）
 - 所有源文件 ≤ 1000 行
 
 ## 关键文档
