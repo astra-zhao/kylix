@@ -889,6 +889,14 @@ type
       methodName: String;
       fullName: String;
     begin
+      // v5.6.0: skip forward declarations (no body) — unit interface section
+      // has function signatures without bodies; implementation has the real defs.
+      // Without this, both are emitted → "Square redeclared" (example33).
+      if fd.Body = nil then
+      begin
+        result := nil;
+        Exit;
+      end;
       hasReturn := (fd.ReturnType <> nil) or (Length(fd.ReturnTypes) > 0);
       // v5.6.0: multi-return function (>1 ReturnTypes) — `result := (a, b)`
       // emits `return a, b`. Ported from host generateFunctionDecl:331.
