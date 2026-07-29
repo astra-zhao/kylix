@@ -963,16 +963,16 @@ self.Write("\\")
 self.Write(nx)          
 j = (j + 2)          
         } else {
-self.Write(("\\\\" + "\\\\"))          
+self.Write(("\\" + "\\"))          
 j = (j + 1)          
         }
       } else {
-self.Write(("\\\\" + "\\\\"))        
+self.Write(("\\" + "\\"))        
 j = (j + 1)        
       }
     } else {
 if (ch == "\"")       {
-self.Write(("\\\\" + "\""))        
+self.Write(("\\" + "\""))        
 j = (j + 1)        
       } else {
 self.Write(ch)        
