@@ -1970,7 +1970,20 @@ type
       else if expr is TArrayType then
       begin
         arrType := expr as TArrayType;
-        self.Write('[]');
+        // v5.8.0: static array (array[0..99] of T) → [100]T, not []T.
+        // Previously always emitted [] (dynamic slice) → Items had len 0 →
+        // self.Items[self.Count] = item panicked (example21 Push).
+        if arrType.Dynamic then
+          self.Write('[]')
+        else
+        begin
+          self.Write('[');
+          if arrType.Size <> nil then
+            self.GenerateExpression(arrType.Size)
+          else
+            self.Write('100');
+          self.Write(']');
+        end;
         self.GenerateTypeExpression(arrType.ElementType);
       end
       else if expr is TMapType then
