@@ -46,3 +46,4 @@ kylix_bin
 /arrayutil.go
 /extmethod.go
 /extmethod2.go
+self_gen*.go
