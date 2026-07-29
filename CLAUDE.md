@@ -163,3 +163,10 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 ## v5.7.0 里程碑：LLVM 后端 self-reproduction 不动点（2026-07-29）
 
 - v5.7.0 已发布：LLVM 后端 bootstrap self-reproduction 达成。main_self（LLVM 编译的 bootstrap）编译 src/*.klx → self_gen.go → go build → main_self2（Go 编译的 bootstrap）→ 编译 51 教程全过 → main_self2 编译 src/*.klx → self_gen2.go → go build → main_self3 → 编译 51 教程全过 → **self_gen.go ≡ self_gen2.go（逐字节一致，真正不动点）**。修复 3 个 bug：(1) stdlib 启发式排除 Go builtins（append 被误映射为 stdlib.append）；(2) ClassTypes/UserFuncs 从 map 改为 String（Go 后端 nil map 写 panic）；(3) WriteEscapedGoString 用单反斜杠 '\' 替代双 '\\'(LLVM decodeKylixString 解码不一致)。回归 16 包 + 51 教程全绿。
+
+## 后续开发规划（v5.8.0+）
+
+- **v5.8.0 — Runtime 正确性**：example21 泛型 Push panic（emitConstructor 对泛型类 slice 字段未 zero-init）+ validation 注解完整化（SkipAttributes→parseAttributeList + 移植 generateValidationMethods）。目标：51/51 全部 runtime 正确。
+- **v5.9.0 — 多态 gate + KylixBoot 注解自动装配**：usesPolymorphism gate（is/as 基类在 polymorphism 时用 interface{}）+ 移植 generator_boot_annotations.go（[Controller]/[Get]/[Inject] 路由/DI 装配）+ ORM 注解。目标：真实 KylixBoot 应用在 LLVM bootstrap 下正确工作。
+- **v6.0.0 — KylixRT 生产就绪**：CI/CD 自动化 + 性能 benchmark + LLVM -O2 优化验证 + JetBrains 插件 + JsonEncode 双端 parity。
+- **长期愿景**：KylixRT（完整运行时，无需 Go 工具链）+ 跨平台（Linux/Windows/ARM64）+ 自举 stdlib（.klx 编写→bootstrap 编译→自包含）。

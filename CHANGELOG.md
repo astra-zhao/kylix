@@ -99,12 +99,30 @@ main_self (LLVM bootstrap, src/*.klx → LLVM IR → 原生二进制, 无 Go 依
 
 ### 后续开发规划
 
-- **KylixRT 里程碑**：LLVM 后端自举 self-host 51/51 已达成。下一步是 self-reproduction（bootstrap 编译自身 .klx 源码→产出等价二进制），验证 LLVM 后端的不动点
-- **stdlib 完整化**：validation 注解（[Email]/[Required]/[Min] 等）目前是 stub IsValid() {return true}——需移植 host 的 generateValidationMethods 完整逻辑
-- **多态 (is/as) gate**：generator.klx 无 usesPolymorphism gate——is/as 程序的基类始终 *Base（host 在无 polymorphism 时也用 *Base，但 polymorphism 时用 interface{}）。需移植 usesPolymorphism 检测 + classIsBase gate
-- **Go 后端自举不动点验证**：v5.3.0 已达成 Go 后端 round-trip + 自繁殖。LLVM 后端的 round-trip + 自繁殖是下一个里程碑
-- **example21 runtime panic**：泛型 TStack 的 Push 有空 append panic（go-build 过但运行时 slice 空）。需排查 emitAppend 在泛型方法体中的行为
-- **性能**：LLVM 后端 -O2 优化 + 增量缓存（v5.4.0 的 32x 加速）已可用。大规模程序的编译性能待验证
+**v5.7.0 已完成** ✅：LLVM self-reproduction 不动点（self_gen.go ≡ self_gen2.go）。详见 v5.7.0 条目。
+
+**v5.8.0 — Runtime 正确性**（下一步）：
+- example21 泛型 Push panic（`emitConstructor` 对泛型类 slice 字段未 zero-init）
+- validation 注解完整化（SkipAttributes → parseAttributeList + 移植 generateValidationMethods）
+- 目标：51/51 全部 runtime 正确（当前 49/51）
+
+**v5.9.0 — 多态 gate + KylixBoot 注解自动装配**：
+- usesPolymorphism gate（is/as 基类在 polymorphism 时用 interface{}）
+- 移植 generator_boot_annotations.go（[Controller]/[Get]/[Inject] 路由/DI 装配）
+- 移植 generator_orm_annotations.go（[Entity]/[Repository]/[Query] CRUD 生成）
+- 目标：真实 KylixBoot 应用在 LLVM bootstrap 下正确工作
+
+**v6.0.0 — KylixRT 生产就绪**：
+- CI/CD 自动化（GitHub Actions: go test + 51 教程 + self-reproduction 验证）
+- 性能 benchmark（大型 .klx 程序编译时间对比 Go vs LLVM）
+- LLVM 后端 -O2 优化验证
+- JetBrains 插件（IntelliJ IDEA / GoLand）
+- JsonEncode 双端 parity（Go encoding/json vs LLVM 手写 IR serializer）
+
+**长期愿景（v6.0+）**：
+- KylixRT：完整运行时（bootstrap 产出的二进制可直接编译+运行任意 Kylix 程序，无需 Go 工具链）
+- 跨平台：Linux/Windows/ARM64 原生二进制（目前只验证 macOS arm64）
+- 自举 stdlib：stdlib 本身用 Kylix 编写（.klx），经 bootstrap 编译 → 真正自包含
 
 ## v5.5.0 (2026-07-22) — LLVM 自举 parser 深层 bug 修复（分配大小 + 返回类型 + record 返回槽）
 

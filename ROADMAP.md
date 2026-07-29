@@ -5,6 +5,8 @@
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
+**✅ v5.7.0 已发布！** LLVM 后端 bootstrap self-reproduction 不动点达成。main_self → main_self2 → main_self3，self_gen.go ≡ self_gen2.go（逐字节一致，真正不动点）。修复 3 个 bug：stdlib 启发式排除 Go builtins（append 被误映射为 stdlib.append）；ClassTypes/UserFuncs 从 map 改为 String（Go 后端 nil map 写 panic）；WriteEscapedGoString 用单反斜杠 '\' 替代双 '\\\\'（LLVM decodeKylixString 解码不一致）。详见 [CHANGELOG.md](CHANGELOG.md)。
+
 **✅ v5.6.0 已发布！** LLVM 后端 bootstrap self-host 达成 51/51（100%）。自举源码 `src/*.klx`（7 文件 5250 行）经 LLVM 后端多文件构建成原生二进制 `main_self`（无 Go 依赖），编译全部 51 个教程示例产出的 Go 代码能 `go build` 成功并正确运行。本轮修复 28 个 codegen bug + 移植缺口（Exit/funcExit 出口块——v5.5.0"整数解析失败"真因、裸方法调用、strconcat 溢出、null 守卫、htb_get、record/enum 值类型、stdlib 函数派发+error 包装、KylixBoot 类型、lambda、字符串转义、多返回、泛型 TStack<Integer>、unit 段标记+forward 声明等）。关键发现：generator.klx vs generator.go 是两套代码，差异是移植缺口；LLVM addString decodeKylixString 把 `\\`→`\`——WriteEscapedGoString 须用拼接。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 **✅ v5.5.0 已发布！** LLVM 自举 parser 深层 bug 修复——record 字段值拷贝（malloc+memcpy 深拷贝，匹配 Go 值语义）。
@@ -46,7 +48,94 @@
 | **v5.3.0** | 自举编译器 round-trip 打通 + 自繁殖（条件导入 + 字符串转义；`kylix_self2` 编译 hello 输出 `Hello, World!`，`kylix_self3` 自繁殖正确） | ✅ 完成 | 2026-07-19 |
 | **v5.4.0** | LLVM 后端自举编译打通（类层次 RTTI + 全局变量 + record + 外部方法 + 20+ 运行时修复；`src/*.klx` → 原生二进制 127KB，运行产出 Go 代码） | ✅ 完成 | 2026-07-22 |
 | **v5.5.0** | LLVM 自举 parser 深层 bug 修复（分配大小 + 返回类型 + record 返回槽；`WriteLn('Hello')`→完整参数 + `WriteLn(42)`→整数正确） | ✅ 完成 | 2026-07-22 |
-| **v5.6.0+** | LLVM 自举 round-trip + 自举通用 codegen 补全 + KylixRT + JetBrains 插件 + JsonEncode | 📋 长期 | 2027+ |
+| **v5.6.0** | LLVM 后端 bootstrap self-host 51/51（28 codegen bug + 移植缺口修复） | ✅ 完成 | 2026-07-28 |
+| **v5.7.0** | LLVM 后端 bootstrap self-reproduction 不动点（main_self→main_self2→main_self3，self_gen.go≡self_gen2.go） | ✅ 完成 | 2026-07-29 |
+| **v5.8.0** | Runtime 正确性（example21 泛型 Push panic + validation 注解完整化） | 📋 下一步 | 2026-07 |
+| **v5.9.0** | 多态 gate + KylixBoot 注解自动装配（usesPolymorphism + [Controller]/[Get]/[Inject] 路由/DI wiring） | 📋 计划 | 2026-08 |
+| **v6.0.0** | KylixRT 生产就绪（CI/CD + 性能 benchmark + JetBrains 插件 + JsonEncode 双端 parity） | 📋 长期 | 2026-08+ |
+
+---
+
+## v5.8.0 — Runtime 正确性（51/51 全部 runtime 正确）
+
+**目标**：从 "go-build 过" 到 "go-build + 运行正确"，达到真正的 51/51 runtime 正确。
+
+### #1: example21 泛型 Push panic（🔴 高优先）
+
+**症状**：`var intStack := TStack<Integer>.Create(); intStack.Push(10)` → `panic: index out of range [0] with length 0`
+
+**根因**：泛型类 `TStack[T any]` 的字段 `Items: array of T` 在构造时未正确 zero-init slice。`emitConstructor`（class.go）对泛型类的 `{ptr, i64, i64}` slice 字段可能未发 `zeroinitializer`，导致 `self.Items` 是 garbage ptr/len → `append` 操作到无效 slice。
+
+**修复方向**：排查 `emitConstructor` 对泛型类 `array of T` 字段的初始化。确认 `TStack[T any] struct { Items []T }` 的 `Items` 字段在 `&TStack[int64]{}` 时被正确 zero-init（`store {ptr null, i64 0, i64 0}`）。
+
+### #2: validation 注解完整化（🟡 中优先）
+
+**症状**：`user.IsValid()` → `return true`（应 `return false`，Email="bad-email" 不通过）
+
+**根因**：v5.6.0 的 `SkipAttributes` 丢弃了 `[Email]`/`[Required]`/`[Min]` 等注解信息。generator.klx 无 `generateValidationMethods`。
+
+**修复方向**（两步）：
+1. **SkipAttributes → parseAttributeList**：让 parser 保留注解信息到 AST（`decl.Attributes`），而非丢弃。移植 host 的 `parser_attribute.go`。
+2. **移植 generateValidationMethods**：扫描带注解的字段，生成 `Validate() []string` + `IsValid() bool`。移植 host 的 `generator_validation_annotations.go`。
+
+---
+
+## v5.9.0 — 多态 gate + KylixBoot 注解自动装配
+
+**目标**：让真实 KylixBoot 应用（注解驱动路由/DI）在 LLVM bootstrap 下正确工作。
+
+### #3: 多态 usesPolymorphism gate
+
+**症状**：is/as 程序的基类始终 `*Base`（host 在 polymorphism 时用 `interface{}`，使 `[]TBase` 能存子类）
+
+**修复方向**：
+- parser.klx: `parseIs`/`parseAs` 设 `program.UsesPolymorphism`
+- generator.klx: `CollectClassTypes` 填充 `ClassIsBase`（有子类的基类）
+- generator.klx: `MapType` 的 `ClassIsBase` 检查 gate on `UsesPolymorphism`
+- `GenerateTypeExpression` + `GenerateTypeExpressionForCast` 按 polymorphism 派发
+
+### #4: KylixBoot 注解自动装配
+
+**症状**：`[Controller('/api')]` / `[Get('/path')]` / `[Inject]` 等注解被跳过 → 无路由注册/DI 装配
+
+**修复方向**：移植 `generator_boot_annotations.go`（~300 行）：扫描 `[Controller]` 类 → 生成 `boot.GET(...)` 路由注册 + `[Inject]` → DI `Resolve()` 调用 + `[Component]`/`[Service]` → 容器注册。
+
+### #5: ORM 注解
+
+**修复方向**：移植 `generator_orm_annotations.go`。`[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]` → 生成 CRUD 方法。
+
+---
+
+## v6.0.0 — KylixRT 生产就绪
+
+**目标**：从"能编译自己"到"能编译生产级应用"。
+
+### #6: CI/CD 自动化
+GitHub Actions：`go test` + `test_all.sh` + self-reproduction 验证（`main_self → self_gen.go → go build → main_self2 → 51 教程`）。
+
+### #7: 性能 benchmark
+大型 .klx 程序（bootstrap 自身 5250 行）测编译时间。对比 Go 后端 vs LLVM 后端（-O0/-O2）。验证增量缓存效果。
+
+### #8: LLVM 后端 -O2 优化验证
+确认 -O2 不破坏正确性（目前 self-reproduction 用默认 opt）。跑 51 教程 with `--llvm-opt=2`。
+
+### #9: JetBrains 插件
+IntelliJ IDEA / GoLand 插件（语法高亮 + LSP 集成）。VS Code 插件已有（v1.1），JetBrains 是补充。
+
+### #10: JsonEncode 双端 parity
+Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serializer。确保两端输出逐字节一致。
+
+---
+
+## 长期愿景（v6.0+）
+
+| 方向 | 说明 |
+|------|------|
+| **KylixRT** | 完整运行时——bootstrap 产出的二进制可直接编译+运行任意 Kylix 程序，无需 Go 工具链 |
+| **跨平台** | Linux/Windows/ARM64 原生二进制（目前只验证 macOS arm64） |
+| **stdlib 扩展** | 更多 stdlib 模块（grpc/mqtt/kafka...） |
+| **LLVM 后端 stdlib Phase 4+** | LLVM 后端的 stdlib 从手写 IR 升级为从 .klx 声明生成 |
+| **自举 stdlib** | stdlib 本身用 Kylix 编写（.klx），经 bootstrap 编译 → 真正自包含 |
 
 ---
 
