@@ -17,9 +17,9 @@ type
     ExceptionTypes: map[String]Boolean;
     MultiReturn: Boolean;
     MultiReturnN: Integer;
-    ClassTypes: map[String]Boolean;  // track which user-defined types are classes
-    ClassIsBase: map[String]Boolean; // true if class is parent of another class
-    ClassFields: map[String]array of String; // class name → ordered field names
+    ClassTypes: String;  // v5.7.0: comma-delimited class names (was map, Go nil map panic)
+    ClassIsBase: map[String]Boolean; // read-only (nil OK in Go)
+    ClassFields: map[String]array of String; // read-only (nil OK in Go)
     // v5.3.0: conditional import flags — set by CollectImports scanning the
     // generated body; BuildImportBlock emits only the packages actually used.
     NeedFmt: Boolean;
@@ -29,12 +29,14 @@ type
     NeedMath: Boolean;
     NeedRand: Boolean;
     NeedStdlib: Boolean; // v5.6.0: any stdlib.FuncName call used → import kylix/stdlib
-    UserFuncs: map[String]Boolean; // v5.6.0: user-defined functions (so bare calls to them aren't mis-mapped to stdlib)
+    UserFuncs: String; // v5.7.0: comma-delimited user func names (was map, Go nil map panic)
 
     constructor Create;
     begin
       self.Output := '';
       self.Indent := 0;
+      self.ClassTypes := '';
+      self.UserFuncs := '';
       self.InFunction := false;
       self.InReturnFunc := false;
       self.NeedsException := false;
@@ -305,7 +307,6 @@ type
       if self.StrContains(self.Output, 'os' + '.Args') then self.NeedOS := true;
       if self.StrContains(self.Output, 'math' + '.') then self.NeedMath := true;
       if self.StrContains(self.Output, 'rand' + '.') then self.NeedRand := true;
-      if self.StrContains(self.Output, 'stdlib' + '.') then self.NeedStdlib := true; // v5.6.0
     end;
 
     // ========================================================================
@@ -333,7 +334,7 @@ type
         if decl is TClassDecl then
         begin
           cd := decl as TClassDecl;
-          self.ClassTypes[cd.Name] := true;
+          self.ClassTypes := self.ClassTypes + "," + cd.Name + ",";
         end
         else if decl is TTypeDecl then
         begin
@@ -341,7 +342,7 @@ type
           if td.DeclType is TClassDecl then
           begin
             cd := td.DeclType as TClassDecl;
-            self.ClassTypes[td.Name] := true;
+            self.ClassTypes := self.ClassTypes + "," + td.Name + ",";
           end;
         end
         else if decl is TFunctionDecl then
@@ -351,7 +352,7 @@ type
           var fd: TFunctionDecl;
           fd := decl as TFunctionDecl;
           if fd.Name <> '' then
-            self.UserFuncs[fd.Name] := true;
+            self.UserFuncs := self.UserFuncs + "," + fd.Name + ",";
         end;
       end;
     end;
@@ -787,7 +788,6 @@ type
     begin
       for i := 0 to Length(vd.Names) - 1 do
       begin
-        self.Variables[vd.Names[i]] := 'var'; // v5.6.0
         self.Write('var ' + vd.Names[i]);
         if vd.VarType <> nil then
         begin
@@ -832,7 +832,6 @@ type
     begin
       for i := 0 to Length(vd.Names) - 1 do
       begin
-        self.Variables[vd.Names[i]] := 'var'; // v5.6.0
         self.Write('var ' + vd.Names[i] + ' ');
         if vd.VarType <> nil then
           self.GenerateTypeExpression(vd.VarType)
@@ -893,10 +892,7 @@ type
       // has function signatures without bodies; implementation has the real defs.
       // Without this, both are emitted → "Square redeclared" (example33).
       if fd.Body = nil then
-      begin
-        result := nil;
         Exit;
-      end;
       hasReturn := (fd.ReturnType <> nil) or (Length(fd.ReturnTypes) > 0);
       // v5.6.0: multi-return function (>1 ReturnTypes) — `result := (a, b)`
       // emits `return a, b`. Ported from host generateFunctionDecl:331.
@@ -1215,7 +1211,6 @@ type
     begin
       for i := 0 to Length(vd.Names) - 1 do
       begin
-        self.Variables[vd.Names[i]] := 'var'; // v5.6.0: register so bare calls to vars (e.g. greet('Alice') where greet is a func-typed local) aren't mis-mapped to stdlib
         if vd.Inferred then
         begin
           self.Write(vd.Names[i] + ' := ');
@@ -1565,6 +1560,7 @@ type
       lam: TLambdaExpression;
       iParam: Integer;
       param: TParameter;
+      elem: TExpression;
       i: Integer;
       op: String;
     begin
@@ -1886,9 +1882,19 @@ type
       begin
         var callee: TIdentifier;
         callee := call.Func as TIdentifier;
-        if (self.UserFuncs[callee.Value] = false) and
-           (self.Variables[callee.Value] = '') and
-           (self.MapBuiltinFunction(callee.Value) = callee.Value) then
+        if (self.StrContains(self.UserFuncs, "," + callee.Value + ",") = false) and
+           (Length(callee.Value) > 0) and (callee.Value[0:1] >= 'A') and (callee.Value[0:1] <= 'Z') and
+           (self.MapBuiltinFunction(callee.Value) = callee.Value) and
+           // v5.7.0: exclude Go builtins (append/len/copy/delete/insert/make/new/panic/recover)
+           (callee.Value <> 'append') and
+           (callee.Value <> 'len') and
+           (callee.Value <> 'copy') and
+           (callee.Value <> 'delete') and
+           (callee.Value <> 'insert') and
+           (callee.Value <> 'make') and
+           (callee.Value <> 'new') and
+           (callee.Value <> 'panic') and
+           (callee.Value <> 'recover') then
         begin
           self.NeedStdlib := true;
           // v5.6.0: stdlib funcs returning (T, error) must be wrapped to
@@ -2059,7 +2065,7 @@ type
         // For class types that are base classes, use interface{}
         else if self.ClassIsBase[kylixType] then
           result := 'interface{}'
-        else if self.ClassTypes[kylixType] then
+        else if self.StrContains(self.ClassTypes, "," + kylixType + ",") then
           result := '*' + kylixType
         else
           // v5.6.0: record/enum value type (was '*' + kylixType — a port gap
