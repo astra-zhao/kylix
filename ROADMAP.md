@@ -1,7 +1,7 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-07-28  
-> 当前版本: v5.6.0 ✅  
+> 最后更新: 2026-07-29  
+> 当前版本: v5.7.0 ✅  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 

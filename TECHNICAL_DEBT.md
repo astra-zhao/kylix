@@ -1,7 +1,7 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-07-28
-> 当前版本: v5.6.0 已发布（bootstrap self-host 51/51 = 100%）
+> 最后更新: 2026-07-29
+> 当前版本: v5.7.0 已发布（bootstrap self-reproduction 不动点）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。

@@ -4,6 +4,43 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v5.7.0 (2026-07-29) — LLVM 后端 self-reproduction 不动点（自繁殖）
+
+> 🎯 **LLVM 编译的 bootstrap → Go 编译的 bootstrap → 产出逐字节一致的 Go 代码 → 自繁殖成功。** 对应 v5.3.0 在 Go 后端达成的自举不动点——现在 LLVM 后端也达成了。
+
+### Phase 1-4 全链路验证
+
+```
+main_self (LLVM bootstrap, src/*.klx → LLVM IR → 原生二进制, 无 Go 依赖)
+  → 编译 src/*.klx → self_gen.go (6136 行)
+  → go build → main_self2 (Go 编译版 bootstrap, 2.9MB)
+  → 编译 51 教程 → 51/51 ✓
+  → 编译 src/*.klx → self_gen2.go (6136 行)
+  → go build → main_self3 (Go 编译版 bootstrap, 2.9MB)
+  → 编译 51 教程 → 51/51 ✓
+  → self_gen.go ≡ self_gen2.go (diff exit=0, 逐字节一致) = 不动点
+```
+
+### Bug 修复（3 个）
+
+| # | bug | 根因 | 修复 |
+|---|-----|------|------|
+| 1 | `stdlib.append` — Go 内置 append 被误映射为 stdlib.append | stdlib 启发式条件 `MapBuiltinFunction(name)==name` 对 append 返回 true（append 映射到自身）→ 启发式认为"非 builtin"→ stdlib | 排除 Go builtins（append/len/copy/delete/insert/make/new/panic/recover） |
+| 2 | `assignment to entry in nil map` panic — ClassTypes/UserFuncs map 在 Go 后端为 nil | Go 后端不自动初始化 map 字段（LLVM 后端 htab_new 自动 init）；generator.klx 写 nil map → panic | ClassTypes/UserFuncs 从 `map[String]Boolean` 改为 `String`（逗号分隔 + StrContains 成员检查） |
+| 3 | JSON 字符串 `"` 不转义 — example37/56/57 | .klx 源 `'\\'`（双反斜杠）→ LLVM `decodeKylixString` 解码为 `\`（1 字符），但 Go 后端不解码→`\\`（2 字符）→ WriteEscapedGoString 看到 2 个反斜杠→每个转义为 `\\`→`\\\\`（4 字符，多一倍） | `'\\'` → `'\'`（单反斜杠字面量）→ 两个后端都不解码→一致为 `\`（1 字符） |
+
+### 关键技术发现
+
+- **LLVM/Go 后端字符串解码不一致**：`addString`/`decodeKylixString` 是 LLVM 后端独有的（lexer 留 raw bytes，LLVM 后端 decode）；Go 后端不解码。任何 .klx 源中用 `'\\'`（双反斜杠）的地方，两个后端运行时值不一致。改用 `'\'`（单反斜杠，lone backslash 不被 decode）→ 两个后端一致。
+- **Go nil map vs LLVM htab_new**：Go map 字段默认 nil，写 nil map panic；LLVM 后端 `emitConstructor` 自动 htab_new 初始化 map 字段。generator.klx 的 map 字段在 Go 编译版需手动初始化或改为非 map 类型。
+- **stdlib 启发式与 Go builtins 冲突**：`append`/`len`/`copy` 等是 Go 内置函数，`MapBuiltinFunction` 返回自身（identity mapping）→ 启发式误认为是"非 builtin"→ stdlib 映射。
+
+### 验证
+
+- Phase 1-4 全链路 round-trip + 自繁殖不动点（self_gen.go ≡ self_gen2.go，6136 行逐字节一致）
+- main_self / main_self2 / main_self3 三个二进制均编译 51 教程 51/51 全过
+- 回归：16 包 Go 测试 + 教程 51/51 始终绿，无回归
+
 ## v5.6.0 (2026-07-28) — LLVM 后端 bootstrap self-host 达成 51/51（100%）
 
 > 🎯 **自举源码 `src/*.klx`（7 文件、5250 行）经 LLVM 后端多文件构建成原生二进制 `main_self`（无 Go 依赖），编译全部 51 个教程示例产出的 Go 代码能 `go build` 成功并正确运行。** 从 v5.5.0 的 "产出 Go 但有 bug" 到 v5.6.0 的 "产出完整正确 Go"，修复 28 个 codegen bug + 移植缺口。
