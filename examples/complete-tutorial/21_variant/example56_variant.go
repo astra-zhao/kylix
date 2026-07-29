@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"kylix/stdlib"
+	"fmt"
 )
 
 var arr []interface{}

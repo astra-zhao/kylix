@@ -18,6 +18,7 @@ type
     Errors: array of String;
     CurToken: TToken;
     PeekToken: TToken;
+    UsesPolymorphism: Boolean;
   end;
 
 // ============================================================================
@@ -337,6 +338,7 @@ begin
       self.NextToken();
   end;
 
+  prog.UsesPolymorphism := self.UsesPolymorphism; // v5.9.0: copy to program for generator gate
   result := prog;
 end;
 
@@ -2018,6 +2020,7 @@ begin
   expr.Token := isToken;
   expr.Expression := left;
   expr.TargetType := self.ParseTypeExpression();
+  self.UsesPolymorphism := true; // v5.9.0: signal for polymorphism gate
   result := expr;
 end;
 
@@ -2030,6 +2033,7 @@ begin
   expr.Token := asToken;
   expr.Expression := left;
   expr.TargetType := self.ParseTypeExpression();
+  self.UsesPolymorphism := true; // v5.9.0: signal for polymorphism gate
   result := expr;
 end;
 

@@ -60,6 +60,7 @@ type
     Uses: array of String;
     Declarations: array of TNode;
     Statements: array of TStatement;
+    UsesPolymorphism: Boolean;
   end;
 
 // ============================================================================

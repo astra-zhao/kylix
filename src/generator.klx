@@ -19,6 +19,7 @@ type
     MultiReturnN: Integer;
     ClassTypes: String;  // v5.7.0: comma-delimited class names (was map, Go nil map panic)
     ClassIsBase: map[String]Boolean; // read-only (nil OK in Go)
+    ClassIsBaseStr: String; // v5.9.0: comma-delimited base class names (when UsesPolymorphism)
     ClassFields: map[String]array of String; // read-only (nil OK in Go)
     // v5.3.0: conditional import flags — set by CollectImports scanning the
     // generated body; BuildImportBlock emits only the packages actually used.
@@ -30,6 +31,7 @@ type
     NeedRand: Boolean;
     NeedStdlib: Boolean; // v5.6.0: any stdlib.FuncName call used → import kylix/stdlib
     UserFuncs: String; // v5.7.0: comma-delimited user func names (was map, Go nil map panic)
+    UsesPolymorphism: Boolean; // v5.9.0: true if any program uses is/as
 
     constructor Create;
     begin
@@ -37,6 +39,8 @@ type
       self.Indent := 0;
       self.ClassTypes := '';
       self.UserFuncs := '';
+      self.ClassIsBaseStr := '';
+      self.UsesPolymorphism := false;
       self.InFunction := false;
       self.InReturnFunc := false;
       self.NeedsException := false;
@@ -321,6 +325,8 @@ type
       cd: TClassDecl;
       td: TTypeDecl;
     begin
+      // v5.9.0: copy UsesPolymorphism from program to generator (host generator.go:439)
+      self.UsesPolymorphism := self.UsesPolymorphism or prog.UsesPolymorphism;
       // v5.6.0: populate ClassTypes so MapType distinguishes class (*Type) from
       // record/enum (value type). Without this every user type fell to MapType's
       // else branch — combined with the htab_get null-on-miss fix that made
@@ -335,6 +341,9 @@ type
         begin
           cd := decl as TClassDecl;
           self.ClassTypes := self.ClassTypes + "," + cd.Name + ",";
+          // v5.9.0: fill ClassIsBase when program uses polymorphism (is/as)
+          if prog.UsesPolymorphism and (cd.Parent <> '') then
+            self.ClassIsBaseStr := self.ClassIsBaseStr + "," + cd.Parent + ",";
         end
         else if decl is TTypeDecl then
         begin
@@ -343,6 +352,8 @@ type
           begin
             cd := td.DeclType as TClassDecl;
             self.ClassTypes := self.ClassTypes + "," + td.Name + ",";
+            if prog.UsesPolymorphism and (cd.Parent <> '') then
+              self.ClassIsBaseStr := self.ClassIsBaseStr + "," + cd.Parent + ",";
           end;
         end
         else if decl is TFunctionDecl then
@@ -2033,7 +2044,8 @@ type
           self.Write('*stdlib.BootResponse');
           self.NeedStdlib := true;
         end
-        else if self.ClassIsBase[ident.Value] then
+        // v5.9.0: gate ClassIsBase on UsesPolymorphism (was always-on map lookup)
+        else if (self.UsesPolymorphism) and (self.StrContains(self.ClassIsBaseStr, "," + ident.Value + ",")) then
           self.Write('*' + ident.Value)
         else
           self.Write(self.MapType(ident.Value));
@@ -2075,8 +2087,11 @@ type
         // Known record/enum types: use value type (not pointer)
         else if (kylixType = 'TToken') or (kylixType = 'TTokenType') then
           result := kylixType
-        // For class types that are base classes, use interface{}
-        else if self.ClassIsBase[kylixType] then
+        // v5.9.0: gate ClassIsBase on UsesPolymorphism — only emit interface{}
+        // for base classes when the program actually uses is/as polymorphism.
+        // Without this gate, all user types with children would be interface{},
+        // breaking field access via base class variables in non-polymorphism code.
+        else if (self.UsesPolymorphism) and (self.StrContains(self.ClassIsBaseStr, "," + kylixType + ",")) then
           result := 'interface{}'
         else if self.StrContains(self.ClassTypes, "," + kylixType + ",") then
           result := '*' + kylixType
