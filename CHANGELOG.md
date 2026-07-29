@@ -4,6 +4,27 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v5.8.0 (2026-07-30) — Runtime 正确性（51/51 全部 runtime 正确）
+
+> 🎯 **从 "go-build 过" 到 "go-build + 运行正确"，达到真正的 51/51 runtime 正确。**
+
+### Bug 修复：泛型类静态数组 `array[0..N] of T` 误发为 `[]T`（动态切片）
+
+**根因**：`GenerateTypeExpression`（generator.klx）对 `TArrayType` 总是发 `[]`（动态切片），不区分静态数组（`array[0..99] of T`，有 Size）和动态数组（`array of T`，无 Size）。静态数组 `Items: array[0..99] of T` 被发为 `[]T`（len=0 切片）→ `self.Items[self.Count] = item` → `panic: index out of range [0] with length 0`。
+
+**修复**：检查 `arrType.Dynamic`——true 发 `[]`，false 发 `[Size]`。对齐 host `generator_types.go:574` 的静态数组 emit 逻辑。1 行改动。
+
+### 验证
+
+- example21 runtime 正确（Stack count: 3 → Pop: 30/20 → count: 1 → Pop: World）
+- main_self + main_self2（Go 编译版）都正确运行
+- **self-reproduction 不动点保持**（self_gen.go ≡ self_gen2.go, diff=0）
+- 全 51 教程 go-build 51/51 无回归 + 16 包 Go 测试全绿
+
+### 注
+
+validation 注解完整化（#2）移至 v5.9.0——需先移植 `parseAttributeList`（SkipAttributes → 保留注解到 AST），与 KylixBoot 注解自动装配同批做。
+
 ## v5.7.0 (2026-07-29) — LLVM 后端 self-reproduction 不动点（自繁殖）
 
 > 🎯 **LLVM 编译的 bootstrap → Go 编译的 bootstrap → 产出逐字节一致的 Go 代码 → 自繁殖成功。** 对应 v5.3.0 在 Go 后端达成的自举不动点——现在 LLVM 后端也达成了。

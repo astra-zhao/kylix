@@ -1,11 +1,13 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-07-29  
-> 当前版本: v5.7.0 ✅  
+> 最后更新: 2026-07-30  
+> 当前版本: v5.8.0 ✅  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**✅ v5.7.0 已发布！** LLVM 后端 bootstrap self-reproduction 不动点达成。main_self → main_self2 → main_self3，self_gen.go ≡ self_gen2.go（逐字节一致，真正不动点）。修复 3 个 bug：stdlib 启发式排除 Go builtins（append 被误映射为 stdlib.append）；ClassTypes/UserFuncs 从 map 改为 String（Go 后端 nil map 写 panic）；WriteEscapedGoString 用单反斜杠 '\' 替代双 '\\\\'（LLVM decodeKylixString 解码不一致）。详见 [CHANGELOG.md](CHANGELOG.md)。
+**✅ v5.8.0 已发布！** Runtime 正确性达成 51/51（全部 go-build + 运行正确）。修复泛型类静态数组 `array[0..99] of T` 误发为 `[]T`（动态切片）→ `Items` len=0 → `self.Items[self.Count] = item` panic。改 `GenerateTypeExpression` 按 `arrType.Dynamic` 区分静态 `[Size]T` 与动态 `[]T`。example21 runtime 正确（Stack count: 3, Pop: 30/20, count: 1, Pop: World）。self-reproduction 不动点保持。详见 [CHANGELOG.md](CHANGELOG.md)。
+
+**✅ v5.7.0 已发布！** LLVM 后端 bootstrap self-reproduction 不动点达成。main_self → main_self2 → main_self3，self_gen.go ≡ self_gen2.go（逐字节一致，真正不动点）。
 
 **✅ v5.6.0 已发布！** LLVM 后端 bootstrap self-host 达成 51/51（100%）。自举源码 `src/*.klx`（7 文件 5250 行）经 LLVM 后端多文件构建成原生二进制 `main_self`（无 Go 依赖），编译全部 51 个教程示例产出的 Go 代码能 `go build` 成功并正确运行。本轮修复 28 个 codegen bug + 移植缺口（Exit/funcExit 出口块——v5.5.0"整数解析失败"真因、裸方法调用、strconcat 溢出、null 守卫、htb_get、record/enum 值类型、stdlib 函数派发+error 包装、KylixBoot 类型、lambda、字符串转义、多返回、泛型 TStack<Integer>、unit 段标记+forward 声明等）。关键发现：generator.klx vs generator.go 是两套代码，差异是移植缺口；LLVM addString decodeKylixString 把 `\\`→`\`——WriteEscapedGoString 须用拼接。详见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -50,39 +52,37 @@
 | **v5.5.0** | LLVM 自举 parser 深层 bug 修复（分配大小 + 返回类型 + record 返回槽；`WriteLn('Hello')`→完整参数 + `WriteLn(42)`→整数正确） | ✅ 完成 | 2026-07-22 |
 | **v5.6.0** | LLVM 后端 bootstrap self-host 51/51（28 codegen bug + 移植缺口修复） | ✅ 完成 | 2026-07-28 |
 | **v5.7.0** | LLVM 后端 bootstrap self-reproduction 不动点（main_self→main_self2→main_self3，self_gen.go≡self_gen2.go） | ✅ 完成 | 2026-07-29 |
-| **v5.8.0** | Runtime 正确性（example21 泛型 Push panic + validation 注解完整化） | 📋 下一步 | 2026-07 |
-| **v5.9.0** | 多态 gate + KylixBoot 注解自动装配（usesPolymorphism + [Controller]/[Get]/[Inject] 路由/DI wiring） | 📋 计划 | 2026-08 |
+| **v5.8.0** | Runtime 正确性（example21 泛型静态数组 array[0..N] of T → [N]T 修复；51/51 runtime 正确） | ✅ 完成 | 2026-07-30 |
+| **v5.9.0** | 多态 gate + KylixBoot 注解自动装配（usesPolymorphism + parseAttributeList + [Controller]/[Get]/[Inject] 路由/DI wiring + validation 注解） | 📋 下一步 | 2026-08 |
 | **v6.0.0** | KylixRT 生产就绪（CI/CD + 性能 benchmark + JetBrains 插件 + JsonEncode 双端 parity） | 📋 长期 | 2026-08+ |
 
 ---
 
-## v5.8.0 — Runtime 正确性（51/51 全部 runtime 正确）
+## v5.8.0 — Runtime 正确性（51/51 全部 runtime 正确）✅
 
-**目标**：从 "go-build 过" 到 "go-build + 运行正确"，达到真正的 51/51 runtime 正确。
+**目标**：从 "go-build 过" 到 "go-build + 运行正确"，达到真正的 51/51 runtime 正确。✅ 已达成。
 
-### #1: example21 泛型 Push panic（🔴 高优先）
+### #1: example21 泛型 Push panic ✅ 已修复
 
-**症状**：`var intStack := TStack<Integer>.Create(); intStack.Push(10)` → `panic: index out of range [0] with length 0`
+**根因**：`GenerateTypeExpression` 对 `TArrayType` 总是发 `[]`（动态切片），不区分静态数组（`array[0..99] of T`，有 Size）和动态数组（`array of T`）。静态数组 `Items: array[0..99] of T` 被发为 `[]T`（len=0 切片）→ `self.Items[self.Count] = item` → `index out of range [0] with length 0` panic。
 
-**根因**：泛型类 `TStack[T any]` 的字段 `Items: array of T` 在构造时未正确 zero-init slice。`emitConstructor`（class.go）对泛型类的 `{ptr, i64, i64}` slice 字段可能未发 `zeroinitializer`，导致 `self.Items` 是 garbage ptr/len → `append` 操作到无效 slice。
+**修复**：检查 `arrType.Dynamic`——true 发 `[]`，false 发 `[Size]`。1 行改动。
 
-**修复方向**：排查 `emitConstructor` 对泛型类 `array of T` 字段的初始化。确认 `TStack[T any] struct { Items []T }` 的 `Items` 字段在 `&TStack[int64]{}` 时被正确 zero-init（`store {ptr null, i64 0, i64 0}`）。
+**验证**：example21 runtime 正确（Stack count: 3 → Pop: 30/20 → count: 1 → Pop: World）。main_self + main_self2 都正确运行。self-reproduction 不动点保持（self_gen.go ≡ self_gen2.go）。全 51 教程无回归。
 
-### #2: validation 注解完整化（🟡 中优先）
+### #2: validation 注解完整化 → 移至 v5.9.0
 
-**症状**：`user.IsValid()` → `return true`（应 `return false`，Email="bad-email" 不通过）
-
-**根因**：v5.6.0 的 `SkipAttributes` 丢弃了 `[Email]`/`[Required]`/`[Min]` 等注解信息。generator.klx 无 `generateValidationMethods`。
-
-**修复方向**（两步）：
-1. **SkipAttributes → parseAttributeList**：让 parser 保留注解信息到 AST（`decl.Attributes`），而非丢弃。移植 host 的 `parser_attribute.go`。
-2. **移植 generateValidationMethods**：扫描带注解的字段，生成 `Validate() []string` + `IsValid() bool`。移植 host 的 `generator_validation_annotations.go`。
+需先移植 `parseAttributeList`（SkipAttributes → 保留注解到 AST），与 v5.9.0 的 KylixBoot 注解自动装配同批做更合理。
 
 ---
 
 ## v5.9.0 — 多态 gate + KylixBoot 注解自动装配
 
 **目标**：让真实 KylixBoot 应用（注解驱动路由/DI）在 LLVM bootstrap 下正确工作。
+
+### #2: validation 注解完整化（从 v5.8.0 移入）
+
+**修复方向**：(1) SkipAttributes → parseAttributeList（保留注解到 AST）；(2) 移植 generateValidationMethods（生成 Validate() + IsValid()）。
 
 ### #3: 多态 usesPolymorphism gate
 

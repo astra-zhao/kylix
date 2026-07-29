@@ -1,36 +1,28 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-07-29
-> 当前版本: v5.7.0 已发布（bootstrap self-reproduction 不动点）
+> 最后更新: 2026-07-30
+> 当前版本: v5.8.0 已发布（51/51 runtime 正确）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
 
 ---
 
-## ✅ v5.7.0 修复：LLVM 后端 bootstrap self-reproduction 不动点
-
-**症状**：v5.6.0 达成 bootstrap self-host 51/51（go-build），但 self-reproduction（main_self → self_gen.go → go build → main_self2 → 51 教程）只有 48/51——3 个 JSON 字符串转义失败。
-
-**根因**：3 个 bug：(1) stdlib 启发式把 Go 内置 append 误映射为 stdlib.append；(2) Go 后端 nil map 写 panic（ClassTypes/UserFuncs 未初始化）；(3) LLVM decodeKylixString 把 `'\\'` 解码为 `\`，但 Go 后端不解码→运行时值不一致→WriteEscapedGoString 多转义一倍。
-
-**修复**：(1) 排除 Go builtins（append/len/copy/delete/insert/make/new/panic/recover）；(2) ClassTypes/UserFuncs 从 `map[String]Boolean` 改为 `String`（逗号分隔 + StrContains）；(3) `'\\'`→`'\'`（单反斜杠字面量，两个后端都不解码）。
-
-**验证**：Phase 1-4 全链路 round-trip + 自繁殖不动点（self_gen.go ≡ self_gen2.go，6136 行逐字节一致）。回归 16 包 + 51 教程全绿。
-
----
-
-## 📋 v5.8.0 — Runtime 正确性
-
-### 🟠 #1: example21 泛型 Push runtime panic
+## ✅ v5.8.0 修复：example21 泛型 Push runtime panic
 
 **症状**：`var intStack := TStack<Integer>.Create(); intStack.Push(10)` → `panic: runtime error: index out of range [0] with length 0`。go-build 过但运行崩溃。
 
-**根因**：泛型类 `TStack[T any]` 的 `Items: array of T` 字段在 `&TStack[int64]{}` 构造时未正确 zero-init slice（`{ptr null, i64 0, i64 0}`）。`emitConstructor`（class.go）可能未对泛型类的 slice 字段发 `zeroinitializer`。
+**根因**：`GenerateTypeExpression` 对 `TArrayType` 总是发 `[]`（动态切片），不区分静态数组（`array[0..99] of T`，有 Size）和动态数组（`array of T`）。静态数组 `Items: array[0..99] of T` 被发为 `[]T`（len=0 切片）→ `self.Items[self.Count] = item` → panic。
 
-**修复方向**：排查 `emitConstructor` 对泛型类 `array of T` 字段的初始化路径。
+**修复**：检查 `arrType.Dynamic`——true 发 `[]`，false 发 `[Size]`。对齐 host `generator_types.go:574` 的静态数组 emit 逻辑。
 
-### 🟠 #2: validation 注解 stub
+**验证**：example21 runtime 正确（Stack count: 3, Pop: 30/20, count: 1, Pop: World）。main_self + main_self2 都正确。self-reproduction 不动点保持（self_gen.go ≡ self_gen2.go）。回归 16 包 + 51 教程全绿。
+
+---
+
+## 📋 v5.9.0 — 多态 gate + KylixBoot 注解自动装配
+
+### 🟠 #2: validation 注解 stub（从 v5.8.0 移入）
 
 **症状**：`user.IsValid()` → `return true`（应 `return false`）。example45 输出 "Validation passed"（应 "Validation failed"）。
 

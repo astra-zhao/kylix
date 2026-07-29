@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-5.7.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-5.8.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,9 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
-> 🔥 **v5.6.0**: LLVM backend bootstrap self-host achieves **51/51 (100%)** — the bootstrap source `src/*.klx` (7 files, 5250 lines) compiles via the LLVM backend into a native binary `main_self` (**no Go dependency**), which compiles all 51 tutorial examples producing Go code that `go build` succeeds and **runs correctly**. This release fixes 28 codegen bugs + porting gaps across three categories: (1) LLVM codegen bugs (Exit/funcExit, bare method calls, string concat overflow, null guards, htab_get, map undef, repeat NextToken, Exception order); (2) Porting gaps (record/enum value types, stdlib function dispatch + error wrapping, KylixBoot types, lambda, string escaping, multi-return, generics TStack<Integer>, validation stub, unit interface/implementation); (3) Debugging techniques (lldb by function name, main.ll IR, in-repo sweep, no-underscore filenames, multi-file unit build, generic `>` not consumed). go test 16 packages green, tutorials **51/51 (100%)**. See [CHANGELOG.md](CHANGELOG.md).
+> 🔥 **v5.8.0**: Runtime 正确性达成 51/51 — 泛型类静态数组 array[0..N] of T 误发为 []T 动态切片 → Items len=0 → Push panic。修复 GenerateTypeExpression 按 Dynamic 区分静态 [Size]T 与动态 []T。example21 runtime 正确。self-reproduction 不动点保持。go test 16 包全绿，教程 **51/51 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
+>
+> 🔥 **v5.7.0*/: LLVM backend bootstrap self-host achieves **51/51 (100%)** — the bootstrap source `src/*.klx` (7 files, 5250 lines) compiles via the LLVM backend into a native binary `main_self` (**no Go dependency**), which compiles all 51 tutorial examples producing Go code that `go build` succeeds and **runs correctly**. This release fixes 28 codegen bugs + porting gaps across three categories: (1) LLVM codegen bugs (Exit/funcExit, bare method calls, string concat overflow, null guards, htab_get, map undef, repeat NextToken, Exception order); (2) Porting gaps (record/enum value types, stdlib function dispatch + error wrapping, KylixBoot types, lambda, string escaping, multi-return, generics TStack<Integer>, validation stub, unit interface/implementation); (3) Debugging techniques (lldb by function name, main.ll IR, in-repo sweep, no-underscore filenames, multi-file unit build, generic `>` not consumed). go test 16 packages green, tutorials **51/51 (100%)**. See [CHANGELOG.md](CHANGELOG.md).
 >
 > 🔥 **v5.4.0**: LLVM backend self-hosting compiles — the bootstrap source `src/*.klx` (7 files, 5250 lines) now compiles via the LLVM backend into a native binary `kylix_self_llvm` (127KB, **no Go dependency**), advancing the KylixRT milestone ("LLVM backend can compile the Kylix compiler itself"). IR generation succeeds (736KB) → llc passes → links to native binary → runs exit 0 producing Go code (with real newlines + WriteLn statement recognition + is/as runtime type dispatch). This release fixes 20+ LLVM backend gaps (type system, global variables, record support, external methods, is/as runtime RTTI, map value typing, builtins). go test 16 packages green, tutorials **51/51 (100%)**. See [CHANGELOG.md](CHANGELOG.md).
 >
