@@ -118,29 +118,76 @@ begin
   append(self.Errors, msg);
 end;
 
-// v5.6.0: SkipAttributes consumes one or more [Attribute] forms at the
-// current position. parser.klx has no KylixBoot annotation codegen (unlike
-// host parser_attribute.go), so attributes are ignored — but they must still
-// be SKIPPED, else `[Get('/')]` before a member/decl is mis-parsed: the `[`
-// falls to `NextToken` then `Get` (ident) is parsed as a VarDecl field →
-// `[Get]`×2 produces two `Get` fields → "Get redeclared" (example41/45/46/47/
-// 49/51). Called at the top-level decl loop and class-member loop entry.
-procedure TParser.SkipAttributes();
-var depth: Integer;
+// v5.9.0: ParseAttributeList replaces SkipAttributes. Parses [Name] or
+// [Name(args...)] attributes and returns them as array of TAttribute.
+// Leaves parser positioned at the next non-attribute token (the decl).
+function TParser.ParseAttributeList(): array of TAttribute;
+var attrs: array of TAttribute; var attr: TAttribute; var arg: TExpression;
+var iterations: Integer; var before: TToken;
 begin
+  attrs := [];
   while self.CurTokenIs(tkLBracket) do
   begin
-    depth := 1;
-    self.NextToken();
-    while (depth > 0) and (self.CurTokenIs(tkEOF) = false) do
-    begin
-      if self.CurTokenIs(tkLBracket) then
-        depth := depth + 1
-      else if self.CurTokenIs(tkRBracket) then
-        depth := depth - 1;
+    attr := self.ParseAttribute();
+    if attr <> nil then
+      append(attrs, attr);
+    while self.CurTokenIs(tkSemicolon) do
       self.NextToken();
-    end;
   end;
+  result := attrs;
+end;
+
+// ParseAttribute parses a single [Name] or [Name(args...)] attribute.
+function TParser.ParseAttribute(): TAttribute;
+var attr: TAttribute; var iterations: Integer;
+var before: TToken; var arg: TExpression;
+begin
+  result := nil;
+  if self.CurTokenIs(tkLBracket) = false then
+    Exit;
+  self.NextToken(); // consume '['
+  if self.IsIdentOrSoftKeyword() = false then
+  begin
+    append(self.Errors, 'expected attribute name after [');
+    Exit;
+  end;
+  attr := TAttribute.Create();
+  attr.Name := self.CurToken.Literal;
+  self.NextToken(); // consume name
+  // Optional arguments: ( arg1, arg2, ... )
+  if self.CurTokenIs(tkLParen) then
+  begin
+    self.NextToken(); // skip '('
+    iterations := 0;
+    while (self.CurTokenIs(tkRParen) = false) and (self.CurTokenIs(tkEOF) = false) do
+    begin
+      iterations := iterations + 1;
+      if iterations > 100 then
+      begin
+        append(self.Errors, 'attribute arg list exceeded max iterations');
+        break;
+      end;
+      before := self.CurToken;
+      arg := self.ParseExpression(PREC_LOWEST);
+      if arg <> nil then
+        append(attr.Args, arg);
+      if self.CurToken = before then
+        self.NextToken(); // safety: force advance if parseExpression didn't move
+      if self.CurTokenIs(tkComma) then
+        self.NextToken()
+      else if (self.CurTokenIs(tkRParen) = false) and (self.CurTokenIs(tkEOF) = false) then
+        break; // done with args even without explicit comma
+    end;
+    if self.CurTokenIs(tkRParen) then
+      self.NextToken(); // skip ')'
+  end;
+  if self.CurTokenIs(tkRBracket) = false then
+  begin
+    append(self.Errors, 'expected ] to close attribute');
+    Exit;
+  end;
+  self.NextToken(); // skip ']'
+  result := attr;
 end;
 
 function TParser.IsIdentOrSoftKeyword(): Boolean;
@@ -256,7 +303,8 @@ begin
       break;
     end;
 
-    self.SkipAttributes(); // v5.6.0: skip [Attribute] before a decl
+    var attrs: array of TAttribute;
+    attrs := self.ParseAttributeList(); // v5.9.0: parse [Attribute] before a decl
     if self.CurTokenIs(tkEOF) or self.CurTokenIs(tkEnd) or self.CurTokenIs(tkDot) then
       break;
 
@@ -285,15 +333,28 @@ begin
       self.NextToken();
       while self.CurTokenIs(tkIdent) do
       begin
-        append(prog.Declarations, self.ParseSingleTypeDecl());
+        var td: TTypeDecl;
+        td := self.ParseSingleTypeDecl();
+        td.Attributes := attrs; // v5.9.0: attach to type decl
+        append(prog.Declarations, td);
         while self.CurTokenIs(tkSemicolon) do
           self.NextToken();
       end;
     end
     else if self.CurTokenIs(tkFunction) or self.CurTokenIs(tkProcedure) or self.CurTokenIs(tkAsync) then
-      append(prog.Declarations, self.ParseFunctionDecl())
+    begin
+      var fd: TFunctionDecl;
+      fd := self.ParseFunctionDecl();
+      fd.Attributes := attrs; // v5.9.0: attach to function decl
+      append(prog.Declarations, fd);
+    end
     else if self.CurTokenIs(tkClass) then
-      append(prog.Declarations, self.ParseClassDecl())
+    begin
+      var cdl: TClassDecl;
+      cdl := self.ParseClassDecl();
+      cdl.Attributes := attrs; // v5.9.0: attach to class decl
+      append(prog.Declarations, cdl);
+    end
     else if self.CurTokenIs(tkInterface) then
     begin
       // v5.6.0: unit section marker `interface` vs interface type decl.
@@ -754,7 +815,8 @@ begin
   // Parse class body
   while (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkEOF) = false) do
   begin
-    self.SkipAttributes(); // v5.6.0: skip [Attribute] before a member
+    var mattrs: array of TAttribute;
+    mattrs := self.ParseAttributeList(); // v5.9.0: parse [Attribute] before a member
     if self.CurTokenIs(tkEnd) or self.CurTokenIs(tkEOF) then
       break;
     if self.CurTokenIs(tkPublic) or self.CurTokenIs(tkPrivate) or self.CurTokenIs(tkProtected) then
@@ -767,18 +829,29 @@ begin
       self.NextToken();
       while self.IsIdentOrSoftKeyword() do
       begin
-        append(decl.Fields, self.ParseSingleVarDecl());
+        var fvd: TVarDecl;
+        fvd := self.ParseSingleVarDecl();
+        fvd.Attributes := mattrs; // v5.9.0: attach to field
+        append(decl.Fields, fvd);
         while self.CurTokenIs(tkSemicolon) do
           self.NextToken();
       end;
     end
     else if self.CurTokenIs(tkFunction) or self.CurTokenIs(tkProcedure) or self.CurTokenIs(tkConstructor) or self.CurTokenIs(tkDestructor) then
-      append(decl.Methods, self.ParseFunctionDecl())
+    begin
+      var mfd: TFunctionDecl;
+      mfd := self.ParseFunctionDecl();
+      mfd.Attributes := mattrs; // v5.9.0: attach to method
+      append(decl.Methods, mfd);
+    end
     else if self.CurTokenIs(tkProperty) then
       append(decl.Properties, self.ParsePropertyDecl())
     else if self.IsIdentOrSoftKeyword() then
     begin
-      append(decl.Fields, self.ParseSingleVarDecl());
+      var fvd2: TVarDecl;
+      fvd2 := self.ParseSingleVarDecl();
+      fvd2.Attributes := mattrs; // v5.9.0: attach to field
+      append(decl.Fields, fvd2);
       while self.CurTokenIs(tkSemicolon) do
         self.NextToken();
     end

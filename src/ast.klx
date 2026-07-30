@@ -73,6 +73,7 @@ type
     VarType: TExpression;
     Value: TExpression;
     Inferred: Boolean;
+    Attributes: array of TAttribute;
   end;
 
   TConstDecl = class(TStatement)
@@ -86,6 +87,7 @@ type
     Token: TToken;
     Name: String;
     DeclType: TExpression;
+    Attributes: array of TAttribute;
   end;
 
   TFunctionDecl = class(TStatement)
@@ -99,6 +101,7 @@ type
     Body: TNode; // TBlockStatement
     IsAsync: Boolean;
     IsExport: Boolean;
+    Attributes: array of TAttribute;
   end;
 
   TClassDecl = class(TStatement)
@@ -111,6 +114,12 @@ type
     Methods: array of TFunctionDecl;
     Properties: array of TNode; // TPropertyDecl
     Visibility: TTokenType;
+    Attributes: array of TAttribute;
+  end;
+
+  TAttribute = class(TNode)
+    Name: String;
+    Args: array of TExpression;
   end;
 
   TInterfaceDecl = class(TStatement)
