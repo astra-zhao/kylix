@@ -4,6 +4,65 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v5.9.0 (2026-08-08) — 多态 gate + KylixBoot 注解自动装配 + validation 注解完整化
+
+> 🎯 **self-host 多态 gate 缺口排查修复**：宿主编译器与 bootstrap 编译器（src/*.klx）对同一源码产出不一致的基类发射（interface vs struct），本轮定位根因并 4 处修复，两路径收敛为一致。
+
+### #2: validation 注解完整化（generateValidationMethods 移植）
+
+`GenerateValidationMethods` 移植到 `src/generator.klx`：扫描字段 `[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]` 注解 → 生成 `Validate() map[string]string` + `IsValid() bool`（对齐宿主 `generator_validation_annotations.go`）。example45 bad data → "Validation failed"、good data → "Validation passed"。
+
+### #4: KylixBoot 注解自动装配（generator_boot_annotations 移植）
+
+- `ScanBootAnnotations`：扫描 `[Service]`/`[Component]`/`[Controller]`/`[Inject]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]`/`[Body]`/`[Authenticated]`/`[Role]` → 填充 BootComponents/BootInjects/BootRoutes（逗号分隔 String，Go nil map 写 panic 不用 map）
+- `EmitBootAutoWiring`：生成 `__kylix_svc_*`/`__kylix_ctrl_*` 实例化 + `BootRegisterInstance` + DI 注入 + `Boot<METHOD>(path, handler)` 路由（含 security 守卫 / Body JSON 绑定 + `IsValid()` 校验 / proc handler 分派）
+- example42/43/44/46/49 的 main 函数与 HEAD 逐字节一致
+
+### self-host 多态 gate 缺口排查（本批核心）
+
+**症状**：宿主编译 `src/*.klx` → `self_gen.go` 的 `TNode` 是 `interface`；bootstrap 编译（self_bin）→ `self_gen2.go` 是 `struct`。struct 版基类使 is/as 断言、异构容器、self-reproduction 不动点全部不一致。
+
+**根因**（宿主 generator_types.go vs src/generator.klx 三处移植缺口）：
+1. `GenerateClassDecl` 缺宿主 `generator_types.go:46-66` 的多态 interface 分支——无条件发 `struct` + 无条件嵌入父类。
+2. `CollectClassTypes` 填充 `ClassIsBaseStr` 用了 `prog.UsesPolymorphism`（per-file），而宿主**无条件填充** `classIsBase`、gate 由合并后的 `g.usesPolymorphism` 控制。多文件构建时基类声明在无 is/as 的文件里（如 `ast.klx` 声明 `TNode`，is/as 在 `parser.klx`）→ `TNode` 未进 `ClassIsBaseStr` → 全局 `UsesPolymorphism=true` 仍发 `struct`。
+3. `GenerateTypeExpression`/`GenerateTypeExpressionForCast` 多态分支发 `'*'+name`（指针），宿主发 `typeName`（interface 名，`x.(TBase)`）。
+
+**修复**（4 处）：
+- `GenerateClassDecl` 加多态 interface 分支（空 interface + return）+ struct 分支跳过 poly interface 父类嵌入
+- `CollectClassTypes` 无条件填充 `ClassIsBaseStr`（gate 统一在 `self.UsesPolymorphism`）
+- `GenerateTypeExpression`/`GenerateTypeExpressionForCast` 多态基类写 `ident.Value`（无指针）
+
+### regexp import 误判（#2 遗留）
+
+**症状**：self-host 产物 `self_gen2.go` 报 `"regexp" imported and not used` → go build 失败。
+
+**根因**：klx `CollectImports` 用 Output 字符串扫描检测 `'regexp' + '.'`，但 bootstrap 生成器的 validation 模板自身输出字面量 `"regexp.MustCompile(...)"`（生成用户代码用）→ 误判为真实引用。宿主编译器无此问题（无 regexp 扫描，靠注解驱动）。
+
+**修复**：去掉 `CollectImports` 的 regexp 检测；`GenerateValidationMethods` 的 email 分支设 `NeedRegexp`（required string 分支同时设 `NeedStrings`），对齐宿主注解驱动 import。
+
+### #5: ORM 注解移植（generator_orm_annotations 移植）
+
+`ScanORMAnnotations`/`GenerateORMEntityMethods`/`GenerateORMRepositoryMethods` 移植到 `src/generator.klx`：
+
+- **数据结构**：`TOrmColumn`/`TOrmEntity`/`TOrmQuery`/`TOrmRepository` 类数组（不用 map——bootstrap 避免 Go nil-map 写；ORM 数据嵌套，逗号字符串不可读）。预扫描 Pass 1 收集 `[Entity]`（表/列/PK 元数据），Pass 2 收集 `[Repository(TEntity)]` + `[Query]` 方法；命中任一 ORM 产物设 `NeedStdlib`
+- **发射**：`ToRow()`/`FromRow()`（entity，用户已定义则跳过）+ `FindAll`/`FindById`/`Save`/`DeleteById`（repository，`ClassHasMethod` 检查跳过）+ 每个 `[Query]` 方法（`orm.Query/QueryAll(sql, params...)` 分发，`array of TEntity` 返回类型 → list 版）
+- **顺带修复 #2 遗留**：`GenerateValidationMethods` 触发条件从"字段有任何注解"改为"字段有 validation 注解"（`[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]`）——否则 `[Entity]`/`[Column]`/`[PrimaryKey]` 类会多生成空 `Validate()`/`IsValid()`，宿主无此行为
+- **顺带对齐 forward 声明**：`GenerateClassDecl` 跳过无 body 类方法（宿主 `generator_types.go:91-93`）——否则 `[Query]` 方法（无 body 声明）被 stub 发射，与 ORM 生成版重复定义
+
+**发现的 klx 编译器限制**（本批踩坑）：
+1. **`var` 输出参数转译成值传递**（非 Go 指针）：`OrmQueryReturnEntity(m; var entityName; var list; var ok)` 的函数内修改不生效——self_gen.go 里签名是 `OrmQueryReturnEntity(m *TFunctionDecl, entityName string, list bool, ok bool)`。klx 此前无 var 参数函数（潜伏 bug），改为单返回值函数 `OrmQueryEntityName` + `OrmQueryReturnsList`
+2. **`(expr as T).Field` 链式成员访问解析失败**（KLX004 expected `)` got `then`/`;`）：需先用中间变量 `x := expr as T` 再 `x.Field`
+
+### 验证
+
+- 16 包 Go 测试全绿 + 51/51 教程通过
+- 宿主编译 vs self_bin 编译 `src/*.klx`：**都产出 `type TNode interface`**，`go build` 都通过
+- 最小多态程序（`b is TSub`）：宿主与 self_bin 输出语义一致（`type TBase interface` + `var b TBase` + `b.(*TSub)`）
+- self_bin2（自举产物）编译 example45 运行输出与宿主一致；编译 example42 boot autowire 完整生成 + module 环境 go build 通过
+- **self-reproduction 不动点**：`kylix_selfA`（宿主产物 bootstrap）编译 src → `self_gen2.go`（7388 行），`kylix_selfB` 再编译 → `self_gen3.go` ≡ `self_gen2.go`（逐字节一致）；`self_gen_A2`（A 交叉验证产物）≡ `self_gen2`
+- **example47 ORM 双端一致**：宿主 vs bootstrap 产物方法列表完全一致（`ToRow`/`FromRow`/`FindAll`/`FindById`/`Save`/`DeleteById`/`ByEmail`/`All`），`go build` + 运行输出一致
+- **bootstrap 51/51 教程回归**（适配 bootstrap stdout 输出的等价 test_all.sh）：全部编译 → go build → 运行通过，含 example42/45/47/49/50/51（boot/validation/orm/body-binding/jwt/openapi）
+
 ## v5.8.0 (2026-07-30) — Runtime 正确性（51/51 全部 runtime 正确）
 
 > 🎯 **从 "go-build 过" 到 "go-build + 运行正确"，达到真正的 51/51 runtime 正确。**

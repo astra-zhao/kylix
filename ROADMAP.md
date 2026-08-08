@@ -1,9 +1,11 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-07-30  
-> 当前版本: v5.8.0 ✅  
+> 最后更新: 2026-08-08  
+> 当前版本: v5.9.0（进行中，#2/#3/#4 已完成）  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
+
+**🚧 v5.9.0 进行中！** 多态 gate + KylixBoot 注解自动装配 + validation 注解完整化。已完成：#2 validation（GenerateValidationMethods 移植）、#3 多态 gate（宿主与 self_bin 编译 src/*.klx 都产出 `type TNode interface`）、#4 KylixBoot autowire（ScanBootAnnotations + EmitBootAutoWiring）、#5 ORM（ScanORMAnnotations + GenerateORM*Methods 移植，example47 双端一致）。本轮另修：self-host 多态 gate 缺口（3 处根因）+ regexp import 误判 + validation 触发条件对齐 + forward 声明跳过 + klx `var` 参数值传递限制规避。self-reproduction 不动点保持（self_gen2 ≡ self_gen3，7388 行）。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 **✅ v5.8.0 已发布！** Runtime 正确性达成 51/51（全部 go-build + 运行正确）。修复泛型类静态数组 `array[0..99] of T` 误发为 `[]T`（动态切片）→ `Items` len=0 → `self.Items[self.Count] = item` panic。改 `GenerateTypeExpression` 按 `arrType.Dynamic` 区分静态 `[Size]T` 与动态 `[]T`。example21 runtime 正确（Stack count: 3, Pop: 30/20, count: 1, Pop: World）。self-reproduction 不动点保持。详见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -53,7 +55,7 @@
 | **v5.6.0** | LLVM 后端 bootstrap self-host 51/51（28 codegen bug + 移植缺口修复） | ✅ 完成 | 2026-07-28 |
 | **v5.7.0** | LLVM 后端 bootstrap self-reproduction 不动点（main_self→main_self2→main_self3，self_gen.go≡self_gen2.go） | ✅ 完成 | 2026-07-29 |
 | **v5.8.0** | Runtime 正确性（example21 泛型静态数组 array[0..N] of T → [N]T 修复；51/51 runtime 正确） | ✅ 完成 | 2026-07-30 |
-| **v5.9.0** | 多态 gate + KylixBoot 注解自动装配（usesPolymorphism + parseAttributeList + [Controller]/[Get]/[Inject] 路由/DI wiring + validation 注解） | 📋 下一步 | 2026-08 |
+| **v5.9.0** | 多态 gate + KylixBoot 注解自动装配（#2 validation ✓ + #3 多态 gate ✓ + #4 KylixBoot autowire ✓ + #5 ORM ✓） | 🚧 进行中 | 2026-08 |
 | **v6.0.0** | KylixRT 生产就绪（CI/CD + 性能 benchmark + JetBrains 插件 + JsonEncode 双端 parity） | 📋 长期 | 2026-08+ |
 
 ---
@@ -80,29 +82,32 @@
 
 **目标**：让真实 KylixBoot 应用（注解驱动路由/DI）在 LLVM bootstrap 下正确工作。
 
-### #2: validation 注解完整化（从 v5.8.0 移入）
+### #2: validation 注解完整化 ✅（2026-08-08）
 
-**修复方向**：(1) SkipAttributes → parseAttributeList（保留注解到 AST）；(2) 移植 generateValidationMethods（生成 Validate() + IsValid()）。
+`GenerateValidationMethods` 移植到 `src/generator.klx`：扫描字段 `[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]` → 生成 `Validate() map[string]string` + `IsValid() bool`（对齐宿主 `generator_validation_annotations.go`）。example45 通过。
 
-### #3: 多态 usesPolymorphism gate
+### #3: 多态 usesPolymorphism gate ✅（2026-08-08）
 
-**症状**：is/as 程序的基类始终 `*Base`（host 在 polymorphism 时用 `interface{}`，使 `[]TBase` 能存子类）
+**症状**：宿主编译 `src/*.klx` → `TNode` 为 `interface`；bootstrap 编译 → `TNode` 为 `struct`（is/as 断言、异构容器、self-reproduction 不一致）。
 
-**修复方向**：
-- parser.klx: `parseIs`/`parseAs` 设 `program.UsesPolymorphism`
-- generator.klx: `CollectClassTypes` 填充 `ClassIsBase`（有子类的基类）
-- generator.klx: `MapType` 的 `ClassIsBase` 检查 gate on `UsesPolymorphism`
-- `GenerateTypeExpression` + `GenerateTypeExpressionForCast` 按 polymorphism 派发
+**修复**（3 处根因）：
+- `GenerateClassDecl` 补宿主 `generator_types.go:46-66` 的多态 interface 分支（基类→空 interface + return），struct 分支跳过 poly interface 父类嵌入（`generator_types.go:68`）
+- `CollectClassTypes` 无条件填充 `ClassIsBaseStr`（宿主 `classIsBase` 无条件填充；klx 原先用 per-file `prog.UsesPolymorphism` 门控 → 多文件时基类声明在无 is/as 的文件里被漏掉）
+- `GenerateTypeExpression`/`GenerateTypeExpressionForCast` 多态基类写 `ident.Value`（interface 名，`x.(TBase)`），不再发 `'*'+name`
 
-### #4: KylixBoot 注解自动装配
+**验证**：宿主与 self_bin 编译 `src/*.klx` 均产出 `type TNode interface`，`go build` 均通过；test_poly 两路径语义一致。
 
-**症状**：`[Controller('/api')]` / `[Get('/path')]` / `[Inject]` 等注解被跳过 → 无路由注册/DI 装配
+### #4: KylixBoot 注解自动装配 ✅（2026-08-08）
 
-**修复方向**：移植 `generator_boot_annotations.go`（~300 行）：扫描 `[Controller]` 类 → 生成 `boot.GET(...)` 路由注册 + `[Inject]` → DI `Resolve()` 调用 + `[Component]`/`[Service]` → 容器注册。
+`ScanBootAnnotations` + `EmitBootAutoWiring` 移植到 `src/generator.klx`：扫描 `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]`/`[Inject]`/`[Service]`/`[Component]`/`[Body]`/`[Authenticated]`/`[Role]` → 生成 `__kylix_svc_*`/`__kylix_ctrl_*` 实例化 + `BootRegisterInstance` + DI 注入 + `Boot<METHOD>(path, handler)` 路由（security / Body 绑定 / proc 分派）。example42/43/44/46/49 与 HEAD 一致。
 
-### #5: ORM 注解
+### #5: ORM 注解 ✅（2026-08-08）
 
-**修复方向**：移植 `generator_orm_annotations.go`。`[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]` → 生成 CRUD 方法。
+`ScanORMAnnotations`/`GenerateORMEntityMethods`/`GenerateORMRepositoryMethods` 移植到 `src/generator.klx`：`TOrmColumn`/`TOrmEntity`/`TOrmQuery`/`TOrmRepository` 类数组收集 `[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]` → 生成 `ToRow`/`FromRow` + `FindAll`/`FindById`/`Save`/`DeleteById` + 每个 `[Query]` 方法。example47 宿主 vs bootstrap 产物方法列表完全一致，go build + 运行一致。
+
+**顺带修复**：`GenerateValidationMethods` 触发条件改为只认 validation 注解（否则 `[Entity]`/`[Column]` 等注解类多生成空 `Validate`/`IsValid`）；`GenerateClassDecl` 跳过无 body 类方法（否则 `[Query]` 无 body 声明 stub 与 ORM 生成版重复）。
+
+**klx 编译器限制（本批踩坑）**：`var` 输出参数转译成值传递（非 Go 指针）——`OrmQueryReturnEntity` 用 var 参数不生效，改单返回函数；`(expr as T).Field` 链式解析失败（KLX004），需中间变量。
 
 ---
 
