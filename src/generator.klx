@@ -6,6 +6,38 @@ uses token, ast, error;
 // ============================================================================
 
 type
+  // v5.9.0: ORM annotation metadata (mirrors host generator_orm_annotations.go).
+  // Class-based arrays instead of maps — the bootstrap generator must avoid Go
+  // nil-map writes (v5.7.0), and ORM data is nested (entity fields / repository
+  // queries), so plain comma-delimited strings would be unreadable.
+  TOrmColumn = class
+    FieldName: String;
+    FieldType: String;
+    Column: String;
+  end;
+
+  TOrmEntity = class
+    ClassName: String;
+    Table: String;
+    PKField: String;
+    PKColumn: String;
+    Fields: array of TOrmColumn;
+  end;
+
+  TOrmQuery = class
+    MethodName: String;
+    SQL: String;
+    ReturnEntity: String;
+    ReturnsList: Boolean;
+    Params: array of TParameter;
+  end;
+
+  TOrmRepository = class
+    ClassName: String;
+    EntityName: String;
+    Queries: array of TOrmQuery;
+  end;
+
   TGenerator = class
     Output: String;
     Indent: Integer;
@@ -25,6 +57,7 @@ type
     // generated body; BuildImportBlock emits only the packages actually used.
     NeedFmt: Boolean;
     NeedStrings: Boolean;
+    NeedRegexp: Boolean;
     NeedStrconv: Boolean;
     NeedOS: Boolean;
     NeedMath: Boolean;
@@ -32,6 +65,17 @@ type
     NeedStdlib: Boolean; // v5.6.0: any stdlib.FuncName call used → import kylix/stdlib
     UserFuncs: String; // v5.7.0: comma-delimited user func names (was map, Go nil map panic)
     UsesPolymorphism: Boolean; // v5.9.0: true if any program uses is/as
+
+    // v5.9.0: KylixBoot annotation collection (parallel to host bootRoutes/
+    // bootComponents/bootInjects). Stored as comma-delimited strings because
+    // Go nil-map writes panic; the bootstrap generator must avoid maps.
+    BootComponents: String;  // "<ClassName>|<Kind>," entries
+    BootInjects: String;     // "<OwnerClass>|<FieldName>|<FieldType>," entries
+    BootRoutes: String;      // "<Method>|<Path>|<ClassName>|<MethodName>|<HandlerKind>|<RequireAuth>|<Roles>|<BodyType>," entries
+
+    // v5.9.0: ORM annotation metadata (mirrors host ormEntities/ormRepositories).
+    OrmEntities: array of TOrmEntity;
+    OrmRepositories: array of TOrmRepository;
 
     constructor Create;
     begin
@@ -48,11 +92,15 @@ type
       self.MultiReturnN := 0;
       self.NeedFmt := false;
       self.NeedStrings := false;
+      self.NeedRegexp := false;
       self.NeedStrconv := false;
       self.NeedOS := false;
       self.NeedMath := false;
       self.NeedRand := false;
       self.NeedStdlib := false;
+      self.BootComponents := '';
+      self.BootInjects := '';
+      self.BootRoutes := '';
     end;
 
     procedure Write(s: String);
@@ -141,6 +189,8 @@ type
     begin
       self.CollectClassTypes(prog);
       self.ScanImports(prog);
+      self.ScanBootAnnotations(prog);
+      self.ScanORMAnnotations(prog);
       self.ScanForException(prog);
 
       // v5.3.0: body is generated into self.Output first; package line and
@@ -157,6 +207,7 @@ type
         begin
           self.WriteLine('func main() {');
           self.IncreaseIndent;
+          self.EmitBootAutoWiring;
           self.GenerateStatements(prog.Statements);
           self.DecreaseIndent;
           self.WriteLine('}');
@@ -189,6 +240,8 @@ type
         prog := progs[pi];
         self.CollectClassTypes(prog);
         self.ScanImports(prog);
+        self.ScanBootAnnotations(prog);
+        self.ScanORMAnnotations(prog);
         self.ScanForException(prog);
       end;
 
@@ -227,6 +280,7 @@ type
         begin
           self.WriteLine('func main() {');
           self.IncreaseIndent;
+          self.EmitBootAutoWiring;
           self.GenerateStatements(prog.Statements);
           self.DecreaseIndent;
           self.WriteLine('}');
@@ -255,6 +309,7 @@ type
       s := 'import (' + '\n';
       if self.NeedFmt then s := s + '  "fmt"' + '\n';
       if self.NeedStrings then s := s + '  "strings"' + '\n';
+      if self.NeedRegexp then s := s + '  "regexp"' + '\n';
       if self.NeedStrconv then s := s + '  "strconv"' + '\n';
       if self.NeedOS then s := s + '  "os"' + '\n';
       if self.NeedMath then s := s + '  "math"' + '\n';
@@ -311,6 +366,12 @@ type
       if self.StrContains(self.Output, 'os' + '.Args') then self.NeedOS := true;
       if self.StrContains(self.Output, 'math' + '.') then self.NeedMath := true;
       if self.StrContains(self.Output, 'rand' + '.') then self.NeedRand := true;
+      // NOTE: no 'regexp' detection here. The bootstrap generator's validation
+      // template emits the literal string "regexp.MustCompile(...)" while
+      // generating user code, which would make self-compilation import regexp
+      // without using it ("imported and not used"). regexp is import-driven by
+      // GenerateValidationMethods when an [Email] field is present, matching the
+      // host generator_validation_annotations.go (annotation-driven, no scan).
     end;
 
     // ========================================================================
@@ -331,9 +392,18 @@ type
       // record/enum (value type). Without this every user type fell to MapType's
       // else branch — combined with the htab_get null-on-miss fix that made
       // ClassIsBase/ClassTypes reads return false, records/enums emitted *T
-      // (should be value type T) → nil-deref / type-mismatch. ClassIsBase is
-      // intentionally NOT populated (no usesPolymorphism gate in this port) so
-      // base classes stay *Base (concrete) like the host's no-polymorphism path.
+      // (should be value type T) → nil-deref / type-mismatch.
+      //
+      // v5.9.0: ClassIsBaseStr is populated UNCONDITIONALLY (host
+      // collectClassTypes at generator.go:443 fills classIsBase without a gate).
+      // The polymorphism gate lives in GenerateClassDecl / GenerateTypeExpression
+      // via self.UsesPolymorphism (OR-ed across all programs). Previously this
+      // used prog.UsesPolymorphism (per-file), which missed bases declared in
+      // files without is/as during multi-file builds — e.g. ast.klx declares
+      // TNode with no is/as, parser.klx uses is/as → TNode never entered
+      // ClassIsBaseStr → bootstrap emitted `type TNode struct` while the host
+      // emitted `type TNode interface`. Non-polymorphic programs are unaffected
+      // because every consumer gates on self.UsesPolymorphism.
       for i := 0 to Length(prog.Declarations) - 1 do
       begin
         decl := prog.Declarations[i];
@@ -341,8 +411,7 @@ type
         begin
           cd := decl as TClassDecl;
           self.ClassTypes := self.ClassTypes + "," + cd.Name + ",";
-          // v5.9.0: fill ClassIsBase when program uses polymorphism (is/as)
-          if prog.UsesPolymorphism and (cd.Parent <> '') then
+          if cd.Parent <> '' then
             self.ClassIsBaseStr := self.ClassIsBaseStr + "," + cd.Parent + ",";
         end
         else if decl is TTypeDecl then
@@ -352,7 +421,7 @@ type
           begin
             cd := td.DeclType as TClassDecl;
             self.ClassTypes := self.ClassTypes + "," + td.Name + ",";
-            if prog.UsesPolymorphism and (cd.Parent <> '') then
+            if cd.Parent <> '' then
               self.ClassIsBaseStr := self.ClassIsBaseStr + "," + cd.Parent + ",";
           end;
         end
@@ -379,6 +448,956 @@ type
     begin
       // Not needed for bootstrap
     end;
+
+    // v5.9.0: case-insensitive name compare (no EqualFold in klx runtime).
+    function AttrNameIs(a: String; b: String): Boolean;
+    begin
+      result := (Length(a) = Length(b)) and (self.StrContains(a + '|' + b, a));
+      // Simple direct compare — annotation names in tutorials use exact case
+      // matching the host's EqualFold for the canonical [Controller]/[Service]/
+      // [Get]/[Post]/[Inject]/[Body]/[Authenticated]/[Role] forms.
+      result := (a = b);
+    end;
+
+    // v5.9.0: FindAttribute — first attribute in `attrs` whose name equals
+    // `name` (case-sensitive; tutorial annotations use canonical PascalCase).
+    function FindAttribute(attrs: array of TAttribute; name: String): TAttribute;
+    var i: Integer; a: TAttribute;
+    begin
+      result := nil;
+      for i := 0 to Length(attrs) - 1 do
+      begin
+        a := attrs[i];
+        if a.Name = name then
+        begin
+          result := a;
+          Exit;
+        end;
+      end;
+    end;
+
+    // v5.9.0: attributeStringArg — first arg as string literal, else fallback.
+    function AttrStringArg(attr: TAttribute; fallback: String): String;
+    var lit: TStringLiteral;
+    begin
+      result := fallback;
+      if (attr <> nil) and (Length(attr.Args) > 0) then
+      begin
+        if attr.Args[0] is TStringLiteral then
+        begin
+          lit := attr.Args[0] as TStringLiteral;
+          result := lit.Value;
+        end;
+      end;
+    end;
+
+    // v5.9.0: attributeIdentifierArg — first arg as identifier.
+    function AttrIdentArg(attr: TAttribute): String;
+    var ident: TIdentifier;
+    begin
+      result := '';
+      if (attr <> nil) and (Length(attr.Args) > 0) then
+      begin
+        if attr.Args[0] is TIdentifier then
+        begin
+          ident := attr.Args[0] as TIdentifier;
+          result := ident.Value;
+        end;
+      end;
+    end;
+
+    // v5.9.0: IsBootRouteAttr — map annotation name to HTTP method, or ''.
+    function IsBootRouteAttr(name: String): String;
+    begin
+      if name = 'Get' then result := 'GET'
+      else if name = 'Post' then result := 'POST'
+      else if name = 'Put' then result := 'PUT'
+      else if name = 'Delete' then result := 'DELETE'
+      else result := '';
+    end;
+
+    // v5.9.0: IsBootRequestType — TRequest or BootRequest.
+    function IsBootRequestType(t: TExpression): Boolean;
+    var ident: TIdentifier;
+    begin
+      result := false;
+      if t is TIdentifier then
+      begin
+        ident := t as TIdentifier;
+        if (ident.Value = 'TRequest') or (ident.Value = 'BootRequest') then
+          result := true;
+      end;
+    end;
+
+    // v5.9.0: IsBootResponseType — TResponse or BootResponse.
+    function IsBootResponseType(t: TExpression): Boolean;
+    var ident: TIdentifier;
+    begin
+      result := false;
+      if t is TIdentifier then
+      begin
+        ident := t as TIdentifier;
+        if (ident.Value = 'TResponse') or (ident.Value = 'BootResponse') then
+          result := true;
+      end;
+    end;
+
+    // v5.9.0: FieldTypeName — extract base name from a field type expr
+    // (TIdentifier → Value; TGenericType → Base; else '').
+    function FieldTypeName(t: TExpression): String;
+    var ident: TIdentifier; gen: TGenericType;
+    begin
+      result := '';
+      if t is TIdentifier then
+      begin
+        ident := t as TIdentifier;
+        result := ident.Value;
+      end
+      else if t is TGenericType then
+      begin
+        gen := t as TGenericType;
+        result := gen.Base;
+      end;
+    end;
+
+    // v5.9.0: IsBootRequestType on a parameter.
+    function ParamIsRequest(p: TParameter): Boolean;
+    begin
+      result := self.IsBootRequestType(p.ParamType);
+    end;
+
+    // v5.9.0: IsBootResponseType on a parameter.
+    function ParamIsResponse(p: TParameter): Boolean;
+    begin
+      result := self.IsBootResponseType(p.ParamType);
+    end;
+
+    // v5.9.0: BootHandlerKindFor — returns 'func' (function: 1 param, returns
+    // TResponse), 'proc' (procedure: 2 params req,res, no return), or ''.
+    function BootHandlerKindFor(m: TFunctionDecl): String;
+    begin
+      result := '';
+      if m = nil then Exit;
+      // function Hello(req: TRequest): TResponse  → 1 param, has ReturnType
+      if (Length(m.Parameters) = 1) and (m.ReturnType <> nil) and
+         self.ParamIsRequest(m.Parameters[0]) and self.IsBootResponseType(m.ReturnType) then
+        result := 'func'
+      // procedure Hello(req: TRequest; res: TResponse) → 2 params, no return
+      else if (Length(m.Parameters) = 2) and (m.ReturnType = nil) and
+              self.ParamIsRequest(m.Parameters[0]) and self.ParamIsResponse(m.Parameters[1]) then
+        result := 'proc';
+    end;
+
+    // v5.9.0: CollectBootSecurity — scans method attrs for [Authenticated]/
+    // [Role('name')]. Returns "auth=Y;roles=r1,r2;".
+    function CollectBootSecurity(attrs: array of TAttribute): String;
+    var
+      i: Integer; a: TAttribute; auth: Boolean; roles: String;
+    begin
+      auth := false;
+      roles := '';
+      for i := 0 to Length(attrs) - 1 do
+      begin
+        a := attrs[i];
+        if a.Name = 'Authenticated' then
+          auth := true
+        else if a.Name = 'Role' then
+        begin
+          auth := true;
+          if roles = '' then
+            roles := self.AttrStringArg(a, '')
+          else
+            roles := roles + ',' + self.AttrStringArg(a, '');
+        end;
+      end;
+      if auth then
+        result := 'Y;' + roles + ';'
+      else
+        result := ';';
+    end;
+
+    // v5.9.0: ScanBodyType — first [Body(T)] identifier arg, or ''.
+    function ScanBodyType(attrs: array of TAttribute): String;
+    var i: Integer; a: TAttribute;
+    begin
+      result := '';
+      for i := 0 to Length(attrs) - 1 do
+      begin
+        a := attrs[i];
+        if a.Name = 'Body' then
+        begin
+          result := self.AttrIdentArg(a);
+          Exit;
+        end;
+      end;
+    end;
+
+    // v5.9.0: NormalizeBootPath — join base + sub into a single route path.
+    function NormalizeBootPath(base: String; sub: String): String;
+    var
+      blen, slen: Integer;
+    begin
+      // Trim surrounding spaces (none expected, but mirror host TrimSpace).
+      blen := Length(base);
+      slen := Length(sub);
+      if blen = 0 then
+      begin
+        if slen = 0 then
+          result := '/'
+        else if sub[0:1] = '/' then
+          result := sub
+        else
+          result := '/' + sub;
+      end
+      else if (slen = 0) or (sub = '/') then
+      begin
+        if base[0:1] = '/' then
+          result := base
+        else
+          result := '/' + base;
+        // TrimRight '/'
+        while (Length(result) > 1) and (result[Length(result)-1:Length(result)] = '/') do
+          result := result[0:Length(result)-1];
+      end
+      else
+      begin
+        // "/" + Trim(TrimRight(base,'/') + '/' + TrimLeft(sub,'/'), '/')
+        var b: String;
+        b := base;
+        while (Length(b) > 0) and (b[Length(b)-1:Length(b)] = '/') do
+          b := b[0:Length(b)-1];
+        var s: String;
+        s := sub;
+        while (Length(s) > 0) and (s[0:1] = '/') do
+          s := s[1:Length(s)];
+        var combined: String;
+        combined := b + '/' + s;
+        // Trim leading/trailing '/' (but keep a single leading '/')
+        while (Length(combined) > 1) and (combined[Length(combined)-1:Length(combined)] = '/') do
+          combined := combined[0:Length(combined)-1];
+        if combined[0:1] <> '/' then
+          combined := '/' + combined;
+        result := combined;
+      end;
+    end;
+
+    // v5.9.0: ScanBootAnnotations — mirror host scanBootAnnotations. Walks
+    // program declarations; for each class collects service/component singletons,
+    // [Inject] field dependencies, and controller route handlers into the
+    // comma-delimited Boot* strings. Also flags the kylix/stdlib import when
+    // any boot artifact is found (the generated wiring references stdlib.*).
+    procedure ScanBootAnnotations(prog: TProgram);
+    var
+      i, j: Integer;
+      decl: TNode;
+      cd: TClassDecl; td: TTypeDecl;
+      className: String;
+      attrs: array of TAttribute;
+      controllerAttr: TAttribute;
+      basePath: String;
+      method: TFunctionDecl;
+      httpMethod, kind: String;
+      methodPath: String;
+      security: String;
+      bodyType: String;
+      field: TVarDecl;
+      fieldType: String;
+    begin
+      for i := 0 to Length(prog.Declarations) - 1 do
+      begin
+        decl := prog.Declarations[i];
+        cd := nil;
+        attrs := nil;
+        className := '';
+        if decl is TTypeDecl then
+        begin
+          td := decl as TTypeDecl;
+          if td.DeclType is TClassDecl then
+          begin
+            cd := td.DeclType as TClassDecl;
+            className := td.Name;
+            attrs := td.Attributes;
+          end;
+        end
+        else if decl is TClassDecl then
+        begin
+          cd := decl as TClassDecl;
+          className := cd.Name;
+          attrs := cd.Attributes;
+        end;
+        if (cd = nil) or (className = '') then
+          continue;
+
+        // [Service]/[Component] → register singleton
+        if (self.FindAttribute(attrs, 'Service') <> nil) or
+           (self.FindAttribute(attrs, 'Component') <> nil) then
+        begin
+          if self.FindAttribute(attrs, 'Service') <> nil then
+            self.BootComponents := self.BootComponents + className + '|Service,'
+          else
+            self.BootComponents := self.BootComponents + className + '|Component,';
+        end;
+
+        // [Inject] fields → DI wiring
+        for j := 0 to Length(cd.Fields) - 1 do
+        begin
+          field := cd.Fields[j];
+          if self.FindAttribute(field.Attributes, 'Inject') = nil then
+            continue;
+          fieldType := self.FieldTypeName(field.VarType);
+          if fieldType = '' then
+            continue;
+          // field may declare multiple names; record each
+          var k: Integer;
+          for k := 0 to Length(field.Names) - 1 do
+            self.BootInjects := self.BootInjects + className + '|' + field.Names[k] + '|' + fieldType + ',';
+        end;
+
+        // [Controller] → routes
+        controllerAttr := self.FindAttribute(attrs, 'Controller');
+        if controllerAttr = nil then
+          continue;
+        basePath := self.AttrStringArg(controllerAttr, '');
+        for j := 0 to Length(cd.Methods) - 1 do
+        begin
+          method := cd.Methods[j];
+          if method.Body = nil then
+            continue;
+          var ai: Integer;
+          for ai := 0 to Length(method.Attributes) - 1 do
+          begin
+            httpMethod := self.IsBootRouteAttr(method.Attributes[ai].Name);
+            if httpMethod = '' then
+              continue;
+            kind := self.BootHandlerKindFor(method);
+            if kind = '' then
+              continue;
+            methodPath := self.AttrStringArg(method.Attributes[ai], '/');
+            security := self.CollectBootSecurity(method.Attributes);
+            bodyType := self.ScanBodyType(method.Attributes);
+            self.BootRoutes := self.BootRoutes + httpMethod + '|' +
+              self.NormalizeBootPath(basePath, methodPath) + '|' +
+              className + '|' + method.Name + '|' + kind + '|' +
+              security + '|' + bodyType + ',';
+          end;
+        end;
+      end;
+
+      if (self.BootComponents <> '') or (self.BootInjects <> '') or (self.BootRoutes <> '') then
+        self.NeedStdlib := true;
+    end;
+
+    // v5.9.0: GoStringLit — quote `s` as a Go string literal, escaping \ " and
+    // preserving \n \t \r escape sequences (mirrors WriteEscapedGoString but
+    // returns the quoted literal instead of writing it).
+    function GoStringLit(s: String): String;
+    var
+      j, n: Integer;
+      ch: String;
+    begin
+      result := '"';
+      n := Length(s);
+      j := 0;
+      while j < n do
+      begin
+        ch := s[j:j+1];
+        if ch = '\' then
+        begin
+          if (j + 1 < n) and
+             ((s[j+1:j+2] = 'n') or (s[j+1:j+2] = 't') or (s[j+1:j+2] = 'r')) then
+          begin
+            result := result + '\' + s[j+1:j+2];
+            j := j + 2;
+          end
+          else
+          begin
+            result := result + '\' + '\';
+            j := j + 1;
+          end;
+        end
+        else if ch = '"' then
+        begin
+          result := result + '\' + '"';
+          j := j + 1;
+        end
+        else
+        begin
+          result := result + ch;
+          j := j + 1;
+        end;
+      end;
+      result := result + '"';
+    end;
+
+    // v5.9.0: ClassHasMethod — does the class already define `name` (with a
+    // body)? Mirrors host classHasMethod (generator_validation_annotations.go).
+    function ClassHasMethod(cd: TClassDecl; name: String): Boolean;
+    var
+      i: Integer;
+    begin
+      result := false;
+      if cd = nil then
+        Exit;
+      for i := 0 to Length(cd.Methods) - 1 do
+        if self.AttrNameIs(cd.Methods[i].Name, name) then
+          result := true;
+    end;
+
+    // v5.9.0: HasOrmEntity — is `name` a known [Entity] class?
+    function HasOrmEntity(name: String): Boolean;
+    var
+      i: Integer;
+    begin
+      result := false;
+      for i := 0 to Length(self.OrmEntities) - 1 do
+        if self.OrmEntities[i].ClassName = name then
+          result := true;
+    end;
+
+    // v5.9.0: ScanORMAnnotations — mirror host scanORMAnnotations. Pass 1
+    // collects [Entity] classes (table + column metadata); Pass 2 collects
+    // [Repository(TEntity)] classes and their [Query] methods. Flags the
+    // kylix/stdlib import when any ORM artifact is found.
+    procedure ScanORMAnnotations(prog: TProgram);
+    var
+      i: Integer;
+      decl: TNode;
+      cd: TClassDecl;
+      td: TTypeDecl;
+      className: String;
+      attrs: array of TAttribute;
+    begin
+      for i := 0 to Length(prog.Declarations) - 1 do
+      begin
+        decl := prog.Declarations[i];
+        cd := nil;
+        attrs := nil;
+        className := '';
+        if decl is TTypeDecl then
+        begin
+          td := decl as TTypeDecl;
+          if td.DeclType is TClassDecl then
+          begin
+            cd := td.DeclType as TClassDecl;
+            className := td.Name;
+            attrs := td.Attributes;
+          end;
+        end
+        else if decl is TClassDecl then
+        begin
+          cd := decl as TClassDecl;
+          className := cd.Name;
+          attrs := cd.Attributes;
+        end;
+        if (cd = nil) or (className = '') then
+          continue;
+        self.ScanORMEntity(className, attrs, cd);
+      end;
+      for i := 0 to Length(prog.Declarations) - 1 do
+      begin
+        decl := prog.Declarations[i];
+        cd := nil;
+        attrs := nil;
+        className := '';
+        if decl is TTypeDecl then
+        begin
+          td := decl as TTypeDecl;
+          if td.DeclType is TClassDecl then
+          begin
+            cd := td.DeclType as TClassDecl;
+            className := td.Name;
+            attrs := td.Attributes;
+          end;
+        end
+        else if decl is TClassDecl then
+        begin
+          cd := decl as TClassDecl;
+          className := cd.Name;
+          attrs := cd.Attributes;
+        end;
+        if (cd = nil) or (className = '') then
+          continue;
+        self.ScanORMRepository(className, attrs, cd);
+      end;
+      if (Length(self.OrmEntities) > 0) or (Length(self.OrmRepositories) > 0) then
+        self.NeedStdlib := true;
+    end;
+
+    // v5.9.0: ScanORMEntity — collect [Entity("table")] class column metadata.
+    procedure ScanORMEntity(className: String; attrs: array of TAttribute; cd: TClassDecl);
+    var
+      entityAttr: TAttribute;
+      table: String;
+      entity: TOrmEntity;
+      field: TVarDecl;
+      colAttr: TAttribute;
+      colName: String;
+      isPK: Boolean;
+      fieldType: String;
+      j, k: Integer;
+      column: String;
+      col: TOrmColumn;
+    begin
+      if className = '' then
+        Exit;
+      entityAttr := self.FindAttribute(attrs, 'Entity');
+      if entityAttr = nil then
+        Exit;
+      table := self.AttrStringArg(entityAttr, '');
+      if table = '' then
+        Exit;
+      entity := TOrmEntity.Create;
+      entity.ClassName := className;
+      entity.Table := table;
+      for j := 0 to Length(cd.Fields) - 1 do
+      begin
+        field := cd.Fields[j];
+        colName := '';
+        colAttr := self.FindAttribute(field.Attributes, 'Column');
+        if colAttr <> nil then
+          colName := self.AttrStringArg(colAttr, '');
+        isPK := self.FindAttribute(field.Attributes, 'PrimaryKey') <> nil;
+        fieldType := self.FieldTypeName(field.VarType);
+        for k := 0 to Length(field.Names) - 1 do
+        begin
+          column := colName;
+          if column = '' then
+            column := field.Names[k];
+          col := TOrmColumn.Create;
+          col.FieldName := field.Names[k];
+          col.FieldType := fieldType;
+          col.Column := column;
+          append(entity.Fields, col);
+          if (isPK) and (entity.PKField = '') then
+          begin
+            entity.PKField := field.Names[k];
+            entity.PKColumn := column;
+          end;
+        end;
+      end;
+      // Fallback: a field named "Id" (case-insensitive) is the implicit PK.
+      if entity.PKField = '' then
+      begin
+        for j := 0 to Length(entity.Fields) - 1 do
+        begin
+          if self.AttrNameIs(entity.Fields[j].FieldName, 'Id') then
+          begin
+            entity.PKField := entity.Fields[j].FieldName;
+            entity.PKColumn := entity.Fields[j].Column;
+            break;
+          end;
+        end;
+      end;
+      append(self.OrmEntities, entity);
+    end;
+
+    // v5.9.0: ScanORMRepository — collect [Repository(TEntity)] classes and
+    // their [Query] methods.
+    procedure ScanORMRepository(className: String; attrs: array of TAttribute; cd: TClassDecl);
+    var
+      repoAttr: TAttribute;
+      entityIdent: TIdentifier;
+      repo: TOrmRepository;
+      known: Boolean;
+      method: TFunctionDecl;
+      queryAttr: TAttribute;
+      sql: String;
+      entityName: String;
+      list: Boolean;
+      q: TOrmQuery;
+      i: Integer;
+    begin
+      if className = '' then
+        Exit;
+      repoAttr := self.FindAttribute(attrs, 'Repository');
+      if repoAttr = nil then
+        Exit;
+      if Length(repoAttr.Args) = 0 then
+        Exit;
+      entityIdent := nil;
+      if repoAttr.Args[0] is TIdentifier then
+        entityIdent := repoAttr.Args[0] as TIdentifier;
+      if entityIdent = nil then
+        Exit;
+      known := self.HasOrmEntity(entityIdent.Value);
+      if not known then
+        Exit;
+      repo := TOrmRepository.Create;
+      repo.ClassName := className;
+      repo.EntityName := entityIdent.Value;
+      for i := 0 to Length(cd.Methods) - 1 do
+      begin
+        method := cd.Methods[i];
+        queryAttr := self.FindAttribute(method.Attributes, 'Query');
+        if queryAttr = nil then
+          continue;
+        sql := self.AttrStringArg(queryAttr, '');
+        if sql = '' then
+          continue;
+        entityName := self.OrmQueryEntityName(method);
+        if entityName = '' then
+          continue;
+        list := self.OrmQueryReturnsList(method);
+        if method.Body <> nil then
+          continue; // user implemented the method; keep their copy
+        q := TOrmQuery.Create;
+        q.MethodName := method.Name;
+        q.SQL := sql;
+        q.ReturnEntity := entityName;
+        q.ReturnsList := list;
+        q.Params := method.Parameters;
+        append(repo.Queries, q);
+      end;
+      append(self.OrmRepositories, repo);
+    end;
+
+    // v5.9.0: OrmQueryEntityName — resolve a [Query] method's return type
+    // against known entities: TEntity → that entity, array of TEntity → that
+    // entity too; '' when the return type is not a known entity. (Single-value
+    // return only: the bootstrap compiler transpiles `var` out-params by value,
+    // so multi-value helpers must return one value per function.)
+    function OrmQueryEntityName(m: TFunctionDecl): String;
+    var
+      t: TExpression;
+      at: TArrayType;
+      ident: TIdentifier;
+    begin
+      result := '';
+      if m = nil then
+        Exit;
+      if m.ReturnType = nil then
+        Exit;
+      t := m.ReturnType;
+      if t is TIdentifier then
+      begin
+        ident := t as TIdentifier;
+        if self.HasOrmEntity(ident.Value) then
+          result := ident.Value;
+      end
+      else if t is TArrayType then
+      begin
+        at := t as TArrayType;
+        if at.ElementType is TIdentifier then
+        begin
+          ident := at.ElementType as TIdentifier;
+          if self.HasOrmEntity(ident.Value) then
+            result := ident.Value;
+        end;
+      end;
+    end;
+
+    // v5.9.0: OrmQueryReturnsList — is the [Query] method's return type an
+    // array of entity (list) vs a single entity? Call only after
+    // OrmQueryEntityName returned non-empty.
+    function OrmQueryReturnsList(m: TFunctionDecl): Boolean;
+    begin
+      result := false;
+      if m = nil then
+        Exit;
+      if m.ReturnType = nil then
+        Exit;
+      if m.ReturnType is TArrayType then
+        result := true;
+    end;
+
+    // v5.9.0: OrmGoType — Kylix field type → Go type for FromRow type
+    // assertion. Mirrors host ormGoType.
+    function OrmGoType(kylixType: String): String;
+    begin
+      if (kylixType = 'String') or (kylixType = 'string') then
+        result := 'string'
+      else if (kylixType = 'Integer') or (kylixType = 'Int') or (kylixType = 'int') or
+              (kylixType = 'int64') or (kylixType = 'LongInt') or (kylixType = 'Cardinal') or
+              (kylixType = 'Word') or (kylixType = 'Byte') then
+        result := 'int64'
+      else if (kylixType = 'Real') or (kylixType = 'Float') or (kylixType = 'Double') or
+              (kylixType = 'float64') then
+        result := 'float64'
+      else if (kylixType = 'Boolean') or (kylixType = 'Bool') or (kylixType = 'bool') then
+        result := 'bool'
+      else
+        result := '';
+    end;
+
+    // v5.9.0: OrmQueryArgList — ", p1, p2" arg list for orm.QueryAll/Query calls.
+    function OrmQueryArgList(params: array of TParameter): String;
+    var
+      i: Integer;
+    begin
+      result := '';
+      if Length(params) = 0 then
+        Exit;
+      result := ', ';
+      for i := 0 to Length(params) - 1 do
+      begin
+        if i > 0 then
+          result := result + ', ';
+        result := result + params[i].Name;
+      end;
+    end;
+
+    // v5.9.0: GenerateORMEntityMethods — emit ToRow()/FromRow() for an
+    // [Entity] class unless the user already defined them.
+    procedure GenerateORMEntityMethods(cd: TClassDecl);
+    var
+      i: Integer;
+      entity: TOrmEntity;
+      hasToRow, hasFromRow: Boolean;
+    begin
+      entity := nil;
+      for i := 0 to Length(self.OrmEntities) - 1 do
+        if self.OrmEntities[i].ClassName = cd.Name then
+          entity := self.OrmEntities[i];
+      if entity = nil then
+        Exit;
+      hasToRow := false;
+      hasFromRow := false;
+      for i := 0 to Length(cd.Methods) - 1 do
+      begin
+        if self.AttrNameIs(cd.Methods[i].Name, 'ToRow') then
+          hasToRow := true;
+        if self.AttrNameIs(cd.Methods[i].Name, 'FromRow') then
+          hasFromRow := true;
+      end;
+      if not hasToRow then
+        self.EmitEntityToRow(entity);
+      if not hasFromRow then
+        self.EmitEntityFromRow(entity);
+    end;
+
+    // v5.9.0: EmitEntityToRow — func (self *T) ToRow() map[string]interface{}.
+    procedure EmitEntityToRow(entity: TOrmEntity);
+    var
+      i: Integer;
+      col: TOrmColumn;
+    begin
+      self.Write('func (self *' + entity.ClassName + ') ToRow() map[string]interface{} {');
+      self.WriteLine('');
+      self.IncreaseIndent;
+      self.WriteLine('return map[string]interface{}{');
+      self.IncreaseIndent;
+      for i := 0 to Length(entity.Fields) - 1 do
+      begin
+        col := entity.Fields[i];
+        self.WriteLine(self.GoStringLit(col.Column) + ': self.' + col.FieldName + ',');
+      end;
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
+    end;
+
+    // v5.9.0: EmitEntityFromRow — func (self *T) FromRow(row map[string]interface{}).
+    procedure EmitEntityFromRow(entity: TOrmEntity);
+    var
+      i: Integer;
+      col: TOrmColumn;
+      goType: String;
+    begin
+      self.Write('func (self *' + entity.ClassName + ') FromRow(row map[string]interface{}) {');
+      self.WriteLine('');
+      self.IncreaseIndent;
+      for i := 0 to Length(entity.Fields) - 1 do
+      begin
+        col := entity.Fields[i];
+        goType := self.OrmGoType(col.FieldType);
+        if goType = '' then
+          continue;
+        self.WriteLine('if v, ok := row[' + self.GoStringLit(col.Column) + '].(' + goType + '); ok {');
+        self.IncreaseIndent;
+        self.WriteLine('self.' + col.FieldName + ' = v');
+        self.DecreaseIndent;
+        self.WriteLine('}');
+      end;
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
+    end;
+
+    // v5.9.0: GenerateORMRepositoryMethods — emit FindAll/FindById/Save/
+    // DeleteById + each [Query] method for a [Repository] class unless the
+    // user already defined them.
+    procedure GenerateORMRepositoryMethods(cd: TClassDecl);
+    var
+      i: Integer;
+      repo: TOrmRepository;
+      entity: TOrmEntity;
+      q: TOrmQuery;
+    begin
+      repo := nil;
+      for i := 0 to Length(self.OrmRepositories) - 1 do
+        if self.OrmRepositories[i].ClassName = cd.Name then
+          repo := self.OrmRepositories[i];
+      if repo = nil then
+        Exit;
+      entity := nil;
+      for i := 0 to Length(self.OrmEntities) - 1 do
+        if self.OrmEntities[i].ClassName = repo.EntityName then
+          entity := self.OrmEntities[i];
+      if entity = nil then
+        Exit;
+      if not self.ClassHasMethod(cd, 'FindAll') then
+        self.EmitRepoFindAll(cd, entity);
+      if not self.ClassHasMethod(cd, 'FindById') then
+        self.EmitRepoFindById(cd, entity);
+      if not self.ClassHasMethod(cd, 'Save') then
+        self.EmitRepoSave(cd, entity);
+      if not self.ClassHasMethod(cd, 'DeleteById') then
+        self.EmitRepoDeleteById(cd, entity);
+      for i := 0 to Length(repo.Queries) - 1 do
+      begin
+        q := repo.Queries[i];
+        self.EmitRepoQuery(cd, entity, q);
+      end;
+    end;
+
+    // v5.9.0: write the ORM receiver prefix "func (self *<Name>[T]) ".
+    procedure WriteOrmReceiver(cd: TClassDecl);
+    begin
+      self.Write('func (self *' + cd.Name);
+      self.GenerateTypeParams(cd.TypeParams);
+      self.Write(') ');
+    end;
+
+    procedure EmitRepoFindAll(cd: TClassDecl; entity: TOrmEntity);
+    begin
+      self.WriteOrmReceiver(cd);
+      self.Write('FindAll(orm *stdlib.ORM) []*' + entity.ClassName + ' {');
+      self.WriteLine('');
+      self.IncreaseIndent;
+      self.WriteLine('rows, err := orm.FindAll(' + self.GoStringLit(entity.Table) + ')');
+      self.WriteLine('if err != nil { return nil }');
+      self.WriteLine('out := make([]*' + entity.ClassName + ', 0, len(rows))');
+      self.WriteLine('for _, row := range rows {');
+      self.IncreaseIndent;
+      self.WriteLine('e := &' + entity.ClassName + '{}');
+      self.WriteLine('e.FromRow(row)');
+      self.WriteLine('out = append(out, e)');
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('return out');
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
+    end;
+
+    procedure EmitRepoFindById(cd: TClassDecl; entity: TOrmEntity);
+    begin
+      self.WriteOrmReceiver(cd);
+      self.Write('FindById(orm *stdlib.ORM, id int64) *' + entity.ClassName + ' {');
+      self.WriteLine('');
+      self.IncreaseIndent;
+      self.WriteLine('row, err := orm.Find(' + self.GoStringLit(entity.Table) + ', id)');
+      self.WriteLine('if err != nil || row == nil { return nil }');
+      self.WriteLine('e := &' + entity.ClassName + '{}');
+      self.WriteLine('e.FromRow(row)');
+      self.WriteLine('return e');
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
+    end;
+
+    procedure EmitRepoSave(cd: TClassDecl; entity: TOrmEntity);
+    var
+      pkField, pkColumn: String;
+    begin
+      pkField := entity.PKField;
+      if pkField = '' then
+        pkField := 'Id';
+      pkColumn := entity.PKColumn;
+      if pkColumn = '' then
+        pkColumn := 'id';
+      self.WriteOrmReceiver(cd);
+      self.Write('Save(orm *stdlib.ORM, e *' + entity.ClassName + ') int64 {');
+      self.WriteLine('');
+      self.IncreaseIndent;
+      self.WriteLine('if e == nil { return 0 }');
+      self.WriteLine('if e.' + pkField + ' == 0 {');
+      self.IncreaseIndent;
+      self.WriteLine('id, _ := orm.Insert(' + self.GoStringLit(entity.Table) + ', e.ToRow())');
+      self.WriteLine('e.' + pkField + ' = id');
+      self.WriteLine('return id');
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('orm.Update(' + self.GoStringLit(entity.Table) +
+        ', map[string]interface{}{' + self.GoStringLit(pkColumn) + ': e.' + pkField +
+        '}, e.ToRow())');
+      self.WriteLine('return e.' + pkField);
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
+    end;
+
+    procedure EmitRepoDeleteById(cd: TClassDecl; entity: TOrmEntity);
+    var
+      pkColumn: String;
+    begin
+      pkColumn := entity.PKColumn;
+      if pkColumn = '' then
+        pkColumn := 'id';
+      self.WriteOrmReceiver(cd);
+      self.WriteLine('DeleteById(orm *stdlib.ORM, id int64) int64 {');
+      self.IncreaseIndent;
+      self.WriteLine('n, _ := orm.Delete(' + self.GoStringLit(entity.Table) +
+        ', map[string]interface{}{' + self.GoStringLit(pkColumn) + ': id})');
+      self.WriteLine('return n');
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
+    end;
+
+    // v5.9.0: EmitRepoQuery — emit a [Query]-annotated repository method.
+    procedure EmitRepoQuery(cd: TClassDecl; entity: TOrmEntity; q: TOrmQuery);
+    var
+      i: Integer;
+      p: TParameter;
+      args: String;
+    begin
+      self.WriteOrmReceiver(cd);
+      self.Write(q.MethodName + '(orm *stdlib.ORM');
+      for i := 0 to Length(q.Params) - 1 do
+      begin
+        p := q.Params[i];
+        self.Write(', ' + p.Name + ' ');
+        if p.ParamType <> nil then
+          self.GenerateTypeExpression(p.ParamType)
+        else
+          self.Write('interface{}');
+      end;
+      if q.ReturnsList then
+        self.WriteLine(') []*' + entity.ClassName + ' {')
+      else
+        self.WriteLine(') *' + entity.ClassName + ' {');
+      self.IncreaseIndent;
+      args := self.OrmQueryArgList(q.Params);
+      if q.ReturnsList then
+      begin
+        self.WriteLine('rows, err := orm.QueryAll(' + self.GoStringLit(q.SQL) + args + ')');
+        self.WriteLine('if err != nil { return nil }');
+        self.WriteLine('out := make([]*' + entity.ClassName + ', 0, len(rows))');
+        self.WriteLine('for _, row := range rows {');
+        self.IncreaseIndent;
+        self.WriteLine('e := &' + entity.ClassName + '{}');
+        self.WriteLine('e.FromRow(row)');
+        self.WriteLine('out = append(out, e)');
+        self.DecreaseIndent;
+        self.WriteLine('}');
+        self.WriteLine('return out');
+      end
+      else
+      begin
+        self.WriteLine('row, err := orm.Query(' + self.GoStringLit(q.SQL) + args + ')');
+        self.WriteLine('if err != nil || row == nil { return nil }');
+        self.WriteLine('e := &' + entity.ClassName + '{}');
+        self.WriteLine('e.FromRow(row)');
+        self.WriteLine('return e');
+      end;
+      self.DecreaseIndent;
+      self.WriteLine('}');
+      self.WriteLine('');
+    end;
+
 
     // ========================================================================
     // Type generation
@@ -536,14 +1555,32 @@ type
       method: TFunctionDecl;
       prop: TPropertyDecl;
     begin
-      // Note: ClassTypes map may be nil in self-hosted compiler
+      // v5.9.0: polymorphism gate — base classes (someone's parent) emit as
+      // empty interfaces when the program uses is/as, matching host
+      // generateClassDecl (generator_types.go:46). The bootstrap AST bases
+      // (TNode/TStatement/TExpression) have no fields/methods accessed through
+      // the base type, so an empty interface suffices and `x.(*TSub)` type
+      // assertions work directly. Concrete classes stay structs with embedded
+      // parent for field inheritance.
+      if (self.UsesPolymorphism) and (self.StrContains(self.ClassIsBaseStr, "," + cd.Name + ",")) then
+      begin
+        self.Write('type ' + cd.Name);
+        self.GenerateTypeParams(cd.TypeParams);
+        self.WriteLine(' interface {');
+        self.WriteLine('}');
+        self.WriteLine('');
+        // Interface bases declare no fields/methods — skip everything below.
+        Exit;
+      end;
 
       self.Write('type ' + cd.Name);
       self.GenerateTypeParams(cd.TypeParams);
       self.WriteLine(' struct {');
       self.IncreaseIndent;
 
-      if cd.Parent <> '' then
+      // Skip embedding when the parent is a poly interface (host
+      // generator_types.go:68) — interfaces can't be embedded as structs.
+      if (cd.Parent <> '') and (not (self.UsesPolymorphism and self.StrContains(self.ClassIsBaseStr, "," + cd.Parent + ","))) then
         self.WriteLine(cd.Parent);
 
       for i := 0 to Length(cd.Fields) - 1 do
@@ -567,6 +1604,12 @@ type
       for i := 0 to Length(cd.Methods) - 1 do
       begin
         method := cd.Methods[i];
+        // v5.9.0: skip forward declarations (no body) — these are defined
+        // outside the class as top-level `function ClassName.Method()`, and
+        // emitting a stub here would duplicate the ORM-generated method
+        // (host generator_types.go:91-93).
+        if method.Body = nil then
+          continue;
         self.GenerateClassMethod(cd.Name, cd.TypeParams, method);
       end;
 
@@ -576,28 +1619,433 @@ type
         self.GeneratePropertyAccessors(cd.Name, prop);
       end;
 
-      // v5.6.0: stub IsValid for all classes (validation annotation codegen
-      // not ported; SkipAttributes dropped [Email]/[Required] etc. so the
-      // generator can't detect annotated fields). Returns true (no validation).
-      // Without this, user.IsValid() → "undefined: IsValid" (example45).
-      self.Write('func (self *' + cd.Name);
-      if Length(cd.TypeParams) > 0 then
+      // v5.9.0: real validation methods (replaces stub IsValid). Scans fields
+      // for [Required]/[Email]/[Min]/[Max]/[MinLen]/[MaxLen] annotations and
+      // emits Validate() + IsValid(). Ported from host generator_validation_annotations.go.
+      self.GenerateValidationMethods(cd);
+
+      // v5.9.0: ORM [Entity]/[Repository] auto-generated methods (ToRow/
+      // FromRow + FindAll/FindById/Save/DeleteById + [Query] methods). Ported
+      // from host generator_orm_annotations.go.
+      self.GenerateORMEntityMethods(cd);
+      self.GenerateORMRepositoryMethods(cd);
+
+    end;
+
+    // v5.9.0: helper — check if field has a named attribute (case-insensitive)
+    function HasAttr(field: TVarDecl; attrName: String): Boolean;
+    var i: Integer; a: TAttribute;
+    begin
+      result := false;
+      for i := 0 to Length(field.Attributes) - 1 do
       begin
-        self.Write('[');
-        for i := 0 to Length(cd.TypeParams) - 1 do
+        a := field.Attributes[i];
+        if a.Name = attrName then
         begin
-          if i > 0 then
-            self.Write(', ');
-          self.Write(cd.TypeParams[i].Name);
+          result := true;
+          Exit;
         end;
-        self.Write(']');
       end;
-      self.WriteLine(') IsValid() bool {');
-      self.IncreaseIndent;
-      self.WriteLine('return true');
-      self.DecreaseIndent;
-      self.WriteLine('}');
-      self.WriteLine('');
+    end;
+
+    // v5.9.0: helper — is field's type String? (required: string → TrimSpace,
+    // non-string → == 0). Mirrors host isStringFieldType/fieldTypeName.
+    function IsStringField(field: TVarDecl): Boolean;
+    var ident: TIdentifier;
+    begin
+      result := false;
+      if field.VarType is TIdentifier then
+      begin
+        ident := field.VarType as TIdentifier;
+        if (ident.Value = 'String') or (ident.Value = 'string') then
+          result := true;
+      end;
+    end;
+
+    // v5.9.0: helper — get int arg from named attribute (e.g. [Min(18)] → 18)
+    function AttrIntArg(field: TVarDecl; attrName: String): Integer;
+    var i: Integer; a: TAttribute; intLit: TIntegerLiteral;
+    begin
+      result := 0;
+      for i := 0 to Length(field.Attributes) - 1 do
+      begin
+        a := field.Attributes[i];
+        if a.Name = attrName then
+        begin
+          if Length(a.Args) > 0 then
+          begin
+            if a.Args[0] is TIntegerLiteral then
+            begin
+              intLit := a.Args[0] as TIntegerLiteral;
+              result := intLit.Value;
+              Exit;
+            end;
+          end;
+        end;
+      end;
+    end;
+
+    // v5.9.0: GenerateValidationMethods — scan fields for [Required]/[Email]/
+    // [Min]/[Max]/[MinLen]/[MaxLen] and emit Validate() + IsValid().
+    procedure GenerateValidationMethods(cd: TClassDecl);
+    var
+      i, j: Integer;
+      field: TVarDecl;
+      hasValidate, hasIsValid, hasValidationFields: Boolean;
+      method: TFunctionDecl;
+      minVal: Integer;
+    begin
+      hasValidationFields := false;
+      for i := 0 to Length(cd.Fields) - 1 do
+      begin
+        field := cd.Fields[i];
+        // v5.9.0: only validation annotations ([Required]/[Email]/[Min]/[Max]/
+        // [MinLen]/[MaxLen]) trigger Validate/IsValid — other annotations
+        // ([Entity]/[Column]/[PrimaryKey]/[Service]/[Inject]...) must not, else
+        // every annotated class gains empty Validate/IsValid that host omits
+        // (host validationFields is collected from validation attrs only).
+        if (self.HasAttr(field, 'Required')) or (self.HasAttr(field, 'Email')) or
+           (self.HasAttr(field, 'Min')) or (self.HasAttr(field, 'Max')) or
+           (self.HasAttr(field, 'MinLen')) or (self.HasAttr(field, 'MaxLen')) then
+          hasValidationFields := true;
+      end;
+      if hasValidationFields = false then
+        Exit;
+
+      hasValidate := false;
+      hasIsValid := false;
+      for i := 0 to Length(cd.Methods) - 1 do
+      begin
+        method := cd.Methods[i];
+        if method.Name = 'Validate' then
+          hasValidate := true;
+        if method.Name = 'IsValid' then
+          hasIsValid := true;
+      end;
+      if hasValidate and hasIsValid then
+        Exit;
+
+      if hasValidate = false then
+      begin
+        self.Write('func (self *' + cd.Name);
+        if Length(cd.TypeParams) > 0 then
+        begin
+          self.Write('[');
+          for i := 0 to Length(cd.TypeParams) - 1 do
+          begin
+            if i > 0 then
+              self.Write(', ');
+            self.Write(cd.TypeParams[i].Name);
+          end;
+          self.Write(']');
+        end;
+        self.WriteLine(') Validate() map[string]string {');
+        self.IncreaseIndent;
+        self.WriteLine('errors := map[string]string{}');
+
+        for i := 0 to Length(cd.Fields) - 1 do
+        begin
+          field := cd.Fields[i];
+          if Length(field.Attributes) = 0 then
+            continue;
+          for j := 0 to Length(field.Names) - 1 do
+          begin
+            if self.HasAttr(field, 'required') then
+            begin
+              if self.IsStringField(field) then
+              begin
+                self.NeedStrings := true; // strings.TrimSpace below (host: annotation-driven import)
+                self.WriteLine('if strings.TrimSpace(self.' + field.Names[j] + ') == "" {');
+                self.IncreaseIndent;
+                self.WriteLine('errors["' + field.Names[j] + '"] = "is required"');
+                self.DecreaseIndent;
+                self.WriteLine('}');
+              end
+              else
+              begin
+                self.WriteLine('if self.' + field.Names[j] + ' == 0 {');
+                self.IncreaseIndent;
+                self.WriteLine('errors["' + field.Names[j] + '"] = "is required"');
+                self.DecreaseIndent;
+                self.WriteLine('}');
+              end;
+            end;
+            if self.HasAttr(field, 'Email') then
+            begin
+              self.NeedRegexp := true; // regexp.MustCompile below (host: annotation-driven import)
+              self.WriteLine('if self.' + field.Names[j] + ' != "" && !regexp.MustCompile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}$").MatchString(self.' + field.Names[j] + ') {');
+              self.IncreaseIndent;
+              self.WriteLine('errors["' + field.Names[j] + '"] = "must be a valid email address"');
+              self.DecreaseIndent;
+              self.WriteLine('}');
+            end;
+            minVal := self.AttrIntArg(field, 'MinLen');
+            if minVal > 0 then
+            begin
+              self.WriteLine('if len(self.' + field.Names[j] + ') < ' + IntToStr(minVal) + ' {');
+              self.IncreaseIndent;
+              self.WriteLine('errors["' + field.Names[j] + '"] = "must be at least ' + IntToStr(minVal) + ' characters"');
+              self.DecreaseIndent;
+              self.WriteLine('}');
+            end;
+            minVal := self.AttrIntArg(field, 'MaxLen');
+            if minVal > 0 then
+            begin
+              self.WriteLine('if len(self.' + field.Names[j] + ') > ' + IntToStr(minVal) + ' {');
+              self.IncreaseIndent;
+              self.WriteLine('errors["' + field.Names[j] + '"] = "must be at most ' + IntToStr(minVal) + ' characters"');
+              self.DecreaseIndent;
+              self.WriteLine('}');
+            end;
+            minVal := self.AttrIntArg(field, 'Min');
+            if minVal > 0 then
+            begin
+              self.WriteLine('if self.' + field.Names[j] + ' < ' + IntToStr(minVal) + ' {');
+              self.IncreaseIndent;
+              self.WriteLine('errors["' + field.Names[j] + '"] = "must be at least ' + IntToStr(minVal) + '"');
+              self.DecreaseIndent;
+              self.WriteLine('}');
+            end;
+            minVal := self.AttrIntArg(field, 'Max');
+            if minVal > 0 then
+            begin
+              self.WriteLine('if self.' + field.Names[j] + ' > ' + IntToStr(minVal) + ' {');
+              self.IncreaseIndent;
+              self.WriteLine('errors["' + field.Names[j] + '"] = "must be at most ' + IntToStr(minVal) + '"');
+              self.DecreaseIndent;
+              self.WriteLine('}');
+            end;
+          end;
+        end;
+
+        self.WriteLine('return errors');
+        self.DecreaseIndent;
+        self.WriteLine('}');
+        self.WriteLine('');
+      end;
+
+      if hasIsValid = false then
+      begin
+        self.Write('func (self *' + cd.Name);
+        if Length(cd.TypeParams) > 0 then
+        begin
+          self.Write('[');
+          for i := 0 to Length(cd.TypeParams) - 1 do
+          begin
+            if i > 0 then
+              self.Write(', ');
+            self.Write(cd.TypeParams[i].Name);
+          end;
+          self.Write(']');
+        end;
+        self.WriteLine(') IsValid() bool {');
+        self.IncreaseIndent;
+        self.WriteLine('return len(self.Validate()) == 0');
+        self.DecreaseIndent;
+        self.WriteLine('}');
+        self.WriteLine('');
+      end;
+    end;
+
+    // v5.9.0: SplitDelim — split s on sep into a freshly-allocated array.
+    // "a,b,c," → ["a","b","c"]; "" → [].
+    function SplitDelim(s: String; sep: String): array of String;
+    var
+      i, start: Integer; part: String;
+    begin
+      result := [];
+      if s = '' then Exit;
+      start := 0;
+      for i := 0 to Length(s) - 1 do
+      begin
+        if s[i:i+Length(sep)] = sep then
+        begin
+          append(result, s[start:i]);
+          start := i + Length(sep);
+        end;
+      end;
+      if start < Length(s) then
+        append(result, s[start:Length(s)]);
+    end;
+
+    // v5.9.0: ShortComponentName — strip leading 'T' from a class name.
+    function ShortComponentName(className: String): String;
+    begin
+      result := className;
+      if (Length(className) > 1) and (className[0:1] = 'T') then
+        result := className[1:Length(className)];
+    end;
+
+    // v5.9.0: EmitBootAutoWiring — mirror host emitBootAutoWiring. Emits
+    // component singleton construction, DI field injection, and route
+    // registration into the current main() body. All output uses self.Write/
+    // WriteLine so it lands in self.Output at the right indentation.
+    procedure EmitBootAutoWiring;
+    var
+      components: array of String;
+      comp: String;
+      className, varName, shortName: String;
+      ctrlClasses: array of String;
+      route: String;
+      parts: array of String;
+      method, path, ctrlName, methName, hk, security, bodyType: String;
+      i, j: Integer;
+      seenCtrl: Boolean;
+      // track ownerVar/depVar inline since we don't have maps
+      depVar: String;
+      ownerVar: String;
+    begin
+      // 1. Components: build "<ClassName>|<Kind>," list
+      components := self.SplitDelim(self.BootComponents, ',');
+      // componentVars: for DI lookup we re-derive __kylix_svc_<ClassName>
+      for i := 0 to Length(components) - 1 do
+      begin
+        comp := components[i];
+        if comp = '' then continue;
+        // split on '|'
+        parts := self.SplitDelim(comp, '|');
+        if Length(parts) < 2 then continue;
+        className := parts[0];
+        varName := '__kylix_svc_' + className;
+        self.WriteLine(varName + ' := &' + className + '{}');
+        self.WriteLine('stdlib.BootRegisterInstance("' + className + '", ' + varName + ')');
+        shortName := self.ShortComponentName(className);
+        if shortName <> className then
+          self.WriteLine('stdlib.BootRegisterInstance("' + shortName + '", ' + varName + ')');
+      end;
+
+      // 2. Controllers (classes that appear in BootRoutes): instantiate once.
+      //    We need a unique ordered list of controller class names.
+      route := self.BootRoutes;
+      // collect routes split by ','
+      var routeParts: array of String;
+      routeParts := self.SplitDelim(route, ',');
+      for i := 0 to Length(routeParts) - 1 do
+      begin
+        route := routeParts[i];
+        if route = '' then continue;
+        parts := self.SplitDelim(route, '|');
+        if Length(parts) < 6 then continue;
+        ctrlName := parts[2];
+        // dedup: check if ctrlName already in ctrlClasses
+        seenCtrl := false;
+        for j := 0 to Length(ctrlClasses) - 1 do
+          if ctrlClasses[j] = ctrlName then
+            seenCtrl := true;
+        if not seenCtrl then
+        begin
+          append(ctrlClasses, ctrlName);
+          varName := '__kylix_ctrl_' + ctrlName;
+          self.WriteLine(varName + ' := &' + ctrlName + '{}');
+        end;
+      end;
+
+      // 3. DI injections: for each inject entry, owner.field = depVar.
+      //    depVar is __kylix_svc_<FieldType>. ownerVar is __kylix_ctrl_<Owner>
+      //    (controllers) or __kylix_svc_<Owner> (services/components).
+      var injects: array of String;
+      injects := self.SplitDelim(self.BootInjects, ',');
+      for i := 0 to Length(injects) - 1 do
+      begin
+        comp := injects[i];
+        if comp = '' then continue;
+        parts := self.SplitDelim(comp, '|');
+        if Length(parts) < 3 then continue;
+        className := parts[0];
+        var fieldName: String;
+        fieldName := parts[1];
+        var fieldType: String;
+        fieldType := parts[2];
+        // ownerVar: prefer __kylix_ctrl_ (controllers registered routes);
+        // else __kylix_svc_ (a service/component that injects another).
+        ownerVar := '__kylix_ctrl_' + className;
+        // check if className is a controller (has routes) — if its routes
+        // appeared in BootRoutes. We approximate: controllers have a
+        // __kylix_ctrl_ var (instantiated above). Services have __kylix_svc_.
+        // Since a class is EITHER a service/component OR a controller (not both
+        // in the tutorials), check: did we emit a __kylix_ctrl_ for it above?
+        // Simpler: if className was added to ctrlClasses, use ctrl; else svc.
+        var isCtrl: Boolean;
+        isCtrl := false;
+        for j := 0 to Length(ctrlClasses) - 1 do
+          if ctrlClasses[j] = className then
+            isCtrl := true;
+        if not isCtrl then
+          ownerVar := '__kylix_svc_' + className;
+        depVar := '__kylix_svc_' + fieldType;
+        self.WriteLine(ownerVar + '.' + fieldName + ' = ' + depVar);
+      end;
+
+      // 4. Routes: emit stdlib.Boot<Method>(path, handler) per route.
+      for i := 0 to Length(routeParts) - 1 do
+      begin
+        route := routeParts[i];
+        if route = '' then continue;
+        parts := self.SplitDelim(route, '|');
+        if Length(parts) < 6 then continue;
+        method := parts[0];
+        path := parts[1];
+        ctrlName := parts[2];
+        methName := parts[3];
+        hk := parts[4];
+        security := parts[5];
+        // parts[6] optional BodyType (may be absent → treat as '')
+        bodyType := '';
+        if Length(parts) >= 7 then
+          bodyType := parts[6];
+
+        self.WriteLine('stdlib.Boot' + method + '("' + path + '", func(req *stdlib.BootRequest) *stdlib.BootResponse {');
+        self.IncreaseIndent;
+        // security: "Y;<roles>;" or ";"
+        if (Length(security) >= 1) and (security[0:1] = 'Y') then
+        begin
+          self.WriteLine('if __r := stdlib.BootEnforceAuth(req); __r != nil { return __r }');
+          // roles: substring after "Y;" up to trailing ";"
+          // security = 'Y;' + roles + ';'
+          if Length(security) > 2 then
+          begin
+            var rolesStr2: String;
+            rolesStr2 := security[2:Length(security)];
+            // strip trailing ';'
+            if (Length(rolesStr2) > 0) and (rolesStr2[Length(rolesStr2)-1:Length(rolesStr2)] = ';') then
+              rolesStr2 := rolesStr2[0:Length(rolesStr2)-1];
+            var roleParts: array of String;
+            roleParts := self.SplitDelim(rolesStr2, ',');
+            for j := 0 to Length(roleParts) - 1 do
+            begin
+              if roleParts[j] = '' then continue;
+              self.WriteLine('if __r := stdlib.BootEnforceRole(req, "' + roleParts[j] + '"); __r != nil { return __r }');
+            end;
+          end;
+        end;
+        if bodyType <> '' then
+        begin
+          self.WriteLine('var __body ' + bodyType);
+          self.WriteLine('if err := stdlib.BootReadJSON(req, &__body); err != nil {');
+          self.IncreaseIndent;
+          self.WriteLine('return stdlib.BootJSON(400, map[string]string{"error": "invalid JSON"})');
+          self.DecreaseIndent;
+          self.WriteLine('}');
+          self.WriteLine('if !__body.IsValid() {');
+          self.IncreaseIndent;
+          self.WriteLine('return stdlib.BootJSON(400, __body.Validate())');
+          self.DecreaseIndent;
+          self.WriteLine('}');
+        end;
+        // dispatch
+        if hk = 'proc' then
+        begin
+          self.WriteLine('res := stdlib.BootText(200, "")');
+          self.WriteLine('__kylix_ctrl_' + ctrlName + '.' + methName + '(req, res)');
+          self.WriteLine('return res');
+        end
+        else
+        begin
+          self.WriteLine('return __kylix_ctrl_' + ctrlName + '.' + methName + '(req)');
+        end;
+        self.DecreaseIndent;
+        self.WriteLine('})');
+      end;
     end;
 
     procedure GenerateClassMethod(className: String; typeParams: array of TTypeParameter; method: TFunctionDecl);
@@ -1578,7 +3026,16 @@ type
       if expr is TIdentifier then
       begin
         ident := expr as TIdentifier;
-        self.Write(self.MapBuiltinFunction(ident.Value));
+        // v5.9.0: special-case builtins that map to Go expressions (not
+        // function calls). Args → os.Args[1:] and must flag the os import so
+        // the generated bootstrap compiles (host mapBuiltinFunction path).
+        if ident.Value = 'Args' then
+        begin
+          self.Write('os.Args[1:]');
+          self.NeedOS := true;
+        end
+        else
+          self.Write(self.MapBuiltinFunction(ident.Value));
       end
       else if expr is TIntegerLiteral then
       begin
@@ -1975,6 +3432,12 @@ type
           self.Write('*stdlib.BootResponse');
           self.NeedStdlib := true;
         end
+        // v5.9.0: base class under polymorphism → interface type name (no
+        // pointer), matching host generateTypeExpression (generator_types.go:546)
+        // so `var b: TBase` → `var b TBase` (an interface) and `[]TBase` can
+        // hold subclasses. Concrete classes still map to *ClassName below.
+        else if (self.UsesPolymorphism) and (self.StrContains(self.ClassIsBaseStr, "," + ident.Value + ",")) then
+          self.Write(ident.Value)
         else
           self.Write(self.MapType(ident.Value));
       end
@@ -2044,9 +3507,11 @@ type
           self.Write('*stdlib.BootResponse');
           self.NeedStdlib := true;
         end
-        // v5.9.0: gate ClassIsBase on UsesPolymorphism (was always-on map lookup)
+        // v5.9.0: gate ClassIsBase on UsesPolymorphism (was always-on map lookup).
+        // Assert to the base interface name (no pointer) — `x.(TBase)` — matching
+        // host generateTypeExpressionForCast (generator_types.go:623).
         else if (self.UsesPolymorphism) and (self.StrContains(self.ClassIsBaseStr, "," + ident.Value + ",")) then
-          self.Write('*' + ident.Value)
+          self.Write(ident.Value)
         else
           self.Write(self.MapType(ident.Value));
       end
