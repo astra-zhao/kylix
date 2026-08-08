@@ -20,35 +20,28 @@
 
 ---
 
-## 📋 v5.9.0 — 多态 gate + KylixBoot 注解自动装配
+## ✅ v5.9.0 — 多态 gate + KylixBoot 注解自动装配（2026-08-08 发布）
 
-### 🟠 #2: validation 注解 stub（从 v5.8.0 移入）
+### ✅ #2: validation 注解 stub
 
-**症状**：`user.IsValid()` → `return true`（应 `return false`）。example45 输出 "Validation passed"（应 "Validation failed"）。
+`GenerateValidationMethods` 移植到 `src/generator.klx`（`parseAttributeList` 保留注解 → 生成 `Validate()` + `IsValid()`）。example45 "Validation failed"/"Validation passed" 与宿主一致。触发条件只认 validation 注解（`[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]`）。
 
-**根因**：SkipAttributes 丢弃 `[Email]`/`[Required]`/`[Min]` 等注解信息。generator.klx 无 `generateValidationMethods`。当前只有 stub `IsValid() {return true}`。
+### ✅ #3: 多态 usesPolymorphism gate
 
-**修复方向**：(1) SkipAttributes → parseAttributeList（保留注解到 AST）；(2) 移植 `generator_validation_annotations.go`（生成 `Validate()` + `IsValid()`）。
+三处根因修复：`GenerateClassDecl` 补 interface 分支（宿主 `generator_types.go:46-66`）/ `CollectClassTypes` 无条件填充 `ClassIsBaseStr`（宿主无条件填 `classIsBase`）/ 类型表达式多态分支发 `ident.Value`（interface 名，非 `*name`）。宿主与 bootstrap 编译 `src/*.klx` 都产出 `type TNode interface`。
 
----
+### ✅ #4: KylixBoot 注解自动装配
 
-## 📋 v5.9.0 — 多态 gate + KylixBoot 注解自动装配
+`ScanBootAnnotations` + `EmitBootAutoWiring` 移植到 `src/generator.klx`（BootComponents/BootInjects/BootRoutes 逗号分隔 String，避开 Go nil-map 写）。example42/43/44/46/49 与 HEAD 一致。
 
-### 🟠 #3: 多态 usesPolymorphism gate 未移植
+### ✅ #5: ORM 注解
 
-**症状**：is/as 程序的基类始终 `*Base`（host 在 polymorphism 时用 `interface{}`，使 `[]TBase` 能存子类）。教程不 heavily 依赖，但复杂真实程序可能有问题。
+`ScanORMAnnotations` + `GenerateORMEntityMethods`/`GenerateORMRepositoryMethods` 移植（`TOrmColumn`/`TOrmEntity`/`TOrmQuery`/`TOrmRepository` 类数组）。`[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]` → `ToRow`/`FromRow` + `FindAll`/`FindById`/`Save`/`DeleteById` + `[Query]` 方法。example47 宿主 vs bootstrap 方法列表一致。
 
-**修复方向**：parser.klx `parseIs`/`parseAs` 设 `program.UsesPolymorphism`；generator.klx `CollectClassTypes` 填充 `ClassIsBase`；`MapType` 的 `ClassIsBase` 检查 gate on `UsesPolymorphism`。
+### 📌 v5.9.0 遗留观察（klx 编译器限制，留 v6.0.0）
 
-### 🟠 #4: KylixBoot 注解自动装配未移植
-
-**症状**：`[Controller('/api')]` / `[Get('/path')]` / `[Inject]` 等注解被 SkipAttributes 跳过 → 无路由注册/DI 装配代码。教程因直接调方法而不回归，但真实 KylixBoot 应用会缺 wiring。
-
-**修复方向**：移植 `generator_boot_annotations.go`（~300 行）：扫描 `[Controller]` 类 → 生成路由注册 + DI 装配代码。
-
-### 🟢 #5: ORM 注解未移植
-
-**修复方向**：移植 `generator_orm_annotations.go`。`[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]` → 生成 CRUD 方法。
+- **`var` 输出参数转译成值传递**（非 Go 指针）：`OrmQueryReturnEntity` var 参数不生效，本轮改为单返回函数规避。需修 klx 编译器参数 codegen
+- **`(expr as T).Field` 链式解析失败**（KLX004）：需中间变量。需修 klx parser/表达式 codegen
 
 ---
 
