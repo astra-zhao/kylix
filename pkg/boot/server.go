@@ -14,8 +14,8 @@ import (
 
 // Server is a pre-configured HTTP server with optional TLS, graceful shutdown.
 type Server struct {
-	Router      *Router
-	Addr        string
+	Router       *Router
+	Addr         string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 }

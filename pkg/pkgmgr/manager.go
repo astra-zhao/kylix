@@ -357,4 +357,3 @@ func uploadTarball(registryURL, apiToken, name, version, description, tarPath st
 
 	return doJSONRequest[PublishResult](req)
 }
-

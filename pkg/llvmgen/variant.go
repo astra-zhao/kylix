@@ -26,11 +26,11 @@ import (
 
 // Variant tag constants.
 const (
-	varTagNil  = 0
-	varTagInt  = 1
+	varTagNil   = 0
+	varTagInt   = 1
 	varTagFloat = 2
-	varTagStr  = 3
-	varTagBool = 4
+	varTagStr   = 3
+	varTagBool  = 4
 )
 
 // variantT is the synthetic llvmType string for a Variant box value (a ptr).
@@ -487,11 +487,12 @@ func floatLbl_fn(lbl string, g *Generator, payload, resSlot, endLbl string) {
 
 // emitVariantCompareBody emits @__kylix_variant_compare(ptr a, ptr b) → i32.
 // Returns -1/0/1. Categories:
-//   both numeric (tag int/float/bool): coerce both via as_double, compare.
-//   both str (tag 3): strcmp the reconstructed string pointers.
-//   both nil (tag 0): equal → 0.
-//   mismatched categories: order by tag (a.tag - b.tag, clamped) so '=' on
-//   mismatched types is non-0 (not equal).
+//
+//	both numeric (tag int/float/bool): coerce both via as_double, compare.
+//	both str (tag 3): strcmp the reconstructed string pointers.
+//	both nil (tag 0): equal → 0.
+//	mismatched categories: order by tag (a.tag - b.tag, clamped) so '=' on
+//	mismatched types is non-0 (not equal).
 func (g *Generator) emitVariantCompareBody() {
 	g.line("define i32 @__kylix_variant_compare(ptr %a, ptr %b) {")
 	g.line("entry:")
@@ -822,9 +823,9 @@ func (g *Generator) emitVariantAsBoolBody() {
 
 // emitVariantArithBody emits the runtime arithmetic helper for op (+,-,*,/).
 // All return a fresh Variant box. Dispatch:
-//   + : either str → str concat; both int → int add; else → double add
-//   -,*: both int → int op; else → double op
-//   /  : always double (real division)
+//   - : either str → str concat; both int → int add; else → double add
+//     -,*: both int → int op; else → double op
+//     /  : always double (real division)
 func (g *Generator) emitVariantArithBody(op string) {
 	sym := map[string]string{"+": "add", "-": "sub", "*": "mul", "/": "div"}[op]
 	g.line(fmt.Sprintf("define ptr @__kylix_variant_%s(ptr %%a, ptr %%b) {", sym))

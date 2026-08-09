@@ -1,13 +1,15 @@
 // array.go — LLVM IR codegen for Kylix arrays (Milestone 2).
 //
 // Static arrays:  var nums: array[1..5] of Integer;
-//   → %v_nums = alloca [5 x i64], align 8
-//   nums[1] → getelementptr [5 x i64], ptr %v_nums, i64 0, i64 0
-//   (Pascal 1-indexed → LLVM 0-indexed)
+//
+//	→ %v_nums = alloca [5 x i64], align 8
+//	nums[1] → getelementptr [5 x i64], ptr %v_nums, i64 0, i64 0
+//	(Pascal 1-indexed → LLVM 0-indexed)
 //
 // Dynamic arrays:  var nums: array of Integer;
-//   → %v_nums = alloca %struct.kylix_slice, align 8
-//   {ptr data, i64 len, i64 cap}
+//
+//	→ %v_nums = alloca %struct.kylix_slice, align 8
+//	{ptr data, i64 len, i64 cap}
 //
 // SetLength(arr, n) and append(arr, x) call libc realloc.
 package llvmgen
@@ -27,8 +29,8 @@ type arrayInfo struct {
 	// `arr[i].Method()` / `arr[i] is TFoo` can resolve the receiver type when
 	// the element is a class (e.g. array of TNode → elements are TNode).
 	ElementKylixType string
-	Size        int64  // for static arrays only
-	LowerBound  int64  // Pascal range lower bound (default 1)
+	Size             int64 // for static arrays only
+	LowerBound       int64 // Pascal range lower bound (default 1)
 	// v5.0.0: IsVariant marks `array of Variant` — elements are box pointers
 	// (ptr), and index reads return the "variant" pseudo-type so downstream
 	// comparisons/printing dispatch on the tag.

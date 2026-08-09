@@ -277,4 +277,3 @@ end.`)
 	// The nilbox global (htab_get_variant's miss sentinel) is emitted.
 	assertIRContains(t, ir, "@__kylix_variant_nilbox =")
 }
-

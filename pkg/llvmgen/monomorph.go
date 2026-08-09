@@ -2,11 +2,11 @@
 //
 // Kylix supports generic classes (Go 1.18-style):
 //
-//   class TBox<T>
-//     Value: T;
-//     function Get(): T;
-//     begin result := Value; end;
-//   end;
+//	class TBox<T>
+//	  Value: T;
+//	  function Get(): T;
+//	  begin result := Value; end;
+//	end;
 //
 // LLVM IR has no parametric types, so the LLVM backend specializes each
 // distinct instantiation (`TBox<Integer>`, `TBox<String>`) into a separate
@@ -217,13 +217,13 @@ func (g *Generator) specialize(tmpl *ast.ClassDecl, mangled string, typeArgs []a
 	// Substitute method param and return types.
 	for _, m := range tmpl.Methods {
 		nm := &ast.FunctionDecl{
-			Token:       m.Token,
-			Name:        m.Name,
-			Body:        m.Body,
-			LocalDecls:  m.LocalDecls,
-			IsAsync:     m.IsAsync,
-			IsExternal:  m.IsExternal,
-			ReturnType:  substituteType(m.ReturnType, subst),
+			Token:      m.Token,
+			Name:       m.Name,
+			Body:       m.Body,
+			LocalDecls: m.LocalDecls,
+			IsAsync:    m.IsAsync,
+			IsExternal: m.IsExternal,
+			ReturnType: substituteType(m.ReturnType, subst),
 		}
 		for _, p := range m.Parameters {
 			nm.Parameters = append(nm.Parameters, &ast.Parameter{

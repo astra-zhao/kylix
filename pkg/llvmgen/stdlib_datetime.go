@@ -756,4 +756,3 @@ func (g *Generator) emitDatetimeFreeArenaBody() {
 	g.line("}")
 	g.line("")
 }
-

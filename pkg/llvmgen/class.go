@@ -1,13 +1,16 @@
 // class.go — LLVM IR code generation for Kylix classes and interfaces.
 //
 // Kylix class → LLVM struct layout:
-//   %TFoo = type { ptr, i64, ... }   ; first field = vtable pointer
+//
+//	%TFoo = type { ptr, i64, ... }   ; first field = vtable pointer
 //
 // Vtable layout:
-//   @TFoo_vtable = constant [N x ptr] [ ptr @TFoo_Method1, ptr @TFoo_Method2, ... ]
+//
+//	@TFoo_vtable = constant [N x ptr] [ ptr @TFoo_Method1, ptr @TFoo_Method2, ... ]
 //
 // Interface fat pointer (two-word representation):
-//   { ptr vtable, ptr data }
+//
+//	{ ptr vtable, ptr data }
 package llvmgen
 
 import (
@@ -38,12 +41,12 @@ type FieldInfo struct {
 
 // MethodInfo describes a class method in the vtable.
 type MethodInfo struct {
-	Name           string
-	VtableIdx      int
-	RetType        string
-	RetKylixType   string // v5.4.0: original Kylix return type name (for type inference on `x := obj.Method()`)
-	Params         []string
-	DefiningClass  string // class where this method's implementation lives (for vtable emit)
+	Name          string
+	VtableIdx     int
+	RetType       string
+	RetKylixType  string // v5.4.0: original Kylix return type name (for type inference on `x := obj.Method()`)
+	Params        []string
+	DefiningClass string // class where this method's implementation lives (for vtable emit)
 }
 
 // emitClassDecl generates LLVM type + vtable + method definitions for a class.

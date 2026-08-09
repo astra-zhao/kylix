@@ -4,11 +4,12 @@
 // Go standard library. No external dependencies.
 //
 // Supported functions:
-//   JwtSign(secret, subject, expiresIn, extraClaims) → token string
-//   JwtVerify(secret, token) → (claims map[string]interface{}, ok bool)
-//   JwtSubject(claims) → string
-//   JwtGetString(claims, key) → string
-//   JwtGetInt(claims, key) → int64
+//
+//	JwtSign(secret, subject, expiresIn, extraClaims) → token string
+//	JwtVerify(secret, token) → (claims map[string]interface{}, ok bool)
+//	JwtSubject(claims) → string
+//	JwtGetString(claims, key) → string
+//	JwtGetInt(claims, key) → int64
 package stdlib
 
 import (

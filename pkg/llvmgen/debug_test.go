@@ -6,8 +6,8 @@ import (
 
 	"kylix/ast"
 	"kylix/lexer"
-	"kylix/pkg/llvmgen"
 	"kylix/parser"
+	"kylix/pkg/llvmgen"
 )
 
 // debug tests — verify the v4.5.0 DWARF debug-info emission (kylix -g).

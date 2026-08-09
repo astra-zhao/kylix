@@ -1,9 +1,9 @@
 // config.go — Configuration management for KylixBoot.
 //
 // Sources (in precedence order):
-//   1. Programmatic Set() calls
-//   2. Environment variables (KEY → app.key, KYLIX_X_Y → x.y)
-//   3. Defaults
+//  1. Programmatic Set() calls
+//  2. Environment variables (KEY → app.key, KYLIX_X_Y → x.y)
+//  3. Defaults
 package boot
 
 import (

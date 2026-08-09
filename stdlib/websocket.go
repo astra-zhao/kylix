@@ -34,10 +34,10 @@ const MaxWsFrameBytes = 1 << 20 // 1 MiB
 
 // TWsConn is a WebSocket connection (client or server side).
 type TWsConn struct {
-	conn      net.Conn
-	br        *bufio.Reader
-	isServer  bool // server-side writes must NOT mask frames
-	writeBuf  []byte
+	conn     net.Conn
+	br       *bufio.Reader
+	isServer bool // server-side writes must NOT mask frames
+	writeBuf []byte
 }
 
 // wsOpcode per RFC 6455 section 5.2.

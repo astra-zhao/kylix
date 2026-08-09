@@ -10,10 +10,10 @@ import (
 
 // THttpClient is a simple HTTP client for Kylix programs.
 type THttpClient struct {
-	BaseURL    string
-	Timeout    int // milliseconds, 0 = default (10s)
-	Headers    map[string]string
-	client     *http.Client
+	BaseURL string
+	Timeout int // milliseconds, 0 = default (10s)
+	Headers map[string]string
+	client  *http.Client
 }
 
 // NewHttpClient creates a new HTTP client.

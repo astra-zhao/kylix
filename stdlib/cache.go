@@ -14,8 +14,8 @@ import (
 
 // lruEntry is one cached value with its expiration time (zero = no TTL).
 type lruEntry struct {
-	key   string
-	value interface{}
+	key       string
+	value     interface{}
 	expiresAt time.Time // zero value = never expires
 }
 

@@ -308,4 +308,3 @@ func (g *Generator) emitSysutilPathBase() {
 	g.line("}")
 	g.line("")
 }
-

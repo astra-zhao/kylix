@@ -241,5 +241,3 @@ func (g *Generator) evalInterfaceRHS(value ast.Expression, ifaceName string) (vt
 	}
 	return "", "", false
 }
-
-

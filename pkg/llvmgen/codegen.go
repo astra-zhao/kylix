@@ -36,16 +36,16 @@ type Generator struct {
 	// InitKeywords and read in the lexer). globals maps name→"@__kylix_g_<name>";
 	// globalTypes holds the LLVM type (for emitIdentLoad); globalMaps/globalArrays
 	// flag map/array globals so indexing routes correctly.
-	globals       map[string]string         // name → global ptr symbol (e.g. "@__kylix_g_Keywords")
-	globalTypes   map[string]string         // name → LLVM type
-	globalKylixTypes map[string]string      // name → Kylix type name (class/interface), for receiverKind
-	globalMaps    map[string]bool           // name → is a map[K]V global
-	globalMapValueTypes map[string]string    // name → Kylix value type name (v5.4.0: for typed map reads)
-	globalArrays  map[string]*arrayInfo     // name → array metadata (for array globals)
-	program          *ast.Program                 // current AST root (for cross-pass access)
-	funcName         string                       // current function being generated
-	resultLLVMType   string                       // v5.4.0: current function's return LLVM type (for loading `result`)
-	strings          []stringConst                // string constants (emitted at module level)
+	globals             map[string]string     // name → global ptr symbol (e.g. "@__kylix_g_Keywords")
+	globalTypes         map[string]string     // name → LLVM type
+	globalKylixTypes    map[string]string     // name → Kylix type name (class/interface), for receiverKind
+	globalMaps          map[string]bool       // name → is a map[K]V global
+	globalMapValueTypes map[string]string     // name → Kylix value type name (v5.4.0: for typed map reads)
+	globalArrays        map[string]*arrayInfo // name → array metadata (for array globals)
+	program             *ast.Program          // current AST root (for cross-pass access)
+	funcName            string                // current function being generated
+	resultLLVMType      string                // v5.4.0: current function's return LLVM type (for loading `result`)
+	strings             []stringConst         // string constants (emitted at module level)
 
 	// Exception handling (M3): global exception slot + setjmp/longjmp.
 	exceptionTypeIDs  map[string]int // exception class name → runtime type ID (Exception=1)
@@ -198,34 +198,34 @@ type stdlibFunc struct {
 // NewGenerator creates a new LLVM IR generator.
 func NewGenerator(moduleName string) *Generator {
 	return &Generator{
-		module:           moduleName,
-		locals:           make(map[string]string),
-		constants:        make(map[string]ast.Expression),
-		funcSigs:         make(map[string]*ast.FunctionDecl),
-		multiRetTypes:    make(map[string][]string),
-		classes:          make(map[string]*ClassInfo),
-		interfaces:       make(map[string]*InterfaceInfo),
-		genericTemplates: make(map[string]*ast.ClassDecl),
-		instantiations:   make(map[string]bool),
-		localTypes:       make(map[string]string),
-		arrayInfo:        make(map[string]*arrayInfo),
-		varNameSeq:       make(map[string]int),
-		globals:          make(map[string]string),
-		globalTypes:      make(map[string]string),
-		globalKylixTypes: make(map[string]string),
-		globalMaps:       make(map[string]bool),
+		module:              moduleName,
+		locals:              make(map[string]string),
+		constants:           make(map[string]ast.Expression),
+		funcSigs:            make(map[string]*ast.FunctionDecl),
+		multiRetTypes:       make(map[string][]string),
+		classes:             make(map[string]*ClassInfo),
+		interfaces:          make(map[string]*InterfaceInfo),
+		genericTemplates:    make(map[string]*ast.ClassDecl),
+		instantiations:      make(map[string]bool),
+		localTypes:          make(map[string]string),
+		arrayInfo:           make(map[string]*arrayInfo),
+		varNameSeq:          make(map[string]int),
+		globals:             make(map[string]string),
+		globalTypes:         make(map[string]string),
+		globalKylixTypes:    make(map[string]string),
+		globalMaps:          make(map[string]bool),
 		globalMapValueTypes: make(map[string]string),
-		globalArrays:     make(map[string]*arrayInfo),
-		exceptionTypeIDs: make(map[string]int),
-		nextExcTypeID:    2, // 1 reserved for Exception itself
-		records:          make(map[string]bool),
-		closureLocals:    make(map[string]bool),
-		closureSigs:      make(map[string]string),
-		closureParams:    make(map[string][]string),
-		stdlibEmitted:    make(map[string]bool),
-		mapVars:          make(map[string]bool),
-		variantMaps:      make(map[string]bool),
-		strDedup:         make(map[string]string),
+		globalArrays:        make(map[string]*arrayInfo),
+		exceptionTypeIDs:    make(map[string]int),
+		nextExcTypeID:       2, // 1 reserved for Exception itself
+		records:             make(map[string]bool),
+		closureLocals:       make(map[string]bool),
+		closureSigs:         make(map[string]string),
+		closureParams:       make(map[string][]string),
+		stdlibEmitted:       make(map[string]bool),
+		mapVars:             make(map[string]bool),
+		variantMaps:         make(map[string]bool),
+		strDedup:            make(map[string]string),
 	}
 }
 

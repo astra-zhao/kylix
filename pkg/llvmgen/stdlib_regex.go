@@ -102,15 +102,15 @@ func (g *Generator) emitRegexIsIP() {
 }
 
 // emitRegexValidator generates a validation function body:
-//   1. alloca regex_t (opaque struct, ~64 bytes on most platforms)
-//   2. addString(pattern) → getelementptr
-//   3. regcomp(&regex, pattern_ptr, REG_EXTENDED | REG_NOSUB)
-//      - REG_EXTENDED = 1 (use ERE)
-//      - REG_NOSUB = 8 (don't fill in pmatch[], faster)
-//   4. if regcomp != 0 → ret false (pattern compile error)
-//   5. regexec(&regex, str, 0, null, 0)
-//   6. regfree(&regex)
-//   7. ret (regexec == 0) as i1
+//  1. alloca regex_t (opaque struct, ~64 bytes on most platforms)
+//  2. addString(pattern) → getelementptr
+//  3. regcomp(&regex, pattern_ptr, REG_EXTENDED | REG_NOSUB)
+//     - REG_EXTENDED = 1 (use ERE)
+//     - REG_NOSUB = 8 (don't fill in pmatch[], faster)
+//  4. if regcomp != 0 → ret false (pattern compile error)
+//  5. regexec(&regex, str, 0, null, 0)
+//  6. regfree(&regex)
+//  7. ret (regexec == 0) as i1
 func (g *Generator) emitRegexValidator(funcName, pattern string) {
 	g.line(fmt.Sprintf("define i1 @__kylix_regex_%s(ptr %%str) {", funcName))
 	g.line("entry:")

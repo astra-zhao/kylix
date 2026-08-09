@@ -695,14 +695,15 @@ func (g *Generator) emitJsonParseArray() {
 // v5.0.0: reads one JSON value at %s[%pos] (advancing %pos) and returns a
 // Variant box (tagged {i32, i64}) so array elements carry their runtime type.
 // Classification by the value's first char:
-//   '"'  → string  (read_string returns the UNQUOTED content)   → box_str
-//   '{'/'[' → nested raw substring (skip_nested)                → box_str
-//   't'  → "true"  (strcmp)                                       → box_bool(1)
-//   'f'  → "false" (strcmp)                                       → box_bool(0)
-//   digit/'-'/'+'/'.' → number (strtod) — all numbers box as float
-//     (matches Go's json, which decodes every number as float64, so arr[0]=10.0
-//      compares true and prints identically on both backends)
-//   else (incl. 'n' for null) → box_str (null → empty)
+//
+//	'"'  → string  (read_string returns the UNQUOTED content)   → box_str
+//	'{'/'[' → nested raw substring (skip_nested)                → box_str
+//	't'  → "true"  (strcmp)                                       → box_bool(1)
+//	'f'  → "false" (strcmp)                                       → box_bool(0)
+//	digit/'-'/'+'/'.' → number (strtod) — all numbers box as float
+//	  (matches Go's json, which decodes every number as float64, so arr[0]=10.0
+//	   compares true and prints identically on both backends)
+//	else (incl. 'n' for null) → box_str (null → empty)
 //
 // All numbers become float boxes; numeric Variant comparisons coerce int-box
 // operands to double in variant_compare, so `arr[0] = 42` (int literal) still

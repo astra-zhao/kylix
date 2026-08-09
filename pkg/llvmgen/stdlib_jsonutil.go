@@ -763,7 +763,6 @@ func (g *Generator) emitJsonEncodeBody() {
 	g.emitJsonFloatStr()
 }
 
-
 // emitJsonEscapeStr emits @__kylix_json_escape_str — a quoted, Go-json-escaped
 // copy of %s. Escapes match encoding/json's encoder:
 //
@@ -881,7 +880,7 @@ func (g *Generator) emitJsonEscapeStr() {
 	emitEsc(bsLbl, []byte{92, 92})    // \\
 	// 6-byte HTML escapes
 	emitEsc(ltLbl, []byte{92, 117, 48, 48, 51, 99})  // \u003c
-	emitEsc(gtLbl, []byte{92, 117, 48, 48, 51, 101})  // \u003e
+	emitEsc(gtLbl, []byte{92, 117, 48, 48, 51, 101}) // \u003e
 	emitEsc(ampLbl, []byte{92, 117, 48, 48, 50, 54}) // \u0026
 
 	// control byte < 0x20 → \u00xx with lowercase hex
