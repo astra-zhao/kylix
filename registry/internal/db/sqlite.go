@@ -302,17 +302,21 @@ func NewPostgresStore(connStr string) (*PostgresStore, error) {
 	return nil, fmt.Errorf("PostgreSQL support not yet implemented")
 }
 
-func (s *PostgresStore) Close() error                          { return nil }
-func (s *PostgresStore) Migrate() error                        { return nil }
-func (s *PostgresStore) CreatePackage(pkg *models.Package) error { return nil }
+func (s *PostgresStore) Close() error                                    { return nil }
+func (s *PostgresStore) Migrate() error                                  { return nil }
+func (s *PostgresStore) CreatePackage(pkg *models.Package) error         { return nil }
 func (s *PostgresStore) GetPackage(name string) (*models.Package, error) { return nil, nil }
-func (s *PostgresStore) ListPackages(query string, limit, offset int) ([]*models.Package, error) { return nil, nil }
+func (s *PostgresStore) ListPackages(query string, limit, offset int) ([]*models.Package, error) {
+	return nil, nil
+}
 func (s *PostgresStore) UpdatePackage(pkg *models.Package) error { return nil }
 func (s *PostgresStore) CreateVersion(ver *models.Version) error { return nil }
-func (s *PostgresStore) GetVersion(packageID int64, version string) (*models.Version, error) { return nil, nil }
+func (s *PostgresStore) GetVersion(packageID int64, version string) (*models.Version, error) {
+	return nil, nil
+}
 func (s *PostgresStore) ListVersions(packageID int64) ([]*models.Version, error) { return nil, nil }
-func (s *PostgresStore) CreateUser(user *models.User) error { return nil }
-func (s *PostgresStore) GetUserByToken(token string) (*models.User, error) { return nil, nil }
+func (s *PostgresStore) CreateUser(user *models.User) error                      { return nil }
+func (s *PostgresStore) GetUserByToken(token string) (*models.User, error)       { return nil, nil }
 func (s *PostgresStore) GetUserByGitHubID(githubID string) (*models.User, error) { return nil, nil }
-func (s *PostgresStore) IncrementDownload(packageID, versionID int64) error { return nil }
-func (s *PostgresStore) GetDownloadCount(packageID int64) (int64, error) { return 0, nil }
+func (s *PostgresStore) IncrementDownload(packageID, versionID int64) error      { return nil }
+func (s *PostgresStore) GetDownloadCount(packageID int64) (int64, error)         { return 0, nil }

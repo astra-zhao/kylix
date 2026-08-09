@@ -15,12 +15,12 @@ type Package struct {
 
 // Version represents a specific version of a package.
 type Version struct {
-	ID          int64     `json:"id"`
-	PackageID   int64     `json:"package_id"`
-	Version     string    `json:"version"` // Semantic version (e.g., "1.2.3")
-	TarballURL  string    `json:"tarball_url"`
+	ID           int64     `json:"id"`
+	PackageID    int64     `json:"package_id"`
+	Version      string    `json:"version"` // Semantic version (e.g., "1.2.3")
+	TarballURL   string    `json:"tarball_url"`
 	Dependencies string    `json:"dependencies"` // JSON array of {name, version}
-	PublishedAt time.Time `json:"published_at"`
+	PublishedAt  time.Time `json:"published_at"`
 }
 
 // User represents a registry user (for authentication).

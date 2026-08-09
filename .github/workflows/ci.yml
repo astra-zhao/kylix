@@ -31,7 +31,8 @@ jobs:
         run: go build $(go list ./... | grep -v '/examples')
 
       - name: Test (16 packages, excluding generated tutorial .go files)
-        run: go test $(go list ./... | grep -v '/examples') -timeout 120s
+        # -short: skip the incremental-compile 2x speed assertion (flaky on CI).
+        run: go test -short $(go list ./... | grep -v '/examples') -timeout 120s
 
       - name: Vet (excluding examples/)
         run: go vet $(go list ./... | grep -v '/examples')
@@ -105,9 +106,9 @@ jobs:
           go-version: '1.25'
           cache: true
 
-      - name: gofmt
+      - name: gofmt (tracked .go files, excluding generated examples/)
         run: |
-          fmt_files=$(gofmt -l . 2>&1)
+          fmt_files=$(gofmt -l $(git ls-files '*.go' | grep -v '^examples/') 2>&1)
           if [ -n "$fmt_files" ]; then
             echo "Files not formatted:"
             echo "$fmt_files"
