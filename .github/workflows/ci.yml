@@ -60,7 +60,7 @@ jobs:
       - name: Build CLI
         run: go build -o kylix ./cmd/kylix/
 
-      - name: Run 51 tutorials (Go backend: compile → go run)
+      - name: "Run 51 tutorials (Go backend compile, then go run)"
         run: KYLIX=$PWD/kylix bash examples/complete-tutorial/test_all.sh
 
   selfrepro:
