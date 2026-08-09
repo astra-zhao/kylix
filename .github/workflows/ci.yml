@@ -13,7 +13,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go: ['1.24', '1.25']
+        # go.mod requires Go 1.25; the incremental-compile performance test
+        # (2x threshold) is flaky on slower runners under older Go versions.
+        go: ['1.25']
 
     steps:
       - name: Checkout
