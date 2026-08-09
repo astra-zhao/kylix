@@ -3,6 +3,7 @@ package llvmgen
 import (
 	"fmt"
 	"kylix/ast"
+	"strings"
 )
 
 // stdlib_jsonutil.go — LLVM IR implementation for the `jsonutil` stdlib module.
@@ -49,6 +50,8 @@ func (g *Generator) emitJsonutilCall(funcName string, args []ast.Expression) (st
 		return g.emitJsonArrayGetStringCall(args)
 	case "JsonHasKey":
 		return g.emitJsonHasKeyCall(args)
+	case "JsonEncode", "JsonEncodePretty":
+		return g.emitJsonEncodeCall(args)
 	default:
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; jsonutil.%s not implemented", r, funcName))
@@ -83,6 +86,10 @@ func (g *Generator) emitJsonutilBody(funcName string) {
 		g.emitJsonArrayGetStringBody()
 	case "JsonHasKey":
 		g.emitJsonHasKeyBody()
+	case "JsonEncode":
+		g.emitJsonEncodeBody()
+	case "JsonEncodePretty":
+		g.emitJsonEncodeBody() // scalar Variants: pretty == compact (no nesting to indent)
 	}
 }
 
@@ -648,6 +655,626 @@ func (g *Generator) emitJsonArrayGetStringBody() {
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %s)", r, boxVal))
 	g.line(fmt.Sprintf("  ret ptr %s", r))
+	g.line("}")
+	g.line("")
+}
+
+// ── JsonEncode / JsonEncodePretty: Variant → JSON string ──────────────────
+//
+// v5.9.0: LLVM implementation of jsonutil.JsonEncode. Encodes a Variant box
+// ({i32 tag, i64 payload}) as a JSON string matching Go's json.Marshal for the
+// scalar types Variant can hold:
+//
+//	tag 0 nil   → null
+//	tag 1 int   → %lld decimal
+//	tag 2 float → Go-style shortest float (see __kylix_json_float_str)
+//	tag 3 str   → "..." with Go json escaping (\" \\ \u00XX < > &)
+//	tag 4 bool  → true / false
+//
+// JsonEncodePretty produces the same scalar output (a scalar Variant has no
+// nesting to indent). The emitted helpers call malloc/strlen/snprintf/strtod
+// from libc plus the Variant runtime, so needVariantRuntime is set.
+func (g *Generator) emitJsonEncodeCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("jsonutil.JsonEncode expects 1 argument, got %d", len(args))
+	}
+	vReg, vType, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	g.needVariantRuntime = true
+	vBox := g.emitVariantBox(vReg, vType)
+	g.enqueueStdlib("jsonutil", "JsonEncode", "JsonEncode", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_JsonEncode(ptr %s)", r, vBox))
+	return r, "ptr", nil
+}
+
+func (g *Generator) emitJsonEncodeBody() {
+	g.needVariantRuntime = true
+	nullStr := g.addString("null")
+	trueStr := g.addString("true")
+	falseStr := g.addString("false")
+	intFmt := g.addString("%lld")
+
+	g.line("define ptr @__kylix_json_JsonEncode(ptr %v) {")
+	g.line("entry:")
+	// ptrTo must run after the define — the GEPs it emits belong inside the fn.
+	nullPtr := g.ptrTo(nullStr, 5)
+	truePtr := g.ptrTo(trueStr, 5)
+	falsePtr := g.ptrTo(falseStr, 6)
+	intFmtPtr := g.ptrTo(intFmt, 5)
+	tagP := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { i32, i64 }, ptr %%v, i32 0, i32 0", tagP))
+	tag := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", tag, tagP))
+	intLbl := g.label()
+	floatLbl := g.label()
+	strLbl := g.label()
+	boolLbl := g.label()
+	g.line(fmt.Sprintf("  switch i32 %s, label %%nil [ i32 1, label %%%s i32 2, label %%%s i32 3, label %%%s i32 4, label %%%s ]",
+		tag, intLbl, floatLbl, strLbl, boolLbl))
+	g.line("nil:")
+	g.line(fmt.Sprintf("  ret ptr %s", nullPtr))
+	// int → %lld
+	g.line(fmt.Sprintf("%s:", intLbl))
+	p1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { i32, i64 }, ptr %%v, i32 0, i32 1", p1))
+	ival := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", ival, p1))
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 32)", buf))
+	g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 32, ptr %s, i64 %s)", buf, intFmtPtr, ival))
+	g.line(fmt.Sprintf("  ret ptr %s", buf))
+	// float → shortest Go representation
+	g.line(fmt.Sprintf("%s:", floatLbl))
+	p2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { i32, i64 }, ptr %%v, i32 0, i32 1", p2))
+	fbits := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", fbits, p2))
+	dval := g.tmp()
+	g.line(fmt.Sprintf("  %s = bitcast i64 %s to double", dval, fbits))
+	fstr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_float_str(double %s)", fstr, dval))
+	g.line(fmt.Sprintf("  ret ptr %s", fstr))
+	// str → escaped, quoted
+	g.line(fmt.Sprintf("%s:", strLbl))
+	p3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { i32, i64 }, ptr %%v, i32 0, i32 1", p3))
+	sptr := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", sptr, p3))
+	esc := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_escape_str(ptr %s)", esc, sptr))
+	g.line(fmt.Sprintf("  ret ptr %s", esc))
+	// bool → true / false
+	g.line(fmt.Sprintf("%s:", boolLbl))
+	p4 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { i32, i64 }, ptr %%v, i32 0, i32 1", p4))
+	bval := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", bval, p4))
+	isTrue := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ne i64 %s, 0", isTrue, bval))
+	sel := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", sel, isTrue, truePtr, falsePtr))
+	g.line(fmt.Sprintf("  ret ptr %s", sel))
+	g.line("}")
+	g.line("")
+	g.emitJsonEscapeStr()
+	g.emitJsonFloatStr()
+}
+
+
+// emitJsonEscapeStr emits @__kylix_json_escape_str — a quoted, Go-json-escaped
+// copy of %s. Escapes match encoding/json's encoder:
+//
+//	" → \", \ → \\, < → \u003c, > → \u003e, & → \u0026,
+//	bytes < 0x20 → \u00xx (two lowercase hex digits).
+//
+// Output buffer is sized 6*len+3 (worst case: every byte → 6 chars + quotes +
+// NUL). Returns a heap-allocated NUL-terminated string. All escape branches
+// jump to a single %next block that feeds the loop header's phi nodes.
+func (g *Generator) emitJsonEscapeStr() {
+	g.line("define ptr @__kylix_json_escape_str(ptr %s) {")
+	g.line("entry:")
+	lenV := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %%s)", lenV))
+	sz := g.tmp()
+	g.line(fmt.Sprintf("  %s = mul i64 %s, 6", sz, lenV))
+	sz2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 3", sz2, sz))
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, sz2))
+	g.line(fmt.Sprintf("  store i8 34, ptr %s", buf)) // opening '"'
+	b1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 1", b1, buf))
+	loopLbl := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", loopLbl))
+	bodyLbl := g.label()
+	finishLbl := g.label()
+	ctrlLbl := g.label()
+	quoteLbl := g.label()
+	bsLbl := g.label()
+	ltLbl := g.label()
+	gtLbl := g.label()
+	ampLbl := g.label()
+	plainLbl := g.label()
+	nextLbl := g.label()
+
+	g.line(fmt.Sprintf("%s:", loopLbl))
+	iPhi := g.tmp()
+	wpPhi := g.tmp()
+	// Reserve backedge register names before the phi so the loop header can
+	// reference them; the %next block defines them.
+	iNextName := g.tmp()
+	wpNextName := g.tmp()
+	g.line(fmt.Sprintf("  %s = phi i64 [ 0, %%entry ], [ %s, %%%s ]", iPhi, iNextName, nextLbl))
+	g.line(fmt.Sprintf("  %s = phi ptr [ %s, %%entry ], [ %s, %%%s ]", wpPhi, b1, wpNextName, nextLbl))
+	done := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp uge i64 %s, %s", done, iPhi, lenV))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", done, finishLbl, bodyLbl))
+
+	g.line(fmt.Sprintf("%s:", bodyLbl))
+	cp := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %%s, i64 %s", cp, iPhi))
+	c := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", c, cp))
+	ctrl := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ult i8 %s, 32", ctrl, c))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_quote", ctrl, ctrlLbl))
+	g.line("chk_quote:")
+	isq := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 34", isq, c))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_bs", isq, quoteLbl))
+	g.line("chk_bs:")
+	isb := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 92", isb, c))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_lt", isb, bsLbl))
+	g.line("chk_lt:")
+	islt := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 60", islt, c))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_gt", islt, ltLbl))
+	g.line("chk_gt:")
+	isgt := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 62", isgt, c))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_amp", isgt, gtLbl))
+	g.line("chk_amp:")
+	isamp := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 38", isamp, c))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isamp, ampLbl, plainLbl))
+
+	// emitEsc writes bytes[] at the current wp and jumps to next, returning
+	// the (i+1, wp+n) values for the next-block phi.
+	var incI []string
+	var incW []string
+	emitEsc := func(lbl string, bytes []byte) {
+		g.line(fmt.Sprintf("%s:", lbl))
+		for k, b := range bytes {
+			loc := wpPhi
+			if k > 0 {
+				loc = g.tmp()
+				g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 %d", loc, wpPhi, int64(k)))
+			}
+			g.line(fmt.Sprintf("  store i8 %d, ptr %s", b, loc))
+		}
+		wpNew := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 %d", wpNew, wpPhi, int64(len(bytes))))
+		iNew := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, 1", iNew, iPhi))
+		g.line(fmt.Sprintf("  br label %%%s", nextLbl))
+		incI = append(incI, fmt.Sprintf("[ %s, %%%s ]", iNew, lbl))
+		incW = append(incW, fmt.Sprintf("[ %s, %%%s ]", wpNew, lbl))
+	}
+
+	// plain: original byte
+	g.line(fmt.Sprintf("%s:", plainLbl))
+	g.line(fmt.Sprintf("  store i8 %s, ptr %s", c, wpPhi))
+	wpPl := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 1", wpPl, wpPhi))
+	iPl := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", iPl, iPhi))
+	g.line(fmt.Sprintf("  br label %%%s", nextLbl))
+	incI = append(incI, fmt.Sprintf("[ %s, %%%s ]", iPl, plainLbl))
+	incW = append(incW, fmt.Sprintf("[ %s, %%%s ]", wpPl, plainLbl))
+
+	// 2-byte escapes: \" and \\
+	emitEsc(quoteLbl, []byte{92, 34}) // \"
+	emitEsc(bsLbl, []byte{92, 92})    // \\
+	// 6-byte HTML escapes
+	emitEsc(ltLbl, []byte{92, 117, 48, 48, 51, 99})  // \u003c
+	emitEsc(gtLbl, []byte{92, 117, 48, 48, 51, 101})  // \u003e
+	emitEsc(ampLbl, []byte{92, 117, 48, 48, 50, 54}) // \u0026
+
+	// control byte < 0x20 → \u00xx with lowercase hex
+	g.line(fmt.Sprintf("%s:", ctrlLbl))
+	g.line(fmt.Sprintf("  store i8 92, ptr %s", wpPhi)) // '\\'
+	cc1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 1", cc1, wpPhi))
+	g.line(fmt.Sprintf("  store i8 117, ptr %s", cc1)) // 'u'
+	cc2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 2", cc2, wpPhi))
+	g.line(fmt.Sprintf("  store i8 48, ptr %s", cc2)) // '0'
+	cc3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 3", cc3, wpPhi))
+	g.line(fmt.Sprintf("  store i8 48, ptr %s", cc3)) // '0'
+	hi := g.tmp()
+	g.line(fmt.Sprintf("  %s = lshr i8 %s, 4", hi, c))
+	lo := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i8 %s, 15", lo, c))
+	hexCh := func(v, off string) string {
+		lt10 := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp ult i8 %s, 10", lt10, v))
+		va := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i8 %s, 48", va, v)) // '0'
+		vf := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i8 %s, 87", vf, v)) // 'a'-10
+		ch := g.tmp()
+		g.line(fmt.Sprintf("  %s = select i1 %s, i8 %s, i8 %s", ch, lt10, va, vf))
+		loc := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 %s", loc, wpPhi, off))
+		g.line(fmt.Sprintf("  store i8 %s, ptr %s", ch, loc))
+		return loc
+	}
+	_ = hexCh(hi, "4")
+	_ = hexCh(lo, "5")
+	wpCtrl := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 6", wpCtrl, wpPhi))
+	iCtrl := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", iCtrl, iPhi))
+	g.line(fmt.Sprintf("  br label %%%s", nextLbl))
+	incI = append(incI, fmt.Sprintf("[ %s, %%%s ]", iCtrl, ctrlLbl))
+	incW = append(incW, fmt.Sprintf("[ %s, %%%s ]", wpCtrl, ctrlLbl))
+
+	// next: merge all branches → loop backedge
+	g.line(fmt.Sprintf("%s:", nextLbl))
+	g.line(fmt.Sprintf("  %s = phi i64 %s", iNextName, strings.Join(incI, ", ")))
+	g.line(fmt.Sprintf("  %s = phi ptr %s", wpNextName, strings.Join(incW, ", ")))
+	g.line(fmt.Sprintf("  br label %%%s", loopLbl))
+
+	// finish: closing quote + NUL
+	g.line(fmt.Sprintf("%s:", finishLbl))
+	g.line(fmt.Sprintf("  store i8 34, ptr %s", wpPhi))
+	endP := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 1", endP, wpPhi))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", endP))
+	g.line(fmt.Sprintf("  ret ptr %s", buf))
+	g.line("}")
+	g.line("")
+}
+
+// emitJsonFloatStr emits @__kylix_json_float_str(double) — a heap-allocated
+// string matching Go's encoding/json float64 output (json.Marshal's
+// floatEncoder). Algorithm mirrors the Go source:
+//
+//	fmt = 'f'; if abs != 0 && (abs < 1e-6 || abs >= 1e21) { fmt = 'e' }
+//	strconv.AppendFloat(b, f, fmt, -1, 64)   // shortest round-trip
+//	if fmt == 'e' { clean "e-0X" → "e-X" }
+//
+// Shortest round-trip digits come from %.Ng probing (strtod == f). When Go
+// wants 'f' but %.Ng produced an exponent form (large/small magnitudes), the
+// digits are expanded to fixed-point by @__kylix_json_float_ffmt. NaN/±Inf → ""
+// (Go's json.Marshal errors; Kylix JsonEncode returns a plain String).
+func (g *Generator) emitJsonFloatStr() {
+	emptyStr := g.addString("")
+	zeroStr := g.addString("0")
+	gFmt := g.addString("%.*g")
+	e0Str := g.addString("e-0")
+
+	g.line("define ptr @__kylix_json_float_str(double %d) {")
+	g.line("entry:")
+	// ptrTo after define — GEPs belong inside the fn body.
+	emptyPtr := g.ptrTo(emptyStr, 1)
+	zeroPtr := g.ptrTo(zeroStr, 2)
+	gFmtPtr := g.ptrTo(gFmt, 5)
+	e0Ptr := g.ptrTo(e0Str, 4)
+
+	isnan := g.tmp()
+	g.line(fmt.Sprintf("  %s = fcmp uno double %%d, %%d", isnan))
+	errLbl := g.label()
+	notnanLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isnan, errLbl, notnanLbl))
+	g.line(fmt.Sprintf("%s:", notnanLbl))
+	abs := g.tmp()
+	g.line(fmt.Sprintf("  %s = call double @fabs(double %%d)", abs))
+	inf := g.tmp()
+	g.line(fmt.Sprintf("  %s = fcmp oeq double %s, 0x7FF0000000000000", inf, abs))
+	chkfmtLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", inf, errLbl, chkfmtLbl))
+	g.line(fmt.Sprintf("%s:", chkfmtLbl))
+	z := g.tmp()
+	g.line(fmt.Sprintf("  %s = fcmp oeq double %s, 0.0", z, abs))
+	zeroLbl := g.label()
+	fmtLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", z, zeroLbl, fmtLbl))
+	// ±0.0 → "0" (Go's json.Marshal emits "0", not "-0")
+	g.line(fmt.Sprintf("%s:", zeroLbl))
+	g.line(fmt.Sprintf("  ret ptr %s", zeroPtr))
+	g.line(fmt.Sprintf("%s:", fmtLbl))
+	lt := g.tmp()
+	g.line(fmt.Sprintf("  %s = fcmp olt double %s, 0.000001", lt, abs))
+	ge := g.tmp()
+	g.line(fmt.Sprintf("  %s = fcmp oge double %s, 1.000000e+21", ge, abs))
+	lgor := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i1 %s, %s", lgor, lt, ge))
+	nz := g.tmp()
+	g.line(fmt.Sprintf("  %s = xor i1 %s, true", nz, z))
+	useE := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i1 %s, %s", useE, nz, lgor))
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 64)", buf))
+
+	// probe shortest %.Ng precision 1..17 (round-trip)
+	initLbl := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", initLbl))
+	loopLbl := g.label()
+	nextLbl := g.label()
+	g.line(fmt.Sprintf("%s:", initLbl))
+	g.line(fmt.Sprintf("  br label %%%s", loopLbl))
+	precName := g.tmp() // reserved backedge
+	g.line(fmt.Sprintf("%s:", loopLbl))
+	prec := g.tmp()
+	g.line(fmt.Sprintf("  %s = phi i64 [ 1, %%%s ], [ %s, %%%s ]", prec, initLbl, precName, nextLbl))
+	prec32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = trunc i64 %s to i32", prec32, prec))
+	g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 64, ptr %s, i32 %s, double %%d)", buf, gFmtPtr, prec32))
+	d2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = call double @strtod(ptr %s, ptr null)", d2, buf))
+	eq := g.tmp()
+	g.line(fmt.Sprintf("  %s = fcmp oeq double %s, %%d", eq, d2))
+	dispatchLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", eq, dispatchLbl, nextLbl))
+	g.line(fmt.Sprintf("%s:", nextLbl))
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", precName, prec))
+	lim := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ugt i64 %s, 17", lim, precName))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", lim, dispatchLbl, loopLbl))
+
+	// dispatch: hasE (exponent form) vs fixed form.
+	//   fmt=e  → e_clean (strip e-0X)
+	//   fmt=f && hasE → __kylix_json_float_ffmt(buf) (expand to fixed-point)
+	//   fmt=f && !hasE → buf as-is
+	g.line(fmt.Sprintf("%s:", dispatchLbl))
+	hasE := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @strchr(ptr %s, i32 101)", hasE, buf)) // 'e'
+	hasEBool := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ne ptr %s, null", hasEBool, hasE))
+	eCleanLbl := g.label()
+	noeLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", useE, eCleanLbl, noeLbl))
+	g.line(fmt.Sprintf("%s:", noeLbl))
+	ffmtLbl := g.label()
+	ffmtDoneLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", hasEBool, ffmtLbl, ffmtDoneLbl))
+	g.line(fmt.Sprintf("%s:", ffmtLbl))
+	ffmtRes := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_float_ffmt(ptr %s)", ffmtRes, buf))
+	g.line(fmt.Sprintf("  ret ptr %s", ffmtRes))
+	g.line(fmt.Sprintf("%s:", ffmtDoneLbl))
+	g.line(fmt.Sprintf("  ret ptr %s", buf))
+	// e-0X → e-X
+	g.line(fmt.Sprintf("%s:", eCleanLbl))
+	sp := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @strstr(ptr %s, ptr %s)", sp, buf, e0Ptr))
+	snull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", snull, sp))
+	g.line(fmt.Sprintf("  br i1 %s, label %%e_clean_done, label %%e_del", snull))
+	g.line("e_del:")
+	dst := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 2", dst, sp))
+	srcP := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 3", srcP, sp))
+	x := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", x, srcP))
+	g.line(fmt.Sprintf("  store i8 %s, ptr %s", x, dst))
+	endP := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 3", endP, sp))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", endP))
+	g.line("  br label %e_clean_done")
+	g.line("e_clean_done:")
+	g.line(fmt.Sprintf("  ret ptr %s", buf))
+	// err: NaN/Inf → ""
+	g.line(fmt.Sprintf("%s:", errLbl))
+	g.line(fmt.Sprintf("  ret ptr %s", emptyPtr))
+	g.line("}")
+	g.line("")
+	g.emitJsonFloatFfmt()
+}
+
+// emitJsonFloatFfmt emits @__kylix_json_float_ffmt(ptr) — expands a %.Ng
+// exponent form ("1.2345678901234567e+19", "1e+20", "5e-06") to the fixed-point
+// string Go's encoding/json produces for fmt='f' with shortest digits:
+//
+//	pointPos = exp + 1
+//	pointPos >= len(digits) → digits + zeros        (1e+20 → 100000000000000000000)
+//	0 < pointPos < len       → digits[:p] . digits[p:]  (1.23e+2 → 123)
+//	pointPos <= 0            → 0. zeros digits
+//
+// Output buffer is 64 bytes (shortest digits ≤ 17, exponent ≤ 308).
+func (g *Generator) emitJsonFloatFfmt() {
+	g.line("define ptr @__kylix_json_float_ffmt(ptr %in) {")
+	g.line("entry:")
+	ep := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @strchr(ptr %%in, i32 101)", ep))
+	isNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", isNull, ep))
+	noeLbl := g.label()
+	haveELbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isNull, noeLbl, haveELbl))
+	g.line(fmt.Sprintf("%s:", noeLbl))
+	g.line("  ret ptr %in")
+	g.line(fmt.Sprintf("%s:", haveELbl))
+	expP := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 1", expP, ep))
+	exp := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", exp, expP))
+	firstC := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %%in", firstC))
+	isNeg := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 45", isNeg, firstC))
+	signLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, i64 1, i64 0", signLen, isNeg))
+	startPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %%in, i64 %s", startPtr, signLen))
+	out := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 64)", out))
+	negLbl := g.label()
+	noNegLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isNeg, negLbl, noNegLbl))
+	g.line(fmt.Sprintf("%s:", negLbl))
+	g.line(fmt.Sprintf("  store i8 45, ptr %s", out))
+	g.line(fmt.Sprintf("  br label %%%s", noNegLbl))
+	// copy digits (skip '.') from startPtr to out+signLen
+	g.line(fmt.Sprintf("%s:", noNegLbl))
+	wpInit := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 %s", wpInit, out, signLen))
+	initL := g.label()
+	copyLoopL := g.label()
+	copyNextL := g.label()
+	copyDoneL := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", initL))
+	g.line(fmt.Sprintf("%s:", initL))
+	g.line(fmt.Sprintf("  br label %%%s", copyLoopL))
+	g.line(fmt.Sprintf("%s:", copyLoopL))
+	pos := g.tmp()
+	wp := g.tmp()
+	nd := g.tmp()
+	posNext := g.tmp() // reserved backedge
+	wpNext := g.tmp()
+	ndNext := g.tmp()
+	g.line(fmt.Sprintf("  %s = phi ptr [ %s, %%%s ], [ %s, %%%s ]", pos, startPtr, initL, posNext, copyNextL))
+	g.line(fmt.Sprintf("  %s = phi ptr [ %s, %%%s ], [ %s, %%%s ]", wp, wpInit, initL, wpNext, copyNextL))
+	g.line(fmt.Sprintf("  %s = phi i64 [ 0, %%%s ], [ %s, %%%s ]", nd, initL, ndNext, copyNextL))
+	atEnd := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, %s", atEnd, pos, ep))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%copy_body", atEnd, copyDoneL))
+	g.line("copy_body:")
+	cc := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", cc, pos))
+	isDot := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 46", isDot, cc))
+	storeLbl := g.label()
+	skipLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isDot, skipLbl, storeLbl))
+	g.line(fmt.Sprintf("%s:", storeLbl))
+	g.line(fmt.Sprintf("  store i8 %s, ptr %s", cc, wp))
+	wpS := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 1", wpS, wp))
+	ndS := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", ndS, nd))
+	g.line(fmt.Sprintf("  br label %%%s", copyNextL))
+	g.line(fmt.Sprintf("%s:", skipLbl))
+	g.line(fmt.Sprintf("  br label %%%s", copyNextL))
+	g.line(fmt.Sprintf("%s:", copyNextL))
+	g.line(fmt.Sprintf("  %s = phi ptr [ %s, %%%s ], [ %s, %%%s ]", wpNext, wpS, storeLbl, wp, skipLbl))
+	g.line(fmt.Sprintf("  %s = phi i64 [ %s, %%%s ], [ %s, %%%s ]", ndNext, ndS, storeLbl, nd, skipLbl))
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 1", posNext, pos))
+	g.line(fmt.Sprintf("  br label %%%s", copyLoopL))
+	// done: digits at out[sign..sign+nd), wp = out+sign+nd
+	g.line(fmt.Sprintf("%s:", copyDoneL))
+	pointPos := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", pointPos, exp))
+	geCmp := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sge i64 %s, %s", geCmp, pointPos, nd))
+	g.line(fmt.Sprintf("  br i1 %s, label %%case_a, label %%chk_b", geCmp))
+	g.line("chk_b:")
+	gtCmp := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sgt i64 %s, 0", gtCmp, pointPos))
+	g.line(fmt.Sprintf("  br i1 %s, label %%case_b, label %%case_c", gtCmp))
+
+	// case_a: pointPos >= nd → digits + (pointPos-nd) zeros
+	g.line("case_a:")
+	zerosA := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 %s, %s", zerosA, pointPos, nd))
+	aInitL := g.label()
+	aLoopL := g.label()
+	aNextL := g.label()
+	aDoneL := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", aInitL))
+	g.line(fmt.Sprintf("%s:", aInitL))
+	g.line(fmt.Sprintf("  br label %%%s", aLoopL))
+	g.line(fmt.Sprintf("%s:", aLoopL))
+	aJ := g.tmp()
+	aJName := g.tmp()
+	g.line(fmt.Sprintf("  %s = phi i64 [ 0, %%%s ], [ %s, %%%s ]", aJ, aInitL, aJName, aNextL))
+	aDone := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp uge i64 %s, %s", aDone, aJ, zerosA))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%a_body", aDone, aDoneL))
+	g.line("a_body:")
+	aP := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 %s", aP, wp, aJ))
+	g.line(fmt.Sprintf("  store i8 48, ptr %s", aP))
+	g.line(fmt.Sprintf("  br label %%%s", aNextL))
+	g.line(fmt.Sprintf("%s:", aNextL))
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", aJName, aJ))
+	g.line(fmt.Sprintf("  br label %%%s", aLoopL))
+	g.line(fmt.Sprintf("%s:", aDoneL))
+	nulA := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 %s", nulA, wp, zerosA))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", nulA))
+	g.line(fmt.Sprintf("  ret ptr %s", out))
+
+	// case_b: 0 < pointPos < nd → insert '.' at out[sign+pointPos]
+	g.line("case_b:")
+	offB := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %s", offB, signLen, pointPos))
+	srcB := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 %s", srcB, out, offB))
+	dstB := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 1", dstB, srcB))
+	lenB := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 %s, %s", lenB, nd, pointPos))
+	lenB2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", lenB2, lenB))
+	g.line(fmt.Sprintf("  call ptr @memmove(ptr %s, ptr %s, i64 %s)", dstB, srcB, lenB2))
+	g.line(fmt.Sprintf("  store i8 46, ptr %s", srcB))
+	g.line(fmt.Sprintf("  ret ptr %s", out))
+
+	// case_c: pointPos <= 0 → "0." + zeros + digits
+	g.line("case_c:")
+	zerosC := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 0, %s", zerosC, pointPos))
+	outSign := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 %s", outSign, out, signLen))
+	g.line(fmt.Sprintf("  store i8 48, ptr %s", outSign))
+	outSign2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 1", outSign2, outSign))
+	g.line(fmt.Sprintf("  store i8 46, ptr %s", outSign2))
+	offC := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 2", offC, signLen))
+	offC2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %s", offC2, offC, zerosC))
+	dstC := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 %s", dstC, out, offC2))
+	lenC := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", lenC, nd))
+	g.line(fmt.Sprintf("  call ptr @memmove(ptr %s, ptr %s, i64 %s)", dstC, outSign, lenC))
+	cInitL := g.label()
+	cLoopL := g.label()
+	cNextL := g.label()
+	cDoneL := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", cInitL))
+	g.line(fmt.Sprintf("%s:", cInitL))
+	g.line(fmt.Sprintf("  br label %%%s", cLoopL))
+	g.line(fmt.Sprintf("%s:", cLoopL))
+	cJ := g.tmp()
+	cJName := g.tmp()
+	g.line(fmt.Sprintf("  %s = phi i64 [ 0, %%%s ], [ %s, %%%s ]", cJ, cInitL, cJName, cNextL))
+	cDone := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp uge i64 %s, %s", cDone, cJ, zerosC))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%c_body", cDone, cDoneL))
+	g.line("c_body:")
+	cOff := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 2", cOff, signLen))
+	cOff2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %s", cOff2, cOff, cJ))
+	cP := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 %s", cP, out, cOff2))
+	g.line(fmt.Sprintf("  store i8 48, ptr %s", cP))
+	g.line(fmt.Sprintf("  br label %%%s", cNextL))
+	g.line(fmt.Sprintf("%s:", cNextL))
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", cJName, cJ))
+	g.line(fmt.Sprintf("  br label %%%s", cLoopL))
+	g.line(fmt.Sprintf("%s:", cDoneL))
+	g.line(fmt.Sprintf("  ret ptr %s", out))
 	g.line("}")
 	g.line("")
 }

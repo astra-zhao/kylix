@@ -4,6 +4,7 @@ package generator
 import (
 	"fmt"
 	"kylix/ast"
+	"strconv"
 	"strings"
 )
 
@@ -19,7 +20,14 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 	case *ast.IntegerLiteral:
 		g.write(fmt.Sprintf("%d", e.Value))
 	case *ast.FloatLiteral:
-		g.write(fmt.Sprintf("%f", e.Value))
+		// v5.9.0: %f fixed 6 decimals truncated 0.0000005 → 0.000000. Emit the
+		// shortest round-trip form, kept a float literal (add ".0" when the
+		// shortest form is "3"/"0" so -0.0 stays a negative float, not int 0).
+		s := strconv.FormatFloat(e.Value, 'g', -1, 64)
+		if !strings.ContainsAny(s, ".eE") {
+			s += ".0"
+		}
+		g.write(s)
 	case *ast.StringLiteral:
 		g.write(`"` + escapeGoString(e.Value) + `"`)
 	case *ast.StringInterpolation:
@@ -225,6 +233,15 @@ func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 			if len(e.Arguments) == 1 {
 				g.imports["fmt"] = true
 				g.write(`fmt.Sprintf("%d", `)
+				g.generateExpression(e.Arguments[0])
+				g.write(")")
+				return
+			}
+		case "FloatToStr":
+			// v5.9.0: %v on float64 → shortest round-trip (Go float literal form).
+			if len(e.Arguments) == 1 {
+				g.imports["fmt"] = true
+				g.write(`fmt.Sprintf("%v", `)
 				g.generateExpression(e.Arguments[0])
 				g.write(")")
 				return

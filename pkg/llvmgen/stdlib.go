@@ -85,7 +85,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"JsonGetString": true, "JsonGetInt": true, "JsonGetFloat": true,
 		"JsonGetBool": true, "JsonGetMap": true, "JsonGetArray": true,
 		"JsonArrayLen": true, "JsonArrayGetString": true,
-		"JsonHasKey": true,
+		"JsonHasKey": true, "JsonEncode": true, "JsonEncodePretty": true,
 	},
 	"boot": {
 		"BootText": true, "BootJSON": true, "BootRegisterJwtAuth": true,

@@ -59,14 +59,33 @@ func (g *Generator) emitVariantBox(v, llvmT string) string {
 	if llvmT == variantT {
 		return v // already a box ptr
 	}
+	if llvmT == "ptr" {
+		// v5.9.0: Kylix nil (a null ptr) boxes to the shared nil Variant
+		// (tag 0), not a null-payload string box — matches Go's nil → JSON
+		// "null" and avoids later strlen(null) crashes in encoders.
+		isNull := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", isNull, v))
+		nilPath := g.label()
+		strPath := g.label()
+		mergeLbl := g.label()
+		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isNull, nilPath, strPath))
+		g.line(fmt.Sprintf("%s:", nilPath))
+		g.line(fmt.Sprintf("  br label %%%s", mergeLbl))
+		g.line(fmt.Sprintf("%s:", strPath))
+		boxed := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", boxed, v))
+		g.line(fmt.Sprintf("  br label %%%s", mergeLbl))
+		g.line(fmt.Sprintf("%s:", mergeLbl))
+		phi := g.tmp()
+		g.line(fmt.Sprintf("  %s = phi ptr [ @__kylix_variant_nilbox, %%%s ], [ %s, %%%s ]", phi, nilPath, boxed, strPath))
+		return phi
+	}
 	var helper string
 	switch llvmT {
 	case "i64":
 		helper = "@__kylix_variant_box_int"
 	case "double":
 		helper = "@__kylix_variant_box_float"
-	case "ptr": // string
-		helper = "@__kylix_variant_box_str"
 	case "i1":
 		helper = "@__kylix_variant_box_bool"
 	default:

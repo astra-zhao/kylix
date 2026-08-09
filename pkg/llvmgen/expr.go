@@ -3,6 +3,7 @@ package llvmgen
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"kylix/ast"
@@ -100,7 +101,11 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 
 	case *ast.FloatLiteral:
 		r := g.tmp()
-		g.line(fmt.Sprintf("  %s = fadd double 0.0, %f", r, e.Value))
+		// v5.9.0: %f fixed 6 decimals truncated 0.0000005 → 0.000000; emit the
+		// shortest round-trip literal so small floats survive into IR. LLVM
+		// requires a decimal point in float constants, so normalize "1e+20" →
+		// "1.0e+20", "3" → "3.0".
+		g.line(fmt.Sprintf("  %s = fadd double 0.0, %s", r, llvmFloatLit(e.Value)))
 		return r, "double", nil
 
 	case *ast.BooleanLiteral:
@@ -1213,3 +1218,18 @@ func (g *Generator) isTDateTimeReceiver(obj ast.Expression) bool {
 	t, ok := g.localTypes[ident.Value]
 	return ok && t == "TDateTime"
 }
+
+// llvmFloatLit formats a float64 as an LLVM IR double constant. LLVM requires
+// a decimal point in float literals ("1e+20", "3" are rejected); this adds one
+// when missing while keeping the shortest round-trip form. v5.9.0.
+func llvmFloatLit(v float64) string {
+	s := strconv.FormatFloat(v, 'g', -1, 64)
+	if !strings.ContainsAny(s, ".eE") {
+		return s + ".0"
+	}
+	if i := strings.IndexAny(s, "eE"); i >= 0 && !strings.Contains(s[:i], ".") {
+		return s[:i] + ".0" + s[i:]
+	}
+	return s
+}
+

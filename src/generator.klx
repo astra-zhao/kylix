@@ -3045,7 +3045,9 @@ type
       else if expr is TFloatLiteral then
       begin
         floatLit := expr as TFloatLiteral;
-        self.Write('0.0');
+        // v5.9.0: was a stub (always wrote '0.0') — emit the shortest round-trip
+        // literal so small floats (0.0000005) survive into the generated Go.
+        self.Write(FloatToStr(floatLit.Value));
       end
       else if expr is TStringLiteral then
       begin
@@ -3301,6 +3303,14 @@ type
         if ident.Value = 'IntToStr' then
         begin
           self.Write('fmt.Sprintf("%d", ');
+          self.GenerateExpression(call.Arguments[0]);
+          self.Write(')');
+          Exit;
+        end;
+        if ident.Value = 'FloatToStr' then
+        begin
+          // v5.9.0: %v on float64 → shortest round-trip (Go float literal form).
+          self.Write('fmt.Sprintf("%v", ');
           self.GenerateExpression(call.Arguments[0]);
           self.Write(')');
           Exit;
@@ -3587,6 +3597,8 @@ type
         result := 'Ord'
       else if name = 'IntToStr' then
         result := 'IntToStr'
+      else if name = 'FloatToStr' then
+        result := 'FloatToStr'
       else if name = 'StrToInt64' then
         result := 'StrToInt64'
       else if name = 'StrToFloat' then
