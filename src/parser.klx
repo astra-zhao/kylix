@@ -19,6 +19,7 @@ type
     CurToken: TToken;
     PeekToken: TToken;
     UsesPolymorphism: Boolean;
+    CastBoundary: Boolean; // v5.9.0: as/is type parse stopped on a closing token
   end;
 
 // ============================================================================
@@ -1661,9 +1662,23 @@ begin
     result := nil;
   end;
 
+  // v5.9.0: as/is (or a group containing them) may leave CurToken directly on
+  // '.', with the member name as Peek — Peek is not an infix, so the loop
+  // below would exit and drop `.Field`. Bind member chains here.
+  while self.CurTokenIs(tkDot) do
+    leftExp := self.ParseMemberExpression(leftExp);
+
   // Infix loop
   while (self.PeekTokenIs(tkSemicolon) = false) and (prec < self.PeekPrecedence()) do
   begin
+    if self.CastBoundary then
+    begin
+      // v5.9.0: as/is left CurToken on a closing token (e.g. `(x as T).Field`
+      // — after `T` CurToken is `)`). Stop so the group closes and the outer
+      // loop binds `.Field`; without this the loop would skip the `)`.
+      self.CastBoundary := false;
+      break;
+    end;
     if self.PeekTokenIs(tkPlus) or self.PeekTokenIs(tkMinus) or
        self.PeekTokenIs(tkAsterisk) or self.PeekTokenIs(tkSlash) or
        self.PeekTokenIs(tkDiv) or self.PeekTokenIs(tkMod) or
@@ -1912,7 +1927,14 @@ begin
     Exit;
   end;
 
-  if self.ExpectPeek(tkRParen) = false then
+  if self.CurTokenIs(tkRParen) then
+  begin
+    // v5.9.0: as/is may have left CurToken on the closing ')' (their right
+    // side is parsed by ParseTypeExpression, which stops on the ')' after the
+    // type). Consume it here; ExpectPeek would wrongly look at Peek.
+    self.NextToken();
+  end
+  else if self.ExpectPeek(tkRParen) = false then
   begin
     result := nil;
     Exit;
@@ -2094,6 +2116,7 @@ begin
   expr.Expression := left;
   expr.TargetType := self.ParseTypeExpression();
   self.UsesPolymorphism := true; // v5.9.0: signal for polymorphism gate
+  self.MarkCastBoundary();
   result := expr;
 end;
 
@@ -2107,7 +2130,20 @@ begin
   expr.Expression := left;
   expr.TargetType := self.ParseTypeExpression();
   self.UsesPolymorphism := true; // v5.9.0: signal for polymorphism gate
+  self.MarkCastBoundary();
   result := expr;
+end;
+
+// v5.9.0: MarkCastBoundary — parseTypeExpression stops on a closing token
+// (`)`, `,`, `]`, EOF); record that so the enclosing ParseExpression infix
+// loop stops instead of skipping the closing token to reach a peeked infix
+// (e.g. `(x as T).Field` — after `T` CurToken is `)`, Peek is `.`). The loop
+// clears the flag when it stops. Mirrors host markCastBoundary.
+procedure TParser.MarkCastBoundary();
+begin
+  if (self.CurTokenIs(tkRParen)) or (self.CurTokenIs(tkComma)) or
+     (self.CurTokenIs(tkRBracket)) or (self.CurTokenIs(tkEOF)) then
+    self.CastBoundary := true;
 end;
 
 function TParser.ParseStringInterpolation(): TExpression;

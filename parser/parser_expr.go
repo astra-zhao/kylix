@@ -93,7 +93,25 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 	}
 	leftExp := prefix()
 
+	// v5.9.0: as/is (or a group containing them) may leave curToken directly on
+	// '.', with the member name as peek — and peek is not an infix, so the Pratt
+	// loop below would exit and drop `.Field`. Bind member chains here.
+	for p.curTokenIs(token.DOT) {
+		leftExp = p.parseMemberExpression(leftExp)
+	}
+
 	for !p.peekTokenIs(token.SEMICOLON) && precedence < p.peekPrecedence() {
+		// v5.9.0: as/is parse their right-hand type with parseTypeExpression,
+		// which can leave curToken on a *closing* token (e.g. `(x as T).Field`
+		// — after `T` the curToken is `)`). The Pratt loop resumes on the
+		// *peeked* infix, so without stopping here it would skip the `)` and
+		// bind `.Field` inside the group. castBoundary is set by parseAs/is
+		// exactly for this; stop so the group closes and the outer loop binds
+		// `.Field`.
+		if p.castBoundary {
+			p.castBoundary = false
+			return leftExp
+		}
 		infix := p.infixParseFns[p.peekToken.Type]
 		if infix == nil {
 			return leftExp
@@ -263,7 +281,12 @@ func (p *Parser) parseGroupedExpression() ast.Expression {
 		return tuple
 	}
 
-	if !p.expectPeek(token.RPAREN) {
+	if p.curTokenIs(token.RPAREN) {
+		// v5.9.0: as/is may have left curToken on the closing ')' (their right
+		// side is parsed by parseTypeExpression, which stops on the ')' after
+		// the type). Consume it here; expectPeek would wrongly look at peek.
+		p.nextToken()
+	} else if !p.expectPeek(token.RPAREN) {
 		return nil
 	}
 	return exp
@@ -497,6 +520,7 @@ func (p *Parser) parseIsExpression(left ast.Expression) ast.Expression {
 	isToken := p.curToken
 	p.nextToken()
 	right := p.parseTypeExpression()
+	p.markCastBoundary()
 	return &ast.IsExpression{Token: isToken, Expression: left, TargetType: right}
 }
 
@@ -505,7 +529,20 @@ func (p *Parser) parseAsExpression(left ast.Expression) ast.Expression {
 	asToken := p.curToken
 	p.nextToken()
 	right := p.parseTypeExpression()
+	p.markCastBoundary()
 	return &ast.TypeCastExpression{Token: asToken, Expression: left, TargetType: right}
+}
+
+// markCastBoundary records that parseTypeExpression stopped on a closing token
+// (`)`, `,`, `]`, EOF) — the type is a complete operand, and the enclosing
+// Pratt loop must stop rather than skip the closing token to reach a peeked
+// infix (e.g. `(x as T).Field`, where after `T` curToken is `)` and peek is
+// `.`). The loop clears the flag when it stops.
+func (p *Parser) markCastBoundary() {
+	if p.curTokenIs(token.RPAREN) || p.curTokenIs(token.COMMA) ||
+		p.curTokenIs(token.RBRACKET) || p.curTokenIs(token.EOF) {
+		p.castBoundary = true
+	}
 }
 
 func (p *Parser) parseExpressionList(end token.TokenType) []ast.Expression {
