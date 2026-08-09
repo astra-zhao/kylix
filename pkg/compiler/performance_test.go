@@ -118,10 +118,15 @@ end.`
 	}
 	t.Logf("Partial cache compile: %v", partialDuration)
 
-	// Partial cache should still be faster than cold
+	// Partial cache should still be faster than cold (same -short caveat as the
+	// warm-cache assertion above — tiny durations make the ratio CI-flaky).
 	partialSpeedup := float64(coldDuration) / float64(partialDuration)
 	t.Logf("Partial cache speedup vs cold: %.1fx", partialSpeedup)
 	if partialSpeedup < 1.5 {
-		t.Errorf("partial cache not effective: %.1fx speedup (expected at least 1.5x)", partialSpeedup)
+		if testing.Short() {
+			t.Logf("partial cache speed %.1fx (< 1.5x) — skipped in -short mode (CI)", partialSpeedup)
+		} else {
+			t.Errorf("partial cache not effective: %.1fx speedup (expected at least 1.5x)", partialSpeedup)
+		}
 	}
 }
