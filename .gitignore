@@ -27,7 +27,6 @@ test-*.go
 
 # Go
 vendor/
-go.sum
 
 # Node (VS Code extension)
 vscode-ext/node_modules/
