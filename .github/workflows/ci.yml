@@ -25,14 +25,14 @@ jobs:
           go-version: ${{ matrix.go }}
           cache: true
 
-      - name: Build
-        run: go build ./...
+      - name: Build (excluding examples/ — tutorial .go files are package main)
+        run: go build $(go list ./... | grep -v '/examples')
 
       - name: Test (16 packages, excluding generated tutorial .go files)
         run: go test $(go list ./... | grep -v '/examples') -timeout 120s
 
-      - name: Vet
-        run: go vet ./...
+      - name: Vet (excluding examples/)
+        run: go vet $(go list ./... | grep -v '/examples')
 
       - name: Build CLI
         run: go build -o kylix ./cmd/kylix/
