@@ -31,6 +31,7 @@ type Generator struct {
 	inExceptHandler  bool                            // true when inside a recover() block for bare raise
 	reRaiseVar       string                          // Go variable holding the recovered value for re-raise
 	nameMap          map[string]string               // temporary name substitutions (e.g., E→e in on clause)
+	varParams        map[string]bool                 // v6.0.0: `var` output params of the current function (deref reads/writes)
 	imports          map[string]bool                 // Go imports needed by the output
 	needsException   bool                            // whether Exception type must be emitted
 	needsSetLength   bool                            // whether the __kylixSetLength helper is needed
@@ -50,6 +51,7 @@ type Generator struct {
 	ormEntitiesOrder []string                        // deterministic order for ORM emission
 	ormRepositories  []ormRepository                 // ORM [Repository] classes
 	userFuncs        map[string]bool                 // user-defined function names (override built-in mapping)
+	funcParams       map[string][]*ast.Parameter     // v6.0.0: function name → parameter list (for `&` at var-arg call sites)
 	usedModules      map[string]bool                 // modules imported via `uses` clause
 	usesPolymorphism bool                            // true if any compiled program uses `is`/`as` (→ base classes become interfaces). See v5.2.0.
 }
@@ -67,6 +69,7 @@ func New() *Generator {
 		validationFields: make(map[string][]validationField),
 		ormEntities:      make(map[string]*ormEntity),
 		userFuncs:        make(map[string]bool),
+		funcParams:       make(map[string][]*ast.Parameter),
 		usedModules:      make(map[string]bool),
 	}
 }
@@ -443,6 +446,8 @@ func (g *Generator) collectClassTypes(program *ast.Program) {
 			// Track user-defined functions so mapBuiltinFunction doesn't
 			// rewrite calls to them as Go built-ins (e.g. Abs → math.Abs).
 			g.userFuncs[d.Name] = true
+			// v6.0.0: record parameter list (for `&` at var-arg call sites).
+			g.funcParams[d.Name] = d.Parameters
 		case *ast.ClassDecl:
 			g.classTypes[d.Name] = true
 			g.classTypeParams[d.Name] = d.TypeParams

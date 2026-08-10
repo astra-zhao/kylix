@@ -302,6 +302,10 @@ func (p *Parser) parseParameterList() []*ast.Parameter {
 	p.nextToken() // skip '('
 
 	iterations := 0
+	// groupIsVar tracks the `var` modifier across a comma-separated name group
+	// (`var a, b: Integer` — both a and b are var params); cleared once a type
+	// annotation (`: T`) or a new declaration (`;`) ends the group.
+	groupIsVar := false
 	for !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
 		iterations++
 		if iterations > 1000 {
@@ -311,16 +315,21 @@ func (p *Parser) parseParameterList() []*ast.Parameter {
 
 		param := &ast.Parameter{}
 		if p.curTokenIs(token.VAR) {
+			// v6.0.0: `var` output parameter — record it so codegen passes it by
+			// pointer and dereferences reads/writes in the body.
+			groupIsVar = true
 			p.nextToken() // skip 'var' modifier
 		}
 		if p.curTokenIs(token.IDENT) {
 			param.Token = p.curToken
 			param.Name = p.curToken.Literal
+			param.IsVar = groupIsVar // record before the type annotation clears it
 			p.nextToken()
 		}
 		if p.curTokenIs(token.COLON) {
 			p.nextToken()
 			param.Type = p.parseTypeExpression()
+			groupIsVar = false // a type annotation ends the var group
 		}
 		params = append(params, param)
 
@@ -329,6 +338,7 @@ func (p *Parser) parseParameterList() []*ast.Parameter {
 			continue
 		}
 		if p.curTokenIs(token.SEMICOLON) {
+			groupIsVar = false // new declaration group
 			p.nextToken()
 		} else if !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
 			p.nextToken() // safety advance to avoid infinite loop

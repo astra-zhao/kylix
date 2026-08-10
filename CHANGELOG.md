@@ -52,6 +52,17 @@ All notable changes to the Kylix compiler are documented in this file.
 - **51 教程 `--llvm-opt=2` 编译+运行 51/51**；`-O0` vs `-O2` 输出捕获 diff **全部一致**（-O2 不破坏正确性）。
 - 前置：bootstrap LLVM 编译的 `arr := nil` slice 零值 + `FloatToStr` builtin 两个类型错误修复（见 v6.1.0），使 -O0/-O2 均稳定编译。
 
+### klx codegen 修复：var 输出参数 → Go 指针（host 端）
+
+v5.9 遗留限制「`var` 输出参数转译成值传递」在 **host Go 后端**修复：
+
+- `ast.Parameter` 加 `IsVar`；`parseParameterList` 记录 `var` 修饰符（含 `var a, b: Type` 名字组延续，`:` 类型结束组）。
+- 签名：`func IncBy(x *int64, n int64)`（函数/方法/async 三处）。
+- body 读写统一解引用（`x := x + n` → `*x = *x + n`，`Identifier` 生成处判 `g.varParams`）。
+- 调用处：顶层函数实参传 `&`（`g.funcParams` 记录签名，`IncBy(&v, 5)`）。
+- 测试：`TestParseVarParameter`/`TestParseVarParameterGroup`。
+- **限制**：LLVM 后端仍值传递（不识别 IsVar）；klx bootstrap 编译器（src/*.klx）待同步（bootstrap 源码不用 var 参数，不影响 self-reproduction）；方法调用的 var 参数传址待补。
+
 ### #7 产出
 
 - `Result` 加 `Duration`/`CacheHits`/`CacheMisses` 字段（`CompileProject` 计时 + 缓存命中统计）；`BuildCache.Load` 计数。

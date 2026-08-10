@@ -108,6 +108,7 @@ type Parameter struct {
 	Token token.Token // NEW: the parameter name token
 	Name  string
 	Type  Expression
+	IsVar bool // v6.0.0: `var` output parameter — passed by pointer (*T)
 }
 
 // Block Statement

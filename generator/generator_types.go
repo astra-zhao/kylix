@@ -125,6 +125,7 @@ func (g *Generator) generateClassMethod(className string, typeParams []*ast.Type
 	g.write(") ")
 	g.write(method.Name)
 	g.generateFunctionSignature(method)
+	g.setVarParams(method) // v6.0.0: var output params → deref in body
 	g.writeLine(" {")
 	g.indent++
 
@@ -169,6 +170,7 @@ func (g *Generator) generateClassMethod(className string, typeParams []*ast.Type
 	if hasReturnType {
 		g.writeLine("return result")
 	}
+	g.clearVarParams() // v6.0.0
 
 	g.indent--
 	g.writeLine("}")
@@ -354,6 +356,7 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 	}
 	g.generateTypeParams(decl.TypeParams)
 	g.generateFunctionSignature(decl)
+	g.setVarParams(decl) // v6.0.0: track `var` output params for body deref
 	g.writeLine(" {")
 	g.indent++
 
@@ -397,6 +400,7 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 	if hasReturnType && !hasMultiReturn {
 		g.write("return result\n")
 	}
+	g.clearVarParams() // v6.0.0
 	g.multiReturn = false
 	g.multiReturnN = 0
 
@@ -412,6 +416,7 @@ func (g *Generator) generateAsyncFunctionDecl(decl *ast.FunctionDecl) {
 	g.write(fmt.Sprintf("func %s", decl.Name))
 	g.generateTypeParams(decl.TypeParams)
 	g.generateAsyncSignature(decl)
+	g.setVarParams(decl) // v6.0.0
 	g.writeLine(" {")
 	g.indent++
 
@@ -449,6 +454,7 @@ func (g *Generator) generateAsyncFunctionDecl(decl *ast.FunctionDecl) {
 	g.indent--
 	g.writeLine("}()")
 	g.writeLine("return ch")
+	g.clearVarParams() // v6.0.0
 	g.indent--
 	g.writeLine("}")
 	g.writeLine("")
@@ -462,7 +468,11 @@ func (g *Generator) generateAsyncSignature(decl *ast.FunctionDecl) {
 		}
 		g.write(param.Name)
 		if param.Type != nil {
-			g.write(" ")
+			if param.IsVar {
+				g.write(" *") // v6.0.0: var output param → pointer
+			} else {
+				g.write(" ")
+			}
 			g.generateTypeExpression(param.Type)
 		}
 	}
@@ -500,7 +510,11 @@ func (g *Generator) generateFunctionSignature(decl *ast.FunctionDecl) {
 		}
 		g.write(param.Name)
 		if param.Type != nil {
-			g.write(" ")
+			if param.IsVar {
+				g.write(" *") // v6.0.0: var output param → pointer
+			} else {
+				g.write(" ")
+			}
 			g.generateTypeExpression(param.Type)
 		}
 	}
@@ -513,6 +527,23 @@ func (g *Generator) generateFunctionSignature(decl *ast.FunctionDecl) {
 		g.write(" ")
 		g.generateTypeExpression(decl.ReturnType)
 	}
+}
+
+// setVarParams records which parameters of decl are `var` (pointer) output
+// params, so expression/assignment codegen can dereference them inside the
+// body. Cleared by clearVarParams after the function is emitted.
+func (g *Generator) setVarParams(decl *ast.FunctionDecl) {
+	g.varParams = make(map[string]bool)
+	for _, p := range decl.Parameters {
+		if p.IsVar {
+			g.varParams[p.Name] = true
+		}
+	}
+}
+
+// clearVarParams resets var-param tracking after a function body is emitted.
+func (g *Generator) clearVarParams() {
+	g.varParams = nil
 }
 
 func (g *Generator) generateMultiReturnType(types []ast.Expression) {

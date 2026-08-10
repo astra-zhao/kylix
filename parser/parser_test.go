@@ -708,3 +708,56 @@ func TestParseEmptyProgram(t *testing.T) {
 		t.Fatal("expected non-nil program")
 	}
 }
+
+func TestParseVarParameter(t *testing.T) {
+	p := newParser(`program V;
+procedure IncBy(var x: Integer; n: Integer);
+begin
+end;
+begin
+end.`)
+	prog := p.ParseProgram()
+	checkNoErrors(t, p)
+	var fd *ast.FunctionDecl
+	for _, d := range prog.Declarations {
+		if f, ok := d.(*ast.FunctionDecl); ok {
+			fd = f
+			break
+		}
+	}
+	if fd == nil || len(fd.Parameters) != 2 {
+		t.Fatalf("expected 2 parameters, got %+v", fd)
+	}
+	if !fd.Parameters[0].IsVar {
+		t.Errorf("expected first param x to be var, got IsVar=%v", fd.Parameters[0].IsVar)
+	}
+	if fd.Parameters[1].IsVar {
+		t.Errorf("expected second param n not to be var, got IsVar=%v", fd.Parameters[1].IsVar)
+	}
+}
+
+func TestParseVarParameterGroup(t *testing.T) {
+	// `var a, b: Integer` — the var modifier extends across the name group.
+	p := newParser(`program V;
+procedure Swap(var a, b: Integer);
+begin
+end;
+begin
+end.`)
+	prog := p.ParseProgram()
+	checkNoErrors(t, p)
+	var fd *ast.FunctionDecl
+	for _, d := range prog.Declarations {
+		if f, ok := d.(*ast.FunctionDecl); ok {
+			fd = f
+			break
+		}
+	}
+	if fd == nil || len(fd.Parameters) != 2 {
+		t.Fatalf("expected 2 parameters, got %+v", fd)
+	}
+	if !fd.Parameters[0].IsVar || !fd.Parameters[1].IsVar {
+		t.Errorf("expected both a and b to be var, got IsVar=%v,%v",
+			fd.Parameters[0].IsVar, fd.Parameters[1].IsVar)
+	}
+}

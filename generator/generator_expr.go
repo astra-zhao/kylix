@@ -11,6 +11,11 @@ import (
 func (g *Generator) generateExpression(expr ast.Expression) {
 	switch e := expr.(type) {
 	case *ast.Identifier:
+		// v6.0.0: `var` output parameter — the Go parameter is a pointer, so a
+		// read must dereference it.
+		if g.varParams[e.Value] {
+			g.write("*")
+		}
 		// Apply name substitution map (e.g., ON clause variable E → e).
 		if mapped, ok := g.nameMap[e.Value]; ok {
 			g.write(mapped)
@@ -279,11 +284,20 @@ func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 	}
 
 	// Generic call
+	funcName := ""
+	if ident, ok := e.Function.(*ast.Identifier); ok {
+		funcName = ident.Value
+	}
+	params := g.funcParams[funcName]
 	g.generateExpression(e.Function)
 	g.write("(")
 	for i, arg := range e.Arguments {
 		if i > 0 {
 			g.write(", ")
+		}
+		// v6.0.0: `var` output parameter → pass the argument's address.
+		if i < len(params) && params[i].IsVar {
+			g.write("&")
 		}
 		g.generateExpression(arg)
 	}
