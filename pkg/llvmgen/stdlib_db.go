@@ -28,6 +28,8 @@ func (g *Generator) emitDbCall(funcName string, args []ast.Expression) (string, 
 	switch funcName {
 	case "DbOpenSQLite":
 		return g.emitDbOpenSQLiteCall(args)
+	case "DbOpen":
+		return g.emitDbOpenCall(args)
 	case "DbClose":
 		return g.emitDbCloseCall(args)
 	case "DbExec":
@@ -41,12 +43,14 @@ func (g *Generator) emitDbCall(funcName string, args []ast.Expression) (string, 
 	}
 }
 
-// emitDbBody dispatches the deferred body emitter (DbOpenSQLite/DbClose have
-// module-level bodies; DbExec/DbQueryScalar are inlined at call sites).
+// emitDbBody dispatches the deferred body emitter (DbOpenSQLite/DbOpen/DbClose
+// have module-level bodies; DbExec/DbQueryScalar are inlined at call sites).
 func (g *Generator) emitDbBody(funcName string) {
 	switch funcName {
 	case "DbOpenSQLite":
 		g.emitDbOpenSQLiteBody()
+	case "DbOpen":
+		g.emitDbOpenBody()
 	case "DbClose":
 		g.emitDbCloseBody()
 	}
@@ -85,6 +89,62 @@ func (g *Generator) emitDbOpenSQLiteBody() {
 	g.line(fmt.Sprintf("%s:", failLbl))
 	g.line("  ret ptr null")
 	g.line(fmt.Sprintf("%s:", okLbl))
+	dbVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", dbVal, dbSlot))
+	g.line(fmt.Sprintf("  ret ptr %s", dbVal))
+	g.line("}")
+	g.line("")
+}
+
+// ---- DbOpen: ptr @__kylix_db_DbOpen(ptr %driver, ptr %dsn) ----
+//
+// v6.1.0: driver=="sqlite3" → sqlite3_open(dsn) (same as DbOpenSQLite); any
+// other driver (mysql/postgres) returns null — those drivers are not linked.
+func (g *Generator) emitDbOpenCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("db.DbOpen expects 2 arguments (driver, dsn), got %d", len(args))
+	}
+	driverReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	dsnReg, _, err := g.emitExpr(args[1])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("db", "DbOpen", "DbOpen", 0)
+	g.needLibsqlite = true
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_db_DbOpen(ptr %s, ptr %s)", r, driverReg, dsnReg))
+	return r, dbHandleTypeName, nil
+}
+
+func (g *Generator) emitDbOpenBody() {
+	g.line("define ptr @__kylix_db_DbOpen(ptr %driver, ptr %dsn) {")
+	g.line("entry:")
+	driverStr := g.addString("sqlite3")
+	isSQLite := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @strcmp(ptr %%driver, ptr %s)", isSQLite, driverStr))
+	same := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", same, isSQLite))
+	okLbl := g.label()
+	failLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", same, okLbl, failLbl))
+	g.line(fmt.Sprintf("%s:", failLbl))
+	g.line("  ret ptr null")
+	g.line(fmt.Sprintf("%s:", okLbl))
+	dbSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", dbSlot))
+	rc := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @sqlite3_open(ptr %%dsn, ptr %s)", rc, dbSlot))
+	bad := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ne i32 %s, 0", bad, rc))
+	ok2 := g.label()
+	fail2 := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", bad, fail2, ok2))
+	g.line(fmt.Sprintf("%s:", fail2))
+	g.line("  ret ptr null")
+	g.line(fmt.Sprintf("%s:", ok2))
 	dbVal := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", dbVal, dbSlot))
 	g.line(fmt.Sprintf("  ret ptr %s", dbVal))
@@ -163,11 +223,17 @@ func (g *Generator) emitDbExecCall(args []ast.Expression) (string, string, error
 		}
 	}
 
-	// step (ignore return — INSERT/CREATE returns SQLITE_DONE=100)
+	// step (INSERT/CREATE returns SQLITE_DONE=100; errors are ignored)
 	g.line(fmt.Sprintf("  call i32 @sqlite3_step(ptr %s)", stmt))
 	// finalize
 	g.line(fmt.Sprintf("  call i32 @sqlite3_finalize(ptr %s)", stmt))
-	return "0", "void", nil
+	// v6.1.0: return rows affected (matches the Go backend's int64 return).
+	// sqlite3_changes(db) reports the count from the most recent DML statement.
+	rows := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @sqlite3_changes(ptr %s)", rows, dbReg))
+	rows64 := g.tmp()
+	g.line(fmt.Sprintf("  %s = sext i32 %s to i64", rows64, rows))
+	return rows64, "i64", nil
 }
 
 // ---- DbQueryScalar: inlined at call site ----

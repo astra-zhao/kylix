@@ -66,6 +66,32 @@ jobs:
       - name: "Run 51 tutorials (Go backend compile, then go run)"
         run: KYLIX=$PWD/kylix bash examples/complete-tutorial/test_all.sh
 
+  llvm-tutorials:
+    name: Tutorials (LLVM backend, 51 examples)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install LLVM toolchain + stdlib native libs
+        # llc/clang drive the LLVM backend; libsqlite3/libcurl/libssl are the
+        # system libs it links for the db/httpclient/crypto stdlib modules.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev
+
+      - name: Build CLI
+        run: go build -o kylix ./cmd/kylix/
+
+      - name: "Run 51 tutorials (LLVM backend → native binary, run, cleanup)"
+        run: KYLIX=$PWD/kylix bash examples/complete-tutorial/test_all_llvm.sh
+
   selfrepro:
     name: Self-reproduction fixpoint
     runs-on: ubuntu-latest

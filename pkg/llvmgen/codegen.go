@@ -77,6 +77,15 @@ type Generator struct {
 	stdlibEmitted map[string]bool // function key ("sysutil.ReadFile") → body already queued
 	stdlibQueue   []stdlibFunc    // deferred stdlib function bodies to emit
 
+	// KylixBoot annotations (v6.1.0): collected by scanBootAnnotations from
+	// [Controller]/[Service]/[Component]/[Inject]/[Get]/[Post]/[Put]/[Delete]
+	// attributes and lowered to auto-wiring IR in emitMain (instance creation +
+	// route registration) plus wrapper defines at module end.
+	bootRoutes     []bootRoute
+	bootComponents []bootComponent
+	bootInjects    []bootInject
+	bootWrappers   []bootWrapper
+
 	// base64TableEmitted guards the @__kylix_b64_table global (emitted once
 	// per module, on first Base64Encode/Decode use).
 	base64TableEmitted bool
@@ -416,6 +425,13 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 			}
 		}
 	}
+
+	// v6.1.0: scan KylixBoot annotations ([Controller]/[Service]/[Inject]/[Get]
+	// ...) now that class names are pre-registered, and emit the controller
+	// instance globals for the route wrappers.
+	g.scanBootAnnotations(prog)
+	g.emitBootGlobals()
+
 	g.collectGlobals(prog)
 
 	// Emit declarations and function bodies
@@ -454,6 +470,10 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	// Emit deferred stdlib module-function bodies (e.g. sysutil.ReadFile),
 	// collected during expression emission. Module-level defines, like lambdas.
 	g.emitPendingStdlib()
+
+	// v6.1.0: emit the KylixBoot route handler wrappers after the Boot*
+	// defines, so @__kylix_boot_BootText etc. are already in the IR.
+	g.emitPendingBootDefines()
 
 	// Emit the internal hash-table runtime (used by cache / map) if any
 	// module referenced it. Idempotent.
@@ -574,6 +594,7 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i32 @sqlite3_step(ptr noundef)")
 	g.line("declare ptr @sqlite3_column_text(ptr noundef, i32 noundef)")
 	g.line("declare i32 @sqlite3_finalize(ptr noundef)")
+	g.line("declare i32 @sqlite3_changes(ptr noundef)")
 	g.line("; ===== libcurl (used by stdlib httpclient, v4.5.0 Phase 3) =====")
 	g.line("declare ptr @curl_easy_init()")
 	g.line("declare i32 @curl_easy_setopt(ptr noundef, i32 noundef, ...)")
@@ -623,6 +644,10 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	g.line("entry:")
 	g.funcName = "main"
 	g.funcExitLabel = g.label() // v5.6.0: exit block for `Exit`/`return` in main
+	// main() has no `result` return slot; reset so a `var result := ...` local
+	// (e.g. example27's `var result := SafeDivide(...)`) resolves to its own
+	// alloca instead of a stale %result from the previous function (v6.1.0).
+	g.resultLLVMType = ""
 	g.locals = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
 	g.registerGlobalsInScope() // v5.4.0: make globals visible in main
@@ -685,6 +710,12 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 		capSlot := g.tmp()
 		g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, i64, i64 }, ptr @__kylix_args, i32 0, i32 2", capSlot))
 		g.line(fmt.Sprintf("  store i64 %s, ptr %s", count64, capSlot))
+	}
+
+	// v6.1.0: KylixBoot auto-wiring — instantiate controllers/components and
+	// register routes before any user statement (mirrors the Go backend).
+	if err := g.emitBootAutoWiring(); err != nil {
+		return err
 	}
 
 	for _, stmt := range stmts {

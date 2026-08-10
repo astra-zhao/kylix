@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 )
 
 func cmdBuild(args []string) {
@@ -22,6 +23,7 @@ func cmdBuild(args []string) {
 	backend := fs.String("backend", "go", "Compiler backend: go (default) or llvm (experimental)")
 	llvmOpt := fs.String("llvm-opt", "", "LLVM optimization level (0/1/2/3); only meaningful with --backend=llvm")
 	llvmDebug := fs.Bool("g", false, "Emit DWARF debug info (LLVM backend; implies -O0, enables GDB/LLDB function-level debugging)")
+	showTime := fs.Bool("time", false, "Print compile duration and incremental-cache hit rate (v6.0.0)")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix build [options] [file.klx]
 
@@ -86,13 +88,18 @@ OPTIONS:
 
 			// LLVM backend shortcut — bypass Go codegen entirely
 			if *backend == "llvm" {
+				start := time.Now()
 				if err := buildWithLLVM(file, *output, *llvmOpt, *llvmDebug); err != nil {
 					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 					os.Exit(1)
 				}
+				if *showTime {
+					fmt.Printf("  time: %s\n", time.Since(start).Round(time.Microsecond))
+				}
 				return
 			}
 
+			start := time.Now()
 			result, err := compiler.CompileFile(file, opts)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -136,6 +143,9 @@ OPTIONS:
 			} else {
 				fmt.Printf("✓ Compiled %s → %s\n", file, result.OutputFile)
 			}
+			if *showTime {
+				fmt.Printf("  time: %s\n", time.Since(start).Round(time.Microsecond))
+			}
 			return
 		}
 
@@ -146,13 +156,18 @@ OPTIONS:
 		// single-file branch above: merges each file's declarations (main
 		// program + any `unit` files it `uses`) before lowering to LLVM IR.
 		if *backend == "llvm" {
+			start := time.Now()
 			if err := buildMultiFileWithLLVM(files, *output, *llvmOpt, *llvmDebug); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+			if *showTime {
+				fmt.Printf("  time: %s\n", time.Since(start).Round(time.Microsecond))
+			}
 			return
 		}
 
+		start := time.Now()
 		result, err := compiler.CompileProject(files, opts)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -163,6 +178,9 @@ OPTIONS:
 			os.Exit(1)
 		}
 		fmt.Printf("✓ Compiled %d files → %s\n", len(files), result.OutputFile)
+		if *showTime {
+			fmt.Printf("  time: %s%s\n", time.Since(start).Round(time.Microsecond), cacheStats(result.CacheHits, result.CacheMisses))
+		}
 		return
 	}
 
@@ -204,6 +222,7 @@ OPTIONS:
 	// Otherwise fall back to CompileFile for single-file projects.
 	allFiles, _ := cfg.FindAllKlxFiles()
 	var result *compiler.Result
+	start := time.Now()
 	if len(allFiles) > 1 {
 		result, err = compiler.CompileProject(allFiles, opts)
 	} else {
@@ -254,6 +273,9 @@ OPTIONS:
 		fmt.Printf("✓ Built %s → %s [%s/%s]\n", cfg.Name, binOut, targetGOOS, targetGOARCH)
 	} else {
 		fmt.Printf("✓ Built %s → %s\n", cfg.Name, outFile)
+	}
+	if *showTime {
+		fmt.Printf("  time: %s%s\n", time.Since(start).Round(time.Microsecond), cacheStats(result.CacheHits, result.CacheMisses))
 	}
 }
 
@@ -320,6 +342,16 @@ func stripExt(name string) string {
 		}
 	}
 	return name
+}
+
+// cacheStats formats the incremental-cache hit report for --time output.
+// Returns "" when caching was disabled (no cache dir), so callers can just
+// append it to the timing line.
+func cacheStats(hits, misses int) string {
+	if hits == 0 && misses == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", cache %d/%d hit", hits, hits+misses)
 }
 
 // buildWithLLVM compiles a Kylix file to native binary via LLVM IR.

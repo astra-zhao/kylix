@@ -4,6 +4,68 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v6.1.0 (2026-08-10) — KylixRT 核心：kylix run 单二进制无 Go + LLVM boot 注解自动装配 + 51 教程 LLVM 全过
+
+> 🎯 **KylixRT 核心达成**：`kylix run` 在无 Go 工具链环境直接产出原生二进制并运行（auto 探测回退 LLVM 后端）。LLVM 后端补齐 KylixBoot 注解自动装配（此前全 stub），51 教程 **51/51** LLVM 编译+运行全过（新增 `test_all_llvm.sh` + CI `llvm-tutorials` job）。
+
+### A: kylix run LLVM 路由（单二进制核心验收）
+
+- `cmd_run.go` 加 `--backend=auto|go|llvm`（默认 **auto**）+ `--llvm-opt` + `--g`。
+- `resolveRunBackend`：`exec.LookPath("go")` 探测——有 Go 走 Go（现有行为不变），无 Go 自动回退 LLVM。
+- `runWithLLVM`/`runProjectWithLLVM`：源文件拷入 tmp 目录编译（`.ll`/`.o`/二进制全在 tmp，不污染源目录），运行产物，默认清理；`--keep` 把二进制拷回源目录。
+- **验收**：`PATH` 剔除 go 后 `./kylix run hello.klx` 输出 Hello World ✅。
+
+### B: LLVM boot 注解自动装配（此前 100% stub）
+
+- **B1 类型映射**：`TRequest`/`TResponse`/`BootRequest`/`BootResponse` 注册为 opaque ptr（`llvmTypeOfExpr`/`LLVMType`）——此前未知类型落 i64，`result := BootText(...)`（ptr）存 i64 槽 → llc store type mismatch，41/42/43/44/46/50/51 全部编译失败。
+- **TResponse 真实句柄**：`{i64 status, ptr body}` 16 字节。`BootText/BootJSON/BootHTML` 返回真实句柄；`.Body`/`.Status` GEP+load。
+- **B2+B3 注解扫描 + 自动装配**（新 `boot_annotations.go`，移植 `generator_boot_annotations.go`）：`scanBootAnnotations` 收集 `[Controller]`/`[Service]`/`[Component]`/`[Inject]`/`[Get/Post/Put/Delete]`/`[Authenticated]`/`[Role]`；`emitBootAutoWiring` 在 main 用户语句前发射组件/控制器实例化 + `BootRegisterInstance` + `[Inject]` 字段赋值 + 路由注册；**无闭包方案**——模块全局 `@__kylix_boot_ctrl_<Class>` 捕获实例 + 命名 wrapper `@__kylix_boot_handler_<i>`（函数指针直传，绕开 LLVM 闭包 ABI）。
+- **B4 boot 函数补齐**：`stdlibModuleFuncs["boot"]` 扩到 22 个函数；`emitBootCall` 表驱动 stub（BootEnforceAuth/Role→null=通过、BootReadJSON→0、注册类→void no-op）。
+- example42/43/44/46/50/51 编译+运行输出 `...OK`；**example41 与 Go 后端输出逐字节一致**（含 `[Inject]` 装配 + `.Body` + 方法链）。
+
+### C: httpclient / db 补缺 + 潜伏回归修复
+
+- **httpclient**（`stdlib_httpclient.go`）：Post 签名修复为三参 `(path, contentType, body)`（ct 非空拼 `Content-Type` header）+ timeout 统一毫秒（`CURLOPT_TIMEOUT_MS`，默认 10000）；方法 Put/Delete/StatusCode + 模块级助手 HttpGet/HttpPost/HttpPut/HttpDelete/HttpGetJSON/HttpPostJSON/HttpDoGet/HttpDoPost 从空串 stub → 真实 libcurl IR（统一 `@__kylix_httpclient_DoRequest` define，返回 `{i64 status, ptr body}`）；THttpResponse 字段 `.Status`/`.Body`。
+- **db**：`DbOpen(driver, dsn)` driver=="sqlite3" 真实转发 `sqlite3_open`（其它驱动 null）；`DbExec` 返回 `sqlite3_changes` 行数（对齐 Go 面 int64）。`DbQueryRows` 结果集数组留 stub（记录 limitation）。
+- **3 个潜伏回归修复**（`test_all_llvm.sh` 首次全量暴露，v5.4–5.9 期间引入且无 LLVM 教程测试门禁）：
+  1. `emitVtable` 无方法类不发 vtable，但 `emitConstructor` 无条件 `store @X_vtable` → `[Component]` 无方法类（TAppConfig）悬空引用 — 无方法类 store null。
+  2. `JsonGetArray` 返回 alloca 指针却标注 slice 值类型 → `arr := JsonGetArray(...)` store 类型错 — 返回 load 后的 slice 值。
+  3. `emitIdentLoad` 的 `result` 分支读残留 `g.resultLLVMType`（上一函数未清）→ main 里 `var result := ...` 误 load 旧 `%result` — `emitMain` 重置 `resultLLVMType`。
+  4. **bootstrap 7451 行 LLVM 编译两个类型错误**（顺带修复，-O2 前提）：`arr := nil` 动态数组赋 nil 需 store slice 零值（`stmt.go`）；`FloatToStr` builtin 缺失（bootstrap 当普通函数返回 i64）→ 新增 `emitFloatToStr`（snprintf `%.17g`）。修复后 **LLVM -O0/-O2 均稳定编译 bootstrap**。
+
+### D: 测试基建
+
+- 新 `examples/complete-tutorial/test_all_llvm.sh`：51 教程 `--backend=llvm` 编译+运行（清理未跟踪 .ll/.o，保留已提交产物）+ example33 多文件。
+- CI 加 `llvm-tutorials` job（ubuntu：apt llvm/clang/libsqlite3/libcurl/libssl → 51/51 门禁）。
+
+**验证**：51 教程 LLVM 51/51 ✅、Go 后端 51 教程无回归、16 包 Go 测试全绿、bootstrap LLVM 编译产出 `main` 二进制可运行。
+
+---
+
+## v6.0.0 (2026-08-10) — 性能 benchmark（#7）
+
+> 🎯 **首次编译时间 benchmark**：bootstrap 源码（7 文件 7451 行）冷/热 + Go/LLVM 四场景，3 轮中位数。同时为 `Result`/`BuildCache` 加统计字段 + `build --time` flag。
+
+### #7 产出
+
+- `Result` 加 `Duration`/`CacheHits`/`CacheMisses` 字段（`CompileProject` 计时 + 缓存命中统计）；`BuildCache.Load` 计数。
+- `kylix build --time` flag：输出耗时 + 缓存命中率（`[29ms, cache 0/7 hit]`）。
+- 新 `benchmarks/compile_time.sh`：Go 冷/热 + LLVM -O0/-O2，3 轮中位数 markdown 表；失败场景标 FAIL 不造假数据。
+- 新 `docs/compile-performance.md` 记录结果。
+
+### 结果（Apple Silicon arm64, Go 1.25, LLVM 22）
+
+| 场景 | 中位数 |
+|---|---|
+| Go 冷编译 | 29ms |
+| Go 热编译（增量缓存） | 23ms |
+| LLVM -O0 | 11527ms |
+| LLVM -O2 | 575ms |
+
+**洞察**：LLVM -O2 编译反而比 -O0 快 **20×**（`opt` 优化缩小 IR 后 llc 处理更快，与运行时相反）。LLVM 编译时间约 Go 后端的 20×（-O2），换取无 Go runtime 的原生二进制。
+
+---
+
 ## v5.9.0 (2026-08-08) — 多态 gate + KylixBoot 注解自动装配 + validation 注解完整化
 
 > 🎯 **self-host 多态 gate 缺口排查修复**：宿主编译器与 bootstrap 编译器（src/*.klx）对同一源码产出不一致的基类发射（interface vs struct），本轮定位根因并 4 处修复，两路径收敛为一致。

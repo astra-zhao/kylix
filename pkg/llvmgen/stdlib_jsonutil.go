@@ -481,14 +481,19 @@ func (g *Generator) emitJsonGetArrayCall(args []ast.Expression) (string, string,
 	}
 	g.enqueueStdlib("jsonutil", "JsonGetArray", "JsonGetArray", 0)
 	g.needHashtab = true
-	// Result is a {ptr, i64, i64} slice returned by value into a local alloca,
-	// so callers can store it into a `var arr: array of ...` slot with a single
-	// struct copy and index it with the standard slice path.
+	// Result is a {ptr, i64, i64} slice written into a local alloca, then loaded
+	// back as a value so callers can store it into a `var arr: array of ...`
+	// slot with a single struct copy. (v6.1.0: the alloca register itself is a
+	// ptr, not a slice value — returning it with the "{ ptr, i64, i64 }" type
+	// made `arr := JsonGetArray(...)` emit `store {ptr,i64,i64} %t, ptr %arr`
+	// with a ptr-typed source, which llc rejects.)
 	retAlloca := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca { ptr, i64, i64 }, align 8", retAlloca))
 	g.line(fmt.Sprintf("  call void @__kylix_json_JsonGetArray(ptr %s, ptr %s, ptr %s)",
 		retAlloca, mReg, kReg))
-	return retAlloca, "{ ptr, i64, i64 }", nil
+	retVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load { ptr, i64, i64 }, ptr %s", retVal, retAlloca))
+	return retVal, "{ ptr, i64, i64 }", nil
 }
 
 func (g *Generator) emitJsonGetArrayBody() {

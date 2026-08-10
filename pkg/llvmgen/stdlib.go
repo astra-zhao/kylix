@@ -88,7 +88,19 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"JsonHasKey": true, "JsonEncode": true, "JsonEncodePretty": true,
 	},
 	"boot": {
-		"BootText": true, "BootJSON": true, "BootRegisterJwtAuth": true,
+		// v6.1.0: full KylixBoot API surface. Most are no-op stubs (see
+		// stdlib_boot.go) since there is no HTTP server in the LLVM backend —
+		// enough for the tutorial examples to compile, register routes and run.
+		"BootText": true, "BootJSON": true, "BootHTML": true,
+		"BootRegisterJwtAuth": true, "BootRun": true,
+		"BootGET": true, "BootPOST": true, "BootPUT": true, "BootDELETE": true,
+		"BootUseLogger": true, "BootUseRecover": true, "BootUseCORS": true,
+		"BootUseRequestID": true,
+		"BootConfigSet":    true, "BootConfigGetString": true, "BootConfigGetInt": true,
+		"BootRegisterInstance": true, "BootResolve": true,
+		"BootRegisterAuth": true, "BootRegisterRoles": true,
+		"BootEnforceAuth": true, "BootEnforceRole": true,
+		"BootReadJSON": true,
 	},
 	"httpclient": {
 		"NewHttpClient": true, "HttpGet": true, "HttpPost": true,

@@ -2,6 +2,8 @@ package llvmgen
 
 import (
 	"fmt"
+	"strings"
+
 	"kylix/ast"
 )
 
@@ -44,29 +46,36 @@ const (
 // to curl_easy_setopt; the variadic third arg's type depends on the option
 // category (OBJECTPOINT→ptr, FUNCTIONPOINT→function ptr, LONG→i64).
 const (
-	curloptWrdata        = 10001 // CURLOPT_WRITEDATA     (OBJECTPOINT)
-	curloptUrl           = 10002 // CURLOPT_URL           (OBJECTPOINT)
-	curloptPostfields    = 10015 // CURLOPT_POSTFIELDS    (OBJECTPOINT)
-	curloptHttpheader    = 10023 // CURLOPT_HTTPHEADER    (OBJECTPOINT)
-	curloptTimeout       = 13    // CURLOPT_TIMEOUT       (LONG)
-	curloptPost          = 47    // CURLOPT_POST          (LONG)
-	curloptWritefunction = 20011 // CURLOPT_WRITEFUNCTION (FUNCTIONPOINT)
+	curloptWrdata        = 10001   // CURLOPT_WRITEDATA     (OBJECTPOINT)
+	curloptUrl           = 10002   // CURLOPT_URL           (OBJECTPOINT)
+	curloptPostfields    = 10015   // CURLOPT_POSTFIELDS    (OBJECTPOINT)
+	curloptHttpheader    = 10023   // CURLOPT_HTTPHEADER    (OBJECTPOINT)
+	curloptCustomrequest = 10036   // CURLOPT_CUSTOMREQUEST (OBJECTPOINT)
+	curloptTimeoutMs     = 156     // CURLOPT_TIMEOUT_MS    (LONG, milliseconds)
+	curloptPost          = 47      // CURLOPT_POST          (LONG)
+	curloptWritefunction = 20011   // CURLOPT_WRITEFUNCTION (FUNCTIONPOINT)
+	curlInfoResponseCode = 2097154 // CURLINFO_RESPONSE_CODE (LONG; CURLINFO_LONG 0x200000 + 2)
 )
 
-// httpClientDefaultTimeout is the timeout (seconds) NewHttpClient stores when
-// no explicit timeout is provided by the caller.
-const httpClientDefaultTimeout = 30
+// httpClientDefaultTimeout is the timeout (milliseconds) NewHttpClient stores
+// when no explicit timeout is provided. Mirrors the Go backend default (10s).
+// v6.1.0: unit changed from seconds to milliseconds to match the Kylix
+// `NewHttpClient(baseURL, timeoutMs: Integer)` declaration; the handle stores
+// milliseconds and Get/Post pass CURLOPT_TIMEOUT_MS directly.
+const httpClientDefaultTimeout = 10000
 
 // emitHttpclientCall dispatches a `httpclient.Func(args)` / bare `Func(args)`
-// call. Only NewHttpClient is lowered to real libcurl IR here; the one-shot
-// helpers (HttpGet/HttpPost/HttpPut/HttpDelete/HttpGetJSON/HttpPostJSON/
-// HttpDoGet/HttpDoPost) remain stubs returning empty strings — they're not
-// exercised by the LLVM tutorial and would duplicate the Get/Post method
-// logic. They still evaluate their args for side effects.
+// call. NewHttpClient and the one-shot helpers are lowered to real libcurl IR
+// (the helpers share a single @__kylix_httpclient_DoRequest define); unknown
+// functions fall back to an empty-string stub after evaluating args.
 func (g *Generator) emitHttpclientCall(funcName string, args []ast.Expression) (string, string, error) {
 	switch funcName {
 	case "NewHttpClient":
 		return g.emitHttpclientNewCall(args)
+	case "HttpGet", "HttpPost", "HttpPut", "HttpDelete", "HttpGetJSON", "HttpPostJSON":
+		return g.emitHttpclientHelperCall(funcName, args)
+	case "HttpDoGet", "HttpDoPost":
+		return g.emitHttpclientDoCall(funcName, args)
 	default:
 		for _, a := range args {
 			if _, _, err := g.emitExpr(a); err != nil {
@@ -90,11 +99,16 @@ func (g *Generator) emitHttpclientBody(funcName string) {
 		g.emitHttpclientGetBody()
 	case "Post":
 		g.emitHttpclientPostBody()
+	case "DoRequest":
+		g.emitHttpclientDoRequestBody()
+	case "Request":
+		g.emitHttpclientRequestBody()
 	}
 }
 
 // emitHttpclientMethodCall handles THttpClient method calls
-// (c.SetHeader / c.Get / c.Post). Put/Delete/etc. remain stubs.
+// (c.SetHeader / c.Get / c.Post). Put/Delete/StatusCode (v6.1.0) delegate to
+// the one-shot DoRequest define, extracting the body or the response code.
 func (g *Generator) emitHttpclientMethodCall(receiver string, method string, args []ast.Expression) (string, string, error) {
 	switch method {
 	case "SetHeader":
@@ -103,6 +117,12 @@ func (g *Generator) emitHttpclientMethodCall(receiver string, method string, arg
 		return g.emitHttpclientGetCall(receiver, args)
 	case "Post":
 		return g.emitHttpclientPostCall(receiver, args)
+	case "Put":
+		return g.emitHttpclientVerbCall(receiver, "PUT", args, true)
+	case "Delete":
+		return g.emitHttpclientVerbCall(receiver, "DELETE", args, false)
+	case "StatusCode":
+		return g.emitHttpclientStatusCodeCall(receiver, args)
 	default:
 		for _, a := range args {
 			if _, _, err := g.emitExpr(a); err != nil {
@@ -151,7 +171,7 @@ func (g *Generator) emitHttpclientFieldAccess(obj ast.Expression, field string) 
 //	ret h
 //
 // Matches the Go backend's NewHttpClient(baseURL, timeoutMillis) signature.
-// Both args are optional at the call site (defaults: empty baseURL, 30s).
+// Both args are optional at the call site (defaults: empty baseURL, 10000ms).
 func (g *Generator) emitHttpclientNewCall(args []ast.Expression) (string, string, error) {
 	// baseURL operand (default: empty string ptr)
 	var baseURLOp string
@@ -401,11 +421,11 @@ func (g *Generator) emitHttpclientGetBody() {
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%self, i64 %d", timeoutPtr, httpClientOffsetTimeout))
 	timeout := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", timeout, timeoutPtr))
-	// setopt: URL, WRITEFUNCTION, WRITEDATA, TIMEOUT
+	// setopt: URL, WRITEFUNCTION, WRITEDATA, TIMEOUT_MS (handle stores ms; v6.1.0)
 	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %%url)", curl, curloptUrl))
 	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr @__kylix_http_write_cb)", curl, curloptWritefunction))
 	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %s)", curl, curloptWrdata, resp))
-	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, i64 %s)", curl, curloptTimeout, timeout))
+	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, i64 %s)", curl, curloptTimeoutMs, timeout))
 	// perform
 	g.line(fmt.Sprintf("  call i32 @curl_easy_perform(ptr %s)", curl))
 	// load resp data; null → empty string
@@ -424,32 +444,79 @@ func (g *Generator) emitHttpclientGetBody() {
 	g.line("")
 }
 
-// ---- Post: ptr @__kylix_httpclient_Post(ptr %self, ptr %url, ptr %body) ----
+// ---- Post: ptr @__kylix_httpclient_Post(ptr %self, ptr %url, ptr %ct, ptr %body) ----
 //
 //	Same as Get, plus:
+//	  if ct != "" → slist = curl_slist_append(null, "Content-Type: "+ct); setopt(HTTPHEADER, slist)
 //	  setopt(POST, 1); setopt(POSTFIELDS, body)
+//
+// v6.1.0: signature matched to the Kylix declaration Post(path, contentType,
+// body). The 2-arg form Post(url, body) is still accepted (contentType empty).
 func (g *Generator) emitHttpclientPostCall(receiver string, args []ast.Expression) (string, string, error) {
-	if len(args) != 2 {
-		return "", "", fmt.Errorf("THttpClient.Post expects 2 arguments, got %d", len(args))
+	if len(args) != 2 && len(args) != 3 {
+		return "", "", fmt.Errorf("THttpClient.Post expects 2 or 3 arguments (path, body) or (path, contentType, body), got %d", len(args))
 	}
 	urlReg, _, err := g.emitExpr(args[0])
 	if err != nil {
 		return "", "", err
 	}
-	bodyReg, _, err := g.emitExpr(args[1])
-	if err != nil {
-		return "", "", err
+	var ctOp, bodyOp string
+	if len(args) == 3 {
+		ctReg, _, err := g.emitExpr(args[1])
+		if err != nil {
+			return "", "", err
+		}
+		bodyReg, _, err := g.emitExpr(args[2])
+		if err != nil {
+			return "", "", err
+		}
+		ctOp, bodyOp = ctReg, bodyReg
+	} else {
+		emptyStr := g.addString("")
+		ctOp = g.ptrTo(emptyStr, 1)
+		bodyReg, _, err := g.emitExpr(args[1])
+		if err != nil {
+			return "", "", err
+		}
+		bodyOp = bodyReg
 	}
 	g.enqueueStdlib("httpclient", "Post", "Post", 0)
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_httpclient_Post(ptr %s, ptr %s, ptr %s)", r, receiver, urlReg, bodyReg))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_httpclient_Post(ptr %s, ptr %s, ptr %s, ptr %s)", r, receiver, urlReg, ctOp, bodyOp))
 	return r, "ptr", nil
 }
 
 func (g *Generator) emitHttpclientPostBody() {
 	g.emitHttpclientWriteCallbackBody()
-	g.line("define ptr @__kylix_httpclient_Post(ptr %self, ptr %url, ptr %body) {")
+	g.line("define ptr @__kylix_httpclient_Post(ptr %self, ptr %url, ptr %ct, ptr %body) {")
 	g.line("entry:")
+	// Content-Type header (skip when empty)
+	ctLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %%ct)", ctLen))
+	ctZero := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 0", ctZero, ctLen))
+	noCtLbl := g.label()
+	withCtLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", ctZero, noCtLbl, withCtLbl))
+	g.line(fmt.Sprintf("%s:", withCtLbl))
+	ctSum := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 15", ctSum, ctLen)) // "Content-Type: " (14) + ct + null
+	hdrBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", hdrBuf, ctSum))
+	ctPrefix := g.addString("Content-Type: ")
+	g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", hdrBuf, g.ptrTo(ctPrefix, 15)))
+	g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %%ct)", hdrBuf))
+	ctSlist := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @curl_slist_append(ptr null, ptr %s)", ctSlist, hdrBuf))
+	g.line(fmt.Sprintf("  call void @free(ptr %s)", hdrBuf))
+	// curl handle (needed below for setopt)
+	curlPtr2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%self, i64 %d", curlPtr2, httpClientOffsetCurl))
+	curl2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", curl2, curlPtr2))
+	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %s)", curl2, curloptHttpheader, ctSlist))
+	g.line(fmt.Sprintf("  br label %%%s", noCtLbl))
+	g.line(fmt.Sprintf("%s:", noCtLbl))
 	resp := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [24 x i8], align 8", resp))
 	g.line(fmt.Sprintf("  call void @llvm.memset.p0.i64(ptr %s, i8 0, i64 24, i1 false)", resp))
@@ -461,11 +528,11 @@ func (g *Generator) emitHttpclientPostBody() {
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%self, i64 %d", timeoutPtr, httpClientOffsetTimeout))
 	timeout := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", timeout, timeoutPtr))
-	// setopt: URL, WRITEFUNCTION, WRITEDATA, TIMEOUT, POST, POSTFIELDS
+	// setopt: URL, WRITEFUNCTION, WRITEDATA, TIMEOUT_MS, POST, POSTFIELDS
 	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %%url)", curl, curloptUrl))
 	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr @__kylix_http_write_cb)", curl, curloptWritefunction))
 	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %s)", curl, curloptWrdata, resp))
-	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, i64 %s)", curl, curloptTimeout, timeout))
+	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, i64 %s)", curl, curloptTimeoutMs, timeout))
 	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, i64 1)", curl, curloptPost))
 	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %%body)", curl, curloptPostfields))
 	g.line(fmt.Sprintf("  call i32 @curl_easy_perform(ptr %s)", curl))
@@ -482,4 +549,291 @@ func (g *Generator) emitHttpclientPostBody() {
 	g.line(fmt.Sprintf("  ret ptr %s", result))
 	g.line("}")
 	g.line("")
+}
+
+// ---- One-shot helpers (HttpGet/HttpPost/HttpPut/HttpDelete/HttpGetJSON/
+// HttpPostJSON) — real libcurl IR via the shared DoRequest define (v6.1.0).
+// HttpGetJSON/HttpPostJSON return the raw response body as a string (JSON
+// parsing / map building is not implemented for the LLVM backend).
+
+func (g *Generator) emitHttpclientHelperCall(funcName string, args []ast.Expression) (string, string, error) {
+	var method string
+	switch funcName {
+	case "HttpGet", "HttpGetJSON":
+		method = "GET"
+	case "HttpPost", "HttpPostJSON":
+		method = "POST"
+	case "HttpPut":
+		method = "PUT"
+	case "HttpDelete":
+		method = "DELETE"
+	}
+	if len(args) < 1 {
+		return "", "", fmt.Errorf("httpclient.%s expects a URL argument", funcName)
+	}
+	urlReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	emptyStr := g.addString("")
+	emptyPtr := g.ptrTo(emptyStr, 1)
+	ctOp, bodyOp := emptyPtr, emptyPtr
+	switch funcName {
+	case "HttpPost", "HttpPut":
+		if len(args) < 3 {
+			return "", "", fmt.Errorf("httpclient.%s expects (url, contentType, body), got %d", funcName, len(args))
+		}
+		ctReg, _, err := g.emitExpr(args[1])
+		if err != nil {
+			return "", "", err
+		}
+		bodyReg, _, err := g.emitExpr(args[2])
+		if err != nil {
+			return "", "", err
+		}
+		ctOp, bodyOp = ctReg, bodyReg
+	case "HttpPostJSON":
+		if len(args) < 2 {
+			return "", "", fmt.Errorf("httpclient.HttpPostJSON expects (url, body), got %d", len(args))
+		}
+		bodyReg, _, err := g.emitExpr(args[1])
+		if err != nil {
+			return "", "", err
+		}
+		bodyOp = bodyReg
+	}
+	g.enqueueStdlib("httpclient", "Request", "Request", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_httpclient_Request(ptr %s, ptr %s, ptr %s, ptr %s, i64 %d)",
+		r, g.addString(method), urlReg, bodyOp, ctOp, httpClientDefaultTimeout))
+	return r, "ptr", nil
+}
+
+// ---- HttpDoGet / HttpDoPost: {i64 status, ptr body} THttpResponse handle.
+
+func (g *Generator) emitHttpclientDoCall(funcName string, args []ast.Expression) (string, string, error) {
+	method := "GET"
+	if funcName == "HttpDoPost" {
+		method = "POST"
+	}
+	if len(args) < 1 {
+		return "", "", fmt.Errorf("httpclient.%s expects a URL argument", funcName)
+	}
+	urlReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	emptyStr := g.addString("")
+	emptyPtr := g.ptrTo(emptyStr, 1)
+	ctOp, bodyOp := emptyPtr, emptyPtr
+	if funcName == "HttpDoPost" {
+		if len(args) >= 3 {
+			ctReg, _, err := g.emitExpr(args[1])
+			if err != nil {
+				return "", "", err
+			}
+			bodyReg, _, err := g.emitExpr(args[2])
+			if err != nil {
+				return "", "", err
+			}
+			ctOp, bodyOp = ctReg, bodyReg
+		}
+	}
+	g.enqueueStdlib("httpclient", "DoRequest", "DoRequest", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call { i64, ptr } @__kylix_httpclient_DoRequest(ptr %s, ptr %s, ptr %s, ptr %s, i64 %d)",
+		r, g.addString(method), urlReg, bodyOp, ctOp, httpClientDefaultTimeout))
+	return r, "THttpResponse", nil
+}
+
+// emitHttpclientVerbCall lowers c.Put(path, contentType, body) / c.Delete(path)
+// to a DoRequest on the client's own handle, extracting the body string.
+func (g *Generator) emitHttpclientVerbCall(receiver, verb string, args []ast.Expression, hasBody bool) (string, string, error) {
+	if len(args) < 1 {
+		return "", "", fmt.Errorf("THttpClient.%s expects a path argument", verb)
+	}
+	urlReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	emptyStr := g.addString("")
+	emptyPtr := g.ptrTo(emptyStr, 1)
+	ctOp, bodyOp := emptyPtr, emptyPtr
+	if hasBody {
+		if len(args) < 3 {
+			return "", "", fmt.Errorf("THttpClient.Put expects (path, contentType, body), got %d", len(args))
+		}
+		ctReg, _, err := g.emitExpr(args[1])
+		if err != nil {
+			return "", "", err
+		}
+		bodyReg, _, err := g.emitExpr(args[2])
+		if err != nil {
+			return "", "", err
+		}
+		ctOp, bodyOp = ctReg, bodyReg
+	}
+	timeoutPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %d", timeoutPtr, receiver, httpClientOffsetTimeout))
+	timeout := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", timeout, timeoutPtr))
+	g.enqueueStdlib("httpclient", "DoRequest", "DoRequest", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call { i64, ptr } @__kylix_httpclient_DoRequest(ptr %s, ptr %s, ptr %s, ptr %s, i64 %s)",
+		r, g.addString(verb), urlReg, bodyOp, ctOp, timeout))
+	body := g.tmp()
+	g.line(fmt.Sprintf("  %s = extractvalue { i64, ptr } %s, 1", body, r))
+	return body, "ptr", nil
+}
+
+// emitHttpclientStatusCodeCall lowers c.StatusCode(path) to a GET via
+// DoRequest, extracting the HTTP response code.
+func (g *Generator) emitHttpclientStatusCodeCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) < 1 {
+		return "", "", fmt.Errorf("THttpClient.StatusCode expects a path argument")
+	}
+	urlReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	emptyStr := g.addString("")
+	emptyPtr := g.ptrTo(emptyStr, 1)
+	timeoutPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %d", timeoutPtr, receiver, httpClientOffsetTimeout))
+	timeout := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", timeout, timeoutPtr))
+	g.enqueueStdlib("httpclient", "DoRequest", "DoRequest", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call { i64, ptr } @__kylix_httpclient_DoRequest(ptr %s, ptr %s, ptr %s, ptr %s, i64 %s)",
+		r, g.addString("GET"), urlReg, emptyPtr, emptyPtr, timeout))
+	code := g.tmp()
+	g.line(fmt.Sprintf("  %s = extractvalue { i64, ptr } %s, 0", code, r))
+	return code, "i64", nil
+}
+
+// ---- DoRequest: {i64, ptr} @__kylix_httpclient_DoRequest(ptr %method, ptr %url, ptr %body, ptr %ct, i64 %timeoutMs)
+//
+//	curl = curl_easy_init()
+//	[optional] "Content-Type: "+ct → slist → setopt(HTTPHEADER)
+//	setopt(URL, url); setopt(CUSTOMREQUEST, method); setopt(WRITEFUNCTION, write_cb)
+//	setopt(WRITEDATA, resp); setopt(TIMEOUT_MS, timeoutMs)
+//	[optional] setopt(POSTFIELDS, body)
+//	perform; getinfo(RESPONSE_CODE); body = write_cb buffer
+//	ret {status, body}
+
+func (g *Generator) emitHttpclientDoRequestBody() {
+	g.emitHttpclientWriteCallbackBody()
+	// curl_easy_getinfo is not in codegen.go's declare set — declare lazily.
+	g.line("declare i32 @curl_easy_getinfo(ptr noundef, i32 noundef, ptr noundef)")
+	g.line("define { i64, ptr } @__kylix_httpclient_DoRequest(ptr %method, ptr %url, ptr %body, ptr %ct, i64 %timeoutMs) {")
+	g.line("entry:")
+	curl := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @curl_easy_init()", curl))
+	// Content-Type header (skip when ct is empty)
+	ctLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %%ct)", ctLen))
+	ctZero := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 0", ctZero, ctLen))
+	noCtLbl := g.label()
+	withCtLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", ctZero, noCtLbl, withCtLbl))
+	g.line(fmt.Sprintf("%s:", withCtLbl))
+	ctSum := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 15", ctSum, ctLen)) // "Content-Type: " (14) + ct + null
+	hdrBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", hdrBuf, ctSum))
+	ctPrefix := g.addString("Content-Type: ")
+	g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", hdrBuf, g.ptrTo(ctPrefix, 15)))
+	g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %%ct)", hdrBuf))
+	ctSlist := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @curl_slist_append(ptr null, ptr %s)", ctSlist, hdrBuf))
+	g.line(fmt.Sprintf("  call void @free(ptr %s)", hdrBuf))
+	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %s)", curl, curloptHttpheader, ctSlist))
+	g.line(fmt.Sprintf("  br label %%%s", noCtLbl))
+	g.line(fmt.Sprintf("%s:", noCtLbl))
+	resp := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [24 x i8], align 8", resp))
+	g.line(fmt.Sprintf("  call void @llvm.memset.p0.i64(ptr %s, i8 0, i64 24, i1 false)", resp))
+	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %%url)", curl, curloptUrl))
+	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %%method)", curl, curloptCustomrequest))
+	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr @__kylix_http_write_cb)", curl, curloptWritefunction))
+	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %s)", curl, curloptWrdata, resp))
+	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, i64 %%timeoutMs)", curl, curloptTimeoutMs))
+	// POST/PUT payload (skip when body is empty)
+	bodyLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %%body)", bodyLen))
+	bodyZero := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 0", bodyZero, bodyLen))
+	noBodyLbl := g.label()
+	withBodyLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", bodyZero, noBodyLbl, withBodyLbl))
+	g.line(fmt.Sprintf("%s:", withBodyLbl))
+	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %%body)", curl, curloptPostfields))
+	g.line(fmt.Sprintf("  br label %%%s", noBodyLbl))
+	g.line(fmt.Sprintf("%s:", noBodyLbl))
+	g.line(fmt.Sprintf("  call i32 @curl_easy_perform(ptr %s)", curl))
+	// response code
+	codeSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", codeSlot))
+	g.line(fmt.Sprintf("  call i32 @curl_easy_getinfo(ptr %s, i32 %d, ptr %s)", curl, curlInfoResponseCode, codeSlot))
+	code := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", code, codeSlot))
+	// response body
+	dataField := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 0", dataField, resp))
+	data := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", data, dataField))
+	isNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", isNull, data))
+	emptyStr := g.addString("")
+	emptyPtr := g.ptrTo(emptyStr, 1)
+	bodyVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", bodyVal, isNull, emptyPtr, data))
+	// pack {i64, ptr}
+	res1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = insertvalue { i64, ptr } undef, i64 %s, 0", res1, code))
+	res2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = insertvalue { i64, ptr } %s, ptr %s, 1", res2, res1, bodyVal))
+	g.line(fmt.Sprintf("  ret { i64, ptr } %s", res2))
+	g.line("}")
+	g.line("")
+}
+
+// ---- Request: ptr @__kylix_httpclient_Request(ptr %method, ptr %url, ptr %body, ptr %ct, i64 %timeoutMs)
+//
+//	Thin wrapper over DoRequest returning just the body string.
+
+func (g *Generator) emitHttpclientRequestBody() {
+	g.line("define ptr @__kylix_httpclient_Request(ptr %method, ptr %url, ptr %body, ptr %ct, i64 %timeoutMs) {")
+	g.line("entry:")
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call { i64, ptr } @__kylix_httpclient_DoRequest(ptr %%method, ptr %%url, ptr %%body, ptr %%ct, i64 %%timeoutMs)", r))
+	b := g.tmp()
+	g.line(fmt.Sprintf("  %s = extractvalue { i64, ptr } %s, 1", b, r))
+	g.line(fmt.Sprintf("  ret ptr %s", b))
+	g.line("}")
+	g.line("")
+}
+
+// emitHttpclientResponseFieldAccess lowers `resp.Status` / `resp.Body` on a
+// THttpResponse ({i64 status, ptr body}) to extractvalue.
+func (g *Generator) emitHttpclientResponseFieldAccess(obj ast.Expression, field string) (string, string, error) {
+	r, _, err := g.emitExpr(obj)
+	if err != nil {
+		return "", "", err
+	}
+	switch strings.ToLower(field) {
+	case "status":
+		v := g.tmp()
+		g.line(fmt.Sprintf("  %s = extractvalue { i64, ptr } %s, 0", v, r))
+		return v, "i64", nil
+	case "body":
+		v := g.tmp()
+		g.line(fmt.Sprintf("  %s = extractvalue { i64, ptr } %s, 1", v, r))
+		return v, "ptr", nil
+	default:
+		v := g.tmp()
+		g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; THttpResponse.%s unsupported", v, field))
+		return v, "ptr", nil
+	}
 }

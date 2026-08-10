@@ -2,16 +2,17 @@ package compiler
 
 import (
 	"fmt"
-
-	"kylix/ast"
-	"kylix/generator"
-	"kylix/lexer"
-	"kylix/parser"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
+
+	"kylix/ast"
+	"kylix/generator"
+	"kylix/lexer"
+	"kylix/parser"
 )
 
 // Diagnostic represents a single error or warning from compilation
@@ -32,6 +33,13 @@ type Result struct {
 	GoCode      string
 	OutputFile  string
 	Diagnostics []Diagnostic
+
+	// Timing + cache statistics (v6.0.0) — populated by CompileProject for
+	// `kylix build --time` and the compile-time benchmark. Zero for
+	// CompileFile/RunFile.
+	Duration    time.Duration // total CompileProject wall time
+	CacheHits   int           // files served from the incremental cache
+	CacheMisses int           // files that needed fresh parse + codegen
 }
 
 // Options controls compilation behavior
@@ -389,7 +397,22 @@ func parseLocation(d *Diagnostic, msg string) {
 // When opts.PackageSearchDirs is non-empty, .klx unit files found in those
 // directories are automatically added to the compilation (packages/).
 func CompileProject(files []string, opts Options) (*Result, error) {
+	start := time.Now()
 	result := &Result{}
+
+	// Build cache is optional — declared here so the timing defer below can
+	// surface its hit counters on every return path.
+	var cache *BuildCache
+	defer func() {
+		if result == nil {
+			return
+		}
+		result.Duration = time.Since(start)
+		if cache != nil {
+			result.CacheHits = cache.Hits
+			result.CacheMisses = cache.Misses
+		}
+	}()
 
 	if len(files) == 0 {
 		return nil, fmt.Errorf("no source files provided")
@@ -419,7 +442,6 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 	}
 
 	// Optional build cache.
-	var cache *BuildCache
 	if opts.CacheDir != "" {
 		cache = NewBuildCache(opts.CacheDir)
 	}

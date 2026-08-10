@@ -371,7 +371,13 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 		case "double":
 			g.line("  ret double 0.0")
 		default:
-			g.line("  ret i64 0")
+			if strings.HasPrefix(retType, "{") || strings.HasPrefix(retType, "[") {
+				// aggregate return (dynamic slice {ptr,i64,i64} / static array
+				// [N x T], e.g. ORM [Query] returning `array of T`): zero value.
+				g.line(fmt.Sprintf("  ret %s zeroinitializer", retType))
+			} else {
+				g.line("  ret i64 0")
+			}
 		}
 		g.line("}")
 		g.line("")
@@ -624,7 +630,15 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 	vtablePtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds %%%s, ptr %s, i32 0, i32 0",
 		vtablePtr, className, allocReg))
-	g.line(fmt.Sprintf("  store ptr @%s_vtable, ptr %s", className, vtablePtr))
+	// v6.1.0: classes with no methods emit no vtable constant (emitVtable
+	// returns early), so store null instead of a dangling @X_vtable symbol.
+	// This matters for [Service]/[Component] classes holding no methods that
+	// the KylixBoot wiring auto-instantiates.
+	vtableVal := fmt.Sprintf("@%s_vtable", className)
+	if len(info.Methods) == 0 {
+		vtableVal = "null"
+	}
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", vtableVal, vtablePtr))
 
 	// v5.4.0: initialize map fields (htab_new) and zero-init dynamic slice
 	// fields so they aren't garbage after malloc. The bootstrap's TGenerator

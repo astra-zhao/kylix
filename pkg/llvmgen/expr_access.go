@@ -62,6 +62,18 @@ func (g *Generator) emitMember(e *ast.MemberExpression) (string, string, error) 
 		return g.emitHttpclientFieldAccess(e.Object, e.Member)
 	}
 
+	// TResponse (KylixBoot response handle {i64 status, ptr body}, v6.1.0):
+	// `.Body` / `.Status` are lowered to GEP+load on the 16-byte handle.
+	if typeName == "TResponse" || typeName == "BootResponse" {
+		return g.emitBootResponseFieldAccess(e.Object, e.Member)
+	}
+
+	// THttpResponse (httpclient one-shot result {i64 status, ptr body}):
+	// `.Status` / `.Body` lower to extractvalue on the returned struct.
+	if typeName == "THttpResponse" {
+		return g.emitHttpclientResponseFieldAccess(e.Object, e.Member)
+	}
+
 	if kind != "class" {
 		// v5.4.0: emit a null ptr (not i64 0) so downstream comparisons with
 		// ptr/string operands stay type-consistent and llc accepts the IR.

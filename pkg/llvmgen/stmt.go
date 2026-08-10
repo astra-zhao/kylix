@@ -1003,6 +1003,15 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		g.line(fmt.Sprintf("  store { ptr, i64, i64 } %s, ptr %s", v, allocaReg))
 		return nil
 	}
+	// v6.1.0: `arr := nil` for a dynamic array — the RHS is a null ptr, but a
+	// _dyn slot must receive a zeroed slice struct ({ptr null, i64 0, i64 0}),
+	// not a pointer store (which llc rejects: store i64 %nil, ptr %_dyn).
+	if strings.HasSuffix(allocaReg, "_dyn") && t == "ptr" {
+		if _, isNil := s.Value.(*ast.NilLiteral); isNil {
+			g.line(fmt.Sprintf("  store { ptr, i64, i64 } zeroinitializer, ptr %s", allocaReg))
+			return nil
+		}
+	}
 
 	// Infer actual type from alloca name
 	actualType := "i64"

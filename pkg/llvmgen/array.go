@@ -440,6 +440,10 @@ func (g *Generator) callReturnKylixType(call *ast.CallExpression) string {
 		if sig, ok := g.funcSigs[ident.Value]; ok && sig.ReturnType != nil {
 			return typeExprName(sig.ReturnType)
 		}
+		// stdlib one-shot helpers returning a THttpResponse handle (v6.1.0).
+		if ident.Value == "HttpDoGet" || ident.Value == "HttpDoPost" {
+			return "THttpResponse"
+		}
 	}
 	return ""
 }

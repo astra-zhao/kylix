@@ -38,6 +38,12 @@ type CacheEntry struct {
 // BuildCache manages incremental compilation state for a project.
 type BuildCache struct {
 	dir string // directory where cache files live
+
+	// Hit counters (v6.0.0) — populated by Load for reporting cache efficiency
+	// (kylix build --time / benchmarks). Load is called sequentially from
+	// CompileProject's pre-parse loop, so no locking is needed.
+	Hits   int
+	Misses int
 }
 
 // NewBuildCache returns a cache that stores entries under <dir>/.kylix-cache/.
@@ -56,25 +62,31 @@ func (c *BuildCache) cacheFile(srcPath string) string {
 
 // Load returns the cached entry for srcPath if it is still valid (fingerprint
 // matches current file stat). Returns nil when the cache is cold or stale.
+// Each call bumps the Hits/Misses counters (v6.0.0).
 func (c *BuildCache) Load(srcPath string) *CacheEntry {
 	info, err := os.Stat(srcPath)
 	if err != nil {
+		c.Misses++
 		return nil
 	}
 
 	data, err := os.ReadFile(c.cacheFile(srcPath))
 	if err != nil {
+		c.Misses++
 		return nil
 	}
 
 	var entry CacheEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
+		c.Misses++
 		return nil
 	}
 
 	if entry.Version == CacheVersion && entry.ModTime.Equal(info.ModTime()) && entry.Size == info.Size() {
+		c.Hits++
 		return &entry
 	}
+	c.Misses++
 	return nil
 }
 

@@ -28,6 +28,9 @@ func LLVMType(typeName string) string {
 		// by emitExpr for Variant *values*) is handled in emitInfix/WriteLn,
 		// not via LLVMType.
 		return "ptr"
+	case "trequest", "tresponse", "bootrequest", "bootresponse":
+		// v6.1.0: KylixBoot request/response framework types — opaque handles.
+		return "ptr"
 	default:
 		return "i64" // fallback
 	}
@@ -72,6 +75,9 @@ func (g *Generator) llvmTypeOfExpr(expr ast.Expression) string {
 	case *ast.Identifier:
 		if _, ok := g.classes[t.Value]; ok {
 			return "ptr"
+		}
+		if bootOpaqueTypes[t.Value] {
+			return "ptr" // TRequest/TResponse/Boot* opaque handles (v6.1.0)
 		}
 		return LLVMType(t.Value)
 	}
@@ -804,6 +810,14 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		return g.emitIntToStr(e.Arguments[0])
 	}
 
+	// v6.1.0: FloatToStr(x) → snprintf("%.17g"). Without this the bootstrap
+	// (src/generator.klx calls FloatToStr for float literal emission) lowered it
+	// to a call on an unknown function returning i64, so the String result was
+	// truncated to i64 and interface-method arg types mismatched.
+	if funcName == "FloatToStr" && len(e.Arguments) == 1 {
+		return g.emitFloatToStr(e.Arguments[0])
+	}
+
 	// Built-in: Length(s)
 	if funcName == "Length" && len(e.Arguments) == 1 {
 		// v5.0.0: Length(arr) for a dynamic/static array must read the array's
@@ -1067,6 +1081,25 @@ func (g *Generator) emitIntToStr(arg ast.Expression) (string, string, error) {
 	fmtPtr := g.ptrTo(fmtReg, len("%lld")+1)
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i32 (ptr, i64, ptr, ...) @snprintf(ptr noundef %s, i64 24, ptr noundef %s, i64 %s)",
+		r, bufPtr, fmtPtr, v))
+	return bufPtr, "ptr", nil
+}
+
+// emitFloatToStr converts double to ptr via snprintf("%.17g") — round-trip
+// precision, the closest LLVM analogue to Go's fmt.Sprintf("%v"). v6.1.0.
+func (g *Generator) emitFloatToStr(arg ast.Expression) (string, string, error) {
+	v, _, err := g.emitExpr(arg)
+	if err != nil {
+		return "", "", err
+	}
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [40 x i8], align 1", buf))
+	bufPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [40 x i8], ptr %s, i64 0, i64 0", bufPtr, buf))
+	fmtReg := g.addString("%.17g")
+	fmtPtr := g.ptrTo(fmtReg, len("%.17g")+1)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 (ptr, i64, ptr, ...) @snprintf(ptr noundef %s, i64 40, ptr noundef %s, double %s)",
 		r, bufPtr, fmtPtr, v))
 	return bufPtr, "ptr", nil
 }
