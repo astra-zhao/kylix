@@ -31,6 +31,17 @@
 1. **`arr := nil`（动态数组赋 nil）**：RHS 是 null ptr，但 slice 槽需 store `{ptr null, i64 0, i64 0}` 零值 — 修复见 `stmt.go` emitAssign。
 2. **`FloatToStr(x)` builtin 缺失**：bootstrap 里当作普通函数 → 返回 i64（截断），接口方法实参类型错配 — 修复见 `expr.go` emitFloatToStr（snprintf `%.17g`）。
 
+## v6.0.0 #8: -O2 正确性验证
+
+51 教程以 `--llvm-opt=2` 全部编译 + 运行通过（51/51），且每个教程的 stdout 与 `-O0` 产物**逐字节一致**——`-O2` 不破坏正确性。前置条件是 v6.1.0 修复的两个 IR 类型错误（`arr := nil` / `FloatToStr`），否则 `opt` 校验直接拒绝 IR。
+
+```bash
+# Verify -O2 doesn't change any tutorial's output:
+OUTDIR=/tmp/o0 bash examples/complete-tutorial/test_all_llvm.sh
+OUTDIR=/tmp/o2 LLVM_OPT=2 bash examples/complete-tutorial/test_all_llvm.sh
+diff -r /tmp/o0 /tmp/o2    # → identical
+```
+
 ## Reproduce
 
 ```bash

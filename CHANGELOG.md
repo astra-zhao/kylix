@@ -42,9 +42,15 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ---
 
-## v6.0.0 (2026-08-10) — 性能 benchmark（#7）
+## v6.0.0 (2026-08-10) — 性能 benchmark（#7）+ LLVM -O2 优化验证（#8）
 
-> 🎯 **首次编译时间 benchmark**：bootstrap 源码（7 文件 7451 行）冷/热 + Go/LLVM 四场景，3 轮中位数。同时为 `Result`/`BuildCache` 加统计字段 + `build --time` flag。
+> 🎯 **首次编译时间 benchmark**：bootstrap 源码（7 文件 7451 行）冷/热 + Go/LLVM 四场景，3 轮中位数。同时为 `Result`/`BuildCache` 加统计字段 + `build --time` flag。**#8 -O2 优化验证**：51 教程 `--llvm-opt=2` 全过，输出与 -O0 逐字节一致。
+
+### #8: LLVM -O2 优化验证
+
+- `test_all_llvm.sh` 加 `LLVM_OPT`/`OUTDIR` 环境变量支持（-O2 编译 + 输出捕获比对）。
+- **51 教程 `--llvm-opt=2` 编译+运行 51/51**；`-O0` vs `-O2` 输出捕获 diff **全部一致**（-O2 不破坏正确性）。
+- 前置：bootstrap LLVM 编译的 `arr := nil` slice 零值 + `FloatToStr` builtin 两个类型错误修复（见 v6.1.0），使 -O0/-O2 均稳定编译。
 
 ### #7 产出
 
