@@ -44,17 +44,10 @@ type classEdge struct{ child, parent string }
 func (g *Generator) emitClassRuntime() {
 	edges := g.collectClassHierarchy()
 
-	// v5.4.0: ensure every class (not just those in the edge table) has a
-	// vtable constant. Classes with no methods get an empty [0 x ptr] vtable
-	// from emitVtable, but if it wasn't emitted for any reason, emit a
-	// fallback here so all @TFoo_vtable references resolve.
-	// v5.5.0: records also need a vtable (emitFunctionDecl stores it for
-	// record return types so `is` checks work).
-	for name, info := range g.classes {
-		if info != nil && len(info.Methods) == 0 {
-			g.line(fmt.Sprintf("@%s_vtable = constant [0 x ptr] []", name))
-		}
-	}
+	// v6.1.0: every class gets a vtable constant from emitVtable (method-less
+	// classes get an empty [0 x ptr] one), so no fallback emission is needed
+	// here — the old duplicate `@X_vtable = constant [0 x ptr] []` loop
+	// redefined globals for method-less classes and llc rejected the module.
 
 	if len(edges) == 0 {
 		// No class hierarchy — is/as class checks are trivially false (no edges
@@ -82,17 +75,29 @@ func (g *Generator) emitClassRuntime() {
 	g.line("")
 
 	// define i1 @__kylix_class_is_a(ptr %child, ptr %parent)
-	// Walks child→parent vtable chain by scanning the edge table for the
-	// current child's parent, until it reaches %parent (true) or a child with
-	// no outgoing edge (false). Bounded by table length.
+	// Walks the child→parent chain: scan the edge table for the current child's
+	// vtable; when found, if its parent matches %parent return true, else move
+	// up one level (c = parent) and RESTART the scan from index 0. Bounded: each
+	// scan runs i=0..N (N = edge count) and the chain only moves upward (acyclic
+	// class hierarchy), so total iterations ≤ depth·N.
+	//
+	// v6.1.0: rewritten with NO phi nodes — %c/%i live in allocas and are
+	// load/stored each iteration. The old SSA-phi loop (with a found→update
+	// edge) hung forever when the bootstrap compiler (58-class edge table) ran
+	// it: llc kept the program spinning in the loop body. Memory-based state
+	// makes the loop trivially correct and terminates.
 	n := len(edges)
 	g.line(fmt.Sprintf(`define i1 @__kylix_class_is_a(ptr %%child, ptr %%parent) {
 entry:
+  %%c_slot = alloca ptr, align 8
+  %%i_slot = alloca i64, align 8
+  store ptr %%child, ptr %%c_slot
+  store i64 0, ptr %%i_slot
   %%eq = icmp eq ptr %%child, %%parent
   br i1 %%eq, label %%ret_true, label %%loop
 loop:
-  %%c = phi ptr [ %%child, %%entry ], [ %%c_next, %%loop_next ]
-  %%i = phi i64 [ 0, %%entry ], [ %%i_next, %%loop_next ]
+  %%c = load ptr, ptr %%c_slot
+  %%i = load i64, ptr %%i_slot
   %%oob = icmp eq i64 %%i, %d
   br i1 %%oob, label %%ret_false, label %%body
 body:
@@ -105,12 +110,14 @@ found:
   %%pvt_ptr = getelementptr inbounds %%__kylix_class_edge, ptr %%slot, i32 0, i32 1
   %%par = load ptr, ptr %%pvt_ptr
   %%match = icmp eq ptr %%par, %%parent
-  br i1 %%match, label %%ret_true, label %%update
-update:
-  br label %%loop_next
+  br i1 %%match, label %%ret_true, label %%found2
+found2:
+  store ptr %%par, ptr %%c_slot
+  store i64 0, ptr %%i_slot
+  br label %%loop
 loop_next:
-  %%c_next = phi ptr [ %%c, %%body ], [ %%par, %%update ]
-  %%i_next = add i64 %%i, 1
+  %%i1 = add i64 %%i, 1
+  store i64 %%i1, ptr %%i_slot
   br label %%loop
 ret_true:
   ret i1 true

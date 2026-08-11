@@ -4,6 +4,33 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v6.1.0 修复 (2026-08-11) — LLVM bootstrap 编译器编译死循环（KylixRT 前置 bug）
+
+> 🎯 **LLVM 编译的 bootstrap 编译器（`main`）编译任何含声明/类的程序死循环**（hello 无声明秒出）——直接违背 KylixRT「bootstrap 产物可直接编译任意程序」愿景。定位为两个真实 codegen bug，修复后 `main` 秒出编译含 is/as、for+continue 的程序（t2 输出 42、loop 奇数求和 25）。
+
+### 根因 1：无方法类 vtable = null → `is` 检查永远 false（v6.1.0 引入）
+
+v6.1.0 修复「无方法类悬空 @X_vtable」时把 `emitConstructor` 改为无方法类 store **null** vtable。但 `decl is TTypeDecl` 的 `class_is_a(null, target)` 永远 false → bootstrap 的 ScanBootAnnotations 对每个声明 `cd=nil → continue` → 死循环。
+
+**修复**（三处，class.go + rtti.go）：
+- `emitVtable`：无方法类**不再 return**，发空 vtable 常量 `@X_vtable = constant [0 x ptr] []`（is 检查可匹配）。
+- `emitConstructor`：恢复无条件 store `@X_vtable`（不再分无方法类 store null）。
+- `emitRecordDecl`：record 也发空 vtable（v5.5.0 的 record is 检查需要；删除了 `emitClassRuntime` 的重复兜底循环——它与 emitVtable 重复定义全局）。
+
+### 根因 2：for/forEach 的 `continue` 跳循环头跳过递增（v5.4 潜伏）
+
+`emitFor`/`emitForEach` 的 `continueLabel = headerLbl`——`continue` 分支到**循环条件检查头**而非**递增块**，计数器永不前进 → 死循环。while/repeat 无递增所以正确；教程无 for+continue 所以一直未暴露，直到 bootstrap 的 ScanBootAnnotations（大量 continue）在 LLVM 下运行。
+
+**修复**（stmt_flow.go）：`emitFor`/`emitForEach` 加独立 `incLbl` 递增块，`continue` 指向它；body 末尾补 `br incLbl`（否则 body 末尾 if 的空 merge 块无 terminator，llc 拒绝）。
+
+### 验证
+
+- LLVM main 编译：`type TFoo = class end`（t1）秒出、含 `is/as` 程序（t2）编译+运行 42、for+continue 程序奇数求和 25。
+- 51 教程 LLVM 51/51 + Go 51/51 + 16 包全绿 + bootstrap -O0/-O2 编译 OK。
+- 附带修复：`class_is_a` 重写为无 phi 实现（c 上移时重置 i 重扫，语义更正确）——最初误判为 phi 死循环，实际 phi 非根因但重写无害且更健壮。
+
+---
+
 ## v6.1.0 (2026-08-10) — KylixRT 核心：kylix run 单二进制无 Go + LLVM boot 注解自动装配 + 51 教程 LLVM 全过
 
 > 🎯 **KylixRT 核心达成**：`kylix run` 在无 Go 工具链环境直接产出原生二进制并运行（auto 探测回退 LLVM 后端）。LLVM 后端补齐 KylixBoot 注解自动装配（此前全 stub），51 教程 **51/51** LLVM 编译+运行全过（新增 `test_all_llvm.sh` + CI `llvm-tutorials` job）。

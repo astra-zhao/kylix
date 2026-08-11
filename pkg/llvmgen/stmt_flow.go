@@ -114,6 +114,11 @@ func (g *Generator) emitFor(s *ast.ForStatement) error {
 
 	headerLbl := g.label()
 	bodyLbl := g.label()
+	// v6.1.0: `continue` must jump to the INCREMENT block, not the header —
+	// otherwise the counter is never advanced and the loop spins forever on the
+	// same value (broke the bootstrap compiler: ScanBootAnnotations' for loop
+	// `continue`d on every non-Controller class and hung).
+	incLbl := g.label()
 	exitLbl := g.label()
 
 	g.line(fmt.Sprintf("  br label %%%s", headerLbl))
@@ -136,14 +141,19 @@ func (g *Generator) emitFor(s *ast.ForStatement) error {
 
 	// Body — save/restore break/continue targets for nested loops.
 	savedBreak, savedContinue := g.breakLabel, g.continueLabel
-	g.breakLabel, g.continueLabel = exitLbl, headerLbl
+	g.breakLabel, g.continueLabel = exitLbl, incLbl
 	g.line(fmt.Sprintf("%s:", bodyLbl))
 	if err := g.emitStatement(s.Body); err != nil {
 		return err
 	}
 	g.breakLabel, g.continueLabel = savedBreak, savedContinue
+	// Fall-through from the body (or a trailing if/while merge block) to the
+	// increment — without this br, an empty merge block followed directly by
+	// the incLbl label has no terminator and llc rejects it.
+	g.line(fmt.Sprintf("  br label %%%s", incLbl))
 
-	// Increment/decrement
+	// Increment/decrement (continue target)
+	g.line(fmt.Sprintf("%s:", incLbl))
 	stepV := g.tmp()
 	curV2 := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curV2, counterReg))
@@ -320,10 +330,12 @@ func (g *Generator) emitForEach(s *ast.ForEachStatement) error {
 
 	headerLbl := g.label()
 	bodyLbl := g.label()
+	// v6.1.0: continue → increment block (see emitFor for the hang rationale).
+	incLbl := g.label()
 	exitLbl := g.label()
 
 	savedBreak, savedContinue := g.breakLabel, g.continueLabel
-	g.breakLabel, g.continueLabel = exitLbl, headerLbl
+	g.breakLabel, g.continueLabel = exitLbl, incLbl
 
 	g.line(fmt.Sprintf("  br label %%%s", headerLbl))
 	g.line(fmt.Sprintf("%s:", headerLbl))
@@ -347,8 +359,10 @@ func (g *Generator) emitForEach(s *ast.ForEachStatement) error {
 		return err
 	}
 	g.breakLabel, g.continueLabel = savedBreak, savedContinue
+	g.line(fmt.Sprintf("  br label %%%s", incLbl))
 
-	// Increment index.
+	// Increment index (continue target).
+	g.line(fmt.Sprintf("%s:", incLbl))
 	idxNext := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", idxNext, idxCur))
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", idxNext, idxAlloca))

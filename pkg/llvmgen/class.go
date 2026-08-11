@@ -284,6 +284,10 @@ func (g *Generator) emitRecordDecl(name string, rec *ast.RecordType) error {
 	g.classes[name] = info
 	g.records[name] = true
 	g.emitStructType(info)
+	// v6.1.0: records also get an empty vtable constant (v5.5.0: emitFunctionDecl
+	// stores it for record return types so `is` checks work; emitConstructor
+	// stores @X_vtable unconditionally).
+	g.line(fmt.Sprintf("@%s_vtable = constant [0 x ptr] []", name))
 	g.line("")
 	return nil
 }
@@ -303,7 +307,14 @@ func (g *Generator) emitStructType(info *ClassInfo) {
 // Inherited method slots point to the parent's implementation; overridden
 // slots point to the child's implementation (DefiningClass tracks this).
 func (g *Generator) emitVtable(info *ClassInfo, decl *ast.ClassDecl) {
+	// v6.1.0: classes with no methods still get an EMPTY vtable constant, never
+	// skipped — is/as class checks (`obj is TClass`) compare vtable pointers, so
+	// a missing or null vtable makes every check on such a class return false
+	// (breaking the bootstrap compiler's `decl is TTypeDecl` dispatch, which
+	// then hits a `continue` and spins forever). @X_vtable is referenced by
+	// emitConstructor unconditionally.
 	if len(info.Methods) == 0 {
+		g.line(fmt.Sprintf("@%s_vtable = constant [0 x ptr] []", info.Name))
 		return
 	}
 	// Build vtable in vtable-index order.
@@ -630,15 +641,11 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 	vtablePtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds %%%s, ptr %s, i32 0, i32 0",
 		vtablePtr, className, allocReg))
-	// v6.1.0: classes with no methods emit no vtable constant (emitVtable
-	// returns early), so store null instead of a dangling @X_vtable symbol.
-	// This matters for [Service]/[Component] classes holding no methods that
-	// the KylixBoot wiring auto-instantiates.
-	vtableVal := fmt.Sprintf("@%s_vtable", className)
-	if len(info.Methods) == 0 {
-		vtableVal = "null"
-	}
-	g.line(fmt.Sprintf("  store ptr %s, ptr %s", vtableVal, vtablePtr))
+	// v6.1.0: EVERY class has a vtable constant — emitVtable now emits an empty
+	// [0 x ptr] vtable for method-less classes — so this store always resolves.
+	// (Storing null here made `obj is TClass` on a method-less class return
+	// false, breaking bootstrap's `decl is TTypeDecl` dispatch → infinite loop.)
+	g.line(fmt.Sprintf("  store ptr @%s_vtable, ptr %s", className, vtablePtr))
 
 	// v5.4.0: initialize map fields (htab_new) and zero-init dynamic slice
 	// fields so they aren't garbage after malloc. The bootstrap's TGenerator
