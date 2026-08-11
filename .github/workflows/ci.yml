@@ -106,20 +106,15 @@ jobs:
           cache: true
 
       - name: Install LLVM (llc + clang + lld)
-        # choco consistently installs 0/1 packages on the hosted runner; winget
-        # (Windows 11) is more reliable here.
-        shell: pwsh
-        run: winget install -e --id LLVM.LLVM --accept-source-agreements --accept-package-agreements --silent
+        # choco/winget installers land in unknown dirs on the hosted runner;
+        # the setup-llvm action fetches a prebuilt LLVM and puts llc/clang on PATH.
+        uses: edgarrc/setup-llvm@v1
+        with:
+          llvm-version: 18
 
-      - name: Locate LLVM + Build CLI
+      - name: Build CLI
         shell: pwsh
-        # choco installs to C:\Program Files\LLVM but the job's PATH was captured
-        # at start; re-add it explicitly so kylix finds llc/clang.
-        run: |
-          $env:PATH = "C:\Program Files\LLVM\bin;$env:PATH"
-          Write-Host "PATH check: $(where.exe llc 2>&1)"
-          if (Test-Path "C:\Program Files\LLVM\bin\llc.exe") { Write-Host "llc at C:\Program Files\LLVM\bin" }
-          go build -o kylix.exe ./cmd/kylix/
+        run: go build -o kylix.exe ./cmd/kylix/
 
       - name: "Compile + run representative tutorials (native Windows .exe)"
         # v6.2.0 cross-platform smoke: hello / control-flow / oop / stdlib-core
@@ -127,7 +122,6 @@ jobs:
         shell: bash
         run: |
           set -e
-          export PATH="/c/Program Files/LLVM/bin:$PATH"
           for ex in \
             examples/complete-tutorial/01_basics/example01_hello.klx \
             examples/complete-tutorial/02_control_flow/example07_if_else.klx \
