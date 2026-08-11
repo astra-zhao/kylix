@@ -27,8 +27,33 @@ import (
 
 // excJmpBufSize is the alloca size for a setjmp buffer. arm64 macOS needs ~272
 // bytes; 288 aligned to 16 is a safe conservative bound. Over-allocating stack
-// is harmless.
+// is harmless. Windows x64 (UCRT) jmp_buf is larger (~512 bytes), so
+// excJmpBufSize() returns 512 there. v6.2.0.
 const excJmpBufSize = 288
+
+func (g *Generator) excJmpBufSize() int {
+	if g.targetOS == "windows" {
+		return 512
+	}
+	return excJmpBufSize
+}
+
+// setjmpFunc returns the libc setjmp symbol for the target platform
+// (Windows UCRT exposes _setjmp; setjmp is only a macro there). v6.2.0.
+func (g *Generator) setjmpFunc() string {
+	if g.targetOS == "windows" {
+		return "@_setjmp"
+	}
+	return "@setjmp"
+}
+
+// longjmpFunc returns the libc longjmp symbol for the target platform.
+func (g *Generator) longjmpFunc() string {
+	if g.targetOS == "windows" {
+		return "@_longjmp"
+	}
+	return "@longjmp"
+}
 
 // raiseExceptionTypeName extracts the exception class name from a raise
 // expression. Handles `T.Create(...)` (constructor, both no-arg MemberExpression
@@ -103,7 +128,7 @@ func (g *Generator) emitLongjmpToHandler() error {
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", nz, hasLbl, noLbl))
 
 	g.line(fmt.Sprintf("%s:", hasLbl))
-	g.line(fmt.Sprintf("  call void @longjmp(ptr %s, i32 1)", jb))
+	g.line(fmt.Sprintf("  call void %s(ptr %s, i32 1)", g.longjmpFunc(), jb))
 	g.line("  unreachable")
 
 	g.line(fmt.Sprintf("%s:", noLbl))
@@ -126,15 +151,15 @@ func (g *Generator) emitLongjmpToHandler() error {
 func (g *Generator) emitTry(s *ast.TryStatement) error {
 	// alloca for the setjmp buffer and for saving the outer handler pointer.
 	bufReg := g.tmp()
-	g.line(fmt.Sprintf("  %s = alloca [%d x i8], align 16", bufReg, excJmpBufSize))
+	g.line(fmt.Sprintf("  %s = alloca [%d x i8], align 16", bufReg, g.excJmpBufSize()))
 	bufptr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr [%d x i8], ptr %s, i64 0, i64 0", bufptr, excJmpBufSize, bufReg))
+	g.line(fmt.Sprintf("  %s = getelementptr [%d x i8], ptr %s, i64 0, i64 0", bufptr, g.excJmpBufSize(), bufReg))
 	oldJBSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", oldJBSlot))
 
 	// setjmp: returns 0 on first call, non-zero when longjmp returns here.
 	rc := g.tmp()
-	g.line(fmt.Sprintf("  %s = call i32 @setjmp(ptr %s)", rc, bufptr))
+	g.line(fmt.Sprintf("  %s = call i32 %s(ptr %s)", rc, g.setjmpFunc(), bufptr))
 	isHandler := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp ne i32 %s, 0", isHandler, rc))
 	tryBodyLbl := g.label()
@@ -272,7 +297,7 @@ func (g *Generator) emitTry(s *ast.TryStatement) error {
 	// Re-throw: longjmp to the outer handler (current @__kylix_jmpbuf).
 	outerJB := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr @__kylix_jmpbuf", outerJB))
-	g.line(fmt.Sprintf("  call void @longjmp(ptr %s, i32 1)", outerJB))
+	g.line(fmt.Sprintf("  call void %s(ptr %s, i32 1)", g.longjmpFunc(), outerJB))
 	g.line("  unreachable")
 
 	g.line(fmt.Sprintf("%s:", endLbl))

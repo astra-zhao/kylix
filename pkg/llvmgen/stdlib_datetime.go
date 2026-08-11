@@ -137,7 +137,7 @@ func (g *Generator) emitDatetimeTodayBody() {
 
 	// Call localtime_r to populate local buffer
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %s, ptr %s)", tmPtr, timeSlot, tmLocal))
+	g.emitLocaltimeCall(tmPtr, timeSlot, tmLocal)
 
 	// Zero out time fields in the local copy
 	// tm_sec (offset 0)
@@ -403,6 +403,19 @@ func (g *Generator) emitDatetimeAddSecondsCall(receiver string, args []ast.Expre
 	return r, "TDateTime", nil
 }
 
+// emitLocaltimeCall emits a localtime call filling a 56-byte struct tm buffer.
+// POSIX localtime_r(time, tm) returns the tm pointer; Windows localtime_s(tm,
+// time) fills the buffer in place and returns errno_t. The result register gets
+// the buffer address in both cases. v6.2.0.
+func (g *Generator) emitLocaltimeCall(resultReg, timePtr, tmBuf string) {
+	if g.targetOS == "windows" {
+		g.line(fmt.Sprintf("  call i32 @localtime_s(ptr %s, ptr %s)", tmBuf, timePtr))
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 0", resultReg, tmBuf))
+		return
+	}
+	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %s, ptr %s)", resultReg, timePtr, tmBuf))
+}
+
 // Method body emitters (called by emitDatetimeBody via emitPendingStdlib)
 
 // emitDatetimeYearBody emits @__kylix_datetime_Year(ptr %self) -> i64
@@ -414,7 +427,7 @@ func (g *Generator) emitDatetimeYearBody() {
 	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	// localtime_r(&time_t, &tm)
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
+	g.emitLocaltimeCall(tmPtr, "%self", tmBuf)
 	// tm->tm_year (offset 20, i32)
 	yearPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 20", yearPtr, tmBuf))
@@ -437,7 +450,7 @@ func (g *Generator) emitDatetimeMonthBody() {
 	tmBuf := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
+	g.emitLocaltimeCall(tmPtr, "%self", tmBuf)
 	// tm->tm_mon (offset 16, i32)
 	monPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 16", monPtr, tmBuf))
@@ -460,7 +473,7 @@ func (g *Generator) emitDatetimeDayBody() {
 	tmBuf := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
+	g.emitLocaltimeCall(tmPtr, "%self", tmBuf)
 	// tm->tm_mday (offset 12, i32)
 	dayPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 12", dayPtr, tmBuf))
@@ -480,7 +493,7 @@ func (g *Generator) emitDatetimeHourBody() {
 	tmBuf := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
+	g.emitLocaltimeCall(tmPtr, "%self", tmBuf)
 	// tm->tm_hour (offset 8, i32)
 	hourPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 8", hourPtr, tmBuf))
@@ -500,7 +513,7 @@ func (g *Generator) emitDatetimeMinuteBody() {
 	tmBuf := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
+	g.emitLocaltimeCall(tmPtr, "%self", tmBuf)
 	// tm->tm_min (offset 4, i32)
 	minPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 4", minPtr, tmBuf))
@@ -520,7 +533,7 @@ func (g *Generator) emitDatetimeSecondBody() {
 	tmBuf := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
+	g.emitLocaltimeCall(tmPtr, "%self", tmBuf)
 	// tm->tm_sec (offset 0, i32)
 	secPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 0", secPtr, tmBuf))
@@ -540,7 +553,7 @@ func (g *Generator) emitDatetimeDayOfWeekBody() {
 	tmBuf := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
+	g.emitLocaltimeCall(tmPtr, "%self", tmBuf)
 	// tm->tm_wday (offset 24, i32) - 0=Sunday, 6=Saturday
 	wdayPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds [56 x i8], ptr %s, i64 0, i64 24", wdayPtr, tmBuf))
@@ -561,7 +574,7 @@ func (g *Generator) emitDatetimeFormatDateBody() {
 	tmBuf := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [56 x i8], align 8", tmBuf))
 	tmPtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %%self, ptr %s)", tmPtr, tmBuf))
+	g.emitLocaltimeCall(tmPtr, "%self", tmBuf)
 	// Allocate buffer for formatted string (20 bytes enough for "YYYY-MM-DD")
 	buf := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 20)", buf))

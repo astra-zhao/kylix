@@ -30,6 +30,28 @@ import (
 
 // emitNetCall dispatches a `net.Func(args)` / bare `Func(args)` call.
 func (g *Generator) emitNetCall(funcName string, args []ast.Expression) (string, string, error) {
+	// v6.2.0: Windows uses Winsock (SOCKET is UINT_PTR, needs WSAStartup,
+	// closesocket) — a full shim needs a Windows environment to verify. Return
+	// typed stubs (args evaluated for side effects) so net programs compile and
+	// run without crashing; real Winsock support is a documented limitation.
+	if g.targetOS == "windows" {
+		for _, a := range args {
+			if _, _, err := g.emitExpr(a); err != nil {
+				return "", "", err
+			}
+		}
+		switch funcName {
+		case "TcpClose", "TcpListenerClose":
+			return "0", "void", nil
+		case "TcpDial", "TcpRead", "TcpListen", "TcpAccept":
+			emptyStr := g.addString("")
+			return g.ptrTo(emptyStr, 1), "ptr", nil
+		default:
+			r := g.tmp()
+			g.line(fmt.Sprintf("  %s = add i64 0, 0 ; net.%s not supported on Windows (Winsock)", r, funcName))
+			return r, "i64", nil
+		}
+	}
 	switch funcName {
 	case "TcpDial":
 		return g.emitNetTcpDialCall(args)

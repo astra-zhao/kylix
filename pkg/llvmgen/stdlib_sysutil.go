@@ -134,10 +134,16 @@ func (g *Generator) emitSysutilBody(name string, argCount int) {
 //	buf = malloc(size+1); fread(buf, 1, size, fp); buf[size] = 0; fclose(fp)
 //	ret buf
 func (g *Generator) emitSysutilReadFile() {
-	modeR := g.addString("r") // queued; ptrTo must run inside the define body
+	// v6.2.0: on Windows, fopen's "r" runs text-mode translation (\n→\r\n);
+	// use binary mode so ReadFile returns the file's raw bytes (POSIX-like).
+	modeR := "r"
+	if g.targetOS == "windows" {
+		modeR = "rb"
+	}
+	modeStr := g.addString(modeR)
 	g.line("define ptr @__kylix_sysutil_ReadFile(ptr %path) {")
 	g.line("entry:")
-	modeRPtr := g.ptrTo(modeR, 2)
+	modeRPtr := g.ptrTo(modeStr, len(modeR)+1)
 	fp := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @fopen(ptr %%path, ptr %s)", fp, modeRPtr))
 	// null fp → return null
@@ -174,10 +180,16 @@ func (g *Generator) emitSysutilReadFile() {
 //
 //	fopen(path, "w") → fp; if null ret; fputs(content, fp); fclose(fp); ret
 func (g *Generator) emitSysutilWriteFile() {
-	modeW := g.addString("w") // queued; ptrTo must run inside the define body
+	// v6.2.0: Windows "w" writes \n as \r\n (text mode) — use "wb" so the
+	// content bytes are written verbatim (POSIX-like).
+	modeW := "w"
+	if g.targetOS == "windows" {
+		modeW = "wb"
+	}
+	modeStr := g.addString(modeW)
 	g.line("define void @__kylix_sysutil_WriteFile(ptr %path, ptr %content) {")
 	g.line("entry:")
-	modeWPtr := g.ptrTo(modeW, 2)
+	modeWPtr := g.ptrTo(modeStr, len(modeW)+1)
 	fp := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @fopen(ptr %%path, ptr %s)", fp, modeWPtr))
 	// if fp null, return (silently — error path simplified)
@@ -199,10 +211,16 @@ func (g *Generator) emitSysutilWriteFile() {
 //
 //	access(path, F_OK=0) == 0 → i1
 func (g *Generator) emitSysutilFileExists() {
+	// v6.2.0: Windows uses _access (POSIX access is not in UCRT).
+	accessFunc := "@access"
+	if g.targetOS == "windows" {
+		accessFunc = "@_access"
+		g.line("declare i32 @_access(ptr noundef, i32 noundef)")
+	}
 	g.line("define i1 @__kylix_sysutil_FileExists(ptr %path) {")
 	g.line("entry:")
 	ret := g.tmp()
-	g.line(fmt.Sprintf("  %s = call i32 @access(ptr %%path, i32 0)", ret)) // F_OK=0
+	g.line(fmt.Sprintf("  %s = call i32 %s(ptr %%path, i32 0)", ret, accessFunc)) // F_OK=0
 	g.line(fmt.Sprintf("  %%ok = icmp eq i32 %s, 0", ret))
 	g.line("  ret i1 %ok")
 	g.line("}")

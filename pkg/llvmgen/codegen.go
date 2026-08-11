@@ -552,6 +552,9 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare ptr @strstr(ptr noundef, ptr noundef)")
 	g.line("; ===== Exception handling runtime (setjmp/longjmp) =====")
 	g.line("declare i32 @setjmp(ptr)")
+	// v6.2.0: Windows UCRT exposes _setjmp/_longjmp (setjmp is a macro).
+	g.line("declare i32 @_setjmp(ptr)")
+	g.line("declare void @_longjmp(ptr, i32)")
 	g.line("declare void @longjmp(ptr, i32)")
 	g.line("declare void @exit(i32)")
 	g.line("; ===== File I/O (libc, used by stdlib sysutil) =====")
@@ -618,6 +621,8 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i64 @time(ptr)")
 	g.line("declare ptr @localtime(ptr)")
 	g.line("declare ptr @localtime_r(ptr, ptr)")
+	// v6.2.0: Windows uses localtime_s(tm, time) (reversed args, returns errno_t).
+	g.line("declare i32 @localtime_s(ptr, ptr)")
 	g.line("declare i64 @mktime(ptr)")
 	g.line("declare i64 @strftime(ptr, i64, ptr, ptr)")
 	g.line("; ===== LLVM intrinsics =====")

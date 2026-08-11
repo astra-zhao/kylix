@@ -22,11 +22,20 @@ All notable changes to the Kylix compiler are documented in this file.
 - 诊断 Go 工具链 / LLVM 后端（llc/clang/opt + 版本）/ stdlib 系统库（sqlite3/curl/openssl，编译探测 + Homebrew -L 兜底）。
 - README 写清 LLVM 前置（brew/apt install llvm）。
 
+### 平台 API 适配（5 模块，按 targetOS 发条件 IR）
+
+- **sysutil**：fopen 用二进制模式（Windows `"rb"/"wb"`，避免 \n→\r\n 文本转换）；`access` → Windows `_access`。
+- **datetime**：`localtime_r(time, tm)` → Windows `localtime_s(tm, time)`（参数顺序相反、返回 errno_t）——`emitLocaltimeCall` helper 统一 3 处调用。
+- **exc**：`setjmp/longjmp` → Windows `_setjmp/_longjmp`（UCRT 无 setjmp 符号）；jmpbuf 大小 288→512（Windows x64）。
+- **net**：Windows stub（Winsock 的 SOCKET=UINT_PTR + WSAStartup + closesocket 差异大，需 Windows 环境验证）——返回类型化默认值不崩。
+- **regex**：Windows stub（UCRT 无 POSIX regcomp，真支持需 pcre2）——Is* 返回 false。
+
+**验证**：Windows target 编译 net/datetime/regex 教程 llc 产 COFF .o 成功（stub 生效）；macOS host 51/51 + 16 包无回归。net/regex 真实现（Winsock/pcre2）为后续增量（需 Windows 环境）。
+
 ### 验证
 
 - Linux LLVM 51/51（CI 多轮稳定绿）+ Go 51/51 + 16 包 + self-repro 全绿。
 - 本机 llc 交叉产 .o：linux/amd64→ELF x86-64、windows/amd64→COFF、linux/arm64→ELF aarch64（host 默认仍 Mach-O 运行正常）。
-- Windows 平台 API 适配（net Winsock / regex / datetime / exc / sysutil）为后续增量（当前 Windows job 为 smoke/尽力而为）。
 
 ---
 

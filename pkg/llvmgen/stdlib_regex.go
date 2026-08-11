@@ -31,6 +31,15 @@ func (g *Generator) emitRegexCall(funcName string, args []ast.Expression) (reg, 
 	// Coerce to ptr if needed (best-effort; type mismatches caught by llc)
 	_ = argType
 
+	// v6.2.0: Windows UCRT has no POSIX regcomp/regexec. The Is* helpers return
+	// false (the argument is still evaluated for side effects); real regex
+	// support on Windows would require linking pcre2. Recorded as a limitation.
+	if g.targetOS == "windows" {
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i1 0, 0 ; regex.%s not supported on Windows (needs pcre2)", r, funcName))
+		return r, "i1", nil
+	}
+
 	fn := fmt.Sprintf("@__kylix_regex_%s", funcName)
 	key := "regex." + funcName
 	if !g.stdlibEmitted[key] {
