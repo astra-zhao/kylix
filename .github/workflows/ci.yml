@@ -92,6 +92,41 @@ jobs:
       - name: "Run 51 tutorials (LLVM backend → native binary, run, cleanup)"
         run: KYLIX=$PWD/kylix bash examples/complete-tutorial/test_all_llvm.sh
 
+  llvm-windows:
+    name: LLVM backend (Windows native, smoke)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install LLVM (llc + clang + lld)
+        run: choco install llvm --no-progress
+
+      - name: Build CLI
+        run: go build -o kylix.exe ./cmd/kylix/
+
+      - name: "Compile + run representative tutorials (native Windows .exe)"
+        # v6.2.0 cross-platform smoke: hello / control-flow / oop / stdlib-core
+        # compile to native Windows executables via the LLVM backend and run.
+        shell: bash
+        run: |
+          set -e
+          for ex in \
+            examples/complete-tutorial/01_basics/example01_hello.klx \
+            examples/complete-tutorial/02_control_flow/example07_if_else.klx \
+            examples/complete-tutorial/04_oop/example18_class_methods.klx \
+            examples/complete-tutorial/07_stdlib_core/example29_basic_funcs.klx; do
+            name=$(basename "$ex" .klx)
+            ./kylix.exe build --backend=llvm -o "$name.exe" "$ex"
+            "./$name.exe"
+          done
+
   selfrepro:
     name: Self-reproduction fixpoint
     runs-on: ubuntu-latest
