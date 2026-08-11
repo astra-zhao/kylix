@@ -106,15 +106,15 @@ jobs:
           cache: true
 
       - name: Install LLVM (llc + clang)
-        # choco/winget land in unknown dirs; fetch the official prebuilt LLVM
-        # installer and install silently to C:\Program Files\LLVM (kylix's
-        # FindLLVM searches that path on Windows).
+        # Fetch the official prebuilt LLVM installer and install silently to a
+        # known path (C:\LLVM) via the NSIS /D flag — kylix's FindLLVM searches
+        # C:\LLVM\bin on Windows.
         shell: pwsh
         run: |
           $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe"
           Invoke-WebRequest -Uri $url -OutFile llvm-installer.exe
-          Start-Process -FilePath .\llvm-installer.exe -ArgumentList "/S" -Wait
-          Write-Host "llc at: $(Test-Path 'C:\Program Files\LLVM\bin\llc.exe')"
+          Start-Process -FilePath .\llvm-installer.exe -ArgumentList "/S", "/D=C:\LLVM" -Wait
+          Write-Host "llc at: $(Test-Path 'C:\LLVM\bin\llc.exe')"
 
       - name: Build CLI
         shell: pwsh
