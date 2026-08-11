@@ -106,17 +106,17 @@ jobs:
           cache: true
 
       - name: Install LLVM (llc + clang)
-        # Fetch the official prebuilt LLVM installer and install silently to a
-        # known path (C:\LLVM) via the NSIS /D flag — kylix's FindLLVM searches
-        # C:\LLVM\bin on Windows.
+        # llvm-mingw ships a zip of clang/lld/llc for Windows — no installer or
+        # UAC involved; just unzip and add bin to PATH (kylix FindLLVM finds it).
         shell: pwsh
         run: |
-          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe"
-          Invoke-WebRequest -Uri $url -OutFile llvm-installer.exe
-          Write-Host "installer size: $((Get-Item llvm-installer.exe).Length)"
-          Start-Process -FilePath .\llvm-installer.exe -ArgumentList "/S", "/D=C:\LLVM" -Wait
-          Write-Host "llc at: $(Test-Path 'C:\LLVM\bin\llc.exe')"
-          Get-ChildItem -Path "C:\Program Files\LLVM","C:\LLVM","$env:LOCALAPPDATA" -Filter llc.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 2 -ExpandProperty FullName
+          $rel = Invoke-RestMethod "https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest"
+          $asset = $rel.assets | Where-Object { $_.name -like "*ucrt-x86_64.zip" } | Select-Object -First 1
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile llvm.zip
+          Expand-Archive llvm.zip -DestinationPath C:\
+          $llvmDir = (Get-ChildItem C:\ -Directory -Filter "llvm-mingw-*" | Select-Object -First 1).FullName
+          Write-Host "llvm at: $llvmDir  (llc: $(Test-Path "$llvmDir\bin\llc.exe"))"
+          Write-Host "$llvmDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Build CLI
         shell: pwsh
