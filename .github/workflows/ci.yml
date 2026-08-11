@@ -106,10 +106,16 @@ jobs:
           cache: true
 
       - name: Install LLVM (llc + clang + lld)
+        shell: pwsh
         run: choco install llvm --no-progress
 
       - name: Build CLI
-        run: go build -o kylix.exe ./cmd/kylix/
+        shell: pwsh
+        # choco installs to C:\Program Files\LLVM but the job's PATH was captured
+        # at start; re-add it explicitly so kylix finds llc/clang.
+        run: |
+          $env:PATH = "C:\Program Files\LLVM\bin;$env:PATH"
+          go build -o kylix.exe ./cmd/kylix/
 
       - name: "Compile + run representative tutorials (native Windows .exe)"
         # v6.2.0 cross-platform smoke: hello / control-flow / oop / stdlib-core
@@ -117,6 +123,7 @@ jobs:
         shell: bash
         run: |
           set -e
+          export PATH="/c/Program Files/LLVM/bin:$PATH"
           for ex in \
             examples/complete-tutorial/01_basics/example01_hello.klx \
             examples/complete-tutorial/02_control_flow/example07_if_else.klx \

@@ -120,7 +120,7 @@ type Generator struct {
 	// targetOS/targetArch (v6.2.0): cross-compilation target (host by default).
 	// emitHeader uses them via tripleFor; platform API shims (net/regex/
 	// datetime/exc/sysutil) branch on targetOS.
-	targetOS  string
+	targetOS   string
 	targetArch string
 
 	// strDedup (v4.5.0 Phase C) deduplicates string constants by content —

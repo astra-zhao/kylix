@@ -54,7 +54,8 @@ run_single_file_dir() {
     for f in "${files[@]}"; do
         TOTAL=$((TOTAL + 1))
         local name="${f%.klx}"
-        if $KYLIX build --backend=llvm ${LLVM_OPT:+--llvm-opt=$LLVM_OPT} -o "$BINDIR/$name" "$f" >/dev/null 2>&1; then
+        local build_out
+        if build_out=$($KYLIX build --backend=llvm ${LLVM_OPT:+--llvm-opt=$LLVM_OPT} -o "$BINDIR/$name" "$f" 2>&1); then
             if [ -n "$OUTDIR" ]; then
                 mkdir -p "$OUTDIR"
                 if "$BINDIR/$name" > "$OUTDIR/$name.out" 2>&1; then
@@ -73,6 +74,7 @@ run_single_file_dir() {
             fi
         else
             echo "  ✗ $f (compile failed)"
+            echo "$build_out" | head -4 | sed 's/^/      /'
             FAIL=$((FAIL + 1))
         fi
         # build --backend=llvm writes .ll/.o/.opt.ll next to the source — clean

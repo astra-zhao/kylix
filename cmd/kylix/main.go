@@ -28,6 +28,8 @@ func main() {
 		cmdDoc(os.Args[2:])
 	case "bench":
 		cmdBench(os.Args[2:])
+	case "doctor":
+		cmdDoctor(os.Args[2:])
 	case "debug":
 		cmdDebug(os.Args[2:])
 	case "new":
@@ -74,6 +76,7 @@ COMMANDS:
     fmt     Format Kylix source files
     repl    Start interactive REPL
     lsp     Start Language Server Protocol server (for editors)
+    doctor  Diagnose toolchain (Go / LLVM / stdlib native libs)
 
 PACKAGE MANAGEMENT:
     add       Add a package dependency
