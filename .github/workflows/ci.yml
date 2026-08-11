@@ -106,17 +106,17 @@ jobs:
           cache: true
 
       - name: Install LLVM (llc + clang)
-        # llvm-mingw ships a zip of clang/lld/llc for Windows — no installer or
-        # UAC involved; just unzip and add bin to PATH (kylix FindLLVM finds it).
+        # Official LLVM installer, invoked directly with `&` (Start-Process
+        # mangles the NSIS /D arg). Install to C:\LLVM; check the exit code and
+        # the resulting llc.exe so a silent failure is visible in the logs.
         shell: pwsh
         run: |
-          $rel = Invoke-RestMethod "https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest"
-          $asset = $rel.assets | Where-Object { $_.name -like "*ucrt-x86_64.zip" } | Select-Object -First 1
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile llvm.zip
-          Expand-Archive llvm.zip -DestinationPath C:\
-          $llvmDir = (Get-ChildItem C:\ -Directory -Filter "llvm-mingw-*" | Select-Object -First 1).FullName
-          Write-Host "llvm at: $llvmDir  (llc: $(Test-Path "$llvmDir\bin\llc.exe"))"
-          Write-Host "$llvmDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe"
+          Invoke-WebRequest -Uri $url -OutFile llvm-installer.exe
+          & .\llvm-installer.exe /S /D=C:\LLVM
+          Write-Host "installer exit: $LASTEXITCODE"
+          Write-Host "llc at C:\LLVM: $(Test-Path 'C:\LLVM\bin\llc.exe')"
+          if (Test-Path 'C:\LLVM\bin\llc.exe') { Write-Host 'C:\LLVM\bin' | Out-File -FilePath $env:GITHUB_PATH -Append }
 
       - name: Build CLI
         shell: pwsh
