@@ -108,7 +108,7 @@ jobs:
       - name: Install LLVM (llc + clang + lld)
         # choco/winget installers land in unknown dirs on the hosted runner;
         # the setup-llvm action fetches a prebuilt LLVM and puts llc/clang on PATH.
-        uses: edgarrc/setup-llvm@v1
+        uses: mihaivlad/setup-llvm@v1
         with:
           llvm-version: 18
 
