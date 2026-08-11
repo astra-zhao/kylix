@@ -106,8 +106,10 @@ jobs:
           cache: true
 
       - name: Install LLVM (llc + clang + lld)
+        # choco consistently installs 0/1 packages on the hosted runner; winget
+        # (Windows 11) is more reliable here.
         shell: pwsh
-        run: choco install llvm --no-progress -y
+        run: winget install -e --id LLVM.LLVM --accept-source-agreements --accept-package-agreements --silent
 
       - name: Locate LLVM + Build CLI
         shell: pwsh
