@@ -105,12 +105,16 @@ jobs:
           go-version: '1.25'
           cache: true
 
-      - name: Install LLVM (llc + clang + lld)
-        # choco/winget installers land in unknown dirs on the hosted runner;
-        # the setup-llvm action fetches a prebuilt LLVM and puts llc/clang on PATH.
-        uses: mihaivlad/setup-llvm@v1
-        with:
-          llvm-version: 18
+      - name: Install LLVM (llc + clang)
+        # choco/winget land in unknown dirs; fetch the official prebuilt LLVM
+        # installer and install silently to C:\Program Files\LLVM (kylix's
+        # FindLLVM searches that path on Windows).
+        shell: pwsh
+        run: |
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe"
+          Invoke-WebRequest -Uri $url -OutFile llvm-installer.exe
+          Start-Process -FilePath .\llvm-installer.exe -ArgumentList "/S" -Wait
+          Write-Host "llc at: $(Test-Path 'C:\Program Files\LLVM\bin\llc.exe')"
 
       - name: Build CLI
         shell: pwsh
