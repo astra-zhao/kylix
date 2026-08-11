@@ -288,6 +288,12 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 			clangArgs = append(clangArgs, "-fuse-ld=lld", "-Wl,/subsystem:console")
 		}
 	}
+	// Linux: the IR accesses string constants with absolute relocations
+	// (R_X86_64_32S against .rodata), which the linker rejects under PIE
+	// ("can not be used when making a PIE object"). Link non-PIE. v6.2.0.
+	if targetOS == "linux" {
+		clangArgs = append(clangArgs, "-no-pie")
+	}
 
 	// Link system libraries by scanning the IR for stdlib module symbols.
 	// v6.2.0: the -L/rpath handling is macOS-only (Homebrew); Linux uses the

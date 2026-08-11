@@ -107,7 +107,7 @@ jobs:
 
       - name: Install LLVM (llc + clang + lld)
         shell: pwsh
-        run: choco install llvm --no-progress
+        run: choco install llvm --no-progress -y
 
       - name: Locate LLVM + Build CLI
         shell: pwsh
