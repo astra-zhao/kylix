@@ -29,6 +29,7 @@ func FindLLVM() (*LLVMPaths, error) {
 		"/usr/local/opt/llvm/bin",    // Homebrew x86
 		"/usr/bin",                   // Linux system
 		"/usr/local/bin",
+		`C:\Program Files\LLVM\bin`, // Windows (LLVM installer, v6.2.0)
 	}
 
 	find := func(name string) string {
