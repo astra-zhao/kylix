@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"kylix/ast"
@@ -85,6 +86,61 @@ type CompileOpts struct {
 	// Implies -O0: optimization reorders/drops instructions, making debug info
 	// misleading, so OptLevel is forced to "" when DebugInfo is on.
 	DebugInfo bool
+
+	// Target (v6.2.0): cross-compilation target "os/arch" (e.g. "linux/amd64",
+	// "windows/amd64", "darwin/arm64"). Empty means the host (runtime.GOOS/GOARCH).
+	// Drives the LLVM IR target triple + datalayout, llc codegen, clang link
+	// flags and the system-library search. See tripleFor.
+	Target string
+}
+
+// appendHomebrewLib adds -L + -Wl,-rpath for a Homebrew-installed library on
+// macOS (openssl/sqlite/curl). No-op on other platforms or when the dir is
+// absent (Linux uses the system default path). v6.2.0.
+func appendHomebrewLib(clangArgs *[]string, brewName string) {
+	for _, dir := range []string{
+		"/opt/homebrew/opt/" + brewName + "/lib", // Homebrew ARM
+		"/usr/local/opt/" + brewName + "/lib",    // Homebrew x86
+	} {
+		if _, err := os.Stat(dir); err == nil {
+			*clangArgs = append(*clangArgs, "-L"+dir, "-Wl,-rpath,"+dir)
+			return
+		}
+	}
+}
+
+// resolveTarget parses a "os/arch" cross-compile target into (os, arch).
+// An empty target means the host platform.
+func resolveTarget(target string) (string, string) {
+	if target == "" {
+		return runtime.GOOS, runtime.GOARCH
+	}
+	if i := strings.Index(target, "/"); i >= 0 {
+		return target[:i], target[i+1:]
+	}
+	return runtime.GOOS, runtime.GOARCH
+}
+
+// tripleFor returns the LLVM target triple + datalayout for an os/arch pair
+// (v6.2.0). The IR header carries these so llc produces the right object file;
+// previously the triple was hardcoded to arm64-apple-macosx, so cross-compiling
+// (or even running the LLVM backend on Linux/Windows) emitted Mach-O objects
+// that the platform linker could not read.
+func tripleFor(osName, arch string) (triple, datalayout string) {
+	switch osName + "/" + arch {
+	case "darwin/arm64":
+		return "arm64-apple-macosx15.0.0", "e-m:o-i64:64-i128:128-n32:64-S128"
+	case "darwin/amd64":
+		return "x86_64-apple-macosx15.0.0", "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+	case "linux/amd64":
+		return "x86_64-pc-linux-gnu", "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+	case "linux/arm64":
+		return "aarch64-unknown-linux-gnu", "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
+	case "windows/amd64":
+		return "x86_64-pc-windows-msvc", "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+	}
+	// Fallback: treat unknown as the arm64 macOS default (backwards compatible).
+	return "arm64-apple-macosx15.0.0", "e-m:o-i64:64-i128:128-n32:64-S128"
 }
 
 // CompileToNativeOpts compiles with options.
@@ -191,6 +247,13 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		default:
 			llcArgs = append(llcArgs, "-O=2")
 		}
+		// v6.2.0: cross-compilation — pin the target so llc honors it even if
+		// the IR triple were lost; llc is a multi-target compiler.
+		if opts.Target != "" {
+			tOS, tArch := resolveTarget(opts.Target)
+			triple, _ := tripleFor(tOS, tArch)
+			llcArgs = append(llcArgs, "-mtriple="+triple)
+		}
 		llcArgs = append(llcArgs, "-o", objFile, irFile)
 		llcCmd := exec.Command(llvmPaths.LLC, llcArgs...)
 		if out, err := llcCmd.CombinedOutput(); err != nil {
@@ -207,58 +270,54 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		outBin = base
 	}
 
+	// v6.2.0: cross-compilation target (host default when opts.Target empty).
+	// Drives the clang --target flag, the Windows linker driver, and which
+	// system-library search path to use.
+	targetOS, targetArch := resolveTarget(opts.Target)
+
 	// clang: .o → native binary
 	clangArgs := []string{"-o", outBin, objFile}
-	// If the IR references OpenSSL libcrypto symbols (crypto stdlib), link
-	// against libcrypto and add the Homebrew OpenSSL lib path (macOS). The
-	// detection is done by scanning the IR for @__kylix_crypto_ defines,
-	// which are only emitted when crypto functions are actually used.
+	// Cross-compiling: tell clang which platform to emit for. Windows needs
+	// the lld linker driver + console subsystem (no CRT sysroot is provided;
+	// clang finds the MSVC/WinSDK CRT from the environment).
+	if opts.Target != "" {
+		triple, _ := tripleFor(targetOS, targetArch)
+		clangArgs = append(clangArgs, "--target="+triple)
+		if targetOS == "windows" {
+			clangArgs = append(clangArgs, "-fuse-ld=lld", "-Wl,/subsystem:console")
+		}
+	}
+
+	// Link system libraries by scanning the IR for stdlib module symbols.
+	// v6.2.0: the -L/rpath handling is macOS-only (Homebrew); Linux uses the
+	// system default path; Windows relies on clang's .lib search.
 	if strings.Contains(ir, "@__kylix_crypto_") {
 		clangArgs = append(clangArgs, "-lcrypto")
-		// Homebrew OpenSSL paths (macOS Intel + ARM). On Linux, libcrypto is
-		// typically in the default search path, so no -L needed.
-		for _, dir := range []string{
-			"/opt/homebrew/opt/openssl/lib", // Homebrew ARM
-			"/usr/local/opt/openssl/lib",    // Homebrew x86
-		} {
-			if _, err := os.Stat(dir); err == nil {
-				clangArgs = append(clangArgs, "-L"+dir)
-				// Also set rpath so the runtime linker finds libcrypto.dylib.
-				clangArgs = append(clangArgs, "-Wl,-rpath,"+dir)
-				break
-			}
+		if targetOS == "darwin" {
+			appendHomebrewLib(&clangArgs, "openssl")
 		}
 	}
-	// SQLite (db stdlib) — same pattern.
 	if strings.Contains(ir, "@__kylix_db_") || strings.Contains(ir, "@sqlite3_") {
 		clangArgs = append(clangArgs, "-lsqlite3")
-		for _, dir := range []string{
-			"/opt/homebrew/opt/sqlite/lib", // Homebrew ARM
-			"/usr/local/opt/sqlite/lib",    // Homebrew x86
-		} {
-			if _, err := os.Stat(dir); err == nil {
-				clangArgs = append(clangArgs, "-L"+dir)
-				clangArgs = append(clangArgs, "-Wl,-rpath,"+dir)
-				break
-			}
+		if targetOS == "darwin" {
+			appendHomebrewLib(&clangArgs, "sqlite")
 		}
 	}
-	// libcurl (httpclient stdlib, v4.5.0) — same IR-symbol-scan pattern.
 	if strings.Contains(ir, "@__kylix_httpclient_") || strings.Contains(ir, "@curl_easy_") {
 		clangArgs = append(clangArgs, "-lcurl")
-		for _, dir := range []string{
-			"/opt/homebrew/opt/curl/lib", // Homebrew ARM
-			"/usr/local/opt/curl/lib",    // Homebrew x86
-		} {
-			if _, err := os.Stat(dir); err == nil {
-				clangArgs = append(clangArgs, "-L"+dir)
-				clangArgs = append(clangArgs, "-Wl,-rpath,"+dir)
-				break
-			}
+		if targetOS == "darwin" {
+			appendHomebrewLib(&clangArgs, "curl")
 		}
 	}
 	clangCmd := exec.Command(llvmPaths.Clang, clangArgs...)
 	if out, err := clangCmd.CombinedOutput(); err != nil {
+		// v6.2.0: cross-compiling on a host that lacks the target's CRT/libc
+		// (e.g. linking linux/amd64 from macOS) fails at link even though llc
+		// produced a correct object file. Explain instead of a bare clang error.
+		if opts.Target != "" && targetOS != runtime.GOOS {
+			return nil, fmt.Errorf("clang link failed for target %s (%s produced; linking %s needs that platform's CRT/libc — build on %s or use CI): %w\n%s",
+				opts.Target, objFile, opts.Target, targetOS, err, out)
+		}
 		return nil, fmt.Errorf("clang link failed: %w\n%s", err, out)
 	}
 

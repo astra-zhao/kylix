@@ -118,7 +118,7 @@ func (c *CacheStore) Put(key CacheKey, srcObj string) error {
 func irCacheKey(ir string, opts CompileOpts) CacheKey {
 	h := sha256.New()
 	h.Write([]byte(ir))
-	fmt.Fprintf(h, "opt=%s|debug=%v", opts.OptLevel, opts.DebugInfo)
+	fmt.Fprintf(h, "opt=%s|debug=%v|target=%s", opts.OptLevel, opts.DebugInfo, opts.Target)
 	return CacheKey(hex.EncodeToString(h.Sum(nil)))
 }
 

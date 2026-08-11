@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -89,7 +90,7 @@ OPTIONS:
 			// LLVM backend shortcut — bypass Go codegen entirely
 			if *backend == "llvm" {
 				start := time.Now()
-				if err := buildWithLLVM(file, *output, *llvmOpt, *llvmDebug); err != nil {
+				if err := buildWithLLVM(file, *output, *llvmOpt, *llvmDebug, *target); err != nil {
 					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 					os.Exit(1)
 				}
@@ -157,7 +158,7 @@ OPTIONS:
 		// program + any `unit` files it `uses`) before lowering to LLVM IR.
 		if *backend == "llvm" {
 			start := time.Now()
-			if err := buildMultiFileWithLLVM(files, *output, *llvmOpt, *llvmDebug); err != nil {
+			if err := buildMultiFileWithLLVM(files, *output, *llvmOpt, *llvmDebug, *target); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -355,15 +356,21 @@ func cacheStats(hits, misses int) string {
 }
 
 // buildWithLLVM compiles a Kylix file to native binary via LLVM IR.
-func buildWithLLVM(srcFile, outBin, optLevel string, debugInfo bool) error {
+// target is a "os/arch" cross-compile target ("" = host); windows adds .exe.
+func buildWithLLVM(srcFile, outBin, optLevel string, debugInfo bool, target string) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
 		return fmt.Errorf("LLVM toolchain not found: %w\nHint: brew install llvm (macOS) or apt install llvm clang (Linux)", err)
 	}
 
+	if strings.HasPrefix(target, "windows/") && outBin != "" && !strings.HasSuffix(outBin, ".exe") {
+		outBin += ".exe"
+	}
+
 	result, err := llvmgen.CompileToNativeOpts(srcFile, outBin, llvmPaths, llvmgen.CompileOpts{
 		OptLevel:  optLevel,
 		DebugInfo: debugInfo,
+		Target:    target,
 	})
 	if err != nil {
 		return err
@@ -385,15 +392,20 @@ func buildWithLLVM(srcFile, outBin, optLevel string, debugInfo bool) error {
 // then their declarations are merged (see llvmgen.MergePrograms) before
 // lowering to one LLVM module — mirroring how the Go backend's
 // compiler.CompileProject merges multiple ASTs via generator.GenerateMulti.
-func buildMultiFileWithLLVM(files []string, outBin, optLevel string, debugInfo bool) error {
+func buildMultiFileWithLLVM(files []string, outBin, optLevel string, debugInfo bool, target string) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
 		return fmt.Errorf("LLVM toolchain not found: %w\nHint: brew install llvm (macOS) or apt install llvm clang (Linux)", err)
 	}
 
+	if strings.HasPrefix(target, "windows/") && outBin != "" && !strings.HasSuffix(outBin, ".exe") {
+		outBin += ".exe"
+	}
+
 	result, err := llvmgen.CompileFilesToNative(files, outBin, llvmPaths, llvmgen.CompileOpts{
 		OptLevel:  optLevel,
 		DebugInfo: debugInfo,
+		Target:    target,
 	})
 	if err != nil {
 		return err

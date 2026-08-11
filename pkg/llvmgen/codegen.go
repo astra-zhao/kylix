@@ -117,6 +117,12 @@ type Generator struct {
 	debugInfo bool
 	dbg       *dbgMeta
 
+	// targetOS/targetArch (v6.2.0): cross-compilation target (host by default).
+	// emitHeader uses them via tripleFor; platform API shims (net/regex/
+	// datetime/exc/sysutil) branch on targetOS.
+	targetOS  string
+	targetArch string
+
 	// strDedup (v4.5.0 Phase C) deduplicates string constants by content —
 	// two addString("hello") calls return the same @.str.N register instead
 	// of emitting two identical globals. Reduces IR size and binary rodata.
@@ -248,6 +254,7 @@ func Generate(prog *ast.Program) (string, error) {
 func GenerateWithOpts(prog *ast.Program, srcFile string, opts CompileOpts) (string, error) {
 	g := NewGenerator(prog.Name)
 	g.debugInfo = opts.DebugInfo
+	g.targetOS, g.targetArch = resolveTarget(opts.Target)
 	if g.debugInfo {
 		g.initDbgMeta(srcFile)
 	}
@@ -516,10 +523,11 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 }
 
 func (g *Generator) emitHeader() {
+	triple, datalayout := tripleFor(g.targetOS, g.targetArch)
 	g.line(fmt.Sprintf("; Kylix LLVM IR — module: %s", g.module))
 	g.line(fmt.Sprintf("source_filename = \"%s.klx\"", g.module))
-	g.line("target datalayout = \"e-m:o-i64:64-i128:128-n32:64-S128\"")
-	g.line("target triple = \"arm64-apple-macosx15.0.0\"")
+	g.line(fmt.Sprintf("target datalayout = \"%s\"", datalayout))
+	g.line(fmt.Sprintf("target triple = \"%s\"", triple))
 	g.line("")
 }
 
