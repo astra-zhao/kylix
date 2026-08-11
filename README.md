@@ -81,6 +81,23 @@ go build -o kylix cmd/kylix/main.go
 export PATH=$PATH:$(pwd)
 ```
 
+The **Go backend** (default) needs a Go toolchain. The **LLVM backend**
+(`--backend=llvm`) produces native binaries with **no Go runtime dependency**,
+but needs the LLVM toolchain — check with `kylix doctor`:
+
+```bash
+# macOS
+brew install llvm
+# Linux
+sudo apt-get install llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev
+
+./kylix doctor   # diagnoses go / llc / clang / opt / sqlite3 / curl / openssl
+```
+
+`kylix run` auto-selects: Go when a Go toolchain is on PATH, otherwise the LLVM
+backend — so on a machine with LLVM installed but no Go, `kylix run hello.klx`
+still works. Cross-compile with `--target`: `kylix build --backend=llvm --target=linux/amd64` (linking a foreign platform needs that platform's toolchain/CRT — see CI).
+
 ## Quick Start
 
 ```bash

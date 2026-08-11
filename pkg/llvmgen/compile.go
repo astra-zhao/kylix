@@ -318,6 +318,11 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 			return nil, fmt.Errorf("clang link failed for target %s (%s produced; linking %s needs that platform's CRT/libc — build on %s or use CI): %w\n%s",
 				opts.Target, objFile, opts.Target, targetOS, err, out)
 		}
+		// Retry with -v so the underlying linker error surfaces in the report
+		// (clang otherwise reports only "linker command failed").
+		if vout, verr := exec.Command(llvmPaths.Clang, append(clangArgs, "-v")...).CombinedOutput(); verr != nil {
+			out = vout
+		}
 		return nil, fmt.Errorf("clang link failed: %w\n%s", err, out)
 	}
 
