@@ -109,12 +109,14 @@ jobs:
         shell: pwsh
         run: choco install llvm --no-progress
 
-      - name: Build CLI
+      - name: Locate LLVM + Build CLI
         shell: pwsh
         # choco installs to C:\Program Files\LLVM but the job's PATH was captured
         # at start; re-add it explicitly so kylix finds llc/clang.
         run: |
           $env:PATH = "C:\Program Files\LLVM\bin;$env:PATH"
+          Write-Host "PATH check: $(where.exe llc 2>&1)"
+          if (Test-Path "C:\Program Files\LLVM\bin\llc.exe") { Write-Host "llc at C:\Program Files\LLVM\bin" }
           go build -o kylix.exe ./cmd/kylix/
 
       - name: "Compile + run representative tutorials (native Windows .exe)"

@@ -74,7 +74,7 @@ run_single_file_dir() {
             fi
         else
             echo "  ✗ $f (compile failed)"
-            echo "$build_out" | head -12 | sed 's/^/      /'
+            echo "$build_out" | tail -25 | sed 's/^/      /'
             FAIL=$((FAIL + 1))
         fi
         # build --backend=llvm writes .ll/.o/.opt.ll next to the source — clean
