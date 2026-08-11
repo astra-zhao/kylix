@@ -4,6 +4,32 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v6.2.0 (2026-08-11) — 跨平台（Linux 达成）+ KylixRT 分发形态（A 预检+文档）
+
+> 🎯 **LLVM 后端跨平台解锁**：IR target triple/datalayout 原硬编码 `arm64-apple-macosx15.0.0`（永远产 Mach-O，Linux/Windows 无法链接）——参数化后 llc 产正确 .o（ELF/COFF/aarch64），**Linux 51 教程 LLVM 编译+运行 51/51**（CI 稳定绿）。加 `kylix doctor` 预检命令（分发形态 A）。
+
+### 跨平台（三平台机制全做，Linux 验证达成）
+
+- **target triple 参数化**：`CompileOpts.Target` + `tripleFor` 表（darwin/linux × amd64/arm64 + windows/amd64）；`emitHeader` 按 target 发 triple/datalayout（host 默认 runtime.GOOS/GOARCH）。llc 交叉加 `-mtriple`。
+- **CLI `--target` 贯通**：`build --backend=llvm --target=linux/amd64` 生效（此前静默忽略）；Windows 输出自动 `.exe`。
+- **系统库链接平台化**：按 targetOS（macOS Homebrew+rpath / Linux 默认路径 / Windows 靠 clang .lib 搜索）。
+- **修 Linux PIE 重定位失败**：IR 用绝对重定位（R_X86_64_32S）访问 .rodata 字符串，Linux 默认 `-pie` 拒绝（"can not be used when making a PIE object"）→ 链接加 `-no-pie`。
+- **CI**：Linux LLVM job 稳定绿（51/51）；Windows job 尽力而为（runner 的 LLVM 安装 GUI/UAC 不可靠，无 llc 时跳过编译，需有 LLVM 的环境手动验证——`kylix doctor` 检查）。
+- **交叉链接说明**：macOS 交叉链接 Linux/Windows 缺目标 CRT/libc → 报清晰提示（build on target platform or use CI）。
+
+### kylix doctor（分发形态 A）
+
+- 诊断 Go 工具链 / LLVM 后端（llc/clang/opt + 版本）/ stdlib 系统库（sqlite3/curl/openssl，编译探测 + Homebrew -L 兜底）。
+- README 写清 LLVM 前置（brew/apt install llvm）。
+
+### 验证
+
+- Linux LLVM 51/51（CI 多轮稳定绿）+ Go 51/51 + 16 包 + self-repro 全绿。
+- 本机 llc 交叉产 .o：linux/amd64→ELF x86-64、windows/amd64→COFF、linux/arm64→ELF aarch64（host 默认仍 Mach-O 运行正常）。
+- Windows 平台 API 适配（net Winsock / regex / datetime / exc / sysutil）为后续增量（当前 Windows job 为 smoke/尽力而为）。
+
+---
+
 ## v6.1.0 修复 (2026-08-11) — LLVM bootstrap 编译器编译死循环（KylixRT 前置 bug）
 
 > 🎯 **LLVM 编译的 bootstrap 编译器（`main`）编译任何含声明/类的程序死循环**（hello 无声明秒出）——直接违背 KylixRT「bootstrap 产物可直接编译任意程序」愿景。定位为两个真实 codegen bug，修复后 `main` 秒出编译含 is/as、for+continue 的程序（t2 输出 42、loop 奇数求和 25）。
