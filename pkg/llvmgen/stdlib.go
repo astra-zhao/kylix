@@ -46,6 +46,10 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"sysutil": {
 		"ReadFile": true, "WriteFile": true, "FileExists": true,
 		"PathJoin": true, "PathBase": true,
+		// v6.2.0: file/dir/env operations.
+		"DirExists": true, "CreateDir": true, "DeleteFile": true,
+		"AppendFile": true, "CopyFile": true, "GetFileSize": true,
+		"GetWorkingDir": true, "SetWorkingDir": true, "GetTempDir": true,
 	},
 	"regex": {
 		"IsEmail": true, "IsURL": true, "IsNumeric": true,

@@ -32,6 +32,25 @@ func stdlibSysutilFuncSig(name string) (retType string, params []string, ok bool
 		return "ptr", nil, true // variadic (...String) → String; params built per-call
 	case "PathBase":
 		return "ptr", []string{"ptr"}, true // (path) → String
+	// v6.2.0: file/dir/env operations (POSIX).
+	case "DirExists":
+		return "i1", []string{"ptr"}, true
+	case "CreateDir":
+		return "void", []string{"ptr"}, true
+	case "DeleteFile":
+		return "void", []string{"ptr"}, true
+	case "AppendFile":
+		return "void", []string{"ptr", "ptr"}, true
+	case "CopyFile":
+		return "void", []string{"ptr", "ptr"}, true
+	case "GetWorkingDir":
+		return "ptr", nil, true
+	case "SetWorkingDir":
+		return "void", []string{"ptr"}, true
+	case "GetTempDir":
+		return "ptr", nil, true
+	case "GetFileSize":
+		return "i64", []string{"ptr"}, true
 	}
 	return "", nil, false
 }
@@ -124,6 +143,24 @@ func (g *Generator) emitSysutilBody(name string, argCount int) {
 		g.emitSysutilPathJoin(argCount)
 	case "PathBase":
 		g.emitSysutilPathBase()
+	case "DirExists":
+		g.emitSysutilDirExists()
+	case "CreateDir":
+		g.emitSysutilCreateDir()
+	case "DeleteFile":
+		g.emitSysutilDeleteFile()
+	case "AppendFile":
+		g.emitSysutilAppendFile()
+	case "CopyFile":
+		g.emitSysutilCopyFile()
+	case "GetWorkingDir":
+		g.emitSysutilGetWorkingDir()
+	case "SetWorkingDir":
+		g.emitSysutilSetWorkingDir()
+	case "GetTempDir":
+		g.emitSysutilGetTempDir()
+	case "GetFileSize":
+		g.emitSysutilGetFileSize()
 	}
 }
 
@@ -323,6 +360,192 @@ func (g *Generator) emitSysutilPathBase() {
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", bufb, plus1b))
 	g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %%path)", bufb))
 	g.line(fmt.Sprintf("  ret ptr %s", bufb))
+	g.line("}")
+	g.line("")
+}
+
+// ---- DirExists: i1 @__kylix_sysutil_DirExists(ptr %path) ----
+// opendir(path) != null (POSIX). Windows has no opendir (v6.2.0 limitation).
+func (g *Generator) emitSysutilDirExists() {
+	g.line("define i1 @__kylix_sysutil_DirExists(ptr %path) {")
+	g.line("entry:")
+	d := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @opendir(ptr %%path)", d))
+	ok := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ne ptr %s, null", ok, d))
+	notNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ne ptr %s, null", notNull, d))
+	closeLbl := g.label()
+	skipLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", notNull, closeLbl, skipLbl))
+	g.line(closeLbl + ":")
+	g.line(fmt.Sprintf("  call i32 @closedir(ptr %s)", d))
+	g.line(fmt.Sprintf("  br label %%%s", skipLbl))
+	g.line(skipLbl + ":")
+	g.line(fmt.Sprintf("  ret i1 %s", ok))
+	g.line("}")
+	g.line("")
+}
+
+// ---- CreateDir: void @__kylix_sysutil_CreateDir(ptr %path) ----
+func (g *Generator) emitSysutilCreateDir() {
+	g.line("define void @__kylix_sysutil_CreateDir(ptr %path) {")
+	g.line("entry:")
+	g.line("  call i32 @mkdir(ptr %path, i32 493) ; 0755 octal")
+	g.line("  ret void")
+	g.line("}")
+	g.line("")
+}
+
+// ---- DeleteFile: void @__kylix_sysutil_DeleteFile(ptr %path) ----
+func (g *Generator) emitSysutilDeleteFile() {
+	g.line("define void @__kylix_sysutil_DeleteFile(ptr %path) {")
+	g.line("entry:")
+	g.line("  call i32 @remove(ptr %path)")
+	g.line("  ret void")
+	g.line("}")
+	g.line("")
+}
+
+// ---- AppendFile: void @__kylix_sysutil_AppendFile(ptr %path, ptr %content) ----
+func (g *Generator) emitSysutilAppendFile() {
+	modeA := "a"
+	if g.targetOS == "windows" {
+		modeA = "ab"
+	}
+	modeStr := g.addString(modeA)
+	g.line("define void @__kylix_sysutil_AppendFile(ptr %path, ptr %content) {")
+	g.line("entry:")
+	fp := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @fopen(ptr %%path, ptr %s)", fp, g.ptrTo(modeStr, len(modeA)+1)))
+	nullBlk := g.label()
+	okBlk := g.label()
+	g.line(fmt.Sprintf("  %%null = icmp eq ptr %s, null", fp))
+	g.line(fmt.Sprintf("  br i1 %%null, label %%%s, label %%%s", nullBlk, okBlk))
+	g.line(nullBlk + ":")
+	g.line("  ret void")
+	g.line(okBlk + ":")
+	g.line(fmt.Sprintf("  call i32 @fputs(ptr %%content, ptr %s)", fp))
+	g.line(fmt.Sprintf("  call i32 @fclose(ptr %s)", fp))
+	g.line("  ret void")
+	g.line("}")
+	g.line("")
+}
+
+// ---- CopyFile: void @__kylix_sysutil_CopyFile(ptr %src, ptr %dst) ----
+// Opens src "rb" + dst "wb" and copies in 4KB chunks (binary-safe both platforms).
+func (g *Generator) emitSysutilCopyFile() {
+	g.line("define void @__kylix_sysutil_CopyFile(ptr %src, ptr %dst) {")
+	g.line("entry:")
+	rStr := g.addString("rb")
+	wStr := g.addString("wb")
+	in := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @fopen(ptr %%src, ptr %s)", in, g.ptrTo(rStr, 3)))
+	nullIn := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", nullIn, in))
+	doneLbl := g.label()
+	openLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", nullIn, doneLbl, openLbl))
+	g.line(openLbl + ":")
+	out := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @fopen(ptr %%dst, ptr %s)", out, g.ptrTo(wStr, 3)))
+	nullOut := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", nullOut, out))
+	nullOutLbl := g.label()
+	loopLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", nullOut, nullOutLbl, loopLbl))
+	g.line(nullOutLbl + ":")
+	g.line(fmt.Sprintf("  call i32 @fclose(ptr %s)", in))
+	g.line(fmt.Sprintf("  br label %%%s", doneLbl))
+	// copy loop
+	g.line(loopLbl + ":")
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 4096)", buf))
+	loopHdr := g.label()
+	writeLbl := g.label()
+	loopEnd := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", loopHdr))
+	g.line(loopHdr + ":")
+	n := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @fread(ptr %s, i64 1, i64 4096, ptr %s)", n, buf, in))
+	done := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 0", done, n))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", done, loopEnd, writeLbl))
+	g.line(writeLbl + ":")
+	g.line(fmt.Sprintf("  call i64 @fwrite(ptr %s, i64 1, i64 %s, ptr %s)", buf, n, out))
+	g.line(fmt.Sprintf("  br label %%%s", loopHdr))
+	g.line(loopEnd + ":")
+	g.line(fmt.Sprintf("  call void @free(ptr %s)", buf))
+	g.line(fmt.Sprintf("  call i32 @fclose(ptr %s)", in))
+	g.line(fmt.Sprintf("  call i32 @fclose(ptr %s)", out))
+	g.line(fmt.Sprintf("  br label %%%s", doneLbl))
+	g.line(doneLbl + ":")
+	g.line("  ret void")
+	g.line("}")
+	g.line("")
+}
+
+// ---- GetWorkingDir: ptr @__kylix_sysutil_GetWorkingDir() ----
+func (g *Generator) emitSysutilGetWorkingDir() {
+	g.line("define ptr @__kylix_sysutil_GetWorkingDir() {")
+	g.line("entry:")
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 1024)", buf))
+	g.line(fmt.Sprintf("  call ptr @getcwd(ptr %s, i64 1024)", buf))
+	g.line(fmt.Sprintf("  ret ptr %s", buf))
+	g.line("}")
+	g.line("")
+}
+
+// ---- SetWorkingDir: void @__kylix_sysutil_SetWorkingDir(ptr %path) ----
+func (g *Generator) emitSysutilSetWorkingDir() {
+	g.line("define void @__kylix_sysutil_SetWorkingDir(ptr %path) {")
+	g.line("entry:")
+	g.line("  call i32 @chdir(ptr %path)")
+	g.line("  ret void")
+	g.line("}")
+	g.line("")
+}
+
+// ---- GetTempDir: ptr @__kylix_sysutil_GetTempDir() ----
+// getenv("TMPDIR"); fallback "/tmp" (TMP/TEMP on Windows is a v6.2.0 limitation).
+func (g *Generator) emitSysutilGetTempDir() {
+	g.line("define ptr @__kylix_sysutil_GetTempDir() {")
+	g.line("entry:")
+	tmpEnv := g.addString("TMPDIR")
+	env := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @getenv(ptr %s)", env, tmpEnv))
+	isNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", isNull, env))
+	tmpStr := g.addString("/tmp")
+	tmpPtr := g.ptrTo(tmpStr, 5)
+	ret := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", ret, isNull, tmpPtr, env))
+	g.line(fmt.Sprintf("  ret ptr %s", ret))
+	g.line("}")
+	g.line("")
+}
+
+// ---- GetFileSize: i64 @__kylix_sysutil_GetFileSize(ptr %path) ----
+func (g *Generator) emitSysutilGetFileSize() {
+	modeR := "rb"
+	modeStr := g.addString(modeR)
+	g.line("define i64 @__kylix_sysutil_GetFileSize(ptr %path) {")
+	g.line("entry:")
+	fp := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @fopen(ptr %%path, ptr %s)", fp, g.ptrTo(modeStr, 3)))
+	nullBlk := g.label()
+	okBlk := g.label()
+	g.line(fmt.Sprintf("  %%null = icmp eq ptr %s, null", fp))
+	g.line(fmt.Sprintf("  br i1 %%null, label %%%s, label %%%s", nullBlk, okBlk))
+	g.line(nullBlk + ":")
+	g.line("  ret i64 -1")
+	g.line(okBlk + ":")
+	g.line(fmt.Sprintf("  call i32 @fseek(ptr %s, i64 0, i32 2)", fp))
+	size := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @ftell(ptr %s)", size, fp))
+	g.line(fmt.Sprintf("  call i32 @fclose(ptr %s)", fp))
+	g.line(fmt.Sprintf("  ret i64 %s", size))
 	g.line("}")
 	g.line("")
 }
