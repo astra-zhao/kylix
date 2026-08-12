@@ -13,6 +13,7 @@ func cmdTest(args []string) {
 	tap := fs.Bool("tap", false, "Output TAP format")
 	dir := fs.String("dir", ".", "Directory to search for *_test.klx files")
 	filter := fs.String("filter", "", "Run only tests whose name contains this substring")
+	backend := fs.String("backend", "go", "Compiler backend: go (default) or llvm (v6.2.0: native binary, no Go toolchain needed)")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix test [options] [file_test.klx...]
 
@@ -34,6 +35,7 @@ OPTIONS:
 	}
 
 	runner := testrunner.New(*verbose)
+	runner.Backend = *backend
 	if *filter != "" {
 		runner.SetFilter(*filter)
 	}

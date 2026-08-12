@@ -220,9 +220,18 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 		return g.emitMapIndexGet(idx)
 	}
 
-	allocaReg, ok := g.locals[leftIdent.Value]
-	if !ok {
-		return "", "", fmt.Errorf("undefined array variable: %s", leftIdent.Value)
+	// v6.2.0: Args[i] — command-line arguments (argv[1:] as a {ptr,len,cap}
+	// slice global). Register it like a dynamic array backed by @__kylix_args.
+	allocaReg := ""
+	if leftIdent.Value == "Args" {
+		g.needArgs = true
+		g.arrayInfo["Args"] = &arrayInfo{IsDynamic: true, ElementType: "ptr", ElementKylixType: "String"}
+		allocaReg = "@__kylix_args"
+	} else {
+		allocaReg, ok = g.locals[leftIdent.Value]
+		if !ok {
+			return "", "", fmt.Errorf("undefined array variable: %s", leftIdent.Value)
+		}
 	}
 	info, hasInfo := g.arrayInfo[leftIdent.Value]
 	if !hasInfo {

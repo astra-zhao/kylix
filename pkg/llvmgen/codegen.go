@@ -9,6 +9,7 @@ package llvmgen
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"kylix/ast"
@@ -367,6 +368,11 @@ func (g *Generator) registerGlobalsInScope() {
 func (g *Generator) emitProgram(prog *ast.Program) error {
 	g.program = prog
 	g.emitHeader()
+	// v6.2.0: Args backing store at module scope so Args[i] in any statement
+	// resolves even when needArgs is only detected during statement emission;
+	// main() fills it from argv when needArgs. Defined unconditionally (unused
+	// otherwise, harmless).
+	g.line("@__kylix_args = global { ptr, i64, i64 } zeroinitializer")
 
 	// Emit runtime declarations (libc functions we'll call)
 	g.emitRuntimeDecls()
@@ -648,9 +654,10 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	// v5.4.0: when the Args builtin is used, main takes argc/argv and populates
 	// @__kylix_args (a {ptr,len,cap} slice of argv[1:] as C strings).
 	defineLine := "define i32 @main() {"
-	if g.needArgs {
+	if g.needArgs || statementsUseArgs(stmts) {
+		// @__kylix_args was already defined at module scope (emitProgram).
+		g.needArgs = true
 		defineLine = "define i32 @main(i32 %argc, ptr %argv) {"
-		g.line("@__kylix_args = global { ptr, i64, i64 } { ptr null, i64 0, i64 0 }")
 	}
 	var mainSpID int
 	if g.debugInfo {
@@ -1053,4 +1060,48 @@ func llvmEscapeString(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// statementsUseArgs reports whether any top-level statement (recursively)
+// references the Args builtin, so main() gets the argc/argv signature before
+// the statement list is emitted. v6.2.0.
+func statementsUseArgs(stmts []ast.Statement) bool {
+	for _, s := range stmts {
+		if nodeUsesArgs(reflect.ValueOf(s)) {
+			return true
+		}
+	}
+	return false
+}
+
+// nodeUsesArgs recursively walks an AST node (via reflection) looking for an
+// ast.Identifier whose Value is "Args" — the builtin command-line arguments
+// array.
+func nodeUsesArgs(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface:
+		if v.IsNil() {
+			return false
+		}
+		return nodeUsesArgs(v.Elem())
+	case reflect.Struct:
+		if id, ok := v.Interface().(ast.Identifier); ok {
+			return id.Value == "Args"
+		}
+		for i := 0; i < v.NumField(); i++ {
+			if nodeUsesArgs(v.Field(i)) {
+				return true
+			}
+		}
+		return false
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			if nodeUsesArgs(v.Index(i)) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
 }

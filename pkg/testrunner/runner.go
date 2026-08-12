@@ -25,6 +25,7 @@ import (
 	"kylix/generator"
 	"kylix/lexer"
 	"kylix/parser"
+	"kylix/pkg/llvmgen"
 )
 
 // TestCase is a single discovered test procedure.
@@ -52,6 +53,7 @@ type Runner struct {
 	Verbose   bool
 	Filter    string // optional substring filter on test names
 	ReportMem bool   // report B/op and allocs/op in benchmarks
+	Backend   string // "go" (default) or "llvm" (v6.2.0: native binary harness)
 }
 
 // New returns a Runner.
@@ -180,7 +182,12 @@ func (r *Runner) Run(cases []TestCase) []TestResult {
 }
 
 // runFile compiles a _test.klx with a test harness and runs each Test*.
+// Backend "llvm" uses the LLVM backend (native binary harness) instead of the
+// Go harness + `go run` (v6.2.0: KylixRT — run tests without a Go toolchain).
 func (r *Runner) runFile(file string, names []string) []TestResult {
+	if r.Backend == "llvm" {
+		return r.runFileLLVM(file, names)
+	}
 	tmpDir, err := os.MkdirTemp("", "kylix-test-*")
 	if err != nil {
 		return failAll(file, names, err.Error())
@@ -499,4 +506,98 @@ func (r *Runner) runOneBench(harnessPath, name string, count int, reportMem bool
 	}
 
 	return TestResult{Passed: true, BenchResult: bench}
+}
+
+// runFileLLVM compiles a _test.klx into a native binary via the LLVM backend
+// (no Go toolchain) and runs each Test*. The harness is a Kylix program that
+// defines Assert (raise on failure) and dispatches on Args[0] to the requested
+// Test* procedure; it is merged with the test file + its same-dir `uses`
+// dependencies via llvmgen.CompileFilesToNative. v6.2.0.
+func (r *Runner) runFileLLVM(file string, names []string) []TestResult {
+	tmpDir, err := os.MkdirTemp("", "kylix-test-llvm-*")
+	if err != nil {
+		return failAll(file, names, err.Error())
+	}
+	defer os.RemoveAll(tmpDir)
+
+	harnessPath, err := buildHarnessLLVM(names, tmpDir)
+	if err != nil {
+		return failAll(file, names, fmt.Sprintf("harness: %v", err))
+	}
+
+	// Compile the harness + test file + same-dir `uses` dependencies together.
+	files := []string{harnessPath, file}
+	if src, rerr := os.ReadFile(file); rerr == nil {
+		l := lexer.New(string(src))
+		p := parser.New(l)
+		prog := p.ParseProgram()
+		dir := filepath.Dir(file)
+		for _, used := range prog.Uses {
+			depPath := filepath.Join(dir, used+".klx")
+			if _, serr := os.Stat(depPath); serr == nil {
+				files = append(files, depPath)
+			}
+		}
+	}
+
+	llvmPaths, err := llvmgen.FindLLVM()
+	if err != nil {
+		return failAll(file, names, fmt.Sprintf("LLVM toolchain: %v", err))
+	}
+	bin := filepath.Join(tmpDir, "harness")
+	if _, err := llvmgen.CompileFilesToNative(files, bin, llvmPaths, llvmgen.CompileOpts{}); err != nil {
+		return failAll(file, names, fmt.Sprintf("compile: %v", err))
+	}
+
+	var results []TestResult
+	for _, name := range names {
+		tc := TestCase{Name: name, File: file}
+		cmd := exec.Command(bin, name)
+		out, runErr := cmd.CombinedOutput()
+		outStr := strings.TrimSpace(string(out))
+		// v6.2.0: Assert prints "FAIL: <msg>" (no exception unwinding on the
+		// native path), so a failure is detected by output, not just exit code.
+		if runErr != nil || strings.Contains(outStr, "FAIL:") {
+			msg := outStr
+			if msg == "" {
+				msg = runErr.Error()
+			}
+			results = append(results, TestResult{TestCase: tc, Passed: false, Message: msg})
+		} else {
+			results = append(results, TestResult{TestCase: tc, Passed: true})
+		}
+	}
+	return results
+}
+
+// buildHarnessLLVM writes a Kylix test harness: an Assert procedure that raises
+// on failure, and a main that dispatches Args[0] to the requested Test*.
+func buildHarnessLLVM(names []string, tmpDir string) (string, error) {
+	var sb strings.Builder
+	sb.WriteString("program __harness;\n")
+	sb.WriteString("var __failed: Boolean;\n")
+	sb.WriteString("procedure Assert(cond: Boolean; msg: String);\n")
+	sb.WriteString("begin\n")
+	sb.WriteString("  if not cond then\n")
+	sb.WriteString("  begin\n")
+	sb.WriteString("    __failed := true;\n")
+	sb.WriteString("    WriteLn('FAIL: ' + msg);\n")
+	sb.WriteString("  end;\n")
+	sb.WriteString("end;\n")
+	sb.WriteString("begin\n")
+	sb.WriteString("  __failed := false;\n")
+	for i, name := range names {
+		cond := "if"
+		if i > 0 {
+			cond = "else if"
+		}
+		sb.WriteString(fmt.Sprintf("  %s Args[0] = '%s' then %s()\n", cond, name, name))
+	}
+	sb.WriteString("  else WriteLn('unknown test: ' + Args[0]);\n")
+	sb.WriteString("end.\n")
+	harnessPath := filepath.Join(tmpDir, "__harness.klx")
+	if err := os.WriteFile(harnessPath, []byte(sb.String()), 0644); err != nil {
+		return "", err
+	}
+	return harnessPath, nil
 }

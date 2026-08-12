@@ -64,6 +64,13 @@ func MergePrograms(programs []*ast.Program) (*ast.Program, error) {
 
 	for _, p := range programs {
 		if !p.IsUnit {
+			// v6.2.0: a non-unit file with no program name and no top-level
+			// statements (e.g. a Kylix test file with only Test* procedures)
+			// is a declaration provider, not the entry program — its
+			// declarations are merged below, but it must not claim to be main.
+			if p.Name == "" && len(p.Statements) == 0 {
+				continue
+			}
 			if main != nil {
 				return nil, fmt.Errorf("multiple non-unit programs found (%q and %q); exactly one main program is required", main.Name, p.Name)
 			}
