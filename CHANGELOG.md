@@ -32,6 +32,13 @@ All notable changes to the Kylix compiler are documented in this file.
 
 **验证**：Windows target 编译 net/datetime/regex 教程 llc 产 COFF .o 成功（stub 生效）；macOS host 51/51 + 16 包无回归。net/regex 真实现（Winsock/pcre2）为后续增量（需 Windows 环境）。
 
+### v6.2.0 续：stdlib sysutil 补齐 + kylix test/bench LLVM 路由
+
+- **sysutil 补齐**（9 函数）：DirExists/CreateDir/DeleteFile/AppendFile/CopyFile/GetWorkingDir/SetWorkingDir/GetTempDir/GetFileSize（POSIX libc IR: opendir/mkdir/remove/getcwd/chdir/getenv/fopen）。AppendFile 用追加模式。
+- **`kylix test --backend=llvm`**：无 Go 工具链跑测试（KylixRT）。testrunner 生成 Kylix harness（Assert 打印 FAIL + dispatch main 按 Args[0] 调 Test*）+ llvmgen multifile 编译（测试文件 + uses 依赖）+ 运行原生二进制。顺带修 3 个 LLVM bug：MergePrograms 允许无名字无语句非 unit 文件作声明合并；**Args[N] 索引**（arrayInfo 注册 + @__kylix_args 模块级定义 + statementsUseArgs 反射预扫描让 main 带 argc/argv）；harness dispatch 用带括号调用。
+- **`kylix bench --backend=llvm`**：同上，Bench* 跑 count 次墙钟计时（LLVM 原生 78ms vs Go go run 179ms——无编译开销）。
+- **jwt 真实现 / DbQueryRows / websocket** 保留 stub（JWT 需 base64url+HMAC parity、DbQueryRows 需复合类型 lowering、websocket 需协议——均需专门工作，记录 limitation）。
+
 ### 验证
 
 - Linux LLVM 51/51（CI 多轮稳定绿）+ Go 51/51 + 16 包 + self-repro 全绿。
