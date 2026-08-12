@@ -41,6 +41,17 @@ func (g *Generator) emitStatement(node ast.Statement) error {
 			g.emitEarlyReturn()
 			return nil
 		}
+		// v6.2.0: bare parameterless procedure call as a statement — `Foo;`
+		// (no parens, Pascal style) parses as a bare Identifier, not a
+		// CallExpression. If it names a known void procedure, emit a
+		// zero-argument call instead of loading the identifier as a value
+		// (which silently dropped the call).
+		if ident, ok := s.Expression.(*ast.Identifier); ok {
+			if sig, known := g.funcSigs[ident.Value]; known && sig.ReturnType == nil && len(sig.ReturnTypes) == 0 {
+				g.line(fmt.Sprintf("  call void @%s()", ident.Value))
+				return nil
+			}
+		}
 		// v5.6.0: bare parameterless method call as a statement —
 		// `self.CollectImports;` / `self.IncreaseIndent;`. In Pascal these are
 		// written without parentheses, so the AST is a bare MemberExpression
