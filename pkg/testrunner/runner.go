@@ -432,6 +432,9 @@ func (r *Runner) RunBench(cases []TestCase, count int) []TestResult {
 }
 
 func (r *Runner) runBenchFile(file string, names []string, count int) []TestResult {
+	if r.Backend == "llvm" {
+		return r.runBenchFileLLVM(file, names, count)
+	}
 	tmpDir, err := os.MkdirTemp("", "kylix-bench-*")
 	if err != nil {
 		return failAll(file, names, err.Error())
@@ -485,17 +488,7 @@ func (r *Runner) runOneBench(harnessPath, name string, count int, reportMem bool
 	elapsed := time.Since(start)
 	avgNs := elapsed.Nanoseconds() / int64(count)
 
-	var bench string
-	switch {
-	case avgNs < 1000:
-		bench = fmt.Sprintf("%d ns/op", avgNs)
-	case avgNs < 1_000_000:
-		bench = fmt.Sprintf("%.2f µs/op", float64(avgNs)/1000)
-	case avgNs < 1_000_000_000:
-		bench = fmt.Sprintf("%.2f ms/op", float64(avgNs)/1_000_000)
-	default:
-		bench = fmt.Sprintf("%.2f s/op", float64(avgNs)/1_000_000_000)
-	}
+	bench := formatNs(avgNs)
 
 	// Append memory stats if available.
 	if reportMem && memOutput != "" {
@@ -600,4 +593,72 @@ func buildHarnessLLVM(names []string, tmpDir string) (string, error) {
 		return "", err
 	}
 	return harnessPath, nil
+}
+
+// formatNs renders an average nanoseconds-per-op figure Go-bench style.
+func formatNs(avgNs int64) string {
+	switch {
+	case avgNs < 1000:
+		return fmt.Sprintf("%d ns/op", avgNs)
+	case avgNs < 1_000_000:
+		return fmt.Sprintf("%.2f µs/op", float64(avgNs)/1000)
+	case avgNs < 1_000_000_000:
+		return fmt.Sprintf("%.2f ms/op", float64(avgNs)/1_000_000)
+	default:
+		return fmt.Sprintf("%.2f s/op", float64(avgNs)/1_000_000_000)
+	}
+}
+
+// runBenchFileLLVM compiles a *_bench.klx into a native binary via the LLVM
+// backend (no Go toolchain) and runs each Bench* `count` times, timing with
+// wall-clock in the runner. v6.2.0.
+func (r *Runner) runBenchFileLLVM(file string, names []string, count int) []TestResult {
+	tmpDir, err := os.MkdirTemp("", "kylix-bench-llvm-*")
+	if err != nil {
+		return failAll(file, names, err.Error())
+	}
+	defer os.RemoveAll(tmpDir)
+
+	harnessPath, err := buildHarnessLLVM(names, tmpDir)
+	if err != nil {
+		return failAll(file, names, fmt.Sprintf("harness: %v", err))
+	}
+
+	files := []string{harnessPath, file}
+	if src, rerr := os.ReadFile(file); rerr == nil {
+		l := lexer.New(string(src))
+		p := parser.New(l)
+		prog := p.ParseProgram()
+		dir := filepath.Dir(file)
+		for _, used := range prog.Uses {
+			depPath := filepath.Join(dir, used+".klx")
+			if _, serr := os.Stat(depPath); serr == nil {
+				files = append(files, depPath)
+			}
+		}
+	}
+
+	llvmPaths, err := llvmgen.FindLLVM()
+	if err != nil {
+		return failAll(file, names, fmt.Sprintf("LLVM toolchain: %v", err))
+	}
+	bin := filepath.Join(tmpDir, "harness")
+	if _, err := llvmgen.CompileFilesToNative(files, bin, llvmPaths, llvmgen.CompileOpts{}); err != nil {
+		return failAll(file, names, fmt.Sprintf("compile: %v", err))
+	}
+
+	var results []TestResult
+	for _, name := range names {
+		tc := TestCase{Name: name, File: file}
+		start := time.Now()
+		for i := 0; i < count; i++ {
+			cmd := exec.Command(bin, name)
+			if out, rerr := cmd.CombinedOutput(); rerr != nil {
+				return append(results, TestResult{TestCase: tc, Passed: false, Message: strings.TrimSpace(string(out))})
+			}
+		}
+		avgNs := time.Since(start).Nanoseconds() / int64(count)
+		results = append(results, TestResult{TestCase: tc, Passed: true, BenchResult: formatNs(avgNs)})
+	}
+	return results
 }
