@@ -211,7 +211,11 @@ func (g *Generator) enqueueStdlib(module, name, bodyKey string, argCount int) bo
 // module-level defines. Called once at the end of emitProgram (after lambdas,
 // before string constants). Each emitter writes its own `define ... { ... }`.
 func (g *Generator) emitPendingStdlib() {
-	for _, sf := range g.stdlibQueue {
+	// v6.3.0: use an index loop so bodies enqueued while emitting (e.g.
+	// JwtSign enqueues crypto.HmacSha256 + its b64url/hexdecode helpers) are
+	// also emitted in the same pass — a range loop snapshot would skip them.
+	for i := 0; i < len(g.stdlibQueue); i++ {
+		sf := g.stdlibQueue[i]
 		switch sf.module {
 		case "sysutil":
 			g.emitSysutilBody(sf.name, sf.argCount)
