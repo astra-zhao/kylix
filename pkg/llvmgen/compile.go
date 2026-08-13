@@ -25,15 +25,29 @@ type LLVMPaths struct {
 // FindLLVM looks for llc, clang, and opt in common install locations.
 func FindLLVM() (*LLVMPaths, error) {
 	searchDirs := []string{
+		`C:\LLVM\bin`,                // Windows (CI installs to C:\LLVM, v6.2.0)
+		`C:\Program Files\LLVM\bin`,  // Windows (default LLVM installer dir)
 		"/opt/homebrew/opt/llvm/bin", // Homebrew ARM
 		"/usr/local/opt/llvm/bin",    // Homebrew x86
 		"/usr/bin",                   // Linux system
 		"/usr/local/bin",
-		`C:\LLVM\bin`,               // Windows (CI installs to C:\LLVM, v6.2.0)
-		`C:\Program Files\LLVM\bin`, // Windows (default LLVM installer dir)
+	}
+	// v6.3.0: bundled LLVM next to the executable (distribution form B:
+	// kylix + llvm/bin + llvm/lib) takes precedence over system installs.
+	if exe, err := os.Executable(); err == nil {
+		searchDirs = append([]string{filepath.Join(filepath.Dir(exe), "llvm", "bin")}, searchDirs...)
 	}
 
 	find := func(name string) string {
+		// v6.3.0: bundled LLVM next to the executable (kylix + llvm/bin) has
+		// top priority — a self-contained distribution must not pick up a
+		// different system clang/llc.
+		if exe, err := os.Executable(); err == nil {
+			bundled := filepath.Join(filepath.Dir(exe), "llvm", "bin", name)
+			if _, err := os.Stat(bundled); err == nil {
+				return bundled
+			}
+		}
 		// Try PATH first
 		if p, err := exec.LookPath(name); err == nil {
 			return p
