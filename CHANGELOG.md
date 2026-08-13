@@ -4,6 +4,14 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v6.3.0 (2026-08-11) — jwt JwtSign 真实现
+
+LLVM 后端的 `JwtSign` 从空串 stub → **真实 HS256 签名**：token = base64url(header) "." base64url(payload) "." base64url(HMAC-SHA256(secret, signing))。手写 3 个 IR helper：`@__kylix_jwt_b64url`（base64url 编码循环，`-_` 字母表无 padding）、`@__kylix_jwt_hexdecode`（hex 解码）、payload snprintf 构造（Go json.Marshal 键序 exp/iat/sub）。`emitPendingStdlib` 改**动态 index 循环**（range 快照会跳过 body 内 enqueue 的依赖，如 JwtSign enqueue crypto.HmacSha256）。
+
+**验证**：LLVM 生成的 token 签名与 Python HMAC-SHA256 逐字节一致；16 包 + 51 教程 LLVM 无回归。`JwtVerify` 保留 stub（token 解析 + 时间校验待后续）。
+
+---
+
 ## v6.2.0 (2026-08-11) — 跨平台（Linux 达成）+ KylixRT 分发形态（A 预检+文档）
 
 > 🎯 **LLVM 后端跨平台解锁**：IR target triple/datalayout 原硬编码 `arm64-apple-macosx15.0.0`（永远产 Mach-O，Linux/Windows 无法链接）——参数化后 llc 产正确 .o（ELF/COFF/aarch64），**Linux 51 教程 LLVM 编译+运行 51/51**（CI 稳定绿）。加 `kylix doctor` 预检命令（分发形态 A）。
