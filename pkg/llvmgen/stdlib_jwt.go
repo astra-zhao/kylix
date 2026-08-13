@@ -25,9 +25,7 @@ func (g *Generator) emitJwtCall(funcName string, args []ast.Expression) (string,
 	case "JwtSign":
 		return g.emitJwtSignCall(args)
 	case "JwtVerify":
-		r := g.tmp()
-		g.line(fmt.Sprintf("  %s = add i1 0, 0 ; JwtVerify stub (v6.3.0)", r))
-		return r, "i1", nil
+		return g.emitJwtVerifyCall(args)
 	case "JwtSubject":
 		emptyStr := g.addString("")
 		return g.ptrTo(emptyStr, 1), "ptr", nil
@@ -42,11 +40,37 @@ func (g *Generator) emitJwtBody(funcName string) {
 	switch funcName {
 	case "JwtSign":
 		g.emitJwtSignBody()
+	case "JwtVerify":
+		g.emitJwtVerifyBody()
 	case "b64url":
 		g.emitJwtB64URLBody()
 	case "hexdecode":
 		g.emitJwtHexDecodeBody()
 	}
+}
+
+// ---- JwtVerify: ptr @__kylix_jwt_JwtVerify(ptr %secret, ptr %token) → Variant
+//
+// Verifies the HS256 signature only (v6.3.0): splits the token into
+// header.payload.sig, recomputes base64url(HMAC-SHA256(secret, signing)) and
+// compares. Returns a non-nil Variant on success, the nil Variant otherwise.
+// Payload/claims parsing is a documented limitation.
+func (g *Generator) emitJwtVerifyCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("jwt.JwtVerify expects 2 arguments, got %d", len(args))
+	}
+	secretReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	tokenReg, _, err := g.emitExpr(args[1])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("jwt", "JwtVerify", "JwtVerify", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_jwt_JwtVerify(ptr %s, ptr %s)", r, secretReg, tokenReg))
+	return r, "variant", nil
 }
 
 // ---- JwtSign: ptr @__kylix_jwt_JwtSign(ptr %secret, ptr %subject, i64 %expiresIn)
@@ -409,4 +433,86 @@ func (g *Generator) emitHexNibble(hexPtr, curI string, basePos int) string {
 	res := g.tmp()
 	g.line(fmt.Sprintf("  %s = select i1 %s, i64 %s, i64 %s", res, isDigit, dig, hexv))
 	return res
+}
+
+// emitJwtVerifyBody emits the signature-verification body described above.
+func (g *Generator) emitJwtVerifyBody() {
+	g.enqueueStdlib("jwt", "b64url", "b64url", 0)
+	g.enqueueStdlib("jwt", "hexdecode", "hexdecode", 0)
+	g.enqueueStdlib("crypto", "HmacSha256", "HmacSha256", 0)
+	g.needVariantRuntime = true // box_str / nilbox helpers
+
+	g.line("define ptr @__kylix_jwt_JwtVerify(ptr %secret, ptr %token) {")
+	g.line("entry:")
+	// d1 = strchr(token, '.')
+	d1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @strchr(ptr %%token, i32 46)", d1))
+	d1Null := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", d1Null, d1))
+	fail1Lbl := g.label()
+	ok1Lbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", d1Null, fail1Lbl, ok1Lbl))
+	g.line(fail1Lbl + ":")
+	g.line("  ret ptr null")
+	g.line(ok1Lbl + ":")
+	// d2 = strchr(d1+1, '.')
+	d1p1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 1", d1p1, d1))
+	d2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @strchr(ptr %s, i32 46)", d2, d1p1))
+	d2Null := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", d2Null, d2))
+	fail2Lbl := g.label()
+	ok2Lbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", d2Null, fail2Lbl, ok2Lbl))
+	g.line(fail2Lbl + ":")
+	g.line("  ret ptr null")
+	g.line(ok2Lbl + ":")
+
+	// signing = token[0..d2) — the header.payload part (both '.' separators
+	// are inside, d2 is the second '.'). Copy it + NUL; simpler and safer than
+	// reconstructing header + "." + payload.
+	d2Addr := g.tmp()
+	g.line(fmt.Sprintf("  %s = ptrtoint ptr %s to i64", d2Addr, d2))
+	tokAddr := g.tmp()
+	g.line(fmt.Sprintf("  %s = ptrtoint ptr %%token to i64", tokAddr))
+	sl := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 %s, %s", sl, d2Addr, tokAddr))
+	slen1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", slen1, sl))
+	signing := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", signing, slen1))
+	g.needMemcpy = true
+	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %%token, i64 %s)", signing, sl))
+	nulPos := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", nulPos, signing, sl))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", nulPos))
+
+	// sig = d2+1 (rest of the token)
+	sig := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 1", sig, d2))
+
+	// expect = b64url(hexdecode(HmacSha256(secret, signing), 64), 32)
+	hmacHex := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_crypto_HmacSha256(ptr %%secret, ptr %s)", hmacHex, signing))
+	raw := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_jwt_hexdecode(ptr %s, i64 64)", raw, hmacHex))
+	expect := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_jwt_b64url(ptr %s, i64 32)", expect, raw))
+
+	cmp := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @strcmp(ptr %s, ptr %s)", cmp, sig, expect))
+	ok := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", ok, cmp))
+	okLbl := g.label()
+	badLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", ok, okLbl, badLbl))
+	g.line(okLbl + ":")
+	okV := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", okV, g.ptrTo(g.addString(""), 1)))
+	g.line(fmt.Sprintf("  ret ptr %s", okV))
+	g.line(badLbl + ":")
+	g.line("  ret ptr null")
+	g.line("}")
+	g.line("")
 }
