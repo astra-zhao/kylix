@@ -4,11 +4,20 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v6.3.0 (2026-08-11) — jwt JwtSign 真实现
+## v6.3.0 (2026-08-11) — jwt 双端 + 分发 B（捆绑 LLVM）
 
-LLVM 后端的 `JwtSign` 从空串 stub → **真实 HS256 签名**：token = base64url(header) "." base64url(payload) "." base64url(HMAC-SHA256(secret, signing))。手写 3 个 IR helper：`@__kylix_jwt_b64url`（base64url 编码循环，`-_` 字母表无 padding）、`@__kylix_jwt_hexdecode`（hex 解码）、payload snprintf 构造（Go json.Marshal 键序 exp/iat/sub）。`emitPendingStdlib` 改**动态 index 循环**（range 快照会跳过 body 内 enqueue 的依赖，如 JwtSign enqueue crypto.HmacSha256）。
+### jwt JwtSign 真实现 + JwtVerify 验签版
 
-**验证**：LLVM 生成的 token 签名与 Python HMAC-SHA256 逐字节一致；16 包 + 51 教程 LLVM 无回归。`JwtVerify` 保留 stub（token 解析 + 时间校验待后续）。
+- **JwtSign** 从空串 stub → 真实 HS256：base64url(header) "." base64url(payload) "." base64url(HMAC-SHA256(secret, signing))。手写 `@__kylix_jwt_b64url`（base64url 编码循环，`-_` 无 padding）+ `@__kylix_jwt_hexdecode` + payload snprintf（Go json.Marshal 键序 exp/iat/sub）。`emitPendingStdlib` 改动态 index 循环（range 快照跳过 body 内 enqueue 依赖）。
+- **JwtVerify** 从 false stub → 验签版：strchr 解析 token 两段，signing = token 前两段复制 + NUL，重算 base64url(HMAC) 与 sig 比较。成功返回 box_str Variant（非 nil）、失败/格式错返回 null（Variant nil = null）。
+- **验证**：JwtSign token 签名与 Python HMAC-SHA256 逐字节一致；JwtVerify valid true / wrong-secret false / tampered false / malformed false。16 包 + 51 教程无回归。
+- **限制**：claims 解析（payload→Variant map）留后续；LLVM 的 Variant 函数返回值直接传参（`Has(JwtVerify(...))`）会 segfault（通用 bug 待修，先存变量可规避）。
+
+### 分发 B——捆绑 LLVM（bundle_llvm.sh + FindLLVM 可执行文件旁优先）
+
+- `scripts/bundle_llvm.sh` 把 llc/opt + 依赖 dylib 复制到 kylix 旁 `llvm/` 目录（自包含分发）。
+- `FindLLVM` 优先查可执行文件旁 `llvm/bin`（捆绑优先于 PATH/系统），编译核心自包含、链接用系统 clang（捆绑 clang 的 dylib rpath 链平台差异大，文档化）。
+- **验证**：bundle 后 `./kylix run hello.klx` 输出正常；doctor 找到捆绑 llc。
 
 ---
 
