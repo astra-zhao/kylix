@@ -65,6 +65,11 @@ type Generator struct {
 	closureLocals map[string]bool     // local var names holding a closure value
 	closureSigs   map[string]string   // closure local var name → LLVM return type
 	closureParams map[string][]string // closure local var name → LLVM param types
+	// v6.3.0: closure local var name → Kylix param type names (parallel to
+	// closureParams). Needed to recognize a Variant param — its LLVM type "ptr"
+	// is indistinguishable from String/class, but a Variant box must be passed
+	// as-is, not as_str'd.
+	closureKylixParams map[string][]string
 
 	// inherited: tracks the method currently being generated so `inherited`
 	// can resolve the parent-class method to call.
@@ -238,6 +243,7 @@ func NewGenerator(moduleName string) *Generator {
 		closureLocals:       make(map[string]bool),
 		closureSigs:         make(map[string]string),
 		closureParams:       make(map[string][]string),
+		closureKylixParams:  make(map[string][]string),
 		stdlibEmitted:       make(map[string]bool),
 		mapVars:             make(map[string]bool),
 		variantMaps:         make(map[string]bool),

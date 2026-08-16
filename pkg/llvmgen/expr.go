@@ -912,9 +912,21 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		// Coerce the argument to match the declared parameter type (e.g. an
 		// Integer literal passed to a Real parameter needs sitofp).
 		if sig != nil && i < len(sig.Parameters) && sig.Parameters[i].Type != nil {
-			wantT := g.llvmTypeOfExpr(sig.Parameters[i].Type)
-			if wantT != t {
-				r, t = g.coerceValue(r, t, wantT)
+			// v6.3.0: a Variant parameter receives the boxed value as-is —
+			// coercing variant→ptr here would as_str it and pass a plain string
+			// to a Variant param (crashing the callee's `<> nil`). GetVar() and
+			// stdlib calls (e.g. JwtVerify) return "variant"; both must stay boxed.
+			if isVariantType(sig.Parameters[i].Type) {
+				// The box's real IR type is ptr; the "variant" pseudo-type is
+				// codegen-only and would emit an invalid `call f(variant %x)`.
+				if t == variantT {
+					t = "ptr"
+				}
+			} else {
+				wantT := g.llvmTypeOfExpr(sig.Parameters[i].Type)
+				if wantT != t {
+					r, t = g.coerceValue(r, t, wantT)
+				}
 			}
 		}
 		argRegs = append(argRegs, r)
@@ -1264,4 +1276,24 @@ func llvmFloatLit(v float64) string {
 		return s[:i] + ".0" + s[i:]
 	}
 	return s
+}
+
+// isVariantType reports whether a Kylix type expression is the Variant type
+// (its LLVM representation is a boxed ptr, but callers must pass the box as-is,
+// not coerce it to ptr via as_str). The parser produces *ast.VariantType for
+// `Variant` in a parameter/return position (not *ast.Identifier). v6.3.0.
+func isVariantType(expr ast.Expression) bool {
+	if expr == nil {
+		return false
+	}
+	return isVariantTypeName(typeExprName(expr))
+}
+
+// isVariantTypeName reports whether a Kylix *type name* (from typeExprName) is
+// Variant. typeExprName yields "variant" for *ast.VariantType (TokenLiteral)
+// and "Variant" for *ast.Identifier, so the match is case-insensitive. Used
+// where only the name is recorded (closure/method param types) and the original
+// AST is gone. v6.3.0.
+func isVariantTypeName(name string) bool {
+	return strings.EqualFold(name, "variant")
 }

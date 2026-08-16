@@ -167,6 +167,7 @@ func (g *Generator) emitBlockScoped(s *ast.BlockStatement) error {
 	savedClosureLocals := g.closureLocals
 	savedClosureSigs := g.closureSigs
 	savedClosureParams := g.closureParams
+	savedClosureKylixParams := g.closureKylixParams
 
 	g.locals = cloneStringMap(g.locals)
 	g.localTypes = cloneStringMap(g.localTypes)
@@ -174,6 +175,7 @@ func (g *Generator) emitBlockScoped(s *ast.BlockStatement) error {
 	g.closureLocals = cloneBoolMap(g.closureLocals)
 	g.closureSigs = cloneStringMap(g.closureSigs)
 	g.closureParams = cloneStringSliceMap(g.closureParams)
+	g.closureKylixParams = cloneStringSliceMap(g.closureKylixParams) // v6.3.0
 
 	// v4.9.0: open a DILexicalBlock for this nested scope so locals declared
 	// inside (and the instructions emitted here) are scoped to the block,
@@ -197,6 +199,7 @@ func (g *Generator) emitBlockScoped(s *ast.BlockStatement) error {
 	g.closureLocals = savedClosureLocals
 	g.closureSigs = savedClosureSigs
 	g.closureParams = savedClosureParams
+	g.closureKylixParams = savedClosureKylixParams // v6.3.0
 	// Restore the enclosing scope (subprogram or outer block) on block exit.
 	if g.debugInfo && g.dbg != nil && savedDbgScope != 0 {
 		g.setDbgScope(savedDbgScope)
@@ -468,18 +471,23 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 				retT = "i64"
 			}
 			var paramTypes []string
+			var kylixParamTypes []string
 			for _, p := range lam.Parameters {
+				kt := ""
 				pt := "i64"
 				if p.Type != nil {
-					pt = LLVMType(typeExprName(p.Type))
+					kt = typeExprName(p.Type)
+					pt = LLVMType(kt)
 				}
 				paramTypes = append(paramTypes, pt)
+				kylixParamTypes = append(kylixParamTypes, kt)
 			}
 			for _, name := range s.Names {
 				g.locals[name] = closureReg
 				g.closureLocals[name] = true
 				g.closureSigs[name] = retT
 				g.closureParams[name] = paramTypes
+				g.closureKylixParams[name] = kylixParamTypes // v6.3.0: for Variant-param coerce
 			}
 			return nil
 		}

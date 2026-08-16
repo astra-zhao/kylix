@@ -11,7 +11,9 @@ All notable changes to the Kylix compiler are documented in this file.
 - **JwtSign** 从空串 stub → 真实 HS256：base64url(header) "." base64url(payload) "." base64url(HMAC-SHA256(secret, signing))。手写 `@__kylix_jwt_b64url`（base64url 编码循环，`-_` 无 padding）+ `@__kylix_jwt_hexdecode` + payload snprintf（Go json.Marshal 键序 exp/iat/sub）。`emitPendingStdlib` 改动态 index 循环（range 快照跳过 body 内 enqueue 依赖）。
 - **JwtVerify** 从 false stub → 验签版：strchr 解析 token 两段，signing = token 前两段复制 + NUL，重算 base64url(HMAC) 与 sig 比较。成功返回 box_str Variant（非 nil）、失败/格式错返回 null（Variant nil = null）。
 - **验证**：JwtSign token 签名与 Python HMAC-SHA256 逐字节一致；JwtVerify valid true / wrong-secret false / tampered false / malformed false。16 包 + 51 教程无回归。
-- **限制**：claims 解析（payload→Variant map）留后续；LLVM 的 Variant 函数返回值直接传参（`Has(JwtVerify(...))`）会 segfault（通用 bug 待修，先存变量可规避）。
+- **修复**：LLVM 的 Variant 函数返回值直接传参（`Has(JwtVerify(...))`）segfault——根因 `emitCall` 参数 coerce 把 Variant box 当普通 ptr 做 `as_str` 后传给 Variant 参数（`LLVMType("Variant")`→"ptr"，而实参伪类型 "variant"，coerceValue 触发 `__kylix_variant_as_str`；callee 收到字符串而非 box）。修复：`isVariantType` 识别 parser 产出的 `*ast.VariantType`（此前只认 `*ast.Identifier`）+ Variant 参数跳过 coerce 且 box 的 IR 类型校正为 "ptr"（"variant" 伪类型写进 callArgs 会产非法 IR）。嵌套（`Has(JwtVerify(...))`）与变量中转（`var v := ...; Has(v)`）均正确：JwtVerify 成功→'not nil' / 失败→'nil'，as_str 不再出现在用户传参路径。16 包 + 51 教程（Go + LLVM）无回归。**同类 coerce 点全修**：闭包调用（`emitClosureCall` 新增 `closureKylixParams` 记录 lambda 参数 Kylix 类型名）、`inherited` 调用（`MethodInfo.ParamKylixTypes`）、`emitVirtualCall` 两处 callArgs（variant 伪类型 → "ptr"，防非法 IR）——三处均带针对性复现验证（closure/virtual/inherited Variant 参数传递，失败→'nil' 正确）。
+- **限制**：claims 解析（payload→Variant map）留后续。
+- **未完成（归入 v6.4+）**：net Winsock / regex pcre2 真实现（需 Windows 真机环境，CI runner 装不上 LLVM）、DbQueryRows（复合类型 lowering）、websocket（协议层）、#9 JetBrains 插件（IntelliJ SDK 大工程）。
 
 ### 分发 B——捆绑 LLVM（bundle_llvm.sh + FindLLVM 可执行文件旁优先）
 

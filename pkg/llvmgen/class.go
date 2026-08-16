@@ -44,8 +44,9 @@ type MethodInfo struct {
 	Name          string
 	VtableIdx     int
 	RetType       string
-	RetKylixType  string // v5.4.0: original Kylix return type name (for type inference on `x := obj.Method()`)
-	Params        []string
+	RetKylixType  string   // v5.4.0: original Kylix return type name (for type inference on `x := obj.Method()`)
+	Params        []string // LLVM param types
+	ParamKylixTypes []string // v6.3.0: Kylix param type names — to recognize a Variant param ("ptr" is ambiguous with String/class)
 	DefiningClass string // class where this method's implementation lives (for vtable emit)
 }
 
@@ -195,12 +196,16 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 			retKylix = typeExprName(m.ReturnType)
 		}
 		var paramTypes []string
+		var paramKylixTypes []string
 		for _, p := range normalizeParams(m.Parameters) {
+			kt := ""
 			pt := "i64"
 			if p.Type != nil {
+				kt = typeExprName(p.Type)
 				pt = g.llvmTypeOfExpr(p.Type)
 			}
 			paramTypes = append(paramTypes, pt)
+			paramKylixTypes = append(paramKylixTypes, kt)
 		}
 		// Override: if a parent method with the same name exists, reuse its
 		// vtable slot but point to this child's implementation.
@@ -210,6 +215,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 				info.Methods[i].RetType = retType
 				info.Methods[i].RetKylixType = retKylix
 				info.Methods[i].Params = paramTypes
+				info.Methods[i].ParamKylixTypes = paramKylixTypes
 				info.Methods[i].DefiningClass = decl.Name
 				overrode = true
 				break
@@ -217,12 +223,13 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 		}
 		if !overrode {
 			info.Methods = append(info.Methods, MethodInfo{
-				Name:          m.Name,
-				VtableIdx:     len(info.Methods),
-				RetType:       retType,
-				RetKylixType:  retKylix,
-				Params:        paramTypes,
-				DefiningClass: decl.Name,
+				Name:            m.Name,
+				VtableIdx:       len(info.Methods),
+				RetType:         retType,
+				RetKylixType:    retKylix,
+				Params:          paramTypes,
+				ParamKylixTypes: paramKylixTypes,
+				DefiningClass:   decl.Name,
 			})
 		}
 	}
@@ -761,6 +768,11 @@ func (g *Generator) emitVirtualCall(className, objReg, methodName string, argReg
 			callArgs = append(callArgs, "ptr "+objReg)
 			for i, r := range argRegs {
 				at := argTypes[i]
+				// v6.3.0: a Variant box's real IR type is ptr — the "variant"
+				// pseudo-type must never appear in a call's arg list.
+				if at == variantT {
+					at = "ptr"
+				}
 				if _, isClass := g.classes[at]; isClass {
 					at = "ptr"
 				}
@@ -826,6 +838,11 @@ func (g *Generator) emitVirtualCall(className, objReg, methodName string, argReg
 		// resolve the receiver). Coerce to the LLVM type (ptr for classes) so
 		// the call instruction is well-typed.
 		at := argTypes[i]
+		// v6.3.0: a Variant box's real IR type is ptr — the "variant"
+		// pseudo-type must never appear in a call's arg list.
+		if at == variantT {
+			at = "ptr"
+		}
 		if _, isClass := g.classes[at]; isClass {
 			at = "ptr"
 		}
@@ -911,7 +928,13 @@ func (g *Generator) emitInherited(s *ast.InheritedStatement) error {
 			return err
 		}
 		if i < len(meth.Params) && meth.Params[i] != t {
-			r, t = g.coerceValue(r, t, meth.Params[i])
+			// v6.3.0: a Variant method param receives the box as-is — coercing
+			// variant→ptr would as_str it. The Kylix name disambiguates "ptr".
+			if i < len(meth.ParamKylixTypes) && isVariantTypeName(meth.ParamKylixTypes[i]) && t == variantT {
+				t = "ptr"
+			} else {
+				r, t = g.coerceValue(r, t, meth.Params[i])
+			}
 		}
 		argRegs = append(argRegs, r)
 		argTypes = append(argTypes, t)

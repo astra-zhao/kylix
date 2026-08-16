@@ -351,6 +351,7 @@ func (g *Generator) emitClosureCall(varName string, args []ast.Expression) (stri
 
 	// Evaluate arguments, coercing each to the lambda's declared param type.
 	paramTypes := g.closureParams[varName]
+	kylixParamTypes := g.closureKylixParams[varName] // v6.3.0
 	retType := g.closureSigs[varName]
 	if retType == "" {
 		retType = "void"
@@ -364,7 +365,14 @@ func (g *Generator) emitClosureCall(varName string, args []ast.Expression) (stri
 			return "", "", err
 		}
 		if i < len(paramTypes) && paramTypes[i] != t {
-			r, t = g.coerceValue(r, t, paramTypes[i])
+			// v6.3.0: a Variant lambda param receives the box as-is — coercing
+			// variant→ptr would as_str it (same bug as emitCall). Without the
+			// Kylix type name, "ptr" params are indistinguishable from String.
+			if i < len(kylixParamTypes) && isVariantTypeName(kylixParamTypes[i]) && t == variantT {
+				t = "ptr"
+			} else {
+				r, t = g.coerceValue(r, t, paramTypes[i])
+			}
 		}
 		argRegs = append(argRegs, r)
 		argTypes = append(argTypes, t)
@@ -377,7 +385,13 @@ func (g *Generator) emitClosureCall(varName string, args []ast.Expression) (stri
 
 	callArgs := []string{"ptr " + eptr}
 	for i, r := range argRegs {
-		callArgs = append(callArgs, argTypes[i]+" "+r)
+		at := argTypes[i]
+		// v6.3.0: a Variant box's real IR type is ptr — the "variant"
+		// pseudo-type must never appear in a call's arg list.
+		if at == variantT {
+			at = "ptr"
+		}
+		callArgs = append(callArgs, at+" "+r)
 	}
 
 	if retType == "void" {
