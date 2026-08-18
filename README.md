@@ -2,13 +2,23 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-5.9.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-6.4.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
+>
+> 🚀 **v6.4.0**: LLVM stdlib real implementations — `db.DbQueryRows` (rows as `array of Variant`, each a map via a new Variant map tag + `row['col']` indexing) and the complete **websocket** module (RFC 6455 client + server: WsDial / WsAccept / WsSend / WsRecv / WsClose — handshake, text frames, ping/pong auto-answer). Tutorials **51/51** on both the Go and LLVM backends. See [CHANGELOG.md](CHANGELOG.md).
+>
+> 🚀 **v6.3.0**: jwt dual-end real implementation (HS256 sign/verify, byte-identical to Python) + Distribution B (bundle the LLVM toolchain) + Variant call-argument segfault fixes.
+>
+> 🚀 **v6.2.0**: Cross-platform — LLVM target triples parameterized, **Linux 51/51 tutorials**, `kylix doctor` preflight checks.
+>
+> 🚀 **v6.1.0**: KylixRT — `kylix run` produces and runs a native binary with **no Go toolchain** (auto-detects Go/LLVM).
+>
+> 🚀 **v6.0.0**: Performance benchmarks + LLVM `-O2` verification (575 ms vs 11.5 s at `-O0`).
 >
 > 🔥 **v5.9.0**: 多态 gate 缺口修复 + KylixBoot 注解自动装配移植完成 — 宿主编译器与 bootstrap 编译器对 `src/*.klx` 的基类发射收敛为一致（`type TNode interface`；3 处根因：GenerateClassDecl interface 分支 / CollectClassTypes 无条件填充 ClassIsBaseStr / 类型表达式多态分支发 ident.Value）；#4 KylixBoot autowire（`[Controller]`/`[Get]`/`[Inject]` 路由/DI 装配）+ #5 ORM 注解（`[Entity]`/`[Repository]`/`[Query]` → ToRow/FromRow + FindAll/FindById/Save/DeleteById + Query 方法）移植到 `src/generator.klx`。self-reproduction 不动点保持（`self_gen2 ≡ self_gen3`，7388 行逐字节一致），bootstrap 编译 51 教程 **51/51**，go test 16 包全绿。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
@@ -57,7 +67,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 - **LSP Server**: Full IDE support with completion, hover, diagnostics, and signature help
 - **Package Manager**: `kylix add`, `kylix remove`, `kylix publish` for dependency management
 - **WASI**: `kylix build --wasi` — compile to WebAssembly System Interface (v3.0.0-alpha)
-- **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain. **48/48 tutorials compile to native binary (100%)**, with per-instruction DWARF debug info (`-g`, LLDB line-stepping + variable inspection, including class methods/lambdas via DISubprogram and block scopes via DILexicalBlock), generic class methods (TStack<T>.Push/Pop), static arrays with real lower bounds, and jsonutil nested-object/array parsing (JsonGetMap/JsonGetArray/JsonArrayLen/JsonArrayGetString).
+- **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain. **51/51 tutorials compile and run on the LLVM backend (100%)** (Go backend: 51/51), with per-instruction DWARF debug info (`-g`, LLDB line-stepping + variable inspection, including class methods/lambdas via DISubprogram and block scopes via DILexicalBlock), generic class methods (TStack<T>.Push/Pop), static arrays with real lower bounds, and a growing stdlib with real IR implementations: db (DbOpen/DbExec/DbQueryScalar/**DbQueryRows**), **websocket** (RFC 6455 client+server), jwt (HS256), httpclient, sysutil, datetime, jsonutil, crypto, encoding, cache, boot.
 - **KylixBoot Framework**: Spring Boot–style annotation-driven web apps (v3.1.0)
 - **Annotation Auto-Wiring**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` auto route registration (v3.2.0)
 - **Dependency Injection**: `[Service]`/`[Component]`/`[Inject]` compile-time auto-wiring (v3.2.0)
@@ -1098,7 +1108,7 @@ All cross-compilation runs on your local machine — no remote build servers nee
 
 The final binary has no external dependencies. End users do not need Go or Kylix installed to run it.
 
-### LLVM Native Backend (v3.0.0-alpha, expanded in v3.1.0)
+### LLVM Native Backend (v3.0.0-alpha → v6.4.0)
 
 Kylix has an experimental LLVM backend that generates native binaries directly from the AST, bypassing the Go toolchain entirely.
 
@@ -1133,6 +1143,30 @@ end.
 ```
 
 Generics, interfaces, and exceptions land in Milestone 2 (Phase 2-3, v3.2).
+
+### LLVM stdlib (real IR implementations, v4.2.0 → v6.4.0)
+
+The LLVM backend compiles stdlib-heavy programs **without Go**. Modules with real IR implementations:
+
+- **db** — DbOpen / DbOpenSQLite / DbClose / DbExec / DbQueryScalar / **DbQueryRows** (rows as `array of Variant`, each row a map; read columns with `row['col']`)
+- **websocket** (v6.4.0) — full RFC 6455 client + server: WsDial / WsAccept / WsSend / WsRecv / WsClose (text frames, ping/pong auto-answer)
+- **jwt** (v6.3.0) — HS256 JwtSign / JwtVerify (byte-identical to the Go backend)
+- httpclient, sysutil, datetime, jsonutil, crypto, encoding, cache, boot, regex, net (TCP)
+
+```pascal
+// db.DbQueryRows — each row is a map (column name → value)
+var rows := DbQueryRows(db, 'SELECT name, age FROM users');
+var row  := rows[0];
+WriteLn(row['name']);   // variant-map indexing (v6.4.0)
+```
+
+```pascal
+// websocket — RFC 6455 client (connect to an external echo server)
+var ws := WsDial('127.0.0.1:8080', '/echo');
+WsSend(ws, 'hello');
+WriteLn(WsRecv(ws));    // echoes back from the server
+WsClose(ws);
+```
 
 ### WASI Target (v3.0.0-alpha)
 

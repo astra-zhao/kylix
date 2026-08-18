@@ -296,7 +296,7 @@ call void @longjmp(ptr %jmp_buf, i32 1)
 #### Known limitations in v4.1.0
 - Expression-bodied lambda (`function(x): T -> expr`) — parser doesn't recognize `->` after a return type; use block-bodied lambdas.
 - `inherited` as an expression (`result := inherited F(x)`) — parser treats `inherited` as a statement only.
-- stdlib-heavy tutorials (08, 13–20) still require the Go toolchain — LLVM stdlib support is v4.2.0.
+- ~~stdlib-heavy tutorials still require the Go toolchain~~ — **resolved (v6.4.0)**: the LLVM backend now compiles **all 51 tutorials** with real stdlib IR implementations: db (DbOpen/DbExec/DbQueryScalar/**DbQueryRows**), **websocket** (RFC 6455 client+server), jwt (HS256), httpclient, sysutil, datetime, jsonutil, crypto, encoding, cache, boot, regex, net (TCP). Remaining limitation: net Winsock / regex pcre2 real implementations need a Windows environment.
 
 ### M5 (v5.0.0) — Go Independence
 - [ ] Self-hosting: Kylix compiler written in Kylix

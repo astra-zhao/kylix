@@ -2,13 +2,23 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-5.9.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-6.4.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
+>
+> 🚀 **v6.4.0**: LLVM stdlib 真实现 — `db.DbQueryRows`（`array of Variant`，每行一个 map，`row['col']` 索引取值）+ 完整 **websocket** 模块（RFC 6455 客户端+服务端：WsDial/WsAccept/WsSend/WsRecv/WsClose，握手 + 文本帧 + ping/pong 自动应答）。双后端教程 **51/51**。详见 [CHANGELOG.md](CHANGELOG.md)。
+>
+> 🚀 **v6.3.0**: jwt 双端真实现（HS256 签名/验签，与 Python 逐字节一致）+ 分发 B（捆绑 LLVM 工具链）+ Variant 传参 segfault 修复。
+>
+> 🚀 **v6.2.0**: 跨平台 — LLVM target triple 参数化，**Linux 51/51 教程**，`kylix doctor` 预检。
+>
+> 🚀 **v6.1.0**: KylixRT — `kylix run` **无 Go 工具链**直接产出并运行原生二进制（自动探测 Go/LLVM）。
+>
+> 🚀 **v6.0.0**: 性能基准 + LLVM `-O2` 验证（575ms vs `-O0` 11.5s）。
 >
 > 🔥 **v5.9.0**: 多态 gate 缺口修复 + KylixBoot 注解自动装配移植完成 — 宿主编译器与 bootstrap 编译器对 `src/*.klx` 的基类发射收敛为一致（`type TNode interface`；3 处根因：GenerateClassDecl interface 分支 / CollectClassTypes 无条件填充 ClassIsBaseStr / 类型表达式多态分支发 ident.Value）；#4 KylixBoot autowire（`[Controller]`/`[Get]`/`[Inject]` 路由/DI 装配）+ #5 ORM 注解（`[Entity]`/`[Repository]`/`[Query]` → ToRow/FromRow + FindAll/FindById/Save/DeleteById + Query 方法）移植到 `src/generator.klx`。self-reproduction 不动点保持（`self_gen2 ≡ self_gen3`，7388 行逐字节一致），bootstrap 编译 51 教程 **51/51**，go test 16 包全绿。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
@@ -58,7 +68,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 - **调试器**: `kylix debug` 集成 Delve (v2.3.0)
 - **WebAssembly**: `kylix build --wasm` 编译为 .wasm (v2.3.0)
 - **WASI**: `kylix build --wasi` 编译为 WASI 目标 (v3.0.0-alpha)
-- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链。**48/48 教程编译到原生二进制 (100%)**，支持逐行 DWARF 调试（`-g`，LLDB 逐行单步 + 变量检视，含类方法/lambda DISubprogram + 块作用域 DILexicalBlock）、泛型类方法（TStack<T>.Push/Pop）、静态数组真实下界、jsonutil 嵌套对象/数组解析（JsonGetMap/JsonGetArray/JsonArrayLen/JsonArrayGetString）。
+- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链。**51/51 教程在 LLVM 后端编译+运行 (100%)**（Go 后端 51/51），支持逐行 DWARF 调试（`-g`，LLDB 逐行单步 + 变量检视，含类方法/lambda DISubprogram + 块作用域 DILexicalBlock）、泛型类方法（TStack<T>.Push/Pop）、静态数组真实下界，以及日益完善的**真实 IR stdlib**：db（DbOpen/DbExec/DbQueryScalar/**DbQueryRows**）、**websocket**（RFC 6455 客户端+服务端）、jwt（HS256）、httpclient、sysutil、datetime、jsonutil、crypto、encoding、cache、boot。
 - **KylixBoot 框架**: Spring Boot 式注解驱动的 Web 应用 (v3.1.0)
 - **注解自动装配**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` 自动路由注册 (v3.2.0)
 - **依赖注入**: `[Service]`/`[Component]`/`[Inject]` 编译期自动装配 (v3.2.0)
@@ -1172,7 +1182,7 @@ kylix build --wasm --tinygo main.klx  # TinyGo (~30 KB)
 | WebAssembly | wasm | `--wasm` (含可选 `--tinygo`) |
 | WASI | wasip1/wasm | `--wasi` (含可选 `--tinygo`) |
 
-### LLVM 原生后端 (v3.0.0-alpha，v3.1.0 扩展)
+### LLVM 原生后端 (v3.0.0-alpha → v6.4.0)
 
 Kylix 现在有实验性 LLVM 后端，直接从 AST 生成原生二进制，绕过 Go 工具链。
 
@@ -1207,6 +1217,30 @@ end.
 ```
 
 接口、泛型和异常计划在 Milestone 2 Phase 2-3（v3.2）中实现。
+
+### LLVM stdlib（真实 IR 实现，v4.2.0 → v6.4.0）
+
+LLVM 后端现在可以**无需 Go** 编译 stdlib 密集型程序。已有真实 IR 实现的模块：
+
+- **db** — DbOpen / DbOpenSQLite / DbClose / DbExec / DbQueryScalar / **DbQueryRows**（`array of Variant`，每行一个 map，用 `row['col']` 取列值）
+- **websocket**（v6.4.0）— 完整 RFC 6455 客户端+服务端：WsDial / WsAccept / WsSend / WsRecv / WsClose（文本帧、ping/pong 自动应答）
+- **jwt**（v6.3.0）— HS256 JwtSign / JwtVerify（与 Go 后端逐字节一致）
+- httpclient、sysutil、datetime、jsonutil、crypto、encoding、cache、boot、regex、net（TCP）
+
+```pascal
+// db.DbQueryRows — 每行是一个 map（列名 → 值）
+var rows := DbQueryRows(db, 'SELECT name, age FROM users');
+var row  := rows[0];
+WriteLn(row['name']);   // variant-map 索引（v6.4.0）
+```
+
+```pascal
+// websocket — RFC 6455 客户端（连接外部 echo 服务器）
+var ws := WsDial('127.0.0.1:8080', '/echo');
+WsSend(ws, 'hello');
+WriteLn(WsRecv(ws));    // 服务端回显
+WsClose(ws);
+```
 
 ---
 
