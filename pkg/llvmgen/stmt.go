@@ -515,6 +515,17 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 		// method-style dispatch (if any) can recognize it.
 		isOpaquePtr := false
 		switch llvmType {
+		case variantT:
+			// v6.4.0: a Variant-typed expression (DbQueryRows(...)[0],
+			// JwtVerify(...)) yields a box pointer. Keep the pseudo-type so the
+			// alloc switch below picks the `_var` suffix — reads then return
+			// "variant", enabling row['col'] indexing and variant-aware print.
+			inferredClass = "Variant"
+			g.needVariantRuntime = true
+		case "{ ptr, i64, i64 }":
+			// v6.4.0: slice-typed RHS (DbQueryRows, JsonGetArray, array
+			// literal). Keep it (skip opaque normalization) so the alloc switch
+			// below picks the `_dyn` suffix + arrayInfo registration.
 		case "i1", "i64", "double", "ptr", "void", "TDateTime":
 			if llvmType == "TDateTime" {
 				inferredClass = "TDateTime"
@@ -541,6 +552,22 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 			case "TDateTime":
 				suffix = "_str"
 				actualLLVMType = "ptr"
+			case variantT:
+				// v6.4.0: Variant-typed slot holds a box pointer.
+				suffix = "_var"
+				actualLLVMType = "ptr"
+			case "{ ptr, i64, i64 }":
+				// v6.4.0: slice-typed slot — register a dynamic array so
+				// Length()/[] work. A function-returned slice (DbQueryRows,
+				// JsonGetArray) is a Variant array (box ptr elements); an array
+				// literal infers its element type from the first element.
+				suffix = "_dyn"
+				actualLLVMType = "{ ptr, i64, i64 }"
+				elemT, isVar := "ptr", true
+				if al, ok := s.Value.(*ast.ArrayLiteral); ok && len(al.Elements) > 0 {
+					elemT, isVar = literalElemType(al.Elements[0]), false
+				}
+				g.arrayInfo[name] = &arrayInfo{IsDynamic: true, ElementType: elemT, IsVariant: isVar}
 			}
 			allocaReg := g.freshVarReg(name, suffix)
 			g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, actualLLVMType))
@@ -575,6 +602,24 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 	}
 
 	return nil
+}
+
+// literalElemType returns the LLVM element type for an array-literal element
+// expression, used to register arrayInfo when `var a := [...]` infers a slice.
+// v6.4.0.
+func literalElemType(e ast.Expression) string {
+	switch e.(type) {
+	case *ast.IntegerLiteral:
+		return "i64"
+	case *ast.FloatLiteral:
+		return "double"
+	case *ast.BooleanLiteral:
+		return "i1"
+	case *ast.StringLiteral:
+		return "ptr"
+	default:
+		return "ptr"
+	}
 }
 
 // emitVarDeclSingle allocates stack space for a single variable.

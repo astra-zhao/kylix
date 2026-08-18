@@ -4,6 +4,29 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v6.4.0 (2026-08-18) — LLVM stdlib 真实现：DbQueryRows + websocket
+
+### db.DbQueryRows（LLVM 后端，返回 array of Variant）
+
+- **Variant 扩展 map 标签**（`varTagMap=5`，payload 存 htab）：Variant 可承载 `map[String]Variant`，box 后打印占位 `{map}`。
+- **variant-map 索引**（`emitArrayIndex`）：`row['col']` 走 `@__kylix_variant_map_get`（非 map 标签/miss 返回 nilbox）；链式 `rows[0]['col']` 支持。
+- **推断路径 slice/variant 修复**：`var rows := DbQueryRows(...)` 正确注册动态数组（`_dyn` + `IsVariant`）；`var v := JwtVerify(...)` 推断为 Variant（`_var`）而非 opaque ptr；顺带修复 `var a := [1,2,3]` 数组字面量推断。
+- **DbQueryRows IR**：module-level define，内联 sqlite3 prepare/step 循环 + column_count/name/type + 逐列 box（int/float/str/nil）+ htab 行构造 + map-Variant 装箱 + 结果数组 append。新增 sqlite3 列 API declare。
+- **验证**：example52 追加 DbQueryRows 消费（`rows[0]['name']`），双端输出一致；IR 单测 + 51 教程全绿。
+
+### websocket 模块（LLVM 后端，RFC 6455 客户端+服务端）
+
+- **注册**：`knownStdlibModules["websocket"]` + 5 函数（WsDial/WsAccept/WsSend/WsRecv/WsClose）+ emitStdlibCall/Body 分发。
+- **TWsConn handle**：`{i64 fd, i64 isServer}`；帧 IO 用精确长度 recv/send helper（`__kylix_ws_recvn/sendall`，TCP 流循环凑够字节）。
+- **握手**：客户端 WsDial（解析 host:port → net.TcpDial → 随机 key → strcat 构造 GET 请求 → readheaders → 验证 101 + Sec-WebSocket-Accept）；服务端 WsAccept（读请求头 → 提取 key → 回 101）。请求用 **strcat 链**（避免 LLVM -O0 对 varargs snprintf 的参数 spill 崩溃——path 参数读回垃圾）。
+- **帧**：`__kylix_ws_buildframe`（FIN+opcode、mask+len、126/127 扩展、客户端 mask + payload XOR）；WsRecv 解析帧、ping 自动回 pong、close 返回空。
+- **SHA-1 用 OpenSSL**（`@SHA1`，-lcrypto）：手写 SHA-1 IR 有正确性 bug（endM8 负偏移 + 轮逻辑），排查成本过高，改用平台库。
+- **base64 带长度**（`__kylix_ws_b64`）：二进制数据含 NUL 时不能用 encoding 模块的 strlen 版。
+- **验证**：客户端连 Go echo server 端到端（握手 accept 匹配、echo 收发、close）；IR 单测 + 51 教程全绿。
+- **限制**：端到端自回环（客户端+服务端同进程）受单线程时序限制（客户端 WsDial 阻塞等服务端响应、服务端 WsAccept 需先 accept）——真实运行需外部 peer（教程注释说明）；`emitWsSha1Body` 手写实现保留但不再触发（OpenSSL 替代）。
+
+---
+
 ## v6.3.0 (2026-08-11) — jwt 双端 + 分发 B（捆绑 LLVM）
 
 ### jwt JwtSign 真实现 + JwtVerify 验签版

@@ -110,3 +110,48 @@ end.`)
 		t.Errorf("db symbol emitted without `uses db`\nIR:\n%s", ir)
 	}
 }
+
+func TestDb_DbQueryRowsDispatch(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses db;
+begin
+  var db := DbOpenSQLite(':memory:');
+  var rows := DbQueryRows(db, 'SELECT name FROM users');
+end.`)
+	assertIRContains(t, ir, "call { ptr, i64, i64 } @__kylix_db_DbQueryRows")
+	if strings.Contains(ir, "db.DbQueryRows not implemented") {
+		t.Errorf("DbQueryRows still routed to not-implemented stub\nIR:\n%s", ir)
+	}
+}
+
+func TestDb_DbQueryRowsBodyEmitted(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses db;
+begin
+  var db := DbOpenSQLite(':memory:');
+  var rows := DbQueryRows(db, 'SELECT name, age FROM users');
+end.`)
+	// module-level define + full row pipeline: prepare → column count →
+	// step loop → per-type boxing → htab_put → map-Variant → slice append.
+	assertIRContains(t, ir, "define { ptr, i64, i64 } @__kylix_db_DbQueryRows(ptr %db, ptr %sql)")
+	assertIRContains(t, ir, "call i32 @sqlite3_column_count")
+	assertIRContains(t, ir, "call ptr @sqlite3_column_name")
+	assertIRContains(t, ir, "call i32 @sqlite3_column_type")
+	assertIRContains(t, ir, "call i64 @sqlite3_column_int64")
+	assertIRContains(t, ir, "call double @sqlite3_column_double")
+	assertIRContains(t, ir, "call ptr @__kylix_variant_box_map")
+	assertIRContains(t, ir, "call void @__kylix_htab_put")
+}
+
+func TestDb_DbQueryRowsVariantMapIndex(t *testing.T) {
+	// rows[i] reads a map-Variant box; row['col'] lowers to variant_map_get.
+	ir := generateIR(t, `program p;
+uses db;
+begin
+  var db := DbOpenSQLite(':memory:');
+  var rows := DbQueryRows(db, 'SELECT name FROM users');
+  var row := rows[0];
+  WriteLn(row['name']);
+end.`)
+	assertIRContains(t, ir, "call ptr @__kylix_variant_map_get")
+}

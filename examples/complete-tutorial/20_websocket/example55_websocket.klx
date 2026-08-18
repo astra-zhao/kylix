@@ -5,15 +5,20 @@ begin
   // Start a TCP listener (does not block — just opens the port).
   var ln := TcpListen(18080);
 
-  // WsAccept would upgrade an accepted connection via the WS handshake:
-  //   var tcp := TcpAccept(ln);
-  //   var ws := WsAccept(tcp);   // performs RFC 6455 handshake
+  // v6.4.0: the LLVM backend implements the full RFC 6455 WebSocket client and
+  // server (WsDial / WsAccept / WsSend / WsRecv / WsClose — text frames,
+  // ping/pong auto-answer, close). A complete echo round-trip needs a peer, so
+  // the running examples connect to an external server:
+  //   var ws := WsDial('127.0.0.1:18080', '/echo');  // client handshake
   //   WsSend(ws, 'hello');
-  //   var msg := WsRecv(ws);     // pings auto-answered
+  //   var msg := WsRecv(ws);     // pings auto-answered; close → ""
   //   WsClose(ws);
-
-  // WsDial connects to a server: WsDial('host:port', '/path')
-  // WsRecv auto-answers ping with pong; a peer close frame returns an error.
+  // Server side (upgrade an accepted TCP connection):
+  //   var tcp := TcpAccept(ln);
+  //   var ws  := WsAccept(tcp); // performs the RFC 6455 handshake
+  //   WsSend(ws, 'hello');
+  //   var msg := WsRecv(ws);
+  //   WsClose(ws);
 
   TcpListenerClose(ln);
   WriteLn('websocket demo OK');

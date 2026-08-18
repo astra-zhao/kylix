@@ -36,6 +36,7 @@ var knownStdlibModules = map[string]bool{
 	"boot":       true,
 	"httpclient": true,
 	"jwt":        true,
+	"websocket":  true, // v6.4.0: RFC 6455 client+server
 }
 
 // stdlibModuleFuncs maps each known stdlib module to the function names it
@@ -115,6 +116,10 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"jwt": {
 		"JwtSign": true, "JwtVerify": true, "JwtSubject": true,
 	},
+	"websocket": {
+		// v6.4.0: RFC 6455 minimal client + server (text frames, ping/pong).
+		"WsDial": true, "WsAccept": true, "WsSend": true, "WsRecv": true, "WsClose": true,
+	},
 }
 
 // resolveStdlibBareCall reports whether funcName is a bare-name stdlib call
@@ -183,6 +188,8 @@ func (g *Generator) emitStdlibCall(module, funcName string, args []ast.Expressio
 		return g.emitHttpclientCall(funcName, args)
 	case "jwt":
 		return g.emitJwtCall(funcName, args)
+	case "websocket":
+		return g.emitWebsocketCall(funcName, args)
 	default:
 		// Not yet implemented for LLVM — fall back to a stub so IR stays legal.
 		r := g.tmp()
@@ -241,6 +248,8 @@ func (g *Generator) emitPendingStdlib() {
 			g.emitHttpclientBody(sf.name)
 		case "jwt":
 			g.emitJwtBody(sf.name)
+		case "websocket":
+			g.emitWebsocketBody(sf.name)
 		}
 	}
 	// hexbytes helper is shared by all crypto hash functions; emit once if

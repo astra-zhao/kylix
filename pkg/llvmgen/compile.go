@@ -313,7 +313,7 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	// Link system libraries by scanning the IR for stdlib module symbols.
 	// v6.2.0: the -L/rpath handling is macOS-only (Homebrew); Linux uses the
 	// system default path; Windows relies on clang's .lib search.
-	if strings.Contains(ir, "@__kylix_crypto_") {
+	if strings.Contains(ir, "@__kylix_crypto_") || strings.Contains(ir, "@SHA1") {
 		clangArgs = append(clangArgs, "-lcrypto")
 		if targetOS == "darwin" {
 			appendHomebrewLib(&clangArgs, "openssl")

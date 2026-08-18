@@ -19,6 +19,14 @@ begin
   var name := DbQueryScalar(db, 'SELECT name FROM users WHERE age = 30');
   WriteLn('age 30 user: ' + name);
 
+  // Query all rows: array of Variant, each element a map (column → value).
+  // rows[i] reads one row; row['col'] reads one column (v6.4.0).
+  var rows := DbQueryRows(db, 'SELECT name, age FROM users ORDER BY age');
+  WriteLn('row count: ' + IntToStr(Length(rows)));
+  WriteLn(rows[0]['name']);
+  WriteLn(rows[1]['name']);
+  WriteLn(rows[0]['age']);
+
   DbClose(db);
   WriteLn('database demo OK');
 end.

@@ -177,6 +177,9 @@ type Generator struct {
 	// driver checks for db symbols in the IR and adds -lsqlite3 at link.
 	needLibsqlite bool
 
+	// v6.4.0: websocket module used — emit the SHA-1/base64/rand/IO helpers.
+	needWebsocketHelpers bool
+
 	// mapVars tracks local variables declared as map[K]V — their alloca
 	// holds a ptr to an @__kylix_htab_* table. Indexing/assignment on these
 	// routes to htab_get/htab_put instead of the array-index path.
@@ -506,6 +509,17 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 		g.emitVariantRuntimeBodies()
 	}
 
+	// v6.4.0: WebSocket handshake/frame helpers (SHA-1, base64, randomness,
+	// exact-length TCP IO). Emitted once when any websocket function is used.
+	if g.needWebsocketHelpers {
+		g.emitWsRecvnBody()
+		g.emitWsSendallBody()
+		g.emitWsBuildframeBody()
+		g.emitWsReadHeadersBody()
+		g.emitWsB64Body()
+		g.emitWsRandBody()
+	}
+
 	// v5.4.0: declare libc tolower/toupper for LowerCase/UpperCase builtins.
 	if g.needToLower {
 		g.line("declare i32 @tolower(i32)")
@@ -595,9 +609,13 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i64 @send(i32 noundef, ptr noundef, i64 noundef, i32 noundef)")
 	g.line("declare i64 @recv(i32 noundef, ptr noundef, i64 noundef, i32 noundef)")
 	g.line("declare i32 @close(i32 noundef)")
+	// v6.4.0: WebSocket handshake randomness (darwin arc4random_buf / linux getrandom).
+	g.line("declare void @arc4random_buf(ptr noundef, i64 noundef)")
+	g.line("declare i64 @getrandom(ptr noundef, i64 noundef, i32 noundef)")
 	g.line("declare i32 @setsockopt(i32 noundef, i32 noundef, i32 noundef, ptr noundef, i32 noundef)")
 	g.line("declare i32 @inet_pton(i32 noundef, ptr noundef, ptr noundef)")
 	g.line("; ===== OpenSSL libcrypto (used by stdlib crypto) =====")
+	g.line("declare ptr @SHA1(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @SHA256(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @MD5(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @strncpy(ptr noundef, ptr noundef, i64 noundef)")
@@ -624,6 +642,11 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i32 @sqlite3_bind_int64(ptr noundef, i32 noundef, i64 noundef)")
 	g.line("declare i32 @sqlite3_step(ptr noundef)")
 	g.line("declare ptr @sqlite3_column_text(ptr noundef, i32 noundef)")
+	g.line("declare i32 @sqlite3_column_count(ptr noundef)")
+	g.line("declare ptr @sqlite3_column_name(ptr noundef, i32 noundef)")
+	g.line("declare i32 @sqlite3_column_type(ptr noundef, i32 noundef)")
+	g.line("declare i64 @sqlite3_column_int64(ptr noundef, i32 noundef)")
+	g.line("declare double @sqlite3_column_double(ptr noundef, i32 noundef)")
 	g.line("declare i32 @sqlite3_finalize(ptr noundef)")
 	g.line("declare i32 @sqlite3_changes(ptr noundef)")
 	g.line("; ===== libcurl (used by stdlib httpclient, v4.5.0 Phase 3) =====")

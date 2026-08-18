@@ -106,6 +106,33 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 	return true
 }
 
+// emitVariantMapIndex lowers `variantVar['key']` — the variant holds a
+// map[String]Variant handle (tag=map). Returns the value box (pseudo-type
+// "variant"); downstream unboxing/printing dispatches on the tag. v6.4.0.
+func (g *Generator) emitVariantMapIndex(idx *ast.IndexExpression, varName string) (string, string, error) {
+	allocaReg, ok := g.locals[varName]
+	if !ok {
+		return "", "", fmt.Errorf("undefined variant variable: %s", varName)
+	}
+	box := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", box, allocaReg))
+	return g.emitVariantMapGetReg(box, idx.Index)
+}
+
+// emitVariantMapGetReg emits the variant-map lookup on an already-computed box
+// register: `variant_map_get(box, key)` → value box. v6.4.0.
+func (g *Generator) emitVariantMapGetReg(boxReg string, keyExpr ast.Expression) (string, string, error) {
+	keyReg, _, err := g.emitExpr(keyExpr)
+	if err != nil {
+		return "", "", err
+	}
+	g.needVariantRuntime = true
+	g.needHashtab = true // variant_map_get calls __kylix_htab_get_variant
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_map_get(ptr %s, ptr %s)", r, boxReg, keyReg))
+	return r, variantT, nil
+}
+
 // emitArrayIndex generates GEP for array[index] access.
 // Returns (resultReg, elementType, error). For assignment context, returns
 // the pointer register (use g.line to emit a store yourself).
@@ -203,6 +230,17 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 	// Resolve the array variable
 	leftIdent, ok := idx.Left.(*ast.Identifier)
 	if !ok {
+		// v6.4.0: chained index `rows[i]['col']` — evaluate the inner index
+		// (rows[i] → map-Variant box), then variant-map lookup.
+		if _, isIdx := idx.Left.(*ast.IndexExpression); isIdx {
+			leftVal, leftT, err := g.emitExpr(idx.Left)
+			if err != nil {
+				return "", "", err
+			}
+			if leftT == variantT {
+				return g.emitVariantMapGetReg(leftVal, idx.Index)
+			}
+		}
 		// v5.4.0 diagnostic: identify why the class-field branch above didn't
 		// handle this MemberExpression index (e.g. receiver not recognized as a
 		// class, or the Object is a non-Identifier expression).
@@ -212,6 +250,14 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 				m.Member, m.Object, kind, tn)
 		}
 		return "", "", fmt.Errorf("array index target must be an identifier (left type %T)", idx.Left)
+	}
+
+	// v6.4.0: Variant-typed variable indexed by a String key → variant-map
+	// lookup (`var row := DbQueryRows(...)[0]; row['col']`). localTypes records
+	// the Kylix type name ("Variant"); the box holds a map[String]Variant
+	// handle. Must come before the mapVars/arrayInfo checks (row is neither).
+	if isVariantTypeName(g.localTypes[leftIdent.Value]) {
+		return g.emitVariantMapIndex(idx, leftIdent.Value)
 	}
 
 	// Map variable? Route to htab_get (map indexing reuses the hash-table

@@ -31,6 +31,9 @@ const (
 	varTagFloat = 2
 	varTagStr   = 3
 	varTagBool  = 4
+	// v6.4.0: a Variant may hold a map[String]Variant (htab handle in payload).
+	// Enables `var row := DbQueryRows(...)[0]; row['col']` lowering.
+	varTagMap = 5
 )
 
 // variantT is the synthetic llvmType string for a Variant box value (a ptr).
@@ -237,6 +240,8 @@ func (g *Generator) emitVariantRuntimeBodies() {
 	g.emitVariantBoxFloat()
 	g.emitVariantBoxStr()
 	g.emitVariantBoxBool()
+	g.emitVariantBoxMap() // v6.4.0: map-Variant (payload = htab handle)
+	g.emitVariantMapGet()
 	g.emitVariantAsDoubleBody()
 	g.emitVariantAsStrBody()
 	g.emitVariantAsIntBody()
@@ -324,6 +329,66 @@ func (g *Generator) emitVariantBoxBool() {
 	g.line(fmt.Sprintf("  %s = zext i1 %%v to i64", ext))
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", ext, payloadLoc))
 	g.line(fmt.Sprintf("  ret ptr %s", box))
+	g.line("}")
+	g.line("")
+}
+
+// emitVariantBoxMap boxes a map[String]Variant handle (htab ptr) into a
+// Variant box with tag=map. The payload stores the htab pointer. v6.4.0.
+func (g *Generator) emitVariantBoxMap() {
+	g.line("define ptr @__kylix_variant_box_map(ptr %v) {")
+	g.line("entry:")
+	box := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 16)", box))
+	tagLoc := g.boxAddr(box, 0)
+	g.line(fmt.Sprintf("  store i32 %d, ptr %s", varTagMap, tagLoc))
+	payloadLoc := g.boxAddr(box, 1)
+	bits := g.tmp()
+	g.line(fmt.Sprintf("  %s = ptrtoint ptr %%v to i64", bits))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", bits, payloadLoc))
+	g.line(fmt.Sprintf("  ret ptr %s", box))
+	g.line("}")
+	g.line("")
+}
+
+// emitVariantMapGet returns the value box for `key` in a map-Variant box, or
+// the nil-box if the box isn't a map-Variant / the key is missing. The key is
+// a String ptr; the value slot holds a Variant box (htab_get_variant). v6.4.0.
+func (g *Generator) emitVariantMapGet() {
+	g.line("define ptr @__kylix_variant_map_get(ptr %box, ptr %key) {")
+	g.line("entry:")
+	tagLoc := g.boxAddr("%box", 0)
+	tag := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", tag, tagLoc))
+	payloadLoc := g.boxAddr("%box", 1)
+	payload := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", payload, payloadLoc))
+	isMap := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, %d", isMap, tag, varTagMap))
+	resSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", resSlot))
+	okLbl := g.label()
+	missLbl := g.label()
+	mergeLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isMap, okLbl, missLbl))
+	// miss: not a map / not in this box → nil-box.
+	g.line(fmt.Sprintf("%s:", missLbl))
+	nilbox := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { i32, i64 }, ptr @__kylix_variant_nilbox, i32 0, i32 0", nilbox))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", nilbox, resSlot))
+	g.line(fmt.Sprintf("  br label %%%s", mergeLbl))
+	// ok: inttoptr payload → htab_get_variant (miss → nilbox from the hashtab).
+	g.line(fmt.Sprintf("%s:", okLbl))
+	htab := g.tmp()
+	g.line(fmt.Sprintf("  %s = inttoptr i64 %s to ptr", htab, payload))
+	val := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get_variant(ptr %s, ptr %s)", val, htab, "%key"))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", val, resSlot))
+	g.line(fmt.Sprintf("  br label %%%s", mergeLbl))
+	g.line(fmt.Sprintf("%s:", mergeLbl))
+	result := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", result, resSlot))
+	g.line(fmt.Sprintf("  ret ptr %s", result))
 	g.line("}")
 	g.line("")
 }
@@ -624,11 +689,13 @@ func (g *Generator) emitVariantPrintBody(newline bool) {
 	boolLbl := g.label()
 	endLbl := g.label()
 	defLbl := g.label()
+	mapLbl := g.label() // v6.4.0: map-Variant → placeholder
 	g.line(fmt.Sprintf("  switch i32 %s, label %%%s [", tag, defLbl))
 	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagInt, intLbl))
 	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagFloat, floatLbl))
 	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagStr, strLbl))
 	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagBool, boolLbl))
+	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagMap, mapLbl))
 	g.line(fmt.Sprintf("  ]"))
 	suffix = printSuffix(newline)
 	// int → printf("%lld\n", payload)
@@ -673,6 +740,18 @@ func (g *Generator) emitVariantPrintBody(newline bool) {
 		sfmt := g.addString("%s")
 		sfmtPtr := g.ptrTo(sfmt, len("%s")+1)
 		g.line(fmt.Sprintf("  call i32 (ptr, ...) @printf(ptr noundef %s, ptr %s)", sfmtPtr, sel))
+	}
+	g.line(fmt.Sprintf("  br label %%%s", endLbl))
+	// map → "{map}" placeholder (contents are a htab, not printable text).
+	g.line(fmt.Sprintf("%s:", mapLbl))
+	mapStr := g.addString("{map}")
+	mapPtr := g.ptrTo(mapStr, len("{map}")+1)
+	if newline {
+		g.line(fmt.Sprintf("  call i32 @puts(ptr noundef %s)", mapPtr))
+	} else {
+		sfmt := g.addString("%s")
+		sfmtPtr := g.ptrTo(sfmt, len("%s")+1)
+		g.line(fmt.Sprintf("  call i32 (ptr, ...) @printf(ptr noundef %s, ptr %s)", sfmtPtr, mapPtr))
 	}
 	g.line(fmt.Sprintf("  br label %%%s", endLbl))
 	g.line(fmt.Sprintf("%s:", defLbl))
