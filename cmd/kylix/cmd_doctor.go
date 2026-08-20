@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"kylix/pkg/llvmgen"
@@ -66,6 +67,24 @@ Exit code is non-zero if any required tool is missing.
 		}
 		if out, err := exec.Command(llvm.LLC, "--version").Output(); err == nil {
 			fmt.Printf("  version: %s\n", strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0])
+		}
+	}
+
+	// v6.5.0: Distribution B — a bundled LLVM next to the executable (see
+	// scripts/bundle_llvm.sh). The compiler prefers it, so check it's complete.
+	if exe, err := os.Executable(); err == nil {
+		bundleDir := filepath.Join(filepath.Dir(exe), "llvm")
+		if st, err := os.Stat(filepath.Join(bundleDir, "bin", "llc")); err == nil && !st.IsDir() {
+			fmt.Println("\n=== Distribution B (bundled LLVM) ===")
+			fmt.Printf("  ✓ bundled llc: %s\n", filepath.Join(bundleDir, "bin", "llc"))
+			if _, err := os.Stat(filepath.Join(bundleDir, "lib")); err == nil {
+				fmt.Println("  ✓ llvm/lib present (dylibs bundled)")
+			} else {
+				fmt.Println("  ✗ llvm/lib missing — bundled llc/opt may fail to run (install_name rpath)")
+			}
+		} else {
+			fmt.Println("\n=== Distribution B (bundled LLVM) ===")
+			fmt.Println("  − no bundled LLVM next to the executable (uses PATH/system llc + clang)")
 		}
 	}
 

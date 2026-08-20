@@ -170,7 +170,9 @@ func resolveRunBackend(s string) string {
 func runWithLLVM(srcFile string, keep bool, optLevel string, debug, verbose bool) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
-		return fmt.Errorf("no Go toolchain and %w\nHint: install Go, or install LLVM (brew install llvm / apt install llvm clang)", err)
+		// v6.5.0: don't claim "no Go toolchain" when the user explicitly
+		// picked --backend=llvm and only LLVM is missing.
+		return fmt.Errorf("LLVM toolchain not found: %w\nHint: install LLVM (brew install llvm / apt install llvm clang), or install Go for the default backend", err)
 	}
 
 	tmp, err := os.MkdirTemp("", "kylix-run-")
@@ -217,7 +219,9 @@ func runWithLLVM(srcFile string, keep bool, optLevel string, debug, verbose bool
 func runProjectWithLLVM(cfg *project.Config, keep bool, optLevel string, debug, verbose bool) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
-		return fmt.Errorf("no Go toolchain and %w\nHint: install Go, or install LLVM (brew install llvm / apt install llvm clang)", err)
+		// v6.5.0: don't claim "no Go toolchain" when the user explicitly
+		// picked --backend=llvm and only LLVM is missing.
+		return fmt.Errorf("LLVM toolchain not found: %w\nHint: install LLVM (brew install llvm / apt install llvm clang), or install Go for the default backend", err)
 	}
 
 	klxFiles, err := cfg.FindAllKlxFiles()

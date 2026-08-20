@@ -10,6 +10,7 @@ package llvmgen
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	"kylix/ast"
@@ -360,7 +361,15 @@ func (g *Generator) collectGlobals(prog *ast.Program) {
 // code (emitIdentLoad/emitArrayIndex/emitMapIndexGet/emitAssign) finds them.
 // Call after `g.locals = make(...)` in each function entry. v5.4.0.
 func (g *Generator) registerGlobalsInScope() {
-	for name, sym := range g.globals {
+	// v6.5.0: sorted order keeps the generated IR deterministic (map iteration
+	// order is random and would otherwise vary the IR text run to run).
+	gNames := make([]string, 0, len(g.globals))
+	for n := range g.globals {
+		gNames = append(gNames, n)
+	}
+	sort.Strings(gNames)
+	for _, name := range gNames {
+		sym := g.globals[name]
 		g.locals[name] = sym
 		if kn, ok := g.globalKylixTypes[name]; ok {
 			g.localTypes[name] = kn
@@ -516,6 +525,7 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 		g.emitWsSendallBody()
 		g.emitWsBuildframeBody()
 		g.emitWsReadHeadersBody()
+		g.emitWsSha1Body()
 		g.emitWsB64Body()
 		g.emitWsRandBody()
 	}
@@ -615,7 +625,6 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i32 @setsockopt(i32 noundef, i32 noundef, i32 noundef, ptr noundef, i32 noundef)")
 	g.line("declare i32 @inet_pton(i32 noundef, ptr noundef, ptr noundef)")
 	g.line("; ===== OpenSSL libcrypto (used by stdlib crypto) =====")
-	g.line("declare ptr @SHA1(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @SHA256(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @MD5(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @strncpy(ptr noundef, ptr noundef, i64 noundef)")
@@ -727,7 +736,15 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	// populates them. For single-file programs, emit them as main-local allocas
 	// (the original behavior).
 	if g.program.IsMerged {
-		for name, sym := range g.globals {
+		// v6.5.0: iterate in sorted order — map iteration is random, which made
+		// the IR text (and therefore the .o cache key) non-deterministic.
+		gNames := make([]string, 0, len(g.globals))
+		for n := range g.globals {
+			gNames = append(gNames, n)
+		}
+		sort.Strings(gNames)
+		for _, name := range gNames {
+			sym := g.globals[name]
 			if g.globalMaps[name] {
 				g.needHashtab = true
 				tbl := g.tmp()

@@ -31,7 +31,7 @@ end.`)
 	// TCP connect + client handshake: key → strcat request → send → read headers.
 	assertIRContains(t, ir, "call ptr @__kylix_net_TcpDial")
 	assertIRContains(t, ir, "call ptr @__kylix_ws_b64")
-	assertIRContains(t, ir, "call ptr @SHA1")
+	assertIRContains(t, ir, "call void @__kylix_ws_sha1")
 	assertIRContains(t, ir, "call ptr @strcat")
 	assertIRContains(t, ir, "call ptr @__kylix_ws_readheaders")
 	assertIRContains(t, ir, "call ptr @strstr")
@@ -47,7 +47,7 @@ begin
 end.`)
 	assertIRContains(t, ir, "define ptr @__kylix_websocket_WsAccept(ptr %tcp)")
 	assertIRContains(t, ir, "call ptr @__kylix_ws_readheaders")
-	assertIRContains(t, ir, "call ptr @SHA1")
+	assertIRContains(t, ir, "call void @__kylix_ws_sha1")
 	assertIRContains(t, ir, "call i64 @__kylix_ws_sendall")
 }
 
@@ -69,6 +69,20 @@ end.`)
 	assertIRContains(t, ir, "define i64 @__kylix_ws_sendall")
 	// WsRecv parses frames (opcode/mask/length) and answers ping with pong.
 	assertIRContains(t, ir, "call i64 @__kylix_ws_buildframe(i64 10")
+}
+
+func TestWs_DialConnectFinishDispatch(t *testing.T) {
+	// v6.5.0: two-phase client handshake.
+	ir := generateIR(t, `program p;
+uses websocket;
+begin
+  var c := WsDialConnect('127.0.0.1:8080', '/echo');
+  var ok := WsDialFinish(c);
+end.`)
+	assertIRContains(t, ir, "call ptr @__kylix_websocket_WsDialConnect")
+	assertIRContains(t, ir, "call i1 @__kylix_websocket_WsDialFinish")
+	// WsDial composes the two phases.
+	assertIRContains(t, ir, "call ptr @__kylix_websocket_WsDialConnect")
 }
 
 func TestWs_NotUsedNoSymbols(t *testing.T) {

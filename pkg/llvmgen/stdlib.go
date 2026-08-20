@@ -118,7 +118,10 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	},
 	"websocket": {
 		// v6.4.0: RFC 6455 minimal client + server (text frames, ping/pong).
+		// v6.5.0: two-phase client handshake (WsDialConnect/WsDialFinish) for
+		// single-process echo loopbacks.
 		"WsDial": true, "WsAccept": true, "WsSend": true, "WsRecv": true, "WsClose": true,
+		"WsDialConnect": true, "WsDialFinish": true,
 	},
 }
 

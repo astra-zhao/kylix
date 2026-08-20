@@ -38,6 +38,7 @@ type TWsConn struct {
 	br       *bufio.Reader
 	isServer bool // server-side writes must NOT mask frames
 	writeBuf []byte
+	key      string // v6.5.0: Sec-WebSocket-Key for the two-phase client handshake
 }
 
 // wsOpcode per RFC 6455 section 5.2.
@@ -52,6 +53,23 @@ const (
 // WsDial connects to a WebSocket server at addr/path and performs the
 // handshake. addr is "host:port"; path must start with "/".
 func WsDial(addr, path string) (*TWsConn, error) {
+	ws, err := WsDialConnect(addr, path)
+	if err != nil {
+		return nil, err
+	}
+	if !WsDialFinish(ws) {
+		ws.conn.Close()
+		return nil, fmt.Errorf("WsDial: handshake failed")
+	}
+	return ws, nil
+}
+
+// WsDialConnect is phase 1 of the client handshake (v6.5.0): connect and send
+// the GET upgrade request, returning a half-open connection (the 101 response
+// is NOT read yet). WsDial = WsDialConnect + WsDialFinish — the split lets a
+// single process act as both client and server (connect first, then accept +
+// server handshake, then finish the client handshake).
+func WsDialConnect(addr, path string) (*TWsConn, error) {
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("WsDial: %w", err)
@@ -71,24 +89,28 @@ func WsDial(addr, path string) (*TWsConn, error) {
 		return nil, fmt.Errorf("WsDial (write): %w", err)
 	}
 
-	br := bufio.NewReader(conn)
-	resp, err := http.ReadResponse(br, &http.Request{Method: "GET"})
+	return &TWsConn{conn: conn, br: bufio.NewReader(conn), isServer: false,
+		writeBuf: make([]byte, 0, 256), key: key}, nil
+}
+
+// WsDialFinish is phase 2 of the client handshake (v6.5.0): read the 101
+// response and verify Sec-WebSocket-Accept against the key from phase 1.
+// Returns true when the handshake is complete.
+func WsDialFinish(ws *TWsConn) bool {
+	resp, err := http.ReadResponse(ws.br, &http.Request{Method: "GET"})
 	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("WsDial (read response): %w", err)
+		return false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusSwitchingProtocols {
-		conn.Close()
-		return nil, fmt.Errorf("WsDial: expected 101, got %d", resp.StatusCode)
+		return false
 	}
 	// Verify Sec-WebSocket-Accept.
-	want := wsAcceptKey(key)
+	want := wsAcceptKey(ws.key)
 	if resp.Header.Get("Sec-WebSocket-Accept") != want {
-		conn.Close()
-		return nil, fmt.Errorf("WsDial: bad Sec-WebSocket-Accept")
+		return false
 	}
-	return &TWsConn{conn: conn, br: br, isServer: false, writeBuf: make([]byte, 0, 256)}, nil
+	return true
 }
 
 // WsAccept wraps an already-accepted TCP connection (from net.TcpAccept) and

@@ -80,9 +80,8 @@ func (g *Generator) wsAcceptKey(keyReg string) string {
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 36)", kp2, guidPtr))
 	sha1buf := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 20)", sha1buf))
-	// OpenSSL SHA1 (avoid the hand-written IR SHA-1's correctness bugs).
-	g.needLibcrypto = true
-	g.line(fmt.Sprintf("  call ptr @SHA1(ptr %s, i64 %s, ptr %s)", kp, kpLen, sha1buf))
+	// Hand-rolled SHA-1 (v6.5.0: padLen fixed — no longer needs OpenSSL).
+	g.line(fmt.Sprintf("  call void @__kylix_ws_sha1(ptr %s, i64 %s, ptr %s)", kp, kpLen, sha1buf))
 	expect := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_ws_b64(ptr %s, i64 20)", expect, sha1buf))
 	return expect
@@ -169,7 +168,30 @@ func (g *Generator) wsHeaderField(headerReg, field string) (string, string) {
 func (g *Generator) emitWsDialBody() {
 	g.line("define ptr @__kylix_websocket_WsDial(ptr %addr, ptr %path) {")
 	g.line("entry:")
-	// pin params into explicit slots (avoid LLVM -O0 param-spill corruption)
+	ws := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_websocket_WsDialConnect(ptr %%addr, ptr %%path)", ws))
+	failLbl := g.label()
+	contLbl := g.label()
+	wsNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", wsNull, ws))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", wsNull, failLbl, contLbl))
+	g.line(fmt.Sprintf("%s:", contLbl))
+	fin := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i1 @__kylix_websocket_WsDialFinish(ptr %s)", fin, ws))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", fin, contLbl, failLbl))
+	g.line(fmt.Sprintf("  ret ptr %s", ws))
+	g.line(fmt.Sprintf("%s:", failLbl))
+	g.line("  ret ptr null")
+	g.line("}")
+	g.line("")
+}
+
+// emitWsDialConnectBody — phase 1 of the client handshake: connect + send the
+// GET upgrade request, returning a half-open handle {fd, isServer=0, key}
+// (the key is stashed at offset 16 for phase 2's accept verification).
+func (g *Generator) emitWsDialConnectBody() {
+	g.line("define ptr @__kylix_websocket_WsDialConnect(ptr %addr, ptr %path) {")
+	g.line("entry:")
 	addrSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", addrSlot))
 	g.line(fmt.Sprintf("  store ptr %%addr, ptr %s", addrSlot))
@@ -209,14 +231,11 @@ func (g *Generator) emitWsDialBody() {
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 1", portStr, colon))
 	port := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", port, portStr))
-	// TEMP debug
 	// ---- TCP connect
 	conn := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_net_TcpDial(ptr %s, i64 %s)", conn, host, port))
 	failLbl := g.label()
 	proceedLbl := g.label()
-	verifyAccept := g.label()
-	okLbl := g.label()
 	connNull := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", connNull, conn))
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", connNull, failLbl, proceedLbl))
@@ -250,36 +269,64 @@ func (g *Generator) emitWsDialBody() {
 	reqLen := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", reqLen, req))
 	g.line(fmt.Sprintf("  call i64 @__kylix_ws_sendall(i32 %s, ptr %s, i64 %s)", fdi, req, reqLen))
+	// ---- return half-open handle {fd, isServer=0, key}
+	ws := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 24)", ws))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", fd, ws))
+	svLoc := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", svLoc, ws))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", svLoc))
+	keyLoc := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 16", keyLoc, ws))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", key, keyLoc))
+	g.line(fmt.Sprintf("  ret ptr %s", ws))
+	g.line(fmt.Sprintf("%s:", failLbl))
+	g.line("  ret ptr null")
+	g.line("}")
+	g.line("")
+}
+
+// emitWsDialFinishBody — phase 2 of the client handshake: read the 101
+// response and verify Sec-WebSocket-Accept against the key stashed in phase 1.
+// Returns i1 (true = handshake complete).
+func (g *Generator) emitWsDialFinishBody() {
+	g.line("define i1 @__kylix_websocket_WsDialFinish(ptr %ws) {")
+	g.line("entry:")
+	fd := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %%ws", fd))
+	fdi := g.tmp()
+	g.line(fmt.Sprintf("  %s = trunc i64 %s to i32", fdi, fd))
+	keyLoc := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%ws, i64 16", keyLoc))
+	keyPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", keyPtr, keyLoc))
+	failLbl := g.label()
+	verifyLbl := g.label()
+	okLbl := g.label()
 	// ---- read response headers
 	resp := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_ws_readheaders(i32 %s)", resp, fdi))
-	// ---- verify 101 + Sec-WebSocket-Accept
+	// ---- verify 101
 	st101 := g.addString(" 101 ")
 	st101Ptr := g.ptrTo(st101, len(" 101 ")+1)
 	stFound := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @strstr(ptr %s, ptr %s)", stFound, resp, st101Ptr))
 	stNull := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", stNull, stFound))
-	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", stNull, failLbl, verifyAccept))
-	g.line(fmt.Sprintf("%s:", verifyAccept))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", stNull, failLbl, verifyLbl))
+	// ---- verify Sec-WebSocket-Accept
+	g.line(fmt.Sprintf("%s:", verifyLbl))
 	acceptVal, _ := g.wsHeaderField(resp, "Sec-WebSocket-Accept:")
-	expect := g.wsAcceptKey(key)
+	expect := g.wsAcceptKey(keyPtr)
 	acChk := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @strstr(ptr %s, ptr %s)", acChk, acceptVal, expect))
 	acOk := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp ne ptr %s, null", acOk, acChk))
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", acOk, okLbl, failLbl))
-	// ---- build handle {fd, isServer=0}
 	g.line(fmt.Sprintf("%s:", okLbl))
-	ws := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 16)", ws))
-	g.line(fmt.Sprintf("  store i64 %s, ptr %s", fd, ws))
-	wsSv := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", wsSv, ws))
-	g.line(fmt.Sprintf("  store i64 0, ptr %s", wsSv))
-	g.line(fmt.Sprintf("  ret ptr %s", ws))
+	g.line("  ret i1 true")
 	g.line(fmt.Sprintf("%s:", failLbl))
-	g.line("  ret ptr null")
+	g.line("  ret i1 false")
 	g.line("}")
 	g.line("")
 }
@@ -306,17 +353,21 @@ func (g *Generator) emitWsAcceptBody() {
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", keyNull, failLbl, okLbl))
 	g.line(fmt.Sprintf("%s:", okLbl))
 	expect := g.wsAcceptKey(key)
-	// reply 101
-	fmtStr := "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n"
-	fmtReg := g.addString(fmtStr)
-	fmtPtr := g.ptrTo(fmtReg, len(fmtStr)+1)
+	// reply 101 (strcat chain — snprintf's varargs hit the LLVM -O0 spill bug)
 	rbuf := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 256)", rbuf))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", rbuf))
+	cat101 := func(s string) {
+		sc := g.addString(s)
+		scPtr := g.ptrTo(sc, len(s)+1)
+		g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", rbuf, scPtr))
+	}
+	cat101("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ")
+	g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", rbuf, expect))
+	cat101("\r\n\r\n")
 	rl := g.tmp()
-	g.line(fmt.Sprintf("  %s = call i32 @snprintf(ptr %s, i64 256, ptr %s, ptr %s)", rl, rbuf, fmtPtr, expect))
-	rl64 := g.tmp()
-	g.line(fmt.Sprintf("  %s = zext i32 %s to i64", rl64, rl))
-	g.line(fmt.Sprintf("  call i64 @__kylix_ws_sendall(i32 %s, ptr %s, i64 %s)", fdi, rbuf, rl64))
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", rl, rbuf))
+	g.line(fmt.Sprintf("  call i64 @__kylix_ws_sendall(i32 %s, ptr %s, i64 %s)", fdi, rbuf, rl))
 	// build handle {fd, isServer=1}
 	ws := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 16)", ws))

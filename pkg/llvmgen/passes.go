@@ -78,17 +78,22 @@ func (deadCodeElimPass) run(ir string) string {
 		idx int
 	}
 	var defs []def
+	// v6.5.0: single pass over the IR counts every %tN token (a `%` followed by
+	// digits). The old per-def full-module strings.Index scan was O(defs × len)
+	// and dominated -O0 compile time on large modules.
+	counts := make(map[string]int)
 	for i, ln := range lines {
 		if m := pureDefRe.FindStringSubmatch(ln); m != nil {
 			defs = append(defs, def{reg: m[1], idx: i})
 		}
+		countToks(ln, counts)
 	}
 	if len(defs) == 0 {
 		return ir
 	}
 	dead := make(map[int]bool)
 	for _, d := range defs {
-		if countOccurrences(ir, "%"+d.reg) == 1 {
+		if counts["%"+d.reg] == 1 {
 			dead[d.idx] = true
 		}
 	}
@@ -102,6 +107,29 @@ func (deadCodeElimPass) run(ir string) string {
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+// countToks scans one IR line and increments the occurrence count for every
+// SSA token (%tN — `%` + optional `t` + digits). This keeps %t1 distinct from
+// %t10 (word-boundary semantics, matching the old countOccurrences behaviour).
+// v6.5.0.
+func countToks(ln string, counts map[string]int) {
+	for i := 0; i < len(ln); i++ {
+		if ln[i] == '%' {
+			j := i + 1
+			if j < len(ln) && ln[j] == 't' {
+				j++
+			}
+			k := j
+			for k < len(ln) && ln[k] >= '0' && ln[k] <= '9' {
+				k++
+			}
+			if k > j {
+				counts[ln[i:k]]++
+				i = k - 1
+			}
+		}
+	}
 }
 
 // countOccurrences counts non-overlapping occurrences of needle in haystack,

@@ -2,24 +2,28 @@ program WebSocketDemo;
 uses net, websocket;
 
 begin
-  // Start a TCP listener (does not block — just opens the port).
+  // Single-process echo loopback (v6.5.0): the client connects first (the TCP
+  // connection queues in the listener's accept backlog), then the server
+  // accepts + handshakes, then the client finishes its handshake — no threads
+  // needed. WsDial = WsDialConnect + WsDialFinish.
   var ln := TcpListen(18080);
-
-  // v6.4.0: the LLVM backend implements the full RFC 6455 WebSocket client and
-  // server (WsDial / WsAccept / WsSend / WsRecv / WsClose — text frames,
-  // ping/pong auto-answer, close). A complete echo round-trip needs a peer, so
-  // the running examples connect to an external server:
-  //   var ws := WsDial('127.0.0.1:18080', '/echo');  // client handshake
-  //   WsSend(ws, 'hello');
-  //   var msg := WsRecv(ws);     // pings auto-answered; close → ""
-  //   WsClose(ws);
-  // Server side (upgrade an accepted TCP connection):
-  //   var tcp := TcpAccept(ln);
-  //   var ws  := WsAccept(tcp); // performs the RFC 6455 handshake
-  //   WsSend(ws, 'hello');
-  //   var msg := WsRecv(ws);
-  //   WsClose(ws);
-
+  var cli := WsDialConnect('127.0.0.1:18080', '/echo');
+  if cli = nil then
+  begin
+    WriteLn('connect failed');
+    exit;
+  end;
+  var tcp := TcpAccept(ln);
+  var srv := WsAccept(tcp);
+  if not WsDialFinish(cli) then
+  begin
+    WriteLn('handshake failed');
+    exit;
+  end;
+  WsSend(srv, 'hello from server');
+  WriteLn('client got: ' + WsRecv(cli));
+  WsClose(cli);
+  WsClose(srv);
   TcpListenerClose(ln);
   WriteLn('websocket demo OK');
 end.

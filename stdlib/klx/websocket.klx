@@ -9,6 +9,11 @@ type
 
 // Connect to a WebSocket server (addr = "host:port", path starts with "/").
 function WsDial(addr: String; path: String): TWsConn;
+// Two-phase client handshake (v6.5.0): WsDialConnect connects and sends the
+// GET upgrade request (returns a half-open connection); WsDialFinish reads and
+// verifies the 101 response. WsDial = WsDialConnect + WsDialFinish.
+function WsDialConnect(addr: String; path: String): TWsConn;
+function WsDialFinish(ws: TWsConn): Boolean;
 // Upgrade an accepted TCP connection (from net.TcpAccept) to WebSocket.
 function WsAccept(tcp: TTcpConn): TWsConn;
 // Send a text message.

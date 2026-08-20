@@ -25,10 +25,21 @@ func (g *Generator) emitWebsocketCall(funcName string, args []ast.Expression) (s
 	switch funcName {
 	case "WsDial":
 		g.enqueueStdlib("net", "TcpDial", "TcpDial", 0)
+		// WsDial composes the two-phase handshake (v6.5.0).
+		g.enqueueStdlib("websocket", "WsDialConnect", "WsDialConnect", 0)
+		g.enqueueStdlib("websocket", "WsDialFinish", "WsDialFinish", 0)
+	case "WsDialConnect":
+		g.enqueueStdlib("net", "TcpDial", "TcpDial", 0)
+	case "WsDialFinish":
+		g.enqueueStdlib("websocket", "WsDialConnect", "WsDialConnect", 0)
 	}
 	switch funcName {
 	case "WsDial":
 		return g.emitWsDialCall(args)
+	case "WsDialConnect":
+		return g.emitWsDialConnectCall(args)
+	case "WsDialFinish":
+		return g.emitWsDialFinishCall(args)
 	case "WsAccept":
 		return g.emitWsAcceptCall(args)
 	case "WsSend":
@@ -48,6 +59,10 @@ func (g *Generator) emitWebsocketBody(funcName string) {
 	switch funcName {
 	case "WsDial":
 		g.emitWsDialBody()
+	case "WsDialConnect":
+		g.emitWsDialConnectBody()
+	case "WsDialFinish":
+		g.emitWsDialFinishBody()
 	case "WsAccept":
 		g.emitWsAcceptBody()
 	case "WsSend":
@@ -93,6 +108,42 @@ func (g *Generator) emitWsDialCall(args []ast.Expression) (string, string, error
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_websocket_WsDial(ptr %s, ptr %s)", r, addrReg, pathReg))
 	return r, "ptr", nil
+}
+
+// emitWsDialConnectCall: phase 1 of the client handshake — TCP connect + send
+// the GET upgrade request, returning a half-open handle (no 101 read yet).
+func (g *Generator) emitWsDialConnectCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("websocket.WsDialConnect expects 2 arguments, got %d", len(args))
+	}
+	addrReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	pathReg, _, err := g.emitExpr(args[1])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("websocket", "WsDialConnect", "WsDialConnect", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_websocket_WsDialConnect(ptr %s, ptr %s)", r, addrReg, pathReg))
+	return r, "ptr", nil
+}
+
+// emitWsDialFinishCall: phase 2 of the client handshake — read + verify the
+// 101 response. Returns i1 (true = handshake complete).
+func (g *Generator) emitWsDialFinishCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("websocket.WsDialFinish expects 1 argument, got %d", len(args))
+	}
+	wsReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("websocket", "WsDialFinish", "WsDialFinish", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i1 @__kylix_websocket_WsDialFinish(ptr %s)", r, wsReg))
+	return r, "i1", nil
 }
 
 func (g *Generator) emitWsAcceptCall(args []ast.Expression) (string, string, error) {

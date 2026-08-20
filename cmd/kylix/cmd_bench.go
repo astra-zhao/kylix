@@ -14,7 +14,7 @@ func cmdBench(args []string) {
 	count := fs.Int("count", 5, "Number of iterations per benchmark")
 	verbose := fs.Bool("v", false, "Verbose output")
 	mem := fs.Bool("mem", false, "Report memory allocations (B/op + allocs/op)")
-	backend := fs.String("backend", "go", "Compiler backend: go (default) or llvm (v6.2.0: native binary, no Go toolchain needed)")
+	backend := fs.String("backend", "auto", "Compiler backend: auto (default: Go if available, else LLVM), go, or llvm")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix bench [options] [file_bench.klx...]
 
@@ -33,7 +33,7 @@ OPTIONS:
 
 	runner := testrunner.New(*verbose)
 	runner.ReportMem = *mem
-	runner.Backend = *backend
+	runner.Backend = resolveRunBackend(*backend) // v6.5.0: auto-detects Go/LLVM like `kylix run`
 
 	var files []string
 	if fs.NArg() > 0 {

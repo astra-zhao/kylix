@@ -482,63 +482,112 @@ func (g *Generator) emitAsExpr(e *ast.TypeCastExpression) (string, string, error
 // Conservative: only String and Integer expression parts are formatted; other
 // types are skipped (the substring is omitted). Buffer is a fixed 256 bytes.
 func (g *Generator) emitStringInterpolation(e *ast.StringInterpolation) (string, string, error) {
-	const bufSize = 256
+	// v6.5.0: compute the total buffer size up front (string literals use their
+	// constant length; runtime parts use strlen; i64/double/bool use generous
+	// fixed caps) and malloc exactly that + 1. The old fixed 256-byte buffer
+	// overflowed for long interpolations (bare strcat past the end).
+	type partInfo struct {
+		strPtr string // string-literal pointer (constant)
+		reg    string // runtime register
+		llvmT  string // llvm type for runtime parts
+		strLen int    // compile-time string length (-1 = runtime)
+	}
+	var parts []partInfo
+	for _, part := range e.Parts {
+		if p, ok := part.(*ast.StringLiteral); ok {
+			sp := g.ptrTo(g.addString(p.Value), len(p.Value)+1)
+			parts = append(parts, partInfo{strPtr: sp, strLen: len(p.Value)})
+			continue
+		}
+		reg, t, err := g.emitExpr(part)
+		if err != nil {
+			return "", "", err
+		}
+		parts = append(parts, partInfo{reg: reg, llvmT: t})
+	}
+
+	// ---- pass 1: total length
+	totalSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", totalSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", totalSlot))
+	addConst := func(n int64) {
+		cur := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i64, ptr %s", cur, totalSlot))
+		sum := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, %d", sum, cur, n))
+		g.line(fmt.Sprintf("  store i64 %s, ptr %s", sum, totalSlot))
+	}
+	addStrlen := func(reg string) {
+		ln := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", ln, reg))
+		cur := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i64, ptr %s", cur, totalSlot))
+		sum := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, %s", sum, cur, ln))
+		g.line(fmt.Sprintf("  store i64 %s, ptr %s", sum, totalSlot))
+	}
+	for _, pi := range parts {
+		switch {
+		case pi.strPtr != "":
+			addConst(int64(pi.strLen))
+		case pi.llvmT == "ptr":
+			addStrlen(pi.reg)
+		case pi.llvmT == "variant":
+			addStrlen(g.emitVariantAsStr(pi.reg))
+		case pi.llvmT == "i64":
+			addConst(20) // %ld max 19 digits + sign
+		case pi.llvmT == "double":
+			addConst(30) // %.15g max ~25 chars
+		case pi.llvmT == "i1":
+			addConst(6) // "false"
+		}
+	}
+	// ---- allocate total + 1
+	total := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", total, totalSlot))
+	size := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", size, total))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", buf, bufSize))
-	// Initialize to empty string (NUL terminator).
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, size))
 	g.line(fmt.Sprintf("  store i8 0, ptr %s", buf))
 
-	// "%ld\0" format constant for integer formatting.
+	// ---- pass 2: concatenate
 	ldFmt := g.addString("%ld")
 	ldFmtPtr := g.ptrTo(ldFmt, 4)
-
-	for _, part := range e.Parts {
-		switch p := part.(type) {
-		case *ast.StringLiteral:
-			strPtr := g.ptrTo(g.addString(p.Value), len(p.Value)+1)
-			g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, strPtr))
-		default:
-			reg, t, err := g.emitExpr(part)
-			if err != nil {
-				return "", "", err
-			}
-			switch t {
-			case "variant":
-				// v5.0.0: unbox the Variant to a string and strcat it.
-				strReg := g.emitVariantAsStr(reg)
-				g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, strReg))
-			case "ptr":
-				g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, reg))
-			case "i64":
-				pos := g.tmp()
-				g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", pos, buf))
-				dst := g.tmp()
-				g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, buf, pos))
-				rest := g.tmp()
-				g.line(fmt.Sprintf("  %s = sub i64 %d, %s", rest, bufSize, pos))
-				g.line(fmt.Sprintf("  %s = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 %s, ptr %s, i64 %s)",
-					g.tmp(), dst, rest, ldFmtPtr, reg))
-			case "double":
-				fFmt := g.addString("%.15g")
-				fFmtPtr := g.ptrTo(fFmt, 6)
-				pos := g.tmp()
-				g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", pos, buf))
-				dst := g.tmp()
-				g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, buf, pos))
-				rest := g.tmp()
-				g.line(fmt.Sprintf("  %s = sub i64 %d, %s", rest, bufSize, pos))
-				g.line(fmt.Sprintf("  %s = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 %s, ptr %s, double %s)",
-					g.tmp(), dst, rest, fFmtPtr, reg))
-			case "i1":
-				// Boolean: append "true" or "false" string
-				trueStr := g.addString("true")
-				falseStr := g.addString("false")
-				truePtr := g.ptrTo(trueStr, 5)
-				falsePtr := g.ptrTo(falseStr, 6)
-				selected := g.tmp()
-				g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", selected, reg, truePtr, falsePtr))
-				g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, selected))
-			}
+	for _, pi := range parts {
+		switch {
+		case pi.strPtr != "":
+			g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, pi.strPtr))
+		case pi.llvmT == "variant":
+			strReg := g.emitVariantAsStr(pi.reg)
+			g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, strReg))
+		case pi.llvmT == "ptr":
+			g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, pi.reg))
+		case pi.llvmT == "i64":
+			pos := g.tmp()
+			g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", pos, buf))
+			dst := g.tmp()
+			g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, buf, pos))
+			g.line(fmt.Sprintf("  %s = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 64, ptr %s, i64 %s)",
+				g.tmp(), dst, ldFmtPtr, pi.reg))
+		case pi.llvmT == "double":
+			fFmt := g.addString("%.15g")
+			fFmtPtr := g.ptrTo(fFmt, 6)
+			pos := g.tmp()
+			g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", pos, buf))
+			dst := g.tmp()
+			g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, buf, pos))
+			g.line(fmt.Sprintf("  %s = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 64, ptr %s, double %s)",
+				g.tmp(), dst, fFmtPtr, pi.reg))
+		case pi.llvmT == "i1":
+			// Boolean: append "true" or "false" string
+			trueStr := g.addString("true")
+			falseStr := g.addString("false")
+			truePtr := g.ptrTo(trueStr, 5)
+			falsePtr := g.ptrTo(falseStr, 6)
+			selected := g.tmp()
+			g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", selected, pi.reg, truePtr, falsePtr))
+			g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, selected))
 		}
 	}
 	return buf, "ptr", nil

@@ -23,8 +23,10 @@ func (g *Generator) emitWsSha1Body() {
 	g.line("define void @__kylix_ws_sha1(ptr %data, i64 %len, ptr %out) {")
 	g.line("entry:")
 	// padLen = ((len + 8) / 64 + 1) * 64
+	// (v6.5.0: was len+9 — wrong when (len+9) is a multiple of 64, i.e.
+	//  len ≡ 55 (mod 64), producing an extra all-zero block and a bad digest.)
 	pl1 := g.tmp()
-	g.line(fmt.Sprintf("  %s = add i64 %%len, 9", pl1))
+	g.line(fmt.Sprintf("  %s = add i64 %%len, 8", pl1))
 	pl2 := g.tmp()
 	g.line(fmt.Sprintf("  %s = udiv i64 %s, 64", pl2, pl1))
 	pl3 := g.tmp()
@@ -93,10 +95,10 @@ func (g *Generator) emitWsSha1Body() {
 		g.line(fmt.Sprintf("  %s = alloca i32, align 4", hInit[i]))
 	}
 	g.line(fmt.Sprintf("  store i32 1732584193, ptr %s", hs[0]))  // 0x67452301
-	g.line(fmt.Sprintf("  store i32 -1009589776, ptr %s", hs[1])) // 0xEFCDAB89
+	g.line(fmt.Sprintf("  store i32 -271733879, ptr %s", hs[1]))  // 0xEFCDAB89
 	g.line(fmt.Sprintf("  store i32 -1732584194, ptr %s", hs[2])) // 0x98BADCFE
-	g.line(fmt.Sprintf("  store i32 1009588838, ptr %s", hs[3]))  // 0x10325476
-	g.line(fmt.Sprintf("  store i32 -1009637050, ptr %s", hs[4])) // 0xC3D2E1F0
+	g.line(fmt.Sprintf("  store i32 271733878, ptr %s", hs[3]))   // 0x10325476
+	g.line(fmt.Sprintf("  store i32 -1009589776, ptr %s", hs[4])) // 0xC3D2E1F0
 	// w[80] i32 buffer
 	wBuf := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 320)", wBuf))

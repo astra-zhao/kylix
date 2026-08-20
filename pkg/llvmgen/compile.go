@@ -211,32 +211,13 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		return nil, fmt.Errorf("write IR: %w", err)
 	}
 
-	// opt: IR-level optimization (mem2reg, inline, loop opts, DCE, etc.).
-	// Runs before llc so the optimizer sees pristine IR. Only invoked when an
-	// optimization level is requested and the opt binary is available; falls
-	// back to llc's -O flag otherwise.
-	if opts.OptLevel != "" && llvmPaths.Opt != "" {
-		optLevel := opts.OptLevel
-		if optLevel != "1" && optLevel != "2" && optLevel != "3" {
-			optLevel = "2" // clamp s/z/default → O2
-		}
-		optIRFile := base + ".opt.ll"
-		// opt 22+ uses --O<N> (new pass manager's default<O<N>> alias).
-		optArgs := []string{"--O" + optLevel, irFile, "-o", optIRFile}
-		optCmd := exec.Command(llvmPaths.Opt, optArgs...)
-		if out, err := optCmd.CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("opt failed: %w\n%s", err, out)
-		}
-		irFile = optIRFile // feed optimized IR to llc
-	}
-
 	// llc: .ll → .o with optional optimization level
 	objFile := base + ".o"
 
-	// v4.5.0 Phase C: incremental cache. If a cached .o exists for this
-	// (IR content + opts), skip llc entirely and link the cached object.
-	// The key is the final IR's hash (post-pass) so any codegen change
-	// invalidates. Best-effort: cache failure is non-fatal.
+	// v4.5.0 Phase C: incremental cache. v6.5.0: checked BEFORE opt/llc so a
+	// hit skips both — the key is the pre-opt IR hash (after the in-process DCE
+	// above), so any codegen change invalidates. Best-effort: cache failure is
+	// non-fatal.
 	cacheKey := irCacheKey(ir, opts)
 	cachedHit := false
 	if store := defaultLLVMCache(); store != nil {
@@ -248,7 +229,33 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	}
 
 	if !cachedHit {
-		llcArgs := []string{"-filetype=obj"}
+		// opt: IR-level optimization (mem2reg, inline, loop opts, DCE, etc.).
+		// Runs before llc so the optimizer sees pristine IR. Only when an
+		// optimization level is requested and the opt binary is available.
+		if opts.OptLevel != "" && llvmPaths.Opt != "" {
+			optLevel := opts.OptLevel
+			if optLevel != "1" && optLevel != "2" && optLevel != "3" {
+				optLevel = "2" // clamp s/z/default → O2
+			}
+			optIRFile := base + ".opt.ll"
+			optArgs := []string{"--O" + optLevel, "-disable-verify", irFile, "-o", optIRFile}
+			optCmd := exec.Command(llvmPaths.Opt, optArgs...)
+			if out, err := optCmd.CombinedOutput(); err != nil {
+				return nil, fmt.Errorf("opt failed: %w\n%s", err, out)
+			}
+			irFile = optIRFile // feed optimized IR to llc
+		} else if llvmPaths.Opt != "" {
+			// v6.5.0: for the default -O0 build, run mem2reg first (alloca→SSA
+			// promotion) so llc sees a much smaller IR. This is the cheapest,
+			// safest part of opt -O2 and delivers most of its speedup, without
+			// the vtable-load fold risk of full -O2 (v5.4.0).
+			memIR := base + ".mem.ll"
+			optArgs := []string{"--passes=mem2reg", "-disable-verify", irFile, "-o", memIR}
+			if _, err := exec.Command(llvmPaths.Opt, optArgs...).CombinedOutput(); err == nil {
+				irFile = memIR
+			}
+		}
+
 		// v5.4.0: force -O0 when no explicit level — LLVM 22 llc defaults to
 		// -O2 (the full optimization pipeline), which mis-optimizes the vtable
 		// load sequence (folding obj[0]=vtable-ptr + vtable[idx] into obj[idx*8],
@@ -257,12 +264,14 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		if optLevel == "" {
 			optLevel = "0"
 		}
+		llcArgs := []string{"-filetype=obj"}
 		switch optLevel {
 		case "0", "1", "2", "3":
 			llcArgs = append(llcArgs, "-O="+optLevel)
 		default:
 			llcArgs = append(llcArgs, "-O=2")
 		}
+		llcArgs = append(llcArgs, "-disable-verify") // v6.5.0: skip IR verification on large modules
 		// v6.2.0: cross-compilation — pin the target so llc honors it even if
 		// the IR triple were lost; llc is a multi-target compiler.
 		if opts.Target != "" {
