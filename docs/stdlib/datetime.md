@@ -277,18 +277,14 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 
 ## 限制
 
-### 当前版本 (v4.3.0)
+### 当前版本 (v4.5.0 — Phase 1–3 已完成)
 1. **静态缓冲区**: FormatDate 使用 64 字节栈缓冲区（非线程安全）
-2. **无内存管理**: TDateTime 实例通过 malloc 分配，无 GC
+2. **无内存管理**: TDateTime 实例通过 malloc 分配，无 GC（datetime 用 1MB 静态 arena 部分缓解）
 3. **简化 tm 结构**: 假设 `struct tm` 布局为标准 POSIX（56 字节）
-4. **缺少函数**:
-   - `Today()` (存根，当前等同于 Now)
-   - `MakeTime(h, m, s)`
-   - `ParseDate(s)` / `ParseDateTime(s)`
-5. **缺少方法**:
-   - `Hour()`, `Minute()`, `Second()`
-   - `DayOfWeek()`, `DayOfYear()`
-   - `Format(pattern)`（当前仅 `FormatDate`）
+4. **已补齐（v4.4.0 / v4.5.0 Phase 2–3）**：
+   - `MakeTime(h, m, s)` / `Today()` / `ParseDate(s)` / `ParseDateTime(s)`
+   - 方法：`Hour()` `Minute()` `Second()` `DayOfWeek()` `DayOfYear()` `Format(pattern)` `AddDays/AddHours/AddMinutes/AddSeconds` `Before/After` 等
+   - `ArenaAlloc` / `FreeArena`（arena 分配器，缓解无 GC 的泄漏）
 
 ### 平台依赖
 - 依赖 libc `time.h` 实现

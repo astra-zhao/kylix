@@ -299,10 +299,10 @@ call void @longjmp(ptr %jmp_buf, i32 1)
 - ~~stdlib-heavy tutorials still require the Go toolchain~~ — **resolved (v6.4.0)**: the LLVM backend now compiles **all 51 tutorials** with real stdlib IR implementations: db (DbOpen/DbExec/DbQueryScalar/**DbQueryRows**), **websocket** (RFC 6455 client+server), jwt (HS256), httpclient, sysutil, datetime, jsonutil, crypto, encoding, cache, boot, regex, net (TCP). Remaining limitation: net Winsock / regex pcre2 real implementations need a Windows environment.
 
 ### M5 (v5.0.0) — Go Independence
-- [ ] Self-hosting: Kylix compiler written in Kylix
-- [ ] Custom runtime KylixRT (GC + string/array/map)
-- [ ] stdlib rewritten in pure Kylix (remove `stdlib/*.go`)
-- **Goal**: Zero Go dependency, standalone binaries
+- [x] Self-hosting: **LLVM backend compiles the Kylix compiler itself** — `kylix build --backend=llvm src/*.klx` → native `main_self` (no Go), which compiles all 51 tutorials (v5.6.0).
+- [~] Custom runtime KylixRT: native binaries run on libc + hand-rolled runtime (Variant box, htab, arena for datetime); **no GC yet** (malloc-based, long-running programs leak).
+- [ ] stdlib rewritten in pure Kylix (remove `stdlib/*.go`).
+- **Goal**: Zero Go dependency, standalone binaries — largely achieved for end-user programs (`kylix run`/`build --backend=llvm` need no Go). The bootstrap compiler still emits Go code; a pure-Kylix LLVM IR emitter in `src/generator.klx` is the remaining giant step (see ROADMAP).
 
 ---
 

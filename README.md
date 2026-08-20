@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-6.4.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-6.5.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
+>
+> 🚀 **v6.5.0**: WS loopback + hand-rolled SHA-1 fix + KylixRT polish + performance. Single-process WebSocket echo loopback (two-phase `WsDialConnect`/`WsDialFinish` — no threads), hand-rolled SHA-1 replaces OpenSSL, string-interpolation overflow fix, and the LLVM backend got a **30× faster `-O0` build** (11.5 s → 0.38 s on the bootstrap compiler) via single-pass DCE, pre-opt caching, mem2reg and `-disable-verify`. See [CHANGELOG.md](CHANGELOG.md).
 >
 > 🚀 **v6.4.0**: LLVM stdlib real implementations — `db.DbQueryRows` (rows as `array of Variant`, each a map via a new Variant map tag + `row['col']` indexing) and the complete **websocket** module (RFC 6455 client + server: WsDial / WsAccept / WsSend / WsRecv / WsClose — handshake, text frames, ping/pong auto-answer). Tutorials **51/51** on both the Go and LLVM backends. See [CHANGELOG.md](CHANGELOG.md).
 >

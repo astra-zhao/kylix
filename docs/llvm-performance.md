@@ -1,6 +1,8 @@
 # LLVM Backend Performance Guide
 
 > **Status**: v4.1.0 — `--llvm-opt` now runs the standalone `opt` tool for full IR-level optimization (mem2reg, inlining, loop induction, DCE), in addition to llc's codegen-level `-O<N>`.
+>
+> **v6.5.0**: the default `-O0` build now also runs `opt --passes=mem2reg` before llc (the biggest single IR-shrinking step), cutting **compile time ~30×** (11.5s → 0.38s on the bootstrap compiler) — see [compile-performance.md](compile-performance.md). The runtime numbers below are unchanged (v6.5.0 doesn't alter codegen semantics).
 
 The LLVM backend produces standalone native binaries with no Go runtime dependency. With `--llvm-opt`, the `opt` IR optimizer runs before `llc`, enabling aggressive optimizations (inlining, loop induction, scalar replacement) that the codegen-level `-O` flag alone cannot perform.
 

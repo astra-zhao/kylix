@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-6.4.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-6.5.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
+>
+> 🚀 **v6.5.0**: WS 自回环 + 手写 SHA-1 修复 + KylixRT 完善 + 性能优化。单进程 WebSocket echo 自回环（分阶段 `WsDialConnect`/`WsDialFinish`，无需线程）；手写 SHA-1 替换 OpenSSL；字符串插值溢出修复；LLVM 后端 **-O0 编译提速 30×**（bootstrap 11.5s→0.38s，DCE 单遍 + 缓存提前 + mem2reg + disable-verify）。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
 > 🚀 **v6.4.0**: LLVM stdlib 真实现 — `db.DbQueryRows`（`array of Variant`，每行一个 map，`row['col']` 索引取值）+ 完整 **websocket** 模块（RFC 6455 客户端+服务端：WsDial/WsAccept/WsSend/WsRecv/WsClose，握手 + 文本帧 + ping/pong 自动应答）。双后端教程 **51/51**。详见 [CHANGELOG.md](CHANGELOG.md)。
 >

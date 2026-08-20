@@ -1,6 +1,7 @@
-# Compile-Time Performance (v6.0.0 #7)
+# Compile-Time Performance (v6.0.0 #7, updated for v6.5.0)
 
-> **Status**: v6.0.0 — first compile-time benchmark for the Kylix compiler.
+> **Status**: v6.0.0 — first compile-time benchmark for the Kylix compiler;
+> updated for the v6.5.0 LLVM performance work.
 > Target: the bootstrap sources (`src/*.klx`, **7 files / 7451 lines**), the
 > largest real-world Kylix codebase, compiled on both backends with the
 > incremental cache both cold and warm.
@@ -8,21 +9,25 @@
 ## Results
 
 **Environment**: Apple Silicon (arm64, M-series), Go 1.25, LLVM 22 (llc + clang + opt).
-**Method**: `benchmarks/compile_time.sh` — 3 wall-clock rounds per scenario, median reported. All artifacts produced in a throwaway temp dir.
+**Method**: `benchmarks/compile_time.sh` — 3 wall-clock rounds per scenario, median reported (v6.0.0). v6.5.0 numbers are single-run measurements on the same machine.
 
-| 场景 | 第1次 | 第2次 | 第3次 | 中位数 |
-|---|---|---|---|---|
-| Go 冷编译（无缓存） | 31ms | 29ms | 28ms | **29ms** |
-| Go 热编译（增量缓存） | 23ms | 23ms | 22ms | **23ms** |
-| LLVM -O0 | 11452ms | 11527ms | 11857ms | **11527ms** |
-| LLVM -O2 | 580ms | 575ms | 570ms | **575ms** |
+| 场景 | v6.0.0 中位数 | v6.5.0 实测 |
+|---|---|---|
+| Go 冷编译（无缓存） | **29ms** | ~30ms |
+| Go 热编译（增量缓存） | **23ms** | ~23ms |
+| LLVM -O0 | **11527ms** | **~380ms** |
+| LLVM -O0（缓存命中） | — | **~250ms** |
+| LLVM -O2 | **575ms** | ~300ms（冷） / ~40ms（缓存命中） |
 
 ## Key Observations
 
 - **Go 后端编译 7451 行只需 ~29ms** — 它只生成 Go 代码，不做 `go build`。增量缓存命中时 23ms（缓存提升约 1.3×）。
-- **LLVM -O0 需要 11.5s** — 生成完整 LLVM IR + `llc` 汇编。alloca/load/store 风格的 IR（每个变量都 alloca）未经优化直接交给 llc，代码量大。
-- **LLVM -O2 反而只要 575ms（-O0 的 1/20）** — `opt --O2` 先把 IR 做 mem2reg/inlining/DCE 优化，IR 体积大幅缩小，`llc` 处理优化后的小 IR 反而快得多。这与运行时相反（runtime 里 -O2 快），编译期 -O2 也快。
-- **LLVM 编译时间 vs Go 后端**：-O0 约 400×、-O2 约 20×。LLVM 后端的目标是"产出自包含原生二进制、无 Go 依赖"，编译时间换运行时间 + 部署形态，属预期权衡。
+- **LLVM -O0 从 11.5s 降到 ~0.38s（v6.5.0，约 30×）** — 三个改动叠加：
+  1. 进程内 DCE 从"每个死 def 全模块扫描"改成**单遍 token 计数**（O(defs × len) → O(len)）；
+  2. `-O0` 默认先跑 **`opt --passes=mem2reg`**（alloca→SSA 提升）——这正是 v6.0.0 里 `-O2` 比 `-O0` 快 20× 的机制（IR 缩小 → llc 快），现在 `-O0` 也享受；
+  3. `.o` 缓存查询**提前到 opt/llc 之前**，热构建直接跳过两者。
+- **LLVM -O2 热构建从 575ms 降到 ~40ms** — 缓存命中时只做 parse + IR 生成 + 链接，跳过 `opt` 和 `llc`。
+- **LLVM 编译时间 vs Go 后端**：现在 `-O0` 约 13×、`-O2` 热构建约 1.7×（v6.5.0）。LLVM 后端的目标是"产出自包含原生二进制、无 Go 依赖"，编译时间换运行时间 + 部署形态，属预期权衡。
 
 ## v6.1.0 顺带修复（-O2 才可用的前置条件）
 

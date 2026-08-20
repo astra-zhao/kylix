@@ -1,6 +1,6 @@
 # 自举编译器开发指南 (Self-Hosting Development Guide)
 
-> 版本: v5.2.0 (2026-07-18)
+> 版本: v5.7.0+ (2026-07-29)
 > 关联: [KYLIX_DEV_GUIDE.md](KYLIX_DEV_GUIDE.md) · [ROADMAP.md](../ROADMAP.md) · [TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md)
 
 本指南详细记录 Kylix 自举编译器的设计、构建流程、当前状态与后续开发方法。这是仓库中**最权威**的自举工作参考——动手改 `src/*.klx` 或 Go 后端多态 codegen 前，请先读本文档。
@@ -13,14 +13,15 @@
 
 三层概念，务必区分：
 
-| 概念 | 说明 | v5.2.0 状态 |
+| 概念 | 说明 | 当前状态 |
 |------|------|-------------|
 | **宿主编译器** | 现有 Go 写的编译器（`cmd/kylix` + `generator/` + `parser/` + `ast/`...），构建产物 `/tmp/kylix_bin` | ✅ 生产可用 |
-| **自举源码** | `src/*.klx`（7 文件、5250 行），用 Kylix 方言重写的编译器 | ✅ 源码完成 |
+| **自举源码** | `src/*.klx`（7 文件、7451 行），用 Kylix 方言重写的编译器 | ✅ 源码完成 |
 | **自举产物** | 自举源码经 Go 后端转译 → 合并 main.go → `go build` → `kylix_self` 二进制 | ✅ 构建打通（v5.2.0）|
-| **round-trip** | `kylix_self` 产出的编译器（`kylix_self2`）能正确编译任意程序 | ❌ 未达成（留 v5.3）|
+| **round-trip** | `kylix_self` 产出的编译器（`kylix_self2`）能正确编译任意程序 | ✅ 达成（v5.3.0，含自繁殖）|
+| **self-reproduction 不动点** | `kylix_selfA` 编译 `src/*.klx` → `self_gen2.go` → `kylix_selfB` → `self_gen3.go`，两者逐字节一致 | ✅ 达成（v5.7.0，CI `selfrepro` job 自动验证）|
 
-> **关键**：v5.2.0 达成的是「自举源码 → 可运行二进制」的**构建**打通。完整 round-trip 是 v5.3 目标——`kylix_self2` 当前构建成功但运行产出空（见 §7）。
+> **关键**：自举链路已完整打通——v5.2.0 构建、v5.3.0 round-trip + 自繁殖、v5.7.0 LLVM 后端 self-host（51/51）+ self-reproduction 不动点。当前目标：LLVM 后端无 Go 闭环（`src/generator.klx` 实现 LLVM IR emitter——巨型工程，见 ROADMAP），以及新 stdlib 函数的 bootstrap 类型映射同步（每次加 stdlib 函数都要在 `src/generator.klx` 补类型映射，否则不动点打破）。
 
 ---
 
@@ -193,10 +194,9 @@ if decl.Parent != "" && !(g.usesPolymorphism && g.classIsBase[decl.Parent]) {
 ### 4.4 适用范围与边界
 
 ✅ **支持**：「基类无字段无方法 + 多态靠 `is`/`as`」模式（自举即此）。
-❌ **不支持**（留 v5.3）：
+❌ **不支持**（v5.2.0 边界；「program-level 标志过宽」已被 v5.9.0 多态 gate 收敛缓解——宿主与 bootstrap 的基类发射已一致，`type TNode interface`）：
 - 基类含字段且通过基类变量访问 → 空 interface 上字段不可访问，会崩。需 getter 转发或 vtable。
 - 基类有虚方法需分派 → 空 interface 无方法签名。需 interface 方法 + 具体类实现。
-- **program-level 标志过宽**：含 `is`/`as` 的程序会把**所有**「有子类的基类」都变 interface。混合程序（部分基类需字段继承、部分需多态）会误伤。需 per-base 检测：仅对实际承载子类实例/作断言操作数的基类发射 interface。
 
 ---
 
@@ -301,7 +301,7 @@ v5.3 让自举编译器能正确编译**自举源码自身用到的特性子集*
 ## 8. 常见问题
 
 **Q: 自举产物 `kylix_self` 和宿主 `kylix` 有何区别？**
-A: 宿主是 Go 写的完整编译器；`kylix_self` 是自举源码（Kylix 方言）经 Go 后端转译出的等价编译器。功能上 `kylix_self` 受限于 `generator.klx` 的 codegen 完整度（v5.2.0 构建通过但 codegen 不完整，见 §7.2）。
+A: 宿主是 Go 写的完整编译器；`kylix_self` 是自举源码（Kylix 方言）经 Go 后端转译出的等价编译器。v5.2.0 时 `generator.klx` 的 codegen 不完整；**v5.3.0 起已达成 round-trip + 自繁殖、v5.7.0 达成 self-reproduction 不动点**（`self_gen2 ≡ self_gen3`，CI `selfrepro` job 自动验证），自举产物能正确编译教程程序。剩余差异主要是后续宿主新增的 stdlib 类型映射需同步到 `src/generator.klx`（见 §1 状态表）。
 
 **Q: 为什么不直接用 `GenerateMulti` 而要走 `CompileProject`？**
 A: `kylix build *.klx` 调 `CompileProject`（增量缓存 + topo 排序），它不调 `GenerateMulti`。这是 v5.2.0 把多态标志放进 `collectClassTypes`（而非 `GenerateMulti`）的原因——`collectClassTypes` 是所有路径的公共咽喉。

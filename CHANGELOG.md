@@ -4,6 +4,43 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
+## v6.5.0 (2026-08-20) — WS 自回环 + SHA-1 修复 + KylixRT 完善 + 性能优化
+
+### 手写 SHA-1 修复（websocket 不再依赖 OpenSSL）
+
+- **根因**：`emitWsSha1Body` 的 hs 初始常量错位/错值（hs1 写成 `0xC3D2E1F0` 而非 `0xEFCDAB89`，hs3/hs4 也错——注释标注正确但实际数字错）+ padLen 公式边界（`len+9` vs `len+8`，在 `len ≡ 55 (mod 64)` 时多一整块）。
+- **修复**：3 个初始常量改正 + padLen `len+8` + 触发手写 `@__kylix_ws_sha1`（此前是死代码，握手用 OpenSSL `@SHA1`）。`wsAcceptKey` 改回手写 sha1（去掉 `needLibcrypto`）。
+- **验证**：RFC 6455 已知向量 + WS 端到端（accept 匹配 + echo）通过。
+
+### WS 自回环（分阶段 API，v6.5.0）
+
+- **WsDialConnect / WsDialFinish**（LLVM + Go 双端）：把客户端握手拆成「连接+发请求」与「读响应+验证」两段，`WsDial` = 组合。**单进程自回环**（客户端先连接排队 → 服务端 TcpAccept/WsAccept → 客户端 Finish → echo）不再需要线程/非阻塞。
+- 教程 **example55** 启用真实自回环（双端 51/51）。
+- 顺带修复 **WsAccept 的 snprintf varargs spill 崩溃**（LLVM -O0 下 expect 参数读回垃圾，改 strcat 链——与 v6.4.0 WsDial 同一问题）。
+- Go 端补 WsDialConnect/WsDialFinish + TcpAccept 类型映射（generator + bootstrap）。
+
+### KylixRT 完善
+
+- **字符串插值 256 字节堆溢出修复**（`emitStringInterpolation`）：预计算各段总长（字符串常量 + 运行时 strlen + i64/double/bool 固定上限）再精确 malloc，替代固定 256 字节缓冲（长插值裸 strcat 越界）。长插值（262 字节）验证完整。
+- **kylix test/bench 默认 `auto` 后端回退**（复用 `resolveRunBackend`，无 Go 机器零配置跑测试/基准）。
+- **kylix run 误导性错误消息修正**（显式 `--backend=llvm` 缺 LLVM 时不再报 "no Go toolchain"）。
+- **kylix doctor 新增 Distribution B bundle 检查**（可执行文件旁 `llvm/` 完整性）。
+
+### 性能优化
+
+- **DCE 二次扫描 → 单遍 token 计数**（`passes.go`，O(defs×len) → O(len)）。
+- **.o 缓存查询提前到 opt/llc 之前**（-O2 热构建 0.281s → 0.037s，7.6×）。
+- **IR 生成确定性**（globals map 排序，缓存命中的前提）。
+- **llc/opt 加 `-disable-verify`**（大模块省验证时间）。
+- **-O0 默认跑 `opt --passes=mem2reg`**（alloca→SSA 提升，缩小 IR 给 llc；已验证不触发 v5.4.0 vtable 折叠）。
+- **结果**：bootstrap `-O0` 编译 11.5s → **0.381s（30×）**；-O2 热构建大幅提速。
+
+### 验证
+
+16 包全绿 + 51 教程（Go + LLVM，含 example55 自回环）+ self-repro 不动点（FIXPOINT OK）+ bootstrap 编译正确。
+
+---
+
 ## v6.4.0 (2026-08-18) — LLVM stdlib 真实现：DbQueryRows + websocket
 
 ### db.DbQueryRows（LLVM 后端，返回 array of Variant）
