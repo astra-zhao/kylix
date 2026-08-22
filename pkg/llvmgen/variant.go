@@ -145,9 +145,11 @@ func (g *Generator) emitVariantAsDouble(v string) string {
 }
 
 // isArithOp reports whether the operator is a supported Variant arithmetic op.
+// v6.6.0: `div` (Pascal integer-division keyword, distinct from `/`) and
+// `mod` were added alongside +,-,*,/.
 func isArithOp(op string) bool {
 	switch op {
-	case "+", "-", "*", "/":
+	case "+", "-", "*", "/", "div", "mod":
 		return true
 	}
 	return false
@@ -164,14 +166,17 @@ func (g *Generator) emitVariantArith(op, lv, lt, rv, rt string) (string, string,
 		rv = g.emitVariantBox(rv, rt)
 	}
 	helper := map[string]string{
-		"+": "@__kylix_variant_add",
-		"-": "@__kylix_variant_sub",
-		"*": "@__kylix_variant_mul",
-		"/": "@__kylix_variant_div",
+		"+":   "@__kylix_variant_add",
+		"-":   "@__kylix_variant_sub",
+		"*":   "@__kylix_variant_mul",
+		"/":   "@__kylix_variant_div",
+		"div": "@__kylix_variant_idiv",
+		"mod": "@__kylix_variant_mod",
 	}[op]
 	if helper == "" {
-		// div/mod on Variants are unsupported — return the nil-box address
-		// (a Variant holding nil) so IR stays legal.
+		// Unrecognized operator on a Variant — return the nil-box address
+		// (a Variant holding nil) so IR stays legal (defensive; the
+		// emitVariantArithBody dispatch covers all six ops).
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = getelementptr inbounds { i32, i64 }, ptr @__kylix_variant_nilbox, i32 0, i32 0", r))
 		return r, variantT, nil
@@ -251,6 +256,8 @@ func (g *Generator) emitVariantRuntimeBodies() {
 	g.emitVariantArithBody("-")
 	g.emitVariantArithBody("*")
 	g.emitVariantArithBody("/")
+	g.emitVariantArithBody("div") // v6.6.0: Pascal integer-division keyword
+	g.emitVariantArithBody("mod") // v6.6.0: integer remainder
 	g.emitVariantPrintBody(false) // print
 	g.emitVariantPrintBody(true)  // println
 }
@@ -900,13 +907,18 @@ func (g *Generator) emitVariantAsBoolBody() {
 	g.line("")
 }
 
-// emitVariantArithBody emits the runtime arithmetic helper for op (+,-,*,/).
-// All return a fresh Variant box. Dispatch:
-//   - : either str → str concat; both int → int add; else → double add
-//     -,*: both int → int op; else → double op
-//     /  : always double (real division)
+// emitVariantArithBody emits the runtime arithmetic helper for op
+// (+,-,*,/,div,mod). All return a fresh Variant box. Dispatch:
+//   +    : either str → str concat; both int → int add; else → double add
+//   - ,* : both int → int op; else → double op
+//   /    : always double (real division)
+//   div  : both int → int sdiv; else → double division (Pascal integer div
+//          keyword; matches the non-Variant emitInfix semantics where `/` and
+//          `div` do sdiv on ints and fdiv on floats — Variant `/` stays
+//          always-double per v5.0 design)
+//   mod  : both int → int srem; else → double remainder (frem)
 func (g *Generator) emitVariantArithBody(op string) {
-	sym := map[string]string{"+": "add", "-": "sub", "*": "mul", "/": "div"}[op]
+	sym := map[string]string{"+": "add", "-": "sub", "*": "mul", "/": "div", "div": "idiv", "mod": "mod"}[op]
 	g.line(fmt.Sprintf("define ptr @__kylix_variant_%s(ptr %%a, ptr %%b) {", sym))
 	g.line("entry:")
 	tagALoc := g.boxAddr("%a", 0)
@@ -943,7 +955,7 @@ func (g *Generator) emitVariantArithBody(op string) {
 	switch op {
 	case "+":
 		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", eitherStr, strLbl, chkIntLbl))
-	case "-", "*":
+	case "-", "*", "div", "mod":
 		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", eitherStr, dblLbl, chkIntLbl))
 	case "/":
 		g.line(fmt.Sprintf("  br label %%%s", dblLbl))
@@ -980,9 +992,17 @@ func (g *Generator) emitVariantArithBody(op string) {
 		g.line(fmt.Sprintf("  %s = mul i64 %s, %s", ir, payloadA, payloadB))
 	case "/":
 		// both-int '/' still real division per design (Variant / always double);
-		// but bothInt branch is only taken for -,* ; '/' goes to dblLbl.
+		// the bothInt branch is only taken for *,div,mod.
 		ir = g.tmp()
 		g.line(fmt.Sprintf("  %s = sdiv i64 %s, %s", ir, payloadA, payloadB))
+	case "div":
+		// integer division keyword: sdiv when both operands are int boxes.
+		ir = g.tmp()
+		g.line(fmt.Sprintf("  %s = sdiv i64 %s, %s", ir, payloadA, payloadB))
+	case "mod":
+		// integer remainder (srem) when both operands are int boxes.
+		ir = g.tmp()
+		g.line(fmt.Sprintf("  %s = srem i64 %s, %s", ir, payloadA, payloadB))
 	}
 	ibox := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_int(i64 %s)", ibox, ir))
@@ -1005,9 +1025,12 @@ func (g *Generator) emitVariantArithBody(op string) {
 	case "*":
 		dr = g.tmp()
 		g.line(fmt.Sprintf("  %s = fmul double %s, %s", dr, da, db))
-	case "/":
+	case "/", "div":
 		dr = g.tmp()
 		g.line(fmt.Sprintf("  %s = fdiv double %s, %s", dr, da, db))
+	case "mod":
+		dr = g.tmp()
+		g.line(fmt.Sprintf("  %s = frem double %s, %s", dr, da, db))
 	}
 	fbox := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_float(double %s)", fbox, dr))

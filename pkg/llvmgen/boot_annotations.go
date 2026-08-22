@@ -153,6 +153,13 @@ func (g *Generator) emitBootGlobals() {
 		seen[route.ClassName] = true
 		g.line(fmt.Sprintf("@__kylix_boot_ctrl_%s = global ptr null", route.ClassName))
 	}
+	// v6.6.0: the runtime route table that @__kylix_boot_Boot<M> writes and
+	// @__kylix_boot_BootRun dispatches against. Fixed 64-entry capacity
+	// (enough for the tutorial controllers; overflows are dropped).
+	if len(g.bootRoutes) > 0 {
+		g.line("@__kylix_boot_routes = global [64 x { ptr, ptr, ptr }] zeroinitializer")
+		g.line("@__kylix_boot_nroutes = global i64 0")
+	}
 }
 
 // emitBootAutoWiring emits the auto-wiring instructions at the top of main(),

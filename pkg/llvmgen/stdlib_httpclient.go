@@ -553,8 +553,9 @@ func (g *Generator) emitHttpclientPostBody() {
 
 // ---- One-shot helpers (HttpGet/HttpPost/HttpPut/HttpDelete/HttpGetJSON/
 // HttpPostJSON) — real libcurl IR via the shared DoRequest define (v6.1.0).
-// HttpGetJSON/HttpPostJSON return the raw response body as a string (JSON
-// parsing / map building is not implemented for the LLVM backend).
+// HttpGetJSON/HttpPostJSON parse the response body (a JSON object) into a
+// Variant map (JsonDecodeMap → box_map) so callers can do m['key'] with
+// variant-map indexing; the other helpers return the raw body string. v6.6.0.
 
 func (g *Generator) emitHttpclientHelperCall(funcName string, args []ast.Expression) (string, string, error) {
 	var method string
@@ -606,6 +607,18 @@ func (g *Generator) emitHttpclientHelperCall(funcName string, args []ast.Express
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_httpclient_Request(ptr %s, ptr %s, ptr %s, ptr %s, i64 %d)",
 		r, g.addString(method), urlReg, bodyOp, ctOp, httpClientDefaultTimeout))
+	// v6.6.0: HttpGetJSON/HttpPostJSON parse the response body (a JSON object)
+	// into a Variant map. JsonDecodeMap → parse_flat already boxes every value
+	// via value_to_variant, so box_map gives a map[String]Variant.
+	if funcName == "HttpGetJSON" || funcName == "HttpPostJSON" {
+		g.enqueueStdlib("jsonutil", "JsonDecodeMap", "JsonDecodeMap", 0)
+		g.needVariantRuntime = true
+		htab := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_JsonDecodeMap(ptr %s)", htab, r))
+		box := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_map(ptr %s)", box, htab))
+		return box, variantT, nil
+	}
 	return r, "ptr", nil
 }
 
@@ -804,6 +817,11 @@ func (g *Generator) emitHttpclientDoRequestBody() {
 //	Thin wrapper over DoRequest returning just the body string.
 
 func (g *Generator) emitHttpclientRequestBody() {
+	// The Request define is a thin wrapper over DoRequest — ensure that body
+	// is emitted too (one-shot helpers HttpGet/HttpPost/... go through here).
+	// v6.6.0: previously DoRequest could end up undefined when only a one-shot
+	// helper was used.
+	g.enqueueStdlib("httpclient", "DoRequest", "DoRequest", 0)
 	g.line("define ptr @__kylix_httpclient_Request(ptr %method, ptr %url, ptr %body, ptr %ct, i64 %timeoutMs) {")
 	g.line("entry:")
 	r := g.tmp()

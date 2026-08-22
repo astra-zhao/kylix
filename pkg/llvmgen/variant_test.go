@@ -277,3 +277,24 @@ end.`)
 	// The nilbox global (htab_get_variant's miss sentinel) is emitted.
 	assertIRContains(t, ir, "@__kylix_variant_nilbox =")
 }
+
+func TestVariant_ArithDivModKeywords(t *testing.T) {
+	ir := generateIR(t, `program p;
+var v: Variant;
+    w: Variant;
+begin
+  v := 17;
+  w := 5;
+  v := v div w;
+  v := v mod w;
+end.`)
+	// `div` (Pascal integer-division keyword) and `mod` dispatch to the
+	// runtime idiv/mod helpers (v6.6.0).
+	assertIRContains(t, ir, "call ptr @__kylix_variant_idiv(ptr")
+	assertIRContains(t, ir, "call ptr @__kylix_variant_mod(ptr")
+	assertIRContains(t, ir, "define ptr @__kylix_variant_idiv(ptr")
+	assertIRContains(t, ir, "define ptr @__kylix_variant_mod(ptr")
+	// both-int branch: div → sdiv, mod → srem.
+	assertIRContains(t, ir, "sdiv i64")
+	assertIRContains(t, ir, "srem i64")
+}

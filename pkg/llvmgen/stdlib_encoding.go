@@ -16,8 +16,9 @@ import (
 //   - Base64Decode(s) -> String   : reverse the above
 //
 // UrlEncode/CsvEncode/JsonLinesEncode are deliberately not implemented here
-// (they involve compound types — [][]string / []map — that the LLVM backend
-// does not yet lower) and fall through to the default "not implemented" stub.
+// (CsvEncode/JsonLinesEncode involve compound types — [][]string / []map —
+// that the LLVM backend does not yet lower). UrlEncode/UrlDecode are real
+// implementations (v6.6.0), mirroring Go's url.QueryEscape/QueryUnescape.
 
 // emitEncodingCall dispatches a `encoding.Func(args)` / bare `Func(args)`
 // call to the codec IR emitter. It emits the `call` instruction at the call
@@ -32,6 +33,10 @@ func (g *Generator) emitEncodingCall(funcName string, args []ast.Expression) (st
 		return g.emitEncodingBase64EncodeCall(args)
 	case "Base64Decode":
 		return g.emitEncodingBase64DecodeCall(args)
+	case "UrlEncode":
+		return g.emitEncodingUrlEncodeCall(args)
+	case "UrlDecode":
+		return g.emitEncodingUrlDecodeCall(args)
 	default:
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; encoding.%s not implemented", r, funcName))
@@ -51,6 +56,13 @@ func (g *Generator) emitEncodingBody(funcName string) {
 		g.emitEncodingBase64EncodeBody()
 	case "Base64Decode":
 		g.emitEncodingBase64DecodeBody()
+	case "UrlEncode":
+		g.emitEncodingUrlEncodeBody()
+	case "UrlDecode":
+		g.emitEncodingUrlDecodeBody()
+	case "hexval":
+		// Shared nibble decoder used by HexDecode and UrlDecode (v6.6.0).
+		g.emitEncodingHexvalBody()
 	}
 }
 
@@ -145,6 +157,10 @@ func (g *Generator) emitEncodingHexDecodeCall(args []ast.Expression) (string, st
 		return "", "", err
 	}
 	g.enqueueStdlib("encoding", "HexDecode", "HexDecode", 0)
+	// The hexval nibble decoder is emitted independently (also used by
+	// UrlDecode) — queue it so it's defined even if HexDecode's body alone
+	// wouldn't be reached. v6.6.0.
+	g.enqueueStdlib("encoding", "hexval", "hexval", 0)
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_encoding_HexDecode(ptr %s)", r, argReg))
 	return r, "ptr", nil
@@ -230,8 +246,13 @@ func (g *Generator) emitEncodingHexDecodeBody() {
 	g.line(fmt.Sprintf("  ret ptr %s", out))
 	g.line("}")
 	g.line("")
+	// The @__kylix_encoding_hexval helper is emitted independently
+	// (emitEncodingHexvalBody), since UrlDecode also references it. v6.6.0.
+}
 
-	// hexval helper: char '0'..'9' → 0..9, 'a'..'f'/'A'..'F' → 10..15, else -1
+// emitEncodingHexvalBody emits the shared nibble decoder:
+// '0'..'9' → 0..9, 'a'..'f'/'A'..'F' → 10..15, else -1.
+func (g *Generator) emitEncodingHexvalBody() {
 	g.line("define i64 @__kylix_encoding_hexval(i8 %c) {")
 	g.line("entry:")
 	cI64 := g.tmp()
@@ -600,6 +621,320 @@ func (g *Generator) emitEncodingBase64DecodeBody() {
 	g.line("  ret i64 63")
 	g.line("ret_zero:")
 	g.line("  ret i64 0")
+	g.line("}")
+	g.line("")
+}
+
+// ---- UrlEncode: ptr @__kylix_encoding_UrlEncode(ptr %s) ----
+//
+//	Mirrors Go's url.QueryEscape: unreserved (A-Z a-z 0-9 - _ . ~) pass
+//	through, space → '+', everything else → %XX (uppercase hex). Output
+//	buffer worst case 3*len + 1. v6.6.0.
+func (g *Generator) emitEncodingUrlEncodeCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("encoding.UrlEncode expects 1 argument, got %d", len(args))
+	}
+	argReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("encoding", "UrlEncode", "UrlEncode", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_encoding_UrlEncode(ptr %s)", r, argReg))
+	return r, "ptr", nil
+}
+
+func (g *Generator) emitEncodingUrlEncodeBody() {
+	g.line("define ptr @__kylix_encoding_UrlEncode(ptr %s) {")
+	g.line("entry:")
+	ln := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %%s)", ln))
+	threeLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = mul i64 %s, 3", threeLen, ln))
+	outSize := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", outSize, threeLen))
+	out := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", out, outSize))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", out))
+	iSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", iSlot))
+	oSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", oSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", oSlot))
+	condLbl := g.label()
+	bodyLbl := g.label()
+	exitLbl := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	g.line(fmt.Sprintf("%s:", condLbl))
+	curI := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curI, iSlot))
+	done := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sge i64 %s, %s", done, curI, ln))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", done, exitLbl, bodyLbl))
+	g.line(fmt.Sprintf("%s:", bodyLbl))
+	// c = s[i] (i8 → i64)
+	cPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%s, i64 %s", cPtr, curI))
+	c8 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", c8, cPtr))
+	c := g.tmp()
+	g.line(fmt.Sprintf("  %s = zext i8 %s to i64", c, c8))
+	// unreserved flags: A-Z, a-z, 0-9, '-', '_', '.', '~'
+	isUpA := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sge i64 %s, 65", isUpA, c))
+	isUpB := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sle i64 %s, 90", isUpB, c))
+	isUp := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i1 %s, %s", isUp, isUpA, isUpB))
+	isLoA := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sge i64 %s, 97", isLoA, c))
+	isLoB := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sle i64 %s, 122", isLoB, c))
+	isLo := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i1 %s, %s", isLo, isLoA, isLoB))
+	isDigA := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sge i64 %s, 48", isDigA, c))
+	isDigB := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sle i64 %s, 57", isDigB, c))
+	isDig := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i1 %s, %s", isDig, isDigA, isDigB))
+	// unreserved = alnum | '-' | '_' | '.' | '~'
+	unres := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i1 %s, %s", unres, isUp, isLo))
+	t1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i1 %s, %s", t1, unres, isDig))
+	isDash := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 45", isDash, c))
+	t2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i1 %s, %s", t2, t1, isDash))
+	isUnder := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 95", isUnder, c))
+	t3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i1 %s, %s", t3, t2, isUnder))
+	isDot := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 46", isDot, c))
+	t4 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i1 %s, %s", t4, t3, isDot))
+	isTilde := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 126", isTilde, c))
+	isUnreserved := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i1 %s, %s", isUnreserved, t4, isTilde))
+	isSpace := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 32", isSpace, c))
+	unresLbl := g.label()
+	plusLbl := g.label()
+	pctLbl := g.label()
+	chkSpaceLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isUnreserved, unresLbl, chkSpaceLbl))
+	g.line(fmt.Sprintf("%s:", chkSpaceLbl))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isSpace, plusLbl, pctLbl))
+	// unreserved: copy byte through
+	g.line(fmt.Sprintf("%s:", unresLbl))
+	oCur := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", oCur, oSlot))
+	dst := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, out, oCur))
+	g.line(fmt.Sprintf("  store i8 %s, ptr %s", c8, dst))
+	oNext := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", oNext, oCur))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", oNext, oSlot))
+	iNext := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", iNext, curI))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", iNext, iSlot))
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	// space → '+'
+	g.line(fmt.Sprintf("%s:", plusLbl))
+	oCur2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", oCur2, oSlot))
+	dst2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst2, out, oCur2))
+	g.line(fmt.Sprintf("  store i8 43, ptr %s", dst2))
+	oNext2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", oNext2, oCur2))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", oNext2, oSlot))
+	iNext2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", iNext2, curI))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", iNext2, iSlot))
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	// else → %XX
+	g.line(fmt.Sprintf("%s:", pctLbl))
+	fmtStr := g.addString("%%%02X")
+	fmtPtr := g.ptrTo(fmtStr, 6)
+	oCur3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", oCur3, oSlot))
+	dst3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst3, out, oCur3))
+	// "%%%02X" → literal '%' + 2 uppercase hex digits + null (size 4).
+	g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 4, ptr %s, i64 %s)", dst3, fmtPtr, c))
+	oNext3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 3", oNext3, oCur3))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", oNext3, oSlot))
+	iNext3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", iNext3, curI))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", iNext3, iSlot))
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	g.line(fmt.Sprintf("%s:", exitLbl))
+	oFinal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", oFinal, oSlot))
+	termPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", termPtr, out, oFinal))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", termPtr))
+	g.line(fmt.Sprintf("  ret ptr %s", out))
+	g.line("}")
+	g.line("")
+}
+
+// ---- UrlDecode: ptr @__kylix_encoding_UrlDecode(ptr %s) ----
+//
+//	Mirrors Go's url.QueryUnescape: '+' → space, %XX → byte (best-effort
+//	on malformed input — non-hex after '%' copies '%' literally). Uses the
+//	shared @__kylix_encoding_hexval nibble decoder. v6.6.0.
+func (g *Generator) emitEncodingUrlDecodeCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("encoding.UrlDecode expects 1 argument, got %d", len(args))
+	}
+	argReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("encoding", "UrlDecode", "UrlDecode", 0)
+	g.enqueueStdlib("encoding", "hexval", "hexval", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_encoding_UrlDecode(ptr %s)", r, argReg))
+	return r, "ptr", nil
+}
+
+func (g *Generator) emitEncodingUrlDecodeBody() {
+	g.line("define ptr @__kylix_encoding_UrlDecode(ptr %s) {")
+	g.line("entry:")
+	ln := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %%s)", ln))
+	plus1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", plus1, ln))
+	out := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", out, plus1))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", out))
+	iSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", iSlot))
+	oSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", oSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", oSlot))
+	condLbl := g.label()
+	bodyLbl := g.label()
+	exitLbl := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	g.line(fmt.Sprintf("%s:", condLbl))
+	curI := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curI, iSlot))
+	done := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sge i64 %s, %s", done, curI, ln))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", done, exitLbl, bodyLbl))
+	g.line(fmt.Sprintf("%s:", bodyLbl))
+	// c = s[i]
+	cPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%s, i64 %s", cPtr, curI))
+	c8 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", c8, cPtr))
+	c := g.tmp()
+	g.line(fmt.Sprintf("  %s = zext i8 %s to i64", c, c8))
+	isPlus := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 43", isPlus, c))
+	// '%' with at least 2 chars left → try hex pair
+	isPct := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 37", isPct, c))
+	iPlus1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", iPlus1, curI))
+	iPlus2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 2", iPlus2, curI))
+	has2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp slt i64 %s, %s", has2, iPlus2, ln))
+	canHex := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i1 %s, %s", canHex, isPct, has2))
+	plusLbl := g.label()
+	hexLbl := g.label()
+	tryHexLbl := g.label()
+	copyLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isPlus, plusLbl, tryHexLbl))
+	g.line(fmt.Sprintf("%s:", tryHexLbl))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", canHex, hexLbl, copyLbl))
+	// '+' → ' '
+	g.line(fmt.Sprintf("%s:", plusLbl))
+	oCur := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", oCur, oSlot))
+	dst := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dst, out, oCur))
+	g.line(fmt.Sprintf("  store i8 32, ptr %s", dst))
+	oNext := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", oNext, oCur))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", oNext, oSlot))
+	iNext := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", iNext, curI))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", iNext, iSlot))
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	// hex pair: hi = hexval(s[i+1]), lo = hexval(s[i+2]); both valid → byte
+	g.line(fmt.Sprintf("%s:", hexLbl))
+	hiPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%s, i64 %s", hiPtr, iPlus1))
+	hiC := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", hiC, hiPtr))
+	hi := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_encoding_hexval(i8 %s)", hi, hiC))
+	loPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%s, i64 %s", loPtr, iPlus2))
+	loC := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", loC, loPtr))
+	lo := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_encoding_hexval(i8 %s)", lo, loC))
+	hiOK := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sge i64 %s, 0", hiOK, hi))
+	loOK := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sge i64 %s, 0", loOK, lo))
+	bothOK := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i1 %s, %s", bothOK, hiOK, loOK))
+	storeHexLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", bothOK, storeHexLbl, copyLbl))
+	g.line(fmt.Sprintf("%s:", storeHexLbl))
+	hiShift := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 4", hiShift, hi))
+	byteVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %s", byteVal, hiShift, lo))
+	byte8 := g.tmp()
+	g.line(fmt.Sprintf("  %s = trunc i64 %s to i8", byte8, byteVal))
+	oCurH := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", oCurH, oSlot))
+	dstH := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dstH, out, oCurH))
+	g.line(fmt.Sprintf("  store i8 %s, ptr %s", byte8, dstH))
+	oNextH := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", oNextH, oCurH))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", oNextH, oSlot))
+	iNextH := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 3", iNextH, curI))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", iNextH, iSlot))
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	// copy byte through
+	g.line(fmt.Sprintf("%s:", copyLbl))
+	oCurC := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", oCurC, oSlot))
+	dstC := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dstC, out, oCurC))
+	g.line(fmt.Sprintf("  store i8 %s, ptr %s", c8, dstC))
+	oNextC := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", oNextC, oCurC))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", oNextC, oSlot))
+	iNextC := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", iNextC, curI))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", iNextC, iSlot))
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	g.line(fmt.Sprintf("%s:", exitLbl))
+	oFinal := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", oFinal, oSlot))
+	termPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", termPtr, out, oFinal))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", termPtr))
+	g.line(fmt.Sprintf("  ret ptr %s", out))
 	g.line("}")
 	g.line("")
 }

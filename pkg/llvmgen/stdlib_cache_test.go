@@ -105,3 +105,58 @@ end.`)
 		t.Errorf("hash-table runtime emitted without `uses cache`\nIR:\n%s", ir)
 	}
 }
+
+func TestCache_PutWithTTLUsesCachePut(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses cache;
+var c := NewCache(10, 0);
+begin
+  c.PutWithTTL('k', 'v', 5000);
+end.`)
+	// PutWithTTL routes to the shared @__kylix_cache_put helper (which stores
+	// a TTL record when ttlMs > 0), and that helper uses the millisecond clock.
+	assertIRContains(t, ir, "call void @__kylix_cache_put(ptr")
+	assertIRContains(t, ir, "define void @__kylix_cache_put(ptr %h, ptr %k, ptr %v, i64 %ttlMs)")
+	assertIRContains(t, ir, "call i64 @__kylix_now_ms()")
+}
+
+func TestCache_GetReturnsVariantBox(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses cache;
+var c := NewCache(10, 0);
+begin
+  c.Put('k', 'v');
+  var v := c.Get('k');
+end.`)
+	// Get consults the expiry guard and returns a Variant (box_str / nilbox).
+	assertIRContains(t, ir, "call i1 @__kylix_cache_expired(ptr")
+	assertIRContains(t, ir, "define i1 @__kylix_cache_expired(ptr %h, ptr %k)")
+	assertIRContains(t, ir, "call ptr @__kylix_variant_box_str(ptr")
+}
+
+func TestCache_SweepUsesHtabKeys(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses cache;
+var c := NewCache(10, 0);
+begin
+  c.PutWithTTL('k', 'v', 5000);
+  var removed := c.Sweep();
+end.`)
+	// Sweep walks every TTL-tracked key via htab_keys.
+	assertIRContains(t, ir, "call i64 @__kylix_cache_sweep(ptr")
+	assertIRContains(t, ir, "define i64 @__kylix_cache_sweep(ptr %h)")
+	assertIRContains(t, ir, "call { ptr, i64 } @__kylix_htab_keys(ptr")
+}
+
+func TestCache_NowMsUsesGetTimeOfDay(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses cache;
+var c := NewCache(10, 1000);
+begin
+  c.Put('k', 'v');
+end.`)
+	// Millisecond clock is wall-clock via gettimeofday (CLOCK_MONOTONIC
+	// constant differs across platforms).
+	assertIRContains(t, ir, "define i64 @__kylix_now_ms()")
+	assertIRContains(t, ir, "call i32 @gettimeofday(ptr")
+}

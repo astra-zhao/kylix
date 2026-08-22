@@ -59,6 +59,19 @@ func (g *Generator) emitBootCall(funcName string, args []ast.Expression) (string
 	case "BootText", "BootJSON", "BootHTML":
 		// Real response handle {i64 status, ptr body}.
 		return g.emitBootResponseCall(funcName, args)
+	case "BootRun":
+		// v6.6.0: real HTTP server (listen + accept + dispatch).
+		if len(args) < 1 {
+			return "", "", fmt.Errorf("boot.BootRun expects a port, got %d", len(args))
+		}
+		portReg, _, err := g.emitExpr(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		g.enqueueStdlib("boot", "BootRun", "BootRun", 0)
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @__kylix_boot_BootRun(i64 %s)", r, portReg))
+		return r, "i64", nil
 	case "BootRegisterJwtAuth":
 		// void — evaluate args for side effects, return void.
 		for _, a := range args {
@@ -108,13 +121,28 @@ func (g *Generator) emitBootBody(funcName string) {
 	switch funcName {
 	case "BootText", "BootJSON", "BootHTML":
 		g.emitBootResponseBody(funcName)
-	case "BootRegisterInstance", "BootGET", "BootPOST", "BootPUT", "BootDELETE",
-		"BootUseLogger", "BootUseRecover", "BootUseCORS", "BootUseRequestID",
-		"BootConfigSet", "BootRegisterAuth", "BootRegisterRoles":
-		// void no-op — registrations are accepted but do nothing (no HTTP server).
+	case "BootGET", "BootPOST", "BootPUT", "BootDELETE":
+		// v6.6.0: real route registration — store {method, path, handler} in
+		// the module route table for @__kylix_boot_BootRun to dispatch.
+		g.emitBootRegisterRouteBody(funcName)
+	case "BootRegisterInstance", "BootUseLogger", "BootUseRecover", "BootUseCORS",
+		"BootUseRequestID", "BootConfigSet", "BootRegisterAuth", "BootRegisterRoles":
+		// void no-op — registrations are accepted but have no runtime effect
+		// on the LLVM backend (no middleware / DI reflection).
 		g.line(fmt.Sprintf("define void @__kylix_boot_%s(ptr %%a, ptr %%b) {", funcName))
 		g.line("  ret void")
 		g.line("}")
+	case "BootRun":
+		// v6.6.0: real HTTP server (listen + accept + dispatch).
+		g.emitBootRunBody()
+	case "readheaders":
+		g.emitBootReadHeadersBody()
+	case "parsereq":
+		g.emitBootParseRequestBody()
+	case "routelookup":
+		g.emitBootRouteLookupBody()
+	case "pathmatch":
+		g.emitBootPathMatchBody()
 	case "BootEnforceAuth":
 		// null = pass (authentication is disabled).
 		g.line("define ptr @__kylix_boot_BootEnforceAuth(ptr %req) {")
@@ -203,4 +231,42 @@ func (g *Generator) emitBootStubCall(funcName string, args []ast.Expression, ret
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 0, 0 ; boot.%s stub", r, funcName))
 	return r, "i64", nil
+}
+
+// emitBootRegisterRouteBody — v6.6.0: `void @__kylix_boot_Boot<M>(ptr %path,
+// ptr %wrapper)` writes {method, path, handler} into the module route table
+// (@__kylix_boot_routes / @__kylix_boot_nroutes), which @__kylix_boot_BootRun
+// dispatches against. Capacity 64; overflow is dropped.
+func (g *Generator) emitBootRegisterRouteBody(method string) {
+	methodLit := strings.TrimPrefix(method, "Boot")
+	methodPtr := g.addString(methodLit)
+	g.line(fmt.Sprintf("define void @__kylix_boot_%s(ptr %%path, ptr %%wrapper) {", method))
+	g.line("entry:")
+	n := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr @__kylix_boot_nroutes", n))
+	full := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sge i64 %s, 64", full, n))
+	storeLbl := g.label()
+	doneLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", full, doneLbl, storeLbl))
+	g.line(fmt.Sprintf("%s:", storeLbl))
+	slot := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [64 x { ptr, ptr, ptr }], ptr @__kylix_boot_routes, i64 0, i64 %s", slot, n))
+	mField := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, ptr, ptr }, ptr %s, i32 0, i32 0", mField, slot))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", methodPtr, mField))
+	pField := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, ptr, ptr }, ptr %s, i32 0, i32 1", pField, slot))
+	g.line(fmt.Sprintf("  store ptr %%path, ptr %s", pField))
+	hField := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds { ptr, ptr, ptr }, ptr %s, i32 0, i32 2", hField, slot))
+	g.line(fmt.Sprintf("  store ptr %%wrapper, ptr %s", hField))
+	nextN := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", nextN, n))
+	g.line(fmt.Sprintf("  store i64 %s, ptr @__kylix_boot_nroutes", nextN))
+	g.line(fmt.Sprintf("  br label %%%s", doneLbl))
+	g.line(fmt.Sprintf("%s:", doneLbl))
+	g.line("  ret void")
+	g.line("}")
+	g.line("")
 }

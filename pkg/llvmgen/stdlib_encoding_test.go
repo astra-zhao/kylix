@@ -102,3 +102,38 @@ end.`)
 		t.Errorf("encoding symbol emitted without `uses encoding`\nIR:\n%s", ir)
 	}
 }
+
+func TestEncoding_UrlEncodeDispatch(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses encoding;
+begin
+  var s := UrlEncode('a b&c');
+end.`)
+	// Real call + define (not the not-implemented stub); format string must
+	// escape the literal '%' (%%%02X) so encoded bytes are prefixed with '%'.
+	assertIRContains(t, ir, "call ptr @__kylix_encoding_UrlEncode")
+	assertIRContains(t, ir, "define ptr @__kylix_encoding_UrlEncode(ptr %s)")
+	assertIRContains(t, ir, "%%%02X")
+}
+
+func TestEncoding_UrlDecodeDispatch(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses encoding;
+begin
+  var s := UrlDecode('a%20b+c');
+end.`)
+	assertIRContains(t, ir, "call ptr @__kylix_encoding_UrlDecode")
+	assertIRContains(t, ir, "define ptr @__kylix_encoding_UrlDecode(ptr %s)")
+	// Reuses the shared hexval nibble decoder.
+	assertIRContains(t, ir, "@__kylix_encoding_hexval")
+}
+
+func TestEncoding_UrlDecodeWithoutHexDecodeEmitsHexval(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses encoding;
+begin
+  var s := UrlDecode('a%20b');
+end.`)
+	// hexval must be defined even though HexDecode itself is never called.
+	assertIRContains(t, ir, "define i64 @__kylix_encoding_hexval(i8 %c)")
+}

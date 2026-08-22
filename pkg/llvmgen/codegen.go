@@ -113,6 +113,9 @@ type Generator struct {
 	// (v5.0.0, emitted once per module when any Variant value is used).
 	variantRuntimeEmitted bool
 
+	// nowMsEmitted guards @__kylix_now_ms (cache TTL millisecond clock).
+	nowMsEmitted bool
+
 	// needVariantRuntime is set when any Variant box/unbox/compare/print helper
 	// is referenced; emitProgram checks it at module end and emits the runtime
 	// bodies only if actually needed (avoids bloating every module).
@@ -507,8 +510,11 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	g.emitPendingBootDefines()
 
 	// Emit the internal hash-table runtime (used by cache / map) if any
-	// module referenced it. Idempotent.
-	if g.needHashtab {
+	// module referenced it. Idempotent. Also emit it when the Variant runtime
+	// is in use: @__kylix_variant_map_get (part of that runtime) calls
+	// @__kylix_htab_get_variant, so a program using only Variant arithmetic
+	// (e.g. `v div 2`) must still have the hashtab helpers defined. v6.6.0.
+	if g.needHashtab || g.needVariantRuntime {
 		g.emitHashtabBodies()
 	}
 
@@ -586,6 +592,12 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare double @fabs(double)")
 	g.line("declare ptr @strchr(ptr noundef, i32)")
 	g.line("declare ptr @strstr(ptr noundef, ptr noundef)")
+	// v6.6.0: strncmp (boot route path matching).
+	g.line("declare i32 @strncmp(ptr noundef, ptr noundef, i64 noundef)")
+	// v6.6.0: millisecond wall clock (cache TTL expiry; time() is second-
+	// granularity). gettimeofday is POSIX and works on macOS/Linux; the
+	// CLOCK_MONOTONIC constant differs by platform (1 on Linux, 6 on macOS).
+	g.line("declare i32 @gettimeofday(ptr, ptr)")
 	g.line("; ===== Exception handling runtime (setjmp/longjmp) =====")
 	g.line("declare i32 @setjmp(ptr)")
 	// v6.2.0: Windows UCRT exposes _setjmp/_longjmp (setjmp is a macro).

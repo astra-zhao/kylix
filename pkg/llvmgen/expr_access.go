@@ -219,6 +219,14 @@ func (g *Generator) emitMethodCall(member *ast.MemberExpression, args []ast.Expr
 		}
 		return g.emitHttpclientMethodCall(objReg, member.Member, args)
 	}
+	// TRequest (KylixBoot request handle, v6.6.0): req.Param/Query/Header/Body.
+	if typeName == "TRequest" || typeName == "BootRequest" {
+		objReg, _, err := g.emitExpr(member.Object)
+		if err != nil {
+			return "", "", err
+		}
+		return g.emitBootRequestMethodCall(objReg, member.Member, args)
+	}
 
 	if kind == "" {
 		// Unknown receiver type — evaluate it to check if it's a stdlib

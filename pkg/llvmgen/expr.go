@@ -383,7 +383,8 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 		if isArithOp(e.Operator) {
 			return g.emitVariantArith(e.Operator, lv, lt, rv, rt)
 		}
-		// div/mod on Variants still unsupported — safe zero stub.
+		// Unrecognized operator on a Variant operand — safe zero stub
+		// (defensive; comparison and all arithmetic ops dispatch above).
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; variant op %q unsupported", r, e.Operator))
 		return r, "i64", nil
@@ -945,7 +946,15 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 
 	var argList []string
 	for i, r := range argRegs {
-		argList = append(argList, argTypes[i]+" "+r)
+		t := argTypes[i]
+		if t == variantT {
+			// v6.6.0: a Variant box's real IR type is ptr (the "variant"
+			// pseudo-type is codegen-only). Normalize it so bare calls like
+			// `Has(m['key'])` emit `call i64 @Has(ptr %x)` instead of the
+			// invalid `call i64 @Has(variant %x)`.
+			t = "ptr"
+		}
+		argList = append(argList, t+" "+r)
 	}
 	if retType == "void" {
 		g.line(fmt.Sprintf("  call void @%s(%s)", funcName, strings.Join(argList, ", ")))

@@ -189,3 +189,23 @@ end.`)
 	assertIRContains(t, ir, "icmp eq ptr")
 	assertIRContains(t, ir, "select i1")
 }
+
+func TestHttp_GetJSONProducesVariantMap(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses httpclient;
+var m := HttpGetJSON('http://x/');
+begin
+  WriteLn(m['name']);
+end.`)
+	// HttpGetJSON parses the body into a Variant map: JsonDecodeMap (→
+	// parse_flat) then box_map. Reads go through variant_map_get. v6.6.0.
+	assertIRContains(t, ir, "call ptr @__kylix_json_JsonDecodeMap(ptr")
+	assertIRContains(t, ir, "call ptr @__kylix_variant_box_map(ptr")
+	assertIRContains(t, ir, "call ptr @__kylix_variant_map_get(ptr")
+	assertIRContains(t, ir, "define ptr @__kylix_json_parse_flat(ptr %s)")
+	// The map box must be stored into the _var slot as-is — not coerced via
+	// as_str (which would flatten a map Variant into an empty string).
+	if strings.Contains(ir, "variant_as_str(ptr %t") {
+		t.Errorf("Variant map box coerced via as_str on HttpGetJSON store\nIR:\n%s", ir)
+	}
+}

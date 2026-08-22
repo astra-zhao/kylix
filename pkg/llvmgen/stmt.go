@@ -1105,11 +1105,15 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 	}
 
 	// v5.0.0: Variant assignment. Box the RHS into a Variant when storing
-	// into a Variant slot. A Variant RHS (v := otherVariant) is passed
-	// through unchanged; a scalar RHS is boxed by its evaluated type.
-	if isVariantSlot && t != variantT {
-		v = g.emitVariantBox(v, t)
-		t = "ptr" // the value is now a box pointer; skip coercion below.
+	// into a Variant slot; a Variant RHS (v := otherVariant) is already a box
+	// and passes through as-is. Either way the store writes the box pointer
+	// (actualType is "ptr" for a _var slot) — coercing variant→ptr would
+	// as_str the box, turning a map/nil Variant into an empty string. v6.6.0.
+	if isVariantSlot {
+		if t != variantT {
+			v = g.emitVariantBox(v, t)
+		}
+		t = "ptr" // box pointer; skip the type coercion below.
 	}
 
 	// Type coercion: if RHS type doesn't match the alloca type, cast it.

@@ -115,6 +115,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	},
 	"jwt": {
 		"JwtSign": true, "JwtVerify": true, "JwtSubject": true,
+		"JwtGetString": true, "JwtGetInt": true,
 	},
 	"websocket": {
 		// v6.4.0: RFC 6455 minimal client + server (text frames, ping/pong).
