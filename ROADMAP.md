@@ -124,7 +124,7 @@ GitHub Actions：`go test` + `test_all.sh` + self-reproduction 验证（`main_se
 ### #8: LLVM 后端 -O2 优化验证
 确认 -O2 不破坏正确性（目前 self-reproduction 用默认 opt）。跑 51 教程 with `--llvm-opt=2`。
 
-### #9: JetBrains 插件
+### #9: JetBrains 插件 ✅（v6.7.0）
 IntelliJ IDEA / GoLand 插件（语法高亮 + LSP 集成）。VS Code 插件已有（v1.1），JetBrains 是补充。
 
 ### #10: JsonEncode 双端 parity
@@ -319,7 +319,7 @@ KylixBoot 框架的注解需要自动绑定到 DI/路由层（v3.1 完成了 AST
 
 - [x] **VS Code 扩展 v1.1**：语法高亮（含 KylixBoot 注解 + stdlib 函数）+ LSP 集成 + 编译/运行命令 + 快捷键 + 状态栏 + 编译器路径解析 ✅ v4.0
 - [x] **VS Code 代码片段**：25 个片段（program/unit、function/procedure、class/record、控制流、try/except、WriteLn、KylixBoot controller/routes、ORM entity）✅ v4.0
-- [ ] **JetBrains 插件**：IntelliJ / GoLand 支持
+- [x] **JetBrains 插件**：IntelliJ / GoLand 支持
 - [ ] LSP 增强：补全精度提升、重构支持（改名、提取函数）
 - [ ] DAP 调试适配器（配合 VS Code 断点调试）
 
@@ -422,7 +422,7 @@ LLVM 后端工具链成熟化，补充 stdlib 常用模块，提升开发者体�
 
 ### 主线 3: IDE 与生态
 
-- [ ] **JetBrains 插件**：IntelliJ / GoLand 支持
+- [x] **JetBrains 插件**：IntelliJ / GoLand 支持
 - [ ] LSP 增强：补全精度提升、重构支持
 - [ ] DAP 调试适配器（配合 VS Code 断点调试）
 - [ ] 包注册中心部署上线（kylix.top/packages）
@@ -500,7 +500,7 @@ LLVM 后端工具链成熟化，补充 stdlib 常用模块，提升开发者体�
 ### 中期 (v4.1–v4.2)
 - [ ] 包注册中心 kylix.top/packages 上线
 - [ ] GitHub Actions Kylix 模板
-- [ ] JetBrains 插件（IntelliJ/GoLand）
+- [x] JetBrains 插件（IntelliJ/GoLand）
 - [ ] 企业级项目模板库
 
 ### 长期 (v5.0+)

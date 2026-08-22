@@ -4,7 +4,20 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v6.6.0 (2026-08-21) — boot HTTP server + stdlib 补全 5 项
+## v6.7.0 (2026-08-22) — JetBrains 插件 + 安装使用手册
+
+### #9 JetBrains 插件（IntelliJ IDEA / GoLand）
+
+- **新模块 `jetbrains-plugin/`**（与 `vscode-ext/` 平级，完整 Gradle Kotlin 项目，IntelliJ Platform Gradle Plugin 2.3.0 + Kotlin 2.1.20 + IC 2024.3 SDK）。
+- **语法高亮**：复用 `vscode-ext/syntaxes/kylix.tmLanguage.json`（TextMate grammar，8 段 23 pattern），注册为 IntelliJ TextMate bundle（`com.intellij.textmate.bundleProvider` 扩展点，`getBundles(): List<PluginBundle>`）——`.klx` 文件自动高亮 + 文件类型识别。
+- **LSP 集成**：LSP4IJ 桥接 `kylix lsp`（stdio JSON-RPC，`pkg/lsp` 零改动）——`ProcessStreamConnectionProvider`（`KYLIX_PATH` 环境变量 → PATH 探测 → `kylix`）+ `LanguageServerFactory` + plugin.xml `<server>`/`<languageMapping>` 扩展点。补全 / 跳转 / 引用 / 重命名 / 格式化 / 悬停 / 签名帮助 / 诊断全通。
+- **25 个 Live Templates**（`prog/func/proc/class/record/if/for/while/controller/routeget/entity/unit` 等，从 `vscode-ext/snippets/kylix.json` 转换）。
+- **安装使用手册**：`jetbrains-plugin/README.md`——环境要求（IDE 2023.3+ / LSP4IJ / kylix）、构建安装（`./gradlew buildPlugin` → `Install Plugin from Disk…`）、使用（高亮/LSP/模板/折叠）、配置（`KYLIX_PATH`/`KYLIX_HOME`）、故障排查。
+- **构建验证**：gradle wrapper（8.10）+ `./gradlew buildPlugin -x buildSearchableOptions` **BUILD SUCCESSFUL**，产出 `build/distributions/kylix-jetbrains-plugin-0.1.0.zip`（1.6MB，含 plugin.xml + 3 classes + tmLanguage + language-config + Kylix.xml）。`buildSearchableOptions` 在 headless 环境失败，本插件无设置项故排除。
+- **ROADMAP #9 ✅**。
+- 16 包 go test 无回归（插件为独立模块，不动编译器）。
+
+
 
 ### boot HTTP server（KylixBoot 无 Go 环境真正可用）
 

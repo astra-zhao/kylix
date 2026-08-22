@@ -1,0 +1,37 @@
+<idea-plugin>
+    <id>com.kylix.plugin</id>
+    <name>Kylix Language Support</name>
+    <vendor>Kylix</vendor>
+
+    <description><![CDATA[
+    <h3>Kylix — Modern Pascal language support</h3>
+    Syntax highlighting (TextMate grammar), LSP integration (completion, navigation,
+    rename, formatting, hover) via LSP4IJ bridging <code>kylix lsp</code>, and 25 live
+    templates (program / function / class / controller / routes ...).
+    <br/><br/>
+    <b>Requirements:</b> the <a href="https://plugins.jetbrains.com/plugin/23057">LSP4IJ</a>
+    plugin (install from Marketplace first) and a <code>kylix</code> compiler on
+    <code>PATH</code> (or <code>KYLIX_PATH</code>).
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
+    <depends>org.jetbrains.plugins.textmate</depends>
+    <depends>com.redhat.devtools.lsp4ij</depends>
+
+    <!-- TextMate grammar → syntax highlighting + .klx file type; live templates. -->
+    <extensions defaultExtensionNs="com.intellij">
+        <textmate.bundleProvider implementation="com.kylix.plugin.KylixTextMateBundleProvider"/>
+        <liveTemplate file="Kylix.xml"/>
+    </extensions>
+
+    <!-- LSP4IJ: register the kylix language server and map the Kylix language to it. -->
+    <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
+        <server id="kylix-lsp"
+                name="Kylix Language Server"
+                factoryClass="com.kylix.plugin.KylixLanguageServerFactory">
+            <description><![CDATA[Kylix LSP server (`kylix lsp`, stdio JSON-RPC)]]></description>
+        </server>
+        <languageMapping language="source.kylix" serverId="kylix-lsp" languageId="kylix"/>
+    </extensions>
+</idea-plugin>

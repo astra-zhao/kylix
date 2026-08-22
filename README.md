@@ -10,6 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
+> 🚀 **v6.7.0**: JetBrains plugin + install & usage manual. `jetbrains-plugin/` — TextMate syntax highlighting (reusing the VS Code grammar), LSP integration via LSP4IJ bridging `kylix lsp` (completion / navigation / rename / formatting), 25 live templates, and a full install & usage manual. Builds to an installable zip with `./gradlew buildPlugin`. See [CHANGELOG.md](CHANGELOG.md).
 > 🚀 **v6.6.0**: KylixBoot HTTP server + stdlib completion. `BootRun` now serves real HTTP/1.1 on the LLVM backend (route table, `:param` path params, `req.Param/Query/Header/Body`) — KylixBoot apps run with **no Go toolchain**. Plus JWT claims (Verify returns a claims map with exp expiry; JwtSubject/GetString/GetInt; Sign extraClaims), cache TTL (PutWithTTL/Sweep), HttpGetJSON → Variant map, UrlEncode/Decode, Variant div/mod. See [CHANGELOG.md](CHANGELOG.md).
 > 🚀 **v6.5.0**: WS loopback + hand-rolled SHA-1 fix + KylixRT polish + performance. Single-process WebSocket echo loopback (two-phase `WsDialConnect`/`WsDialFinish` — no threads), hand-rolled SHA-1 replaces OpenSSL, string-interpolation overflow fix, and the LLVM backend got a **30× faster `-O0` build** (11.5 s → 0.38 s on the bootstrap compiler) via single-pass DCE, pre-opt caching, mem2reg and `-disable-verify`. See [CHANGELOG.md](CHANGELOG.md).
 >

@@ -1,0 +1,202 @@
+<templateSet group="Kylix">
+    <!-- Program skeleton -->
+    <template name="prog" value="program $Name$;&#10;uses $Uses$;&#10;begin&#10;  $END$&#10;end." description="Program skeleton" toReformat="false" toShortenFQNames="true">
+        <variable name="Name" expression="" defaultValue="App" alwaysStopAt="true"/>
+        <variable name="Uses" expression="" defaultValue="boot" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Function declaration -->
+    <template name="func" value="function $Name$($Params$): $Return$;&#10;begin&#10;  result := $END$;&#10;end;" description="Function declaration" toReformat="false" toShortenFQNames="true">
+        <variable name="Name" expression="" defaultValue="MyFunc" alwaysStopAt="true"/>
+        <variable name="Params" expression="" defaultValue="args: Integer" alwaysStopAt="true"/>
+        <variable name="Return" expression="" defaultValue="Integer" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Procedure declaration -->
+    <template name="proc" value="procedure $Name$($Params$);&#10;begin&#10;  $END$&#10;end;" description="Procedure declaration" toReformat="false" toShortenFQNames="true">
+        <variable name="Name" expression="" defaultValue="MyProc" alwaysStopAt="true"/>
+        <variable name="Params" expression="" defaultValue="args: Integer" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Class declaration -->
+    <template name="class" value="$Name$ = class&#10;  $Field$: $Type$;&#10;  procedure $Method$;&#10;end;" description="Class declaration" toReformat="false" toShortenFQNames="true">
+        <variable name="Name" expression="" defaultValue="TMyClass" alwaysStopAt="true"/>
+        <variable name="Field" expression="" defaultValue="Name" alwaysStopAt="true"/>
+        <variable name="Type" expression="" defaultValue="String" alwaysStopAt="true"/>
+        <variable name="Method" expression="" defaultValue="Run" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Record type -->
+    <template name="record" value="$Name$ = record&#10;  $Field$: $Type$;&#10;end;" description="Record type" toReformat="false" toShortenFQNames="true">
+        <variable name="Name" expression="" defaultValue="TMyRecord" alwaysStopAt="true"/>
+        <variable name="Field" expression="" defaultValue="Name" alwaysStopAt="true"/>
+        <variable name="Type" expression="" defaultValue="String" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- If statement -->
+    <template name="if" value="if $Cond$ then&#10;begin&#10;  $END$&#10;end;" description="If statement" toReformat="false" toShortenFQNames="true">
+        <variable name="Cond" expression="" defaultValue="true" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- If-else -->
+    <template name="ifelse" value="if $Cond$ then&#10;begin&#10;  $Then$&#10;end&#10;else&#10;begin&#10;  $END$&#10;end;" description="If-else statement" toReformat="false" toShortenFQNames="true">
+        <variable name="Cond" expression="" defaultValue="true" alwaysStopAt="true"/>
+        <variable name="Then" expression="" defaultValue="WriteLn('then');" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- For loop -->
+    <template name="for" value="for $I$ := $From$ to $To$ do&#10;begin&#10;  $END$&#10;end;" description="For loop" toReformat="false" toShortenFQNames="true">
+        <variable name="I" expression="" defaultValue="i" alwaysStopAt="true"/>
+        <variable name="From" expression="" defaultValue="1" alwaysStopAt="true"/>
+        <variable name="To" expression="" defaultValue="n" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- While loop -->
+    <template name="while" value="while $Cond$ do&#10;begin&#10;  $END$&#10;end;" description="While loop" toReformat="false" toShortenFQNames="true">
+        <variable name="Cond" expression="" defaultValue="true" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Repeat-until -->
+    <template name="repeat" value="repeat&#10;  $END$&#10;until $Cond$;" description="Repeat-until loop" toReformat="false" toShortenFQNames="true">
+        <variable name="Cond" expression="" defaultValue="false" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- For-in loop -->
+    <template name="foreach" value="for $Item$ in $Collection$ do&#10;begin&#10;  $END$&#10;end;" description="For-in loop" toReformat="false" toShortenFQNames="true">
+        <variable name="Item" expression="" defaultValue="item" alwaysStopAt="true"/>
+        <variable name="Collection" expression="" defaultValue="items" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Try-except -->
+    <template name="try" value="try&#10;  $Body$&#10;except&#10;  WriteLn('caught');&#10;end;" description="Try-except" toReformat="false" toShortenFQNames="true">
+        <variable name="Body" expression="" defaultValue="DoWork();" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Try-finally -->
+    <template name="tryfinally" value="try&#10;  $Body$&#10;finally&#10;  $END$&#10;end;" description="Try-finally" toReformat="false" toShortenFQNames="true">
+        <variable name="Body" expression="" defaultValue="DoWork();" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Try with on-clause -->
+    <template name="tryon" value="try&#10;  $Body$&#10;except&#10;  on E: Exception do&#10;    WriteLn(E.Message);&#10;end;" description="Try with on-clause" toReformat="false" toShortenFQNames="true">
+        <variable name="Body" expression="" defaultValue="DoWork();" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Variable declaration -->
+    <template name="var" value="var $Name$: $Type$;" description="Variable declaration" toReformat="false" toShortenFQNames="true">
+        <variable name="Name" expression="" defaultValue="name" alwaysStopAt="true"/>
+        <variable name="Type" expression="" defaultValue="String" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Constant declaration -->
+    <template name="const" value="const $NAME$ = $Value$;" description="Constant declaration" toReformat="false" toShortenFQNames="true">
+        <variable name="NAME" expression="" defaultValue="VERSION" alwaysStopAt="true"/>
+        <variable name="Value" expression="" defaultValue="1" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Fixed array -->
+    <template name="array" value="var $Arr$: array[0..$N$] of $Type$;" description="Fixed array" toReformat="false" toShortenFQNames="true">
+        <variable name="Arr" expression="" defaultValue="arr" alwaysStopAt="true"/>
+        <variable name="N" expression="" defaultValue="10" alwaysStopAt="true"/>
+        <variable name="Type" expression="" defaultValue="Integer" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Map type -->
+    <template name="map" value="var $M$: map[String]$Type$;" description="Map type" toReformat="false" toShortenFQNames="true">
+        <variable name="M" expression="" defaultValue="m" alwaysStopAt="true"/>
+        <variable name="Type" expression="" defaultValue="Integer" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- WriteLn call -->
+    <template name="writeln" value="WriteLn($END$);" description="WriteLn call" toReformat="false" toShortenFQNames="true">
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- ReadLn call -->
+    <template name="readln" value="ReadLn($END$);" description="ReadLn call" toReformat="false" toShortenFQNames="true">
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- KylixBoot controller -->
+    <template name="controller" value="[Controller('$Path$')]&#10;type&#10;  $Name$Controller = class&#10;    [Get('$Route$')]&#10;    function $Method$(req: TRequest): TResponse;&#10;    begin&#10;      result := BootJSON(200, nil);&#10;    end;&#10;  end;" description="KylixBoot controller" toReformat="false" toShortenFQNames="true">
+        <variable name="Path" expression="" defaultValue="/api" alwaysStopAt="true"/>
+        <variable name="Name" expression="" defaultValue="TMy" alwaysStopAt="true"/>
+        <variable name="Route" expression="" defaultValue="/" alwaysStopAt="true"/>
+        <variable name="Method" expression="" defaultValue="Index" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- GET route -->
+    <template name="routeget" value="[Get('$Path$')]&#10;function $Name$(req: TRequest): TResponse;&#10;begin&#10;  result := BootJSON(200, nil);&#10;end;" description="GET route" toReformat="false" toShortenFQNames="true">
+        <variable name="Path" expression="" defaultValue="/path" alwaysStopAt="true"/>
+        <variable name="Name" expression="" defaultValue="Index" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- POST route -->
+    <template name="routepost" value="[Post('$Path$')]&#10;function $Name$(req: TRequest): TResponse;&#10;begin&#10;  result := BootText(200, 'created');&#10;end;" description="POST route" toReformat="false" toShortenFQNames="true">
+        <variable name="Path" expression="" defaultValue="/path" alwaysStopAt="true"/>
+        <variable name="Name" expression="" defaultValue="Create" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- ORM entity -->
+    <template name="entity" value="[Entity('$Table$')]&#10;type&#10;  $Name$ = class&#10;    [Required]&#10;    [Column('$Col$')]&#10;    $Field$: $Type$;&#10;  end;" description="ORM entity" toReformat="false" toShortenFQNames="true">
+        <variable name="Table" expression="" defaultValue="table" alwaysStopAt="true"/>
+        <variable name="Name" expression="" defaultValue="TUser" alwaysStopAt="true"/>
+        <variable name="Col" expression="" defaultValue="col" alwaysStopAt="true"/>
+        <variable name="Field" expression="" defaultValue="Name" alwaysStopAt="true"/>
+        <variable name="Type" expression="" defaultValue="String" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+    <!-- Unit skeleton -->
+    <template name="unit" value="unit $Name$;&#10;&#10;interface&#10;&#10;implementation&#10;&#10;end." description="Unit skeleton" toReformat="false" toShortenFQNames="true">
+        <variable name="Name" expression="" defaultValue="MyUnit" alwaysStopAt="true"/>
+        <context>
+            <option name="source.kylix" value="true"/>
+        </context>
+    </template>
+</templateSet>

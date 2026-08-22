@@ -1,0 +1,5 @@
+# Gradle build/runtime caches — never commit
+.gradle/
+build/
+.intellijPlatform/
+out/
