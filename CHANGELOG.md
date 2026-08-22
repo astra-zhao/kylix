@@ -4,7 +4,50 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v6.5.0 (2026-08-20) — WS 自回环 + SHA-1 修复 + KylixRT 完善 + 性能优化
+## v6.6.0 (2026-08-21) — boot HTTP server + stdlib 补全 5 项
+
+### boot HTTP server（KylixBoot 无 Go 环境真正可用）
+
+- **路由表**：`Boot<M>(path, handler)` 从 void no-op 改为把 `{method, path, handler}` 写入模块路由表 `@__kylix_boot_routes`（`[64 x {ptr,ptr,ptr}]` + `@__kylix_boot_nroutes`），供 `BootRun` 分发。
+- **BootRun 真体**（`stdlib_boot_http.go`）：`TcpListen → TcpAccept` 循环 → `read_headers`（逐字节 recv 到 `\r\n\r\n`，4096 上限）→ `parse_request`（提取 METHOD/PATH，**PATH 截断 query**）→ `route_lookup`（线性匹配 method + `path_match` 段匹配，支持字面量 + `:param` 提取）→ 构造 TRequest handle（`{method, path, headers, body, params, nparams}`）→ 调 `@__kylix_boot_handler_<i>` wrapper → 拼 HTTP/1.1 响应（status/reason/Content-Length/body）→ `send` → 关连接。无匹配 → 404。
+- **TRequest 方法降级**：`req.Param/Query/Header/Body` 内联实现（params 线性扫描 / headers 中 `?k=v` 解析 / header 字段 strstr+trim / body 指针）。修三处死循环：Query `amp==null` 不推进、Header trim 未更新 valStart、Query 值未截断到空格/`\r`。
+- **复用**：net 模块 `TcpListen/TcpAccept/TcpClose`（BSD socket）+ 手写 HTTP 解析（无 libcurl/无 OpenSSL）。
+- **验证**：端到端（起 server → curl）：GET `/api/hello` → body、404、`/api/users/:id` + `req.Param`、`req.Query('page')` + `req.Header('X-Custom')` 全通。
+
+### stdlib 补全 5 项（LLVM 端与 Go 端 parity）
+
+#### jwt claims（v6.6.0）
+- **JwtVerify 返回 claims map**：验签后 b64url-decode payload → `parse_flat` 解析成 Variant map（box_map）返回；**exp 过期检查**（claims['exp'] 存在且 < now → 失败返回 nilbox）。
+- **JwtSubject / JwtGetString / JwtGetInt**：`variant_map_get` + as_str/as_int 读取 claims（stdlib.go 裸调用表补 JwtGetString/GetInt）。
+- **JwtSign extraClaims**：第 4 参（Variant map）遍历 `htab_keys` + `htab_get_variant` 并入 payload JSON（首个 claim 无前导逗号，sub/iat/exp 按需拼）。
+- **b64url 潜伏 bug 修复**：tail `rem==1`（1 字节剩余）只写 1 字符漏第二字符 → 输出含垃圾（token payload 非标准）。v6.3.0 的 payload 长度恰好 mod 3 ≠ 1 避开；动态 payload 触发。
+- 验证：Python 标准 HS256 验签 LLVM token（含 extra claims）逐字节一致 + 过期跨秒验证。
+
+#### cache TTL（v6.6.0）
+- TCache 从「直接 htab 句柄」改为 **24 字节句柄** `{ptr htab, ptr ttl, i64 defaultTtlMs}`；TTL 旁表存 key → malloc'd `{i64 expiresAt}`。
+- 新增 **PutWithTTL / Get（Variant）/ Sweep**；Get/GetString/Has 惰性过期检查（过期即删），Sweep 经新 `@__kylix_htab_keys`（通用 key 遍历）删全部过期。
+- 毫秒时钟 `@__kylix_now_ms`（gettimeofday——CLOCK_MONOTONIC 常量跨平台不同，改用 POSIX 通用）。
+- 教程 example53 无回归；TTL 1ms 忙等过期验证通过。
+
+#### httpclient JSON（v6.6.0）
+- **HttpGetJSON/HttpPostJSON 返回 Variant map**（不再 raw body 字符串）：body → `JsonDecodeMap`（parse_flat 值已是 Variant box）→ `box_map`。`var m := HttpGetJSON(url); m['key']` 双端 parity。
+- 顺带修复 `Request` body 漏 enqueue `DoRequest`（one-shot helper 会 undefined）。
+
+#### UrlEncode / UrlDecode（v6.6.0）
+- encoding 模块补齐（对齐 Go `url.QueryEscape`/`QueryUnescape`）：unreserved 原样、空格→`+`、其余 `%XX`（大写）；decode 反向（+ → 空格、`%XX` → 字节）。共享 `hexval` helper 从 HexDecode 抽为独立 body（UrlDecode 复用）。双端逐字节一致。
+
+#### Variant div/mod（v6.6.0）
+- `div` 关键字 / `mod` 从 `add i64 0,0` stub 转正：双 int → `sdiv`/`srem`（box_int），否则 → `fdiv`/`frem`（box_float）。`isArithOp` 表补两 op + `emitVariantArithBody` 新分支 + `emitVariantRuntimeBodies` 发射。
+
+### 顺带修复（v6.6.0）
+- **Variant 赋值 as_str 误 coerce**：`m := HttpGetJSON(...)`（Variant map box 赋 Variant 槽）被 coerceValue variant→ptr 转成 as_str → 空字符串。`isVariantSlot && t==variantT` 改为直接存 box 指针。
+- **emitCall 参数 variant→ptr 归一化**：未知函数调用的 Variant 参数原样传 `variant %x`（非法 IR）→ 归一化为 box 真实类型 ptr。
+- **hashtab 门控**：`emitHashtabBodies` 增加 `|| g.needVariantRuntime`——Variant runtime 的 `map_get` 引用 `htab_get_variant`，纯 Variant 算术程序（`v div 2`）也需 htab 定义。
+
+### 文档
+- README/README_CN/CLAUDE/html 更新 v6.6.0 + v6.7.0 规划（#9 JetBrains 插件）。
+
+
 
 ### 手写 SHA-1 修复（websocket 不再依赖 OpenSSL）
 
