@@ -422,11 +422,31 @@ func (g *Generator) emitJsonGetMapBody() {
 	g.emitJsonParserBodies()
 	// v5.1.0: the map's value slots hold Variant boxes; the nested object's
 	// raw substring is stored as a str box, so unbox it before re-parsing.
+	// v6.8.0: value_to_variant now boxes nested objects as a map-Variant box,
+	// so return its htab directly when the box tag is map.
 	g.needVariantRuntime = true
 	g.line("define ptr @__kylix_json_JsonGetMap(ptr %m, ptr %k) {")
 	g.line("entry:")
 	box := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get_variant(ptr %%m, ptr %%k)", box))
+	tagLoc := g.boxAddr(box, 0)
+	tag := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", tag, tagLoc))
+	isMap := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, %d", isMap, tag, varTagMap))
+	mapLbl := g.label()
+	oldLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isMap, mapLbl, oldLbl))
+	// v6.8.0 fast path: the value is already a nested map box → return its htab.
+	g.line(fmt.Sprintf("%s:", mapLbl))
+	payloadLoc := g.boxAddr(box, 1)
+	payload := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", payload, payloadLoc))
+	htab := g.tmp()
+	g.line(fmt.Sprintf("  %s = inttoptr i64 %s to ptr", htab, payload))
+	g.line(fmt.Sprintf("  ret ptr %s", htab))
+	// Legacy path: raw substring in a str box → re-parse with parse_flat.
+	g.line(fmt.Sprintf("%s:", oldLbl))
 	raw := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %s)", raw, box))
 	// If raw is empty (miss or non-object value), return null.

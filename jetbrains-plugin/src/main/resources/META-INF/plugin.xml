@@ -19,10 +19,14 @@
     <depends>org.jetbrains.plugins.textmate</depends>
     <depends>com.redhat.devtools.lsp4ij</depends>
 
-    <!-- TextMate grammar → syntax highlighting + .klx file type; live templates. -->
+    <!-- TextMate grammar → syntax highlighting + .klx file type; live templates;
+         .klx file icon; run configuration (v6.8.0). -->
     <extensions defaultExtensionNs="com.intellij">
         <textmate.bundleProvider implementation="com.kylix.plugin.KylixTextMateBundleProvider"/>
         <liveTemplate file="Kylix.xml"/>
+        <iconProvider implementation="com.kylix.plugin.KylixIconProvider"/>
+        <configurationType implementation="com.kylix.plugin.KylixConfigurationType"/>
+        <runConfigurationProducer implementation="com.kylix.plugin.KylixRunConfigurationProducer"/>
     </extensions>
 
     <!-- LSP4IJ: register the kylix language server and map the Kylix language to it. -->

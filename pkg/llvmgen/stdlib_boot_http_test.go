@@ -76,3 +76,96 @@ func contains(t *testing.T, s, sub string) bool {
 	}
 	return false
 }
+
+// ---- v6.8.0: POST body read / req.JSON / BootRegisterJwtAuth ----
+
+func TestBoot_ReadBodyReal(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses boot;
+[Controller('/api')]
+type
+  TApiController = class
+    [Post('/echo')]
+    function Echo(req: TRequest): TResponse;
+    begin
+      result := BootText(200, req.Body());
+    end;
+  end;
+begin
+  BootRun(8080);
+end.`)
+	// BootRun must call read_body (per Content-Length) before the handler so
+	// req.Body() returns the real POST payload, not a constant null.
+	assertIRContains(t, ir, "call void @__kylix_boot_read_body(ptr %t")
+	assertIRContains(t, ir, "define void @__kylix_boot_read_body(ptr %conn, ptr %headers, ptr %req)")
+	// Content-Length parse + recv.
+	assertIRContains(t, ir, "call ptr @strstr(ptr %headers, ptr")
+	assertIRContains(t, ir, "Content-Length:")
+	assertIRContains(t, ir, "call i64 @recv(i32")
+	if contains(t, ir, "store ptr null, ptr %req") {
+		t.Errorf("req body still hardcoded null\nIR:\n%s", ir)
+	}
+}
+
+func TestBoot_ReqJSONVariantMap(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses boot;
+[Controller('/api')]
+type
+  TApiController = class
+    [Post('/json')]
+    function J(req: TRequest): TResponse;
+    var
+      data: Variant;
+    begin
+      data := req.JSON();
+      result := BootText(200, data['name']);
+    end;
+  end;
+begin
+  WriteLn('ok');
+end.`)
+	// req.JSON() parses the request body into a Variant map (JsonDecodeMap →
+	// box_map) and variant-map lookup reads keys.
+	assertIRContains(t, ir, "call ptr @__kylix_json_JsonDecodeMap(ptr")
+	assertIRContains(t, ir, "call ptr @__kylix_variant_box_map(ptr")
+	assertIRContains(t, ir, "call ptr @__kylix_variant_map_get(ptr")
+	// BootText body must unbox the Variant (as_str) — passing the box ptr
+	// directly would strlen the box bytes.
+	assertIRContains(t, ir, "call ptr @__kylix_variant_as_str(ptr")
+	if contains(t, ir, "TRequest.JSON stub") {
+		t.Errorf("req.JSON still routed to stub\nIR:\n%s", ir)
+	}
+}
+
+func TestBoot_RegisterJwtAuthReal(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses boot;
+[Controller('/api')]
+type
+  TApiController = class
+    [Get('/admin')]
+    [Authenticated]
+    function A(req: TRequest): TResponse;
+    begin
+      result := BootText(200, 'ok');
+    end;
+  end;
+begin
+  BootRegisterJwtAuth('s3cret');
+  BootRun(8080);
+end.`)
+	// BootRegisterJwtAuth stores the secret as a module global.
+	assertIRContains(t, ir, "@__kylix_boot_jwt_secret = global ptr")
+	// BootEnforceAuth is a real define (not `ret ptr null`), reads the
+	// Authorization: Bearer header and verifies with JwtVerify (HS256).
+	assertIRContains(t, ir, "define ptr @__kylix_boot_BootEnforceAuth(ptr %req)")
+	assertIRContains(t, ir, "Authorization:")
+	assertIRContains(t, ir, "Bearer ")
+	assertIRContains(t, ir, "call ptr @__kylix_jwt_JwtVerify(ptr")
+	// Deny path returns a 401 response handle.
+	assertIRContains(t, ir, "call ptr @__kylix_boot_BootText(i64 401")
+	// A real pass-branch still exists (ret null), but it must coexist with the
+	// auth machinery — proving this is not the old unconditional pass stub.
+	assertIRContains(t, ir, "ret ptr null")
+}

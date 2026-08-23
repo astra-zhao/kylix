@@ -57,6 +57,7 @@ func (g *Generator) emitBootRunBody() {
 	g.enqueueStdlib("net", "TcpClose", "TcpClose", 0)
 	// HTTP helpers.
 	g.enqueueStdlib("boot", "readheaders", "readheaders", 0)
+	g.enqueueStdlib("boot", "readbody", "readbody", 0)
 	g.enqueueStdlib("boot", "parsereq", "parsereq", 0)
 	g.enqueueStdlib("boot", "routelookup", "routelookup", 0)
 
@@ -92,9 +93,11 @@ func (g *Generator) emitBootRunBody() {
 	// ---- serve: fill headers/body, dispatch, build+send response.
 	g.line(fmt.Sprintf("%s:", doServeLbl))
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", headers, g.bootReqField(req, 16)))
-	// Body: read Content-Length bytes after the header block (best-effort;
-	// the header buffer holds whatever followed the request line).
-	g.line(fmt.Sprintf("  store ptr null, ptr %s", g.bootReqField(req, 24)))
+	// v6.8.0: read the POST body (per Content-Length) into req[24]. After
+	// read_headers stops at \r\n\r\n, the body bytes are still in the socket
+	// buffer; read_body recv's them into a NUL-terminated malloc'd buffer so
+	// req.Body / req.JSON return the real request body.
+	g.line(fmt.Sprintf("  call void @__kylix_boot_read_body(ptr %s, ptr %s, ptr %s)", conn, headers, req))
 	res := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr %s(ptr %s)", res, handler, req))
 	status := g.tmp()
@@ -160,10 +163,15 @@ func (g *Generator) bootReqField(req string, off int) string {
 func (g *Generator) bootReasonPhrase(status string) string {
 	is404 := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 404", is404, status))
+	is401 := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 401", is401, status))
 	okPtr := g.ptrTo(g.addString("OK"), 3)
 	nfPtr := g.ptrTo(g.addString("Not Found"), 10)
+	uaPtr := g.ptrTo(g.addString("Unauthorized"), 13)
+	sel404 := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", sel404, is404, nfPtr, okPtr))
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", r, is404, nfPtr, okPtr))
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", r, is401, uaPtr, sel404))
 	return r
 }
 
@@ -257,7 +265,100 @@ func (g *Generator) emitBootReadHeadersBody() {
 	g.line("")
 }
 
-// emitBootParseRequestBody — void @__kylix_boot_parse_request(ptr %buf,
+// emitBootReadBodyBody — void @__kylix_boot_read_body(ptr %conn, ptr %headers,
+// ptr %req). v6.8.0: after read_headers stops at \r\n\r\n, the request body (if
+// any, per Content-Length) still sits in the socket buffer. This reads it into
+// a NUL-terminated malloc'd buffer and stores it at req[24], so req.Body /
+// req.JSON return real POST body data (previously constant null).
+func (g *Generator) emitBootReadBodyBody() {
+	g.line("define void @__kylix_boot_read_body(ptr %conn, ptr %headers, ptr %req) {")
+	g.line("entry:")
+	fd := g.bootConnFd("%conn")
+	// find "Content-Length:" in the header block.
+	cl := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @strstr(ptr %%headers, ptr %s)", cl, g.ptrTo(g.addString("Content-Length:"), 16)))
+	clNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", clNull, cl))
+	noBodyLbl := g.label()
+	parseLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", clNull, noBodyLbl, parseLbl))
+	// parse: advance past "Content-Length:" (15 bytes) and any space, then digits.
+	g.line(fmt.Sprintf("%s:", parseLbl))
+	start := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 15", start, cl))
+	firstC := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", firstC, start))
+	isSp := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 32", isSp, firstC))
+	start1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 1", start1, start))
+	valStart := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", valStart, isSp, start1, start))
+	// decimal accumulator in an alloca.
+	accSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", accSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", accSlot))
+	cur := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", cur))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", valStart, cur))
+	digitLbl := g.label()
+	doneLbl := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", digitLbl))
+	g.line(fmt.Sprintf("%s:", digitLbl))
+	cp := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", cp, cur))
+	dc := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", dc, cp))
+	isD0 := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sge i8 %s, 48", isD0, dc))
+	isD9 := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sle i8 %s, 57", isD9, dc))
+	isDigitC := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i1 %s, %s", isDigitC, isD0, isD9))
+	readLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%got_digit, label %%%s", isDigitC, doneLbl))
+	g.line("got_digit:")
+	acc := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", acc, accSlot))
+	ten := g.tmp()
+	g.line(fmt.Sprintf("  %s = mul i64 %s, 10", ten, acc))
+	dcv := g.tmp()
+	g.line(fmt.Sprintf("  %s = zext i8 %s to i64", dcv, dc))
+	sub0 := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 %s, 48", sub0, dcv))
+	nacc := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %s", nacc, ten, sub0))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", nacc, accSlot))
+	np1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 1", np1, cp))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", np1, cur))
+	g.line(fmt.Sprintf("  br label %%%s", digitLbl))
+	g.line(fmt.Sprintf("%s:", doneLbl))
+	bodyLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", bodyLen, accSlot))
+	// guard: only read if len > 0.
+	lenZero := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sgt i64 %s, 0", lenZero, bodyLen))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", lenZero, readLbl, noBodyLbl))
+	// read body bytes.
+	g.line(fmt.Sprintf("%s:", readLbl))
+	lenBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", lenBuf, bodyLen))
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, lenBuf))
+	g.line(fmt.Sprintf("  call i64 @recv(i32 %s, ptr %s, i64 %s, i32 0)", fd, buf, bodyLen))
+	termPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", termPtr, buf, bodyLen))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", termPtr))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", buf, g.bootReqField("%req", 24)))
+	g.line("  ret void")
+	// no body: store empty string at req[24].
+	g.line(fmt.Sprintf("%s:", noBodyLbl))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", g.ptrTo(g.addString(""), 1), g.bootReqField("%req", 24)))
+	g.line("  ret void")
+	g.line("}")
+	g.line("")
+}
 // ptr %methodSlot, ptr %pathSlot). Copies "METHOD" into methodSlot and the
 // request-target into pathSlot (up to the next space or EOL).
 func (g *Generator) emitBootParseRequestBody() {
@@ -574,6 +675,10 @@ func (g *Generator) emitBootRequestMethodCall(req, method string, args []ast.Exp
 		return g.emitBootReqQuery(req, args)
 	case "Body", "GetBody":
 		return g.emitBootReqBody(req, args)
+	case "JSON":
+		// v6.8.0: req.JSON — parse the request body as JSON into a Variant map
+		// (map[String]Variant), reusing the JsonDecodeMap → box_map pipeline.
+		return g.emitBootReqJSON(req, args)
 	default:
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; TRequest.%s stub", r, method))
@@ -851,4 +956,22 @@ func (g *Generator) emitBootReqBody(req string, args []ast.Expression) (string, 
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", r, g.bootReqField(req, 24)))
 	return r, "ptr", nil
+}
+
+// emitBootReqJSON — req.JSON: parse the request body (req[24]) as a JSON object
+// into a Variant map (map[String]Variant), reusing the JsonDecodeMap → box_map
+// pipeline (v6.8.0; nested objects box as map-Variants per value_to_variant).
+func (g *Generator) emitBootReqJSON(req string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TRequest.JSON expects 0 arguments, got %d", len(args))
+	}
+	bodyReg := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", bodyReg, g.bootReqField(req, 24)))
+	g.enqueueStdlib("jsonutil", "JsonDecodeMap", "JsonDecodeMap", 0)
+	g.needVariantRuntime = true
+	htab := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_JsonDecodeMap(ptr %s)", htab, bodyReg))
+	box := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_map(ptr %s)", box, htab))
+	return box, variantT, nil
 }

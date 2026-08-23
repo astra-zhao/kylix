@@ -33,6 +33,10 @@ func (g *Generator) emitEncodingCall(funcName string, args []ast.Expression) (st
 		return g.emitEncodingBase64EncodeCall(args)
 	case "Base64Decode":
 		return g.emitEncodingBase64DecodeCall(args)
+	case "Base64URLEncode":
+		return g.emitEncodingBase64URLEncodeCall(args)
+	case "Base64URLDecode":
+		return g.emitEncodingBase64URLDecodeCall(args)
 	case "UrlEncode":
 		return g.emitEncodingUrlEncodeCall(args)
 	case "UrlDecode":
@@ -56,6 +60,10 @@ func (g *Generator) emitEncodingBody(funcName string) {
 		g.emitEncodingBase64EncodeBody()
 	case "Base64Decode":
 		g.emitEncodingBase64DecodeBody()
+	case "Base64URLEncode":
+		g.emitEncodingBase64URLEncodeBody()
+	case "Base64URLDecode":
+		g.emitEncodingBase64URLDecodeBody()
 	case "UrlEncode":
 		g.emitEncodingUrlEncodeBody()
 	case "UrlDecode":

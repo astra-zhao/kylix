@@ -10,7 +10,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🚀 **v6.7.0**: JetBrains 插件 + 安装使用手册。`jetbrains-plugin/`——TextMate 语法高亮（复用 VS Code grammar）+ LSP4IJ 桥 `kylix lsp`（补全/跳转/重命名/格式化）+ 25 个代码模板 + 完整安装使用手册；`./gradlew buildPlugin` 产出可安装 zip。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🚀 **v6.8.0**: boot server 补强 + stdlib 补全 + JetBrains 插件完善。`BootRun` 读取 POST body（`req.Body()`）、`req.JSON()` 绑定 JSON → `map[String]Variant`、`BootRegisterJwtAuth` 真校验 `Authorization: Bearer`（HS256）；stdlib 新增 `Base64URLEncode/Decode` + JSON 嵌套对象；JetBrains 插件新增 `.klx` 文件图标、Kylix Run 配置（`kylix run`）、未定义标识符 warning。详见 [CHANGELOG.md](CHANGELOG.md)。
 > 🚀 **v6.6.0**: boot HTTP server + stdlib 补全。LLVM 端 `BootRun` 真实现 HTTP/1.1 服务器（路由表 + `:param` 路径参数 + `req.Param/Query/Header/Body`）——**KylixBoot 应用无 Go 工具链真正可用**。外加 jwt claims（Verify 返回 claims map + exp 过期 + JwtSubject/GetString/GetInt + Sign extraClaims）、cache TTL（PutWithTTL/Sweep）、HttpGetJSON → Variant map、UrlEncode/Decode、Variant div/mod。详见 [CHANGELOG.md](CHANGELOG.md)。
 > 🚀 **v6.5.0**: WS 自回环 + 手写 SHA-1 修复 + KylixRT 完善 + 性能优化。单进程 WebSocket echo 自回环（分阶段 `WsDialConnect`/`WsDialFinish`，无需线程）；手写 SHA-1 替换 OpenSSL；字符串插值溢出修复；LLVM 后端 **-O0 编译提速 30×**（bootstrap 11.5s→0.38s，DCE 单遍 + 缓存提前 + mem2reg + disable-verify）。详见 [CHANGELOG.md](CHANGELOG.md)。
 >

@@ -179,6 +179,16 @@ func (c *symbolCollector) collectDeclaration(node ast.Node) {
 			Location: d.Token,
 		}
 		c.addSymbol(sym)
+		// v6.8.0: `type X = class/interface ...` — recurse into the inner
+		// declaration so the class's fields/methods (and their params/locals)
+		// are collected too. Previously only the type name was recorded, so
+		// method params and locals were reported as undefined.
+		switch inner := d.Type.(type) {
+		case *ast.ClassDecl:
+			c.collectDeclaration(inner)
+		case *ast.InterfaceDecl:
+			c.collectDeclaration(inner)
+		}
 
 	case *ast.FunctionDecl:
 		kind := SymbolFunction
@@ -209,10 +219,16 @@ func (c *symbolCollector) collectDeclaration(node ast.Node) {
 			c.table.AllSymbols = append(c.table.AllSymbols, paramSym)
 		}
 
-		// Collect from function body
+		// Collect from function body + local var/const declarations
+		// (e.g. `function F(...); var min, max: Integer; begin ...`).
 		if d.Body != nil {
 			oldScope := c.currentScope
 			c.currentScope = funcScope
+			for _, ld := range d.LocalDecls {
+				if node, ok := ld.(ast.Node); ok {
+					c.collectDeclaration(node)
+				}
+			}
 			for _, stmt := range d.Body.Statements {
 				c.collectStatement(stmt)
 			}
@@ -265,6 +281,20 @@ func (c *symbolCollector) collectDeclaration(node ast.Node) {
 		for _, method := range d.Methods {
 			methodSym := c.collectMethod(method, classScope)
 			sym.Children = append(sym.Children, methodSym)
+		}
+
+		// v6.8.0: generic type parameters (`class TStack<T>`) are visible in
+		// field/method types and bodies.
+		for _, tp := range d.TypeParams {
+			tpSym := &Symbol{
+				Name:     tp.Name,
+				Kind:     SymbolType,
+				Type:     "type parameter",
+				Location: tp.Token,
+			}
+			classScope.AddSymbol(tpSym)
+			c.table.AllSymbols = append(c.table.AllSymbols, tpSym)
+			sym.Children = append(sym.Children, tpSym)
 		}
 
 		c.addSymbol(sym)
@@ -320,10 +350,15 @@ func (c *symbolCollector) collectMethod(method *ast.FunctionDecl, classScope *Sc
 		c.table.AllSymbols = append(c.table.AllSymbols, paramSym)
 	}
 
-	// Collect from method body
+	// Collect from method body + local declarations
 	if method.Body != nil {
 		oldScope := c.currentScope
 		c.currentScope = methodScope
+		for _, ld := range method.LocalDecls {
+			if node, ok := ld.(ast.Node); ok {
+				c.collectDeclaration(node)
+			}
+		}
 		for _, stmt := range method.Body.Statements {
 			c.collectStatement(stmt)
 		}

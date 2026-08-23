@@ -4,8 +4,45 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v6.7.0 (2026-08-22) — JetBrains 插件 + 安装使用手册
+## v6.8.0 (2026-08-23) — boot server 补强 + stdlib 补全 + JetBrains 插件完善
 
+### boot HTTP server 补强（LLVM 端，KylixBoot 无 Go 更完整）
+
+- **POST body 读取**：`BootRun` 解析请求头 `Content-Length` → `recv` 读 body → 存 `req[24]`，`req.Body()` 返回真实 POST 数据（此前恒为 null）。`read_body` helper 手写十进制解析 + 无 padding 安全。
+- **req.JSON 绑定**：`TRequest.JSON()` 把请求体解析为 `map[String]Variant`（`JsonDecodeMap` → `box_map`），支持 `data['name']` 链式读取（嵌套对象为真实 map box，见 stdlib 嵌套）。
+- **BootRegisterJwtAuth 真校验**：secret 存模块全局 `@__kylix_boot_jwt_secret`；`BootEnforceAuth` 从 `Authorization: Bearer <token>` 提取 token → `JwtVerify`（HS256）→ 有效放行 / 无效 401（替代恒放行 stub，对齐 Go 后端 missing-validator 行为）。
+- **BootText 参数 Variant coerce**：`BootText(200, data['name'])` 对 Variant body 自动 `as_str` 解箱（此前把 box 指针当字符串 strlen 出垃圾）。
+- **bootReasonPhrase 补 401** → `Unauthorized`。
+- **端到端验证**（起 server + 原始 socket 请求）：POST body / `req.JSON` / valid-token / bad-token / no-token / GET 全通。
+
+### stdlib 补全（LLVM 端）
+
+- **encoding Base64URL**：`Base64URLEncode` / `Base64URLDecode`（RFC 4648 §5，URL-safe 字母表 `-_`，**无 padding**，与 Go `base64.RawURLEncoding` 对齐）。encode 复用 JWT 字母表；decode 新增认 `-_` 的 `b64urlval` helper。
+- **httpclient JSON 嵌套**：`value_to_variant` 的 `{` 分支从 `box_str(raw)` 改为**递归 `parse_flat` → `box_map`**——嵌套对象成为真实 `map[String]Variant`，`m['user']['name']` 链式可用；`[` 分支保持 raw 子串（`JsonGetArray` 继续工作）。`JsonGetMap` 加 map-box **fast path**（`inttoptr(payload)` 直通）+ 保留 raw 子串 legacy 路径。
+
+### JetBrains 插件完善
+
+- **`.klx` 文件图标**：`icons/kylix.svg`（蓝色圆角 K 字块）+ `KylixIconProvider`（`iconProvider` 扩展点）——项目树/编辑器 tab 显示 Kylix 图标。
+- **Run 配置**：`KylixConfigurationType`（`ConfigurationTypeBase`）+ `KylixRunConfiguration`（`RunConfigurationBase`，`.klx` 脚本路径持久化）+ `KylixCommandLineState`（`kylix run <file>`，KylixRT 后端）+ `KylixRunConfigurationProducer`（右键 `.klx` → Run）。`configurationType` + `runConfigurationProducer` 扩展点注册。
+- **错误高亮彩色方案**：LSP 补 **undefined-identifier warning**（severity 2，黄色波浪线）；`SymbolTable` 补 4 类收集 gap——`type X = class` 递归展开（方法参数/局部/字段）、函数 `LocalDecls`、循环变量/枚举成员/泛型参数/lambda 参数——同时提升补全/跳转。
+
+### 修复
+
+- **BootText 参数 Variant coerce**：`BootText(200, data['name'])` 把 Variant body 当 box 指针直接 strlen 出垃圾——改为自动 `as_str` 解箱（见 boot 补强）。
+- **BoolToStr 返回类型**：`'x' + BoolToStr(b)` 字符串连接把 `BoolToStr` 当 i64（返回类型注册错误，既有 bug）。
+- **JSON 解析 `{`/`[` 分支拆分**：`value_to_variant` 对象递归、数组保持 raw，修复 `skip_nested` 遗留。
+- **已知限制（归入 v6.9）**：`m['user']['name']` 嵌套链式索引在**数值上下文**（`IntToStr(m['user']['age'])`）仍可能类型错配（llc 拒绝）——字符串/打印上下文可用；`data := JsonDecodeMap(...)` 赋 `Variant` 变量缺自动 box_map（`req.JSON()` 已正确 box，不受影响）。
+
+### 验证
+
+- 16 包 `go test` 全绿；51 教程 **Go 51/51 + LLVM 51/51**。
+- boot server 端到端（POST body / req.JSON / JWT 校验 / 404）全通。
+- `jetbrains-plugin` `./gradlew buildPlugin` BUILD SUCCESSFUL（zip 含图标 + Run 配置 + plugin.xml）。
+- LSP undefined-identifier 检查全教程 0 误报 + 真实未定义检出。
+
+
+
+## v6.7.0 (2026-08-22) — JetBrains 插件 + 安装使用手册
 ### #9 JetBrains 插件（IntelliJ IDEA / GoLand）
 
 - **新模块 `jetbrains-plugin/`**（与 `vscode-ext/` 平级，完整 Gradle Kotlin 项目，IntelliJ Platform Gradle Plugin 2.3.0 + Kotlin 2.1.20 + IC 2024.3 SDK）。
@@ -19,6 +56,7 @@ All notable changes to the Kylix compiler are documented in this file.
 
 
 
+## v6.6.0 (2026-08-21) — boot HTTP server + stdlib 补全 5 项
 ### boot HTTP server（KylixBoot 无 Go 环境真正可用）
 
 - **路由表**：`Boot<M>(path, handler)` 从 void no-op 改为把 `{method, path, handler}` 写入模块路由表 `@__kylix_boot_routes`（`[64 x {ptr,ptr,ptr}]` + `@__kylix_boot_nroutes`），供 `BootRun` 分发。

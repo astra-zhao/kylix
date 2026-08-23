@@ -73,12 +73,23 @@ func (g *Generator) emitBootCall(funcName string, args []ast.Expression) (string
 		g.line(fmt.Sprintf("  %s = call i64 @__kylix_boot_BootRun(i64 %s)", r, portReg))
 		return r, "i64", nil
 	case "BootRegisterJwtAuth":
-		// void — evaluate args for side effects, return void.
+		// v6.8.0: store the JWT secret as a module global so BootEnforceAuth can
+		// verify `Authorization: Bearer <token>` at request time. Only string
+		// literals are supported as the secret (a literal constant → module-level
+		// @.str.N can be referenced from the wrapper define).
 		for _, a := range args {
 			if _, _, err := g.emitExpr(a); err != nil {
 				return "", "", err
 			}
 		}
+		if len(args) >= 1 {
+			if lit, ok := args[0].(*ast.StringLiteral); ok {
+				g.bootJwtSecretConst = g.addString(lit.Value)
+			}
+		}
+		// BootEnforceAuth body is enqueued so the auth define is emitted when a
+		// [Authenticated] route exists (emitBootWrapper calls it regardless).
+		g.enqueueStdlib("boot", "BootEnforceAuth", "BootEnforceAuth", 0)
 		return "0", "void", nil
 	default:
 		retType, ok := bootStubReturnTypes[funcName]
@@ -104,9 +115,15 @@ func (g *Generator) emitBootResponseCall(funcName string, args []ast.Expression)
 
 	bodyReg := g.ptrTo(g.addString(""), 1)
 	if funcName != "BootJSON" && len(args) >= 2 {
-		r, _, err := g.emitExpr(args[1])
+		r, rt, err := g.emitExpr(args[1])
 		if err != nil {
 			return "", "", err
+		}
+		// v6.8.0: a Variant body (e.g. BootText(200, data['name'])) must be
+		// unboxed to a string before BootText strlen()s it — passing the box
+		// pointer directly would read the box's tag/payload bytes as text.
+		if rt == variantT {
+			r, _ = g.coerceValue(r, rt, "ptr")
 		}
 		bodyReg = r
 	}
@@ -137,6 +154,10 @@ func (g *Generator) emitBootBody(funcName string) {
 		g.emitBootRunBody()
 	case "readheaders":
 		g.emitBootReadHeadersBody()
+	case "readbody":
+		// v6.8.0: read Content-Length request body bytes after the header block
+		// and store the NUL-terminated body on the request handle (req[24]).
+		g.emitBootReadBodyBody()
 	case "parsereq":
 		g.emitBootParseRequestBody()
 	case "routelookup":
@@ -144,10 +165,10 @@ func (g *Generator) emitBootBody(funcName string) {
 	case "pathmatch":
 		g.emitBootPathMatchBody()
 	case "BootEnforceAuth":
-		// null = pass (authentication is disabled).
-		g.line("define ptr @__kylix_boot_BootEnforceAuth(ptr %req) {")
-		g.line("  ret ptr null")
-		g.line("}")
+		// v6.8.0: real auth guard — read `Authorization: Bearer <token>` from
+		// the request headers and verify with JwtVerify(secret, token) (HS256).
+		// Returns null = pass, or a 401 response handle on missing/invalid auth.
+		g.emitBootEnforceAuthBody()
 	case "BootEnforceRole":
 		g.line("define ptr @__kylix_boot_BootEnforceRole(ptr %req, ptr %role) {")
 		g.line("  ret ptr null")
@@ -207,6 +228,117 @@ func (g *Generator) emitBootResponseFieldAccess(obj ast.Expression, field string
 		g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; TResponse.%s unsupported", r, field))
 		return r, "ptr", nil
 	}
+}
+
+// emitBootEnforceAuthBody — ptr @__kylix_boot_BootEnforceAuth(ptr %req).
+// v6.8.0: reads `Authorization: Bearer <token>` from the request headers and
+// verifies it with jwt.JwtVerify(secret, token) (HS256). Returns null = pass,
+// or a {401, "Unauthorized"} response handle when the header is absent/malformed
+// or the signature fails. When no BootRegisterJwtAuth secret was configured the
+// secret is an empty string, so every token fails → 401 (deny by default,
+// matching the Go backend's missing-validator behavior).
+func (g *Generator) emitBootEnforceAuthBody() {
+	// JwtVerify needs the jwt + variant + hashtab runtimes; the 401 body is a
+	// BootText response handle.
+	g.enqueueStdlib("jwt", "JwtVerify", "JwtVerify", 0)
+	g.enqueueStdlib("boot", "BootText", "BootText", 0)
+	g.needVariantRuntime = true
+	g.needHashtab = true
+	// secretConst is the module-level string constant to verify against. When a
+	// secret was configured (BootRegisterJwtAuth), a module global holds the
+	// const pointer and we load it inside the function body at verify time;
+	// otherwise pass an empty string (deny-all). The empty-string ptrTo must
+	// run inside the function body (not module scope), so it is deferred below.
+	secretConst := ""
+	if g.bootJwtSecretConst == "" {
+		emptyStr := g.addString("")
+		secretConst = emptyStr
+	} else {
+		// Emitted here (not in emitBootGlobals) because BootRegisterJwtAuth's
+		// string constant is only allocated during emitMain, which runs after
+		// emitBootGlobals. emitPendingStdlib → emitBootBody → this function
+		// runs after emitMain, so bootJwtSecretConst is final.
+		g.line(fmt.Sprintf("@__kylix_boot_jwt_secret = global ptr %s", g.bootJwtSecretConst))
+	}
+	g.line("define ptr @__kylix_boot_BootEnforceAuth(ptr %req) {")
+	g.line("entry:")
+	secretOp := ""
+	if g.bootJwtSecretConst != "" {
+		// Load the global's value (the string ptr) inside the function body.
+		secReg := g.tmp()
+		g.line(fmt.Sprintf("  %s = load ptr, ptr @__kylix_boot_jwt_secret", secReg))
+		secretOp = secReg
+	} else {
+		secretOp = g.ptrTo(secretConst, 1)
+	}
+	headers := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", headers, g.bootReqField("%req", 16)))
+	// find "Authorization:" in the header block.
+	authHdr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @strstr(ptr %s, ptr %s)", authHdr, headers, g.ptrTo(g.addString("Authorization:"), 15)))
+	authNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", authNull, authHdr))
+	denyLbl := g.label()
+	chkBearerLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", authNull, denyLbl, chkBearerLbl))
+	// find "Bearer " after the header value.
+	g.line(fmt.Sprintf("%s:", chkBearerLbl))
+	authVal := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 14", authVal, authHdr)) // "Authorization:" = 14
+	bearer := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @strstr(ptr %s, ptr %s)", bearer, authVal, g.ptrTo(g.addString("Bearer "), 8)))
+	bearerNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", bearerNull, bearer))
+	verifyLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", bearerNull, denyLbl, verifyLbl))
+	// token starts after "Bearer " (7 chars); copy up to \r into a fresh buffer.
+	g.line(fmt.Sprintf("%s:", verifyLbl))
+	token := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 7", token, bearer))
+	cr := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @strchr(ptr %s, i32 13)", cr, token)) // '\r'
+	crNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", crNull, cr))
+	tokLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", tokLen, token))
+	crAddr := g.tmp()
+	g.line(fmt.Sprintf("  %s = ptrtoint ptr %s to i64", crAddr, cr))
+	tokAddr := g.tmp()
+	g.line(fmt.Sprintf("  %s = ptrtoint ptr %s to i64", tokAddr, token))
+	crLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 %s, %s", crLen, crAddr, tokAddr))
+	realLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, i64 %s, i64 %s", realLen, crNull, tokLen, crLen))
+	bufSize := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", bufSize, realLen))
+	tbuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", tbuf, bufSize))
+	g.needMemcpy = true
+	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", tbuf, token, realLen))
+	termPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", termPtr, tbuf, realLen))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", termPtr))
+	// JwtVerify(secret, token) → Variant box; nilbox (tag 0) = invalid. The
+	// secret global holds a ptr; load it to get the actual string pointer.
+	vres := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_jwt_JwtVerify(ptr %s, ptr %s)", vres, secretOp, tbuf))
+	tagLoc := g.boxAddr(vres, 0)
+	tag := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr %s", tag, tagLoc))
+	isNil := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", isNil, tag))
+	passLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isNil, denyLbl, passLbl))
+	// pass: ret null.
+	g.line(fmt.Sprintf("%s:", passLbl))
+	g.line("  ret ptr null")
+	// deny: 401 "Unauthorized".
+	g.line(fmt.Sprintf("%s:", denyLbl))
+	denyRes := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_BootText(i64 401, ptr %s)", denyRes, g.ptrTo(g.addString("Unauthorized"), 13)))
+	g.line(fmt.Sprintf("  ret ptr %s", denyRes))
+	g.line("}")
+	g.line("")
 }
 
 func (g *Generator) emitBootStubCall(funcName string, args []ast.Expression, retType string) (string, string, error) {

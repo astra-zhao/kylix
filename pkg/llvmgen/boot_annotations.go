@@ -160,6 +160,9 @@ func (g *Generator) emitBootGlobals() {
 		g.line("@__kylix_boot_routes = global [64 x { ptr, ptr, ptr }] zeroinitializer")
 		g.line("@__kylix_boot_nroutes = global i64 0")
 	}
+	// Note: the @__kylix_boot_jwt_secret global is emitted in
+	// emitBootEnforceAuthBody (emitPendingStdlib stage), after emitMain runs so
+	// BootRegisterJwtAuth's string constant has been allocated.
 }
 
 // emitBootAutoWiring emits the auto-wiring instructions at the top of main(),

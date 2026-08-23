@@ -425,7 +425,7 @@ func (g *Generator) emitJsonReadValue() {
 	bareLbl := g.label()
 	isQuote := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 34", isQuote, c)) // '"'
-	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_obj", isQuote, strLbl))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_arr", isQuote, strLbl))
 	g.line("chk_obj:")
 	isObj := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 123", isObj, c)) // '{'
@@ -724,7 +724,6 @@ func (g *Generator) emitJsonValueToVariant() {
 	c := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i8, ptr %s", c, cp))
 	strLbl := g.label()
-	nestLbl := g.label()
 	bareLbl := g.label()
 	isQuote := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 34", isQuote, c)) // '"'
@@ -732,11 +731,13 @@ func (g *Generator) emitJsonValueToVariant() {
 	g.line("chk_obj:")
 	isObj := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 123", isObj, c)) // '{'
-	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_arr", isObj, nestLbl))
+	objLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%chk_arr", isObj, objLbl))
 	g.line("chk_arr:")
 	isArr := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 91", isArr, c)) // '['
-	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isArr, nestLbl, bareLbl))
+	arrLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isArr, arrLbl, bareLbl))
 	// string → box_str(unquoted content)
 	g.line(fmt.Sprintf("%s:", strLbl))
 	sr := g.tmp()
@@ -744,13 +745,24 @@ func (g *Generator) emitJsonValueToVariant() {
 	sbox := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", sbox, sr))
 	g.line(fmt.Sprintf("  ret ptr %s", sbox))
-	// nested → box_str(raw)
-	g.line(fmt.Sprintf("%s:", nestLbl))
+	// nested OBJECT → recursively parse_flat into a map-Variant box (v6.8.0
+	// nested JSON: `m['user']['name']` chains through variant-map lookup).
+	g.line(fmt.Sprintf("%s:", objLbl))
 	nr := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_skip_nested(ptr %%s, ptr %%posSlot)", nr))
-	nbox := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", nbox, nr))
-	g.line(fmt.Sprintf("  ret ptr %s", nbox))
+	nested := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_parse_flat(ptr %s)", nested, nr))
+	obox := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_map(ptr %s)", obox, nested))
+	g.line(fmt.Sprintf("  ret ptr %s", obox))
+	// nested ARRAY → raw substring as a str box (no Variant array tag exists;
+	// JsonGetArray re-parses the substring, so array access is unchanged).
+	g.line(fmt.Sprintf("%s:", arrLbl))
+	ar := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_json_skip_nested(ptr %%s, ptr %%posSlot)", ar))
+	abox := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", abox, ar))
+	g.line(fmt.Sprintf("  ret ptr %s", abox))
 	// bare → classify by first char of the token.
 	g.line(fmt.Sprintf("%s:", bareLbl))
 	br := g.tmp()

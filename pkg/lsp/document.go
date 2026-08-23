@@ -82,6 +82,12 @@ func NewDocument(uri, text string) *Document {
 		doc.Symbols = CollectSymbols(doc.AST)
 		// Enrich with stdlib declarations for used modules
 		loadStdlibSymbols(doc)
+		// v6.8.0: undefined-identifier warnings (severity 2). Only run when the
+		// stdlib/klx symbols are available — otherwise used stdlib functions
+		// (JsonDecodeMap, BootText, ...) would be flagged as undefined.
+		if findStdlibKlxDir() != "" {
+			doc.Diagnostics = append(doc.Diagnostics, undefinedIdentifierWarnings(doc.AST, doc.Symbols)...)
+		}
 	} else {
 		doc.Symbols = NewSymbolTable()
 	}

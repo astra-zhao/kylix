@@ -137,3 +137,46 @@ end.`)
 	// hexval must be defined even though HexDecode itself is never called.
 	assertIRContains(t, ir, "define i64 @__kylix_encoding_hexval(i8 %c)")
 }
+
+// ---- Base64URL (v6.8.0) ----
+
+func TestEncoding_Base64URLEncodeCallDispatch(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses encoding;
+begin
+  var s := Base64URLEncode('hello');
+end.`)
+	assertIRContains(t, ir, "call ptr @__kylix_encoding_Base64URLEncode")
+	if strings.Contains(ir, "encoding.Base64URLEncode not implemented") {
+		t.Errorf("Base64URLEncode still routed to not-implemented stub\nIR:\n%s", ir)
+	}
+}
+
+func TestEncoding_Base64URLEncodeBodyEmitted(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses encoding;
+begin
+  var s := Base64URLEncode('hello');
+end.`)
+	assertIRContains(t, ir, "define ptr @__kylix_encoding_Base64URLEncode(ptr %str)")
+	// URL-safe table: '-'(0x2D) and '_'(0x5F) at the tail — NOT '+'/'/'.
+	assertIRContains(t, ir, "@__kylix_b64url_table = private unnamed_addr constant [64 x i8]")
+	assertIRContains(t, ir, `\2D\5F`)
+	if strings.Contains(ir, `\2B\2F`) {
+		t.Errorf("b64url table still uses the standard +/ alphabet")
+	}
+}
+
+func TestEncoding_Base64URLDecodeBodyEmitted(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses encoding;
+begin
+  var s := Base64URLDecode('aGVsbG8');
+end.`)
+	assertIRContains(t, ir, "call ptr @__kylix_encoding_Base64URLDecode")
+	assertIRContains(t, ir, "define ptr @__kylix_encoding_Base64URLDecode(ptr %str)")
+	// b64urlval helper recognizes '-'(→62) and '_'(→63).
+	assertIRContains(t, ir, "define i64 @__kylix_encoding_b64urlval(i8 %c)")
+	assertIRContains(t, ir, "ret i64 62")
+	assertIRContains(t, ir, "ret i64 63")
+}

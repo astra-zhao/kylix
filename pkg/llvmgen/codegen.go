@@ -93,9 +93,19 @@ type Generator struct {
 	bootInjects    []bootInject
 	bootWrappers   []bootWrapper
 
+	// bootJwtSecretConst is the module-level string constant register holding
+	// the JWT secret passed to BootRegisterJwtAuth(secret). When set, emitBootGlobals
+	// emits `@__kylix_boot_jwt_secret = global ptr <const>` and BootEnforceAuth
+	// verifies `Authorization: Bearer <token>` against it (v6.8.0).
+	bootJwtSecretConst string
+
 	// base64TableEmitted guards the @__kylix_b64_table global (emitted once
 	// per module, on first Base64Encode/Decode use).
 	base64TableEmitted bool
+
+	// base64URLTableEmitted guards the @__kylix_b64url_table global (v6.8.0,
+	// URL-safe alphabet, emitted once per module on first Base64URL use).
+	base64URLTableEmitted bool
 
 	// hashtabEmitted guards the @__kylix_htab_* runtime helpers (emitted once
 	// per module, on first cache/map use).

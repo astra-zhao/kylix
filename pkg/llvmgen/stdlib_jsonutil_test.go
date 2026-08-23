@@ -206,3 +206,47 @@ end.`)
 		t.Errorf("parse_flat define emitted %d times, want 1", count)
 	}
 }
+
+// ---- v6.8.0: nested JSON objects become real map-Variant boxes ----
+
+func TestJson_ValueToVariant_NestedObjectBoxedAsMap(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses jsonutil;
+begin
+  var m := JsonDecodeMap('{"user":{"name":"alice"},"n":1}');
+end.`)
+	// value_to_variant must recursively parse a nested '{' object into an htab
+	// and box_map it (NOT box_str the raw substring as pre-v6.8).
+	assertIRContains(t, ir, "call ptr @__kylix_json_parse_flat")
+	assertIRContains(t, ir, "call ptr @__kylix_variant_box_map")
+	// But a nested '[' array remains a raw str box (no Variant array tag).
+	assertIRContains(t, ir, "call ptr @__kylix_variant_box_str")
+}
+
+func TestJson_GetMap_MapBoxFastPath(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses jsonutil;
+begin
+  var m := JsonDecodeMap('{"a":{"b":1}}');
+  var sub := JsonGetMap(m, 'a');
+end.`)
+	// v6.8.0: JsonGetMap fast-paths a nested map box → return its htab via
+	// inttoptr(payload), while keeping the legacy raw-substring re-parse.
+	assertIRContains(t, ir, "define ptr @__kylix_json_JsonGetMap")
+	getMapIdx := strings.Index(ir, "define ptr @__kylix_json_JsonGetMap")
+	bodyEnd := strings.Index(ir[getMapIdx:], "\n}")
+	body := ir[getMapIdx : getMapIdx+bodyEnd]
+	if !strings.Contains(body, "inttoptr i64 %v to ptr") && !strings.Contains(body, "inttoptr") {
+		t.Errorf("JsonGetMap should inttoptr the map-box payload for the fast path\nbody:\n%s", body)
+	}
+	if !strings.Contains(body, "icmp eq i32 %v, 5") && !strings.Contains(body, "varTagMap") {
+		// tag==map check emitted as literal 5 (varTagMap).
+		if !strings.Contains(body, ", 5") {
+			t.Errorf("JsonGetMap should branch on tag==map for the fast path\nbody:\n%s", body)
+		}
+	}
+	// Legacy branch must survive (strcmp + parse_flat) for str-box values.
+	if !strings.Contains(body, "call ptr @__kylix_json_parse_flat") {
+		t.Errorf("JsonGetMap legacy path must still parse raw substrings\nbody:\n%s", body)
+	}
+}

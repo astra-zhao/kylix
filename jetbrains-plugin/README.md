@@ -1,11 +1,13 @@
 # Kylix JetBrains Plugin — 安装与使用手册
 
-Kylix 是现代化 Pascal 语言（Modern Pascal → Go / LLVM）。本插件为 **IntelliJ IDEA / GoLand** 提供 Kylix 语言支持：语法高亮 + LSP 智能编辑 + 25 个代码模板。
+Kylix 是现代化 Pascal 语言（Modern Pascal → Go / LLVM）。本插件为 **IntelliJ IDEA / GoLand** 提供 Kylix 语言支持：语法高亮 + LSP 智能编辑 + 25 个代码模板 + 运行配置 + 文件图标。
 
 - **语法高亮**：TextMate 语法（与 VS Code 插件同一 grammar）
-- **LSP 集成**：桥接 `kylix lsp`，提供补全 / 跳转 / 引用 / 重命名 / 格式化 / 悬停文档 / 错误波浪线
+- **LSP 集成**：桥接 `kylix lsp`，提供补全 / 跳转 / 引用 / 重命名 / 格式化 / 悬停文档 / 错误与警告波浪线
 - **代码模板**：`prog` / `func` / `class` / `controller` 等 25 个缩写
 - **结构感知**：`begin`/`end` 括号配对与代码折叠
+- **文件图标**（v6.8.0）：`.klx` 文件在项目树/编辑器 tab 显示 Kylix 图标
+- **Run 配置**（v6.8.0）：右键 `.klx` 文件 → Run，经 `kylix run`（KylixRT 后端）编译运行并输出到控制台
 
 ---
 
@@ -70,8 +72,19 @@ cd jetbrains-plugin
 | 格式化文档 | `Ctrl+Alt+L` / `⌥⌘L` |
 | 悬停文档（WriteLn、类型、关键字说明） | 鼠标悬停 |
 | 签名帮助（`(`、`,` 触发） | 输入时自动 |
-| 错误/警告波浪线 | 实时诊断 |
+| 错误/警告波浪线 | 实时诊断（错误=红，未定义标识符=黄，v6.8.0） |
 | 文档结构视图 | `⌘7` / Structure |
+
+### 3.2.1 运行 `.klx` 文件（v6.8.0）
+
+- **右键运行**：在项目树或编辑器中右键 `.klx` 文件 → **Run '&lt;文件名&gt;.klx'**，经 `kylix run <file>`（KylixRT 后端）编译运行，输出到 Run 控制台。
+- **手动 Run 配置**：Run/Debug Configurations → **+ → Kylix**，选择脚本路径后运行。
+- **前提**：`kylix` 可执行文件在 `PATH`（或 `KYLIX_PATH`），且已安装 LLVM（`kylix run` 自动探测）。
+
+### 3.2.2 文件图标（v6.8.0）
+
+`.klx` 文件在项目树、编辑器标签、文件选择器中显示 Kylix 蓝色图标（无需配置）。
+
 
 ### 3.3 代码模板（Live Templates）
 

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Kylix .klx file icon: a rounded blue tile with a bold "K" glyph
+       (vertical stem + two diagonals), evoking a Pascal compiler. -->
+  <rect x="0.5" y="0.5" width="15" height="15" rx="3" fill="#3B6FE0"/>
+  <path d="M5 3.5v9h1.8V9l3.2 3.5H13l-3.7-4L13 3.5h-3l-3.2 3.5V3.5z" fill="#FFFFFF"/>
+</svg>

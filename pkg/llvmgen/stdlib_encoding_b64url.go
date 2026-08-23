@@ -1,0 +1,503 @@
+package llvmgen
+
+import (
+	"fmt"
+	"kylix/ast"
+)
+
+// stdlib_encoding_b64url.go — LLVM IR implementation of Base64URLEncode /
+// Base64URLDecode (RFC 4648 §5, URL-safe alphabet, NO padding).
+//
+// Mirrors the Go-backend stdlib/encoding.go surface (base64.RawURLEncoding —
+// unpadded). Placed in its own file (v6.8.0) so stdlib_encoding.go stays under
+// the 1000-line cap. Shares jwtB64URLAlphabet from stdlib_jwt.go.
+
+// ---- Base64URLEncode: ptr @__kylix_encoding_Base64URLEncode(ptr %str) ----
+
+func (g *Generator) emitEncodingBase64URLEncodeCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("encoding.Base64URLEncode expects 1 argument, got %d", len(args))
+	}
+	argReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("encoding", "Base64URLEncode", "Base64URLEncode", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_encoding_Base64URLEncode(ptr %s)", r, argReg))
+	return r, "ptr", nil
+}
+
+func (g *Generator) emitEncodingBase64URLEncodeBody() {
+	tblReg := g.addBase64URLTable()
+	g.line("define ptr @__kylix_encoding_Base64URLEncode(ptr %str) {")
+	g.line("entry:")
+	ln := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %%str)", ln))
+	// Allocate the padded upper bound ((n+2)/3*4 + 1); the unpadded output is
+	// NUL-terminated at the real o position, so extra capacity is harmless.
+	plus2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 2", plus2, ln))
+	div3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = udiv i64 %s, 3", div3, plus2))
+	bufLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 2", bufLen, div3))
+	bufSize := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", bufSize, bufLen))
+	out := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", out, bufSize))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", out))
+	iSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", iSlot))
+	oSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", oSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", oSlot))
+	condLbl := g.label()
+	bodyLbl := g.label()
+	tailLbl := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	g.line(fmt.Sprintf("%s:", condLbl))
+	curI := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curI, iSlot))
+	ip2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 2", ip2, curI))
+	hasTriple := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp slt i64 %s, %s", hasTriple, ip2, ln))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", hasTriple, bodyLbl, tailLbl))
+	g.line(fmt.Sprintf("%s:", bodyLbl))
+	var bvs [3]string
+	for k := 0; k < 3; k++ {
+		off := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, %d", off, curI, k))
+		bp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%str, i64 %s", bp, off))
+		bl := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i8, ptr %s", bl, bp))
+		bv := g.tmp()
+		g.line(fmt.Sprintf("  %s = zext i8 %s to i64", bv, bl))
+		bvs[k] = bv
+	}
+	b0sh := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 16", b0sh, bvs[0]))
+	b1sh := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 8", b1sh, bvs[1]))
+	lo := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %s", lo, b1sh, bvs[2]))
+	triple := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %s", triple, b0sh, lo))
+	var idxs [4]string
+	idxs[0] = g.tmp()
+	g.line(fmt.Sprintf("  %s = lshr i64 %s, 18", idxs[0], triple))
+	idxs[1] = g.tmp()
+	g.line(fmt.Sprintf("  %s = lshr i64 %s, 12", idxs[1], triple))
+	idxs[2] = g.tmp()
+	g.line(fmt.Sprintf("  %s = lshr i64 %s, 6", idxs[2], triple))
+	idxs[3] = g.tmp()
+	g.line(fmt.Sprintf("  %s = lshr i64 %s, 0", idxs[3], triple))
+	var masks [4]string
+	for k := 0; k < 4; k++ {
+		m := g.tmp()
+		g.line(fmt.Sprintf("  %s = and i64 %s, 63", m, idxs[k]))
+		masks[k] = m
+	}
+	curO := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curO, oSlot))
+	for k := 0; k < 4; k++ {
+		cp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds [64 x i8], ptr %s, i64 0, i64 %s", cp, tblReg, masks[k]))
+		cv := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i8, ptr %s", cv, cp))
+		op := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, %d", op, curO, k))
+		dp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dp, out, op))
+		g.line(fmt.Sprintf("  store i8 %s, ptr %s", cv, dp))
+	}
+	o4 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 4", o4, curO))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", o4, oSlot))
+	i3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 3", i3, curI))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", i3, iSlot))
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	// Tail: rem 1 (2 chars) or rem 2 (3 chars), then done.
+	g.line(fmt.Sprintf("%s:", tailLbl))
+	curI2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curI2, iSlot))
+	rem := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 %s, %s", rem, ln, curI2))
+	rem1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 1", rem1, rem))
+	t1Lbl := g.label()
+	t2CheckLbl := g.label()
+	t2Lbl := g.label()
+	doneLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", rem1, t1Lbl, t2CheckLbl))
+	// rem==0 falls through to done (no tail output); only rem==2 encodes.
+	g.line(fmt.Sprintf("%s:", t2CheckLbl))
+	rem2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 2", rem2, rem))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", rem2, t2Lbl, doneLbl))
+	// tail1: one byte -> two chars
+	g.line(fmt.Sprintf("%s:", t1Lbl))
+	b0p := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%str, i64 %s", b0p, curI2))
+	b0l := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", b0l, b0p))
+	b0v := g.tmp()
+	g.line(fmt.Sprintf("  %s = zext i8 %s to i64", b0v, b0l))
+	sh0 := g.tmp()
+	g.line(fmt.Sprintf("  %s = lshr i64 %s, 2", sh0, b0v))
+	c0i := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i64 %s, 63", c0i, sh0))
+	lo3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i64 %s, 3", lo3, b0v))
+	sh1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 4", sh1, lo3))
+	c1i := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i64 %s, 63", c1i, sh1))
+	curO2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curO2, oSlot))
+	for k, mi := range []string{c0i, c1i} {
+		cp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds [64 x i8], ptr %s, i64 0, i64 %s", cp, tblReg, mi))
+		cv := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i8, ptr %s", cv, cp))
+		op := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, %d", op, curO2, k))
+		dp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dp, out, op))
+		g.line(fmt.Sprintf("  store i8 %s, ptr %s", cv, dp))
+	}
+	o2b := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 2", o2b, curO2))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", o2b, oSlot))
+	g.line(fmt.Sprintf("  br label %%%s", doneLbl))
+	// tail2: two bytes -> three chars
+	g.line(fmt.Sprintf("%s:", t2Lbl))
+	var tbvs [2]string
+	for k := 0; k < 2; k++ {
+		off := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, %d", off, curI2, k))
+		bp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%str, i64 %s", bp, off))
+		bl := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i8, ptr %s", bl, bp))
+		bv := g.tmp()
+		g.line(fmt.Sprintf("  %s = zext i8 %s to i64", bv, bl))
+		tbvs[k] = bv
+	}
+	t0sh := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 16", t0sh, tbvs[0]))
+	t1sh := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 8", t1sh, tbvs[1]))
+	ttriple := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %s", ttriple, t0sh, t1sh))
+	var tidx [3]string
+	for k, sh := range []int{18, 12, 6} {
+		ti := g.tmp()
+		g.line(fmt.Sprintf("  %s = lshr i64 %s, %d", ti, ttriple, sh))
+		tm := g.tmp()
+		g.line(fmt.Sprintf("  %s = and i64 %s, 63", tm, ti))
+		tidx[k] = tm
+	}
+	curO3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curO3, oSlot))
+	for k, mi := range tidx {
+		cp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds [64 x i8], ptr %s, i64 0, i64 %s", cp, tblReg, mi))
+		cv := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i8, ptr %s", cv, cp))
+		op := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, %d", op, curO3, k))
+		dp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dp, out, op))
+		g.line(fmt.Sprintf("  store i8 %s, ptr %s", cv, dp))
+	}
+	o3b := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 3", o3b, curO3))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", o3b, oSlot))
+	g.line(fmt.Sprintf("  br label %%%s", doneLbl))
+	g.line(fmt.Sprintf("%s:", doneLbl))
+	curO4 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curO4, oSlot))
+	termPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", termPtr, out, curO4))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", termPtr))
+	g.line(fmt.Sprintf("  ret ptr %s", out))
+	g.line("}")
+	g.line("")
+}
+
+// addBase64URLTable emits the base64url alphabet as a private global constant
+// and returns its register name. Idempotent via base64URLTableEmitted.
+func (g *Generator) addBase64URLTable() string {
+	if g.base64URLTableEmitted {
+		return "@__kylix_b64url_table"
+	}
+	g.base64URLTableEmitted = true
+	var escaped string
+	for _, c := range []byte(jwtB64URLAlphabet) {
+		escaped += fmt.Sprintf("\\%02X", c)
+	}
+	g.line(fmt.Sprintf("@__kylix_b64url_table = private unnamed_addr constant [64 x i8] c\"%s\", align 1", escaped))
+	return "@__kylix_b64url_table"
+}
+
+// ---- Base64URLDecode: ptr @__kylix_encoding_Base64URLDecode(ptr %str) ----
+
+func (g *Generator) emitEncodingBase64URLDecodeCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("encoding.Base64URLDecode expects 1 argument, got %d", len(args))
+	}
+	argReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("encoding", "Base64URLDecode", "Base64URLDecode", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_encoding_Base64URLDecode(ptr %s)", r, argReg))
+	return r, "ptr", nil
+}
+
+func (g *Generator) emitEncodingBase64URLDecodeBody() {
+	g.line("define ptr @__kylix_encoding_Base64URLDecode(ptr %str) {")
+	g.line("entry:")
+	ln := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %%str)", ln))
+	out := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", out, ln))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", out))
+	iSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", iSlot))
+	oSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", oSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", oSlot))
+	condLbl := g.label()
+	bodyLbl := g.label()
+	tailLbl := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	g.line(fmt.Sprintf("%s:", condLbl))
+	curI := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curI, iSlot))
+	ip3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 3", ip3, curI))
+	hasQuad := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp slt i64 %s, %s", hasQuad, ip3, ln))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", hasQuad, bodyLbl, tailLbl))
+	g.line(fmt.Sprintf("%s:", bodyLbl))
+	var vs [4]string
+	for k := 0; k < 4; k++ {
+		off := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, %d", off, curI, k))
+		cp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%str, i64 %s", cp, off))
+		cv := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i8, ptr %s", cv, cp))
+		vr := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @__kylix_encoding_b64urlval(i8 %s)", vr, cv))
+		vs[k] = vr
+	}
+	v0sh := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 18", v0sh, vs[0]))
+	v1sh := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 12", v1sh, vs[1]))
+	v2sh := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 6", v2sh, vs[2]))
+	lo := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %s", lo, v2sh, vs[3]))
+	mid := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %s", mid, v1sh, lo))
+	triple := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %s", triple, v0sh, mid))
+	var bms [3]string
+	bms[0] = g.tmp()
+	g.line(fmt.Sprintf("  %s = lshr i64 %s, 16", bms[0], triple))
+	bms[1] = g.tmp()
+	g.line(fmt.Sprintf("  %s = lshr i64 %s, 8", bms[1], triple))
+	bms[2] = g.tmp()
+	g.line(fmt.Sprintf("  %s = lshr i64 %s, 0", bms[2], triple))
+	curO := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curO, oSlot))
+	for k, val := range bms {
+		bm := g.tmp()
+		g.line(fmt.Sprintf("  %s = and i64 %s, 255", bm, val))
+		b8 := g.tmp()
+		g.line(fmt.Sprintf("  %s = trunc i64 %s to i8", b8, bm))
+		op := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, %d", op, curO, k))
+		dp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dp, out, op))
+		g.line(fmt.Sprintf("  store i8 %s, ptr %s", b8, dp))
+	}
+	o3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 3", o3, curO))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", o3, oSlot))
+	i4 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 4", i4, curI))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", i4, iSlot))
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	// Tail: rem 2 (1 output byte) or rem 3 (2 output bytes).
+	g.line(fmt.Sprintf("%s:", tailLbl))
+	curI2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curI2, iSlot))
+	rem := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 %s, %s", rem, ln, curI2))
+	rem2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 2", rem2, rem))
+	t2Lbl := g.label()
+	t3CheckLbl := g.label()
+	t3Lbl := g.label()
+	doneLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", rem2, t2Lbl, t3CheckLbl))
+	// rem==0 falls through to done; only rem==3 decodes a trailing triple.
+	g.line(fmt.Sprintf("%s:", t3CheckLbl))
+	rem3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 3", rem3, rem))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", rem3, t3Lbl, doneLbl))
+	g.line(fmt.Sprintf("%s:", t2Lbl))
+	v0r := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%str, i64 %s", v0r, curI2))
+	v0l := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", v0l, v0r))
+	v0 := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_encoding_b64urlval(i8 %s)", v0, v0l))
+	ip1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", ip1, curI2))
+	v1r := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%str, i64 %s", v1r, ip1))
+	v1l := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", v1l, v1r))
+	v1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_encoding_b64urlval(i8 %s)", v1, v1l))
+	t0sh := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 18", t0sh, v0))
+	t1sh := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 12", t1sh, v1))
+	triple2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %s", triple2, t0sh, t1sh))
+	b0t := g.tmp()
+	g.line(fmt.Sprintf("  %s = lshr i64 %s, 16", b0t, triple2))
+	b0m := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i64 %s, 255", b0m, b0t))
+	curO2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curO2, oSlot))
+	b0b := g.tmp()
+	g.line(fmt.Sprintf("  %s = trunc i64 %s to i8", b0b, b0m))
+	dp2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dp2, out, curO2))
+	g.line(fmt.Sprintf("  store i8 %s, ptr %s", b0b, dp2))
+	o1b := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", o1b, curO2))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", o1b, oSlot))
+	g.line(fmt.Sprintf("  br label %%%s", doneLbl))
+	g.line(fmt.Sprintf("%s:", t3Lbl))
+	var tv [3]string
+	for k := 0; k < 3; k++ {
+		off := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, %d", off, curI2, k))
+		cp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%str, i64 %s", cp, off))
+		cv := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i8, ptr %s", cv, cp))
+		vr := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @__kylix_encoding_b64urlval(i8 %s)", vr, cv))
+		tv[k] = vr
+	}
+	u0sh := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 18", u0sh, tv[0]))
+	u1sh := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 12", u1sh, tv[1]))
+	u2sh := g.tmp()
+	g.line(fmt.Sprintf("  %s = shl i64 %s, 6", u2sh, tv[2]))
+	lo3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %s", lo3, u1sh, u2sh))
+	triple3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %s", triple3, u0sh, lo3))
+	b0t3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = lshr i64 %s, 16", b0t3, triple3))
+	b0m3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i64 %s, 255", b0m3, b0t3))
+	b1t3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = lshr i64 %s, 8", b1t3, triple3))
+	b1m3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i64 %s, 255", b1m3, b1t3))
+	curO3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curO3, oSlot))
+	b0b3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = trunc i64 %s to i8", b0b3, b0m3))
+	dp3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dp3, out, curO3))
+	g.line(fmt.Sprintf("  store i8 %s, ptr %s", b0b3, dp3))
+	b1b3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = trunc i64 %s to i8", b1b3, b1m3))
+	op1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", op1, curO3))
+	dp4 := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", dp4, out, op1))
+	g.line(fmt.Sprintf("  store i8 %s, ptr %s", b1b3, dp4))
+	o2b := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 2", o2b, curO3))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", o2b, oSlot))
+	g.line(fmt.Sprintf("  br label %%%s", doneLbl))
+	g.line(fmt.Sprintf("%s:", doneLbl))
+	curO4 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curO4, oSlot))
+	termPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", termPtr, out, curO4))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", termPtr))
+	g.line(fmt.Sprintf("  ret ptr %s", out))
+	g.line("}")
+	g.line("")
+
+	// b64urlval helper: A-Z→0-25, a-z→26-51, 0-9→52-61, '-'→62, '_'→63, else 0.
+	g.line("define i64 @__kylix_encoding_b64urlval(i8 %c) {")
+	g.line("entry:")
+	cI64 := g.tmp()
+	g.line(fmt.Sprintf("  %s = zext i8 %%c to i64", cI64))
+	subA := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 %s, 65", subA, cI64))
+	isUpper := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ult i64 %s, 26", isUpper, subA))
+	g.line(fmt.Sprintf("  br i1 %s, label %%ret_upper, label %%check_lower", isUpper))
+	g.line("ret_upper:")
+	g.line(fmt.Sprintf("  ret i64 %s", subA))
+	g.line("check_lower:")
+	subLa := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 %s, 97", subLa, cI64))
+	adjLa := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 26", adjLa, subLa))
+	isLower := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ult i64 %s, 26", isLower, subLa))
+	g.line(fmt.Sprintf("  br i1 %s, label %%ret_lower, label %%check_digit", isLower))
+	g.line("ret_lower:")
+	g.line(fmt.Sprintf("  ret i64 %s", adjLa))
+	g.line("check_digit:")
+	subD := g.tmp()
+	g.line(fmt.Sprintf("  %s = sub i64 %s, 48", subD, cI64))
+	adjD := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 52", adjD, subD))
+	isDigit := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ult i64 %s, 10", isDigit, subD))
+	g.line(fmt.Sprintf("  br i1 %s, label %%ret_digit, label %%check_dash", isDigit))
+	g.line("ret_digit:")
+	g.line(fmt.Sprintf("  ret i64 %s", adjD))
+	g.line("check_dash:")
+	isDash := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 45", isDash, cI64)) // '-'
+	g.line(fmt.Sprintf("  br i1 %s, label %%ret_dash, label %%check_under", isDash))
+	g.line("ret_dash:")
+	g.line("  ret i64 62")
+	g.line("check_under:")
+	isUnder := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 95", isUnder, cI64)) // '_'
+	g.line(fmt.Sprintf("  br i1 %s, label %%ret_under, label %%ret_zero", isUnder))
+	g.line("ret_under:")
+	g.line("  ret i64 63")
+	g.line("ret_zero:")
+	g.line("  ret i64 0")
+	g.line("}")
+	g.line("")
+}
