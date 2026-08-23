@@ -19,6 +19,7 @@ Kylix 是现代化 Pascal 语言（Modern Pascal → Go / LLVM）。本插件为
 | [LSP4IJ](https://plugins.jetbrains.com/plugin/23057) 插件 | 任意稳定版 | **必须先安装**（见下） |
 | JDK | 17+ | 构建插件用 21（本机已装） |
 | Kylix 编译器 | 任意（含 `kylix lsp`） | 见「配置 Kylix 编译器」 |
+| LLVM（`llc`/`opt`） | 18+ | **仅 Run 配置需要**（`kylix run` 编译 .klx 用 LLVM 后端，自动探测；LSP/高亮不需要） |
 
 > LSP4IJ 是 JetBrains Marketplace 上的开源插件（Red Hat 维护），提供 IntelliJ 平台的 LSP 客户端框架；本插件依赖它启动 `kylix lsp` 进程。安装后，**LSP 的补全/跳转/重命名/格式化等全部能力由 `kylix lsp` 服务器提供**（`pkg/lsp/`，随 Kylix 编译器分发）。
 
@@ -145,6 +146,7 @@ export KYLIX_HOME="$HOME/kylix"
 | LSP 状态栏不出现 / 无补全 | ① 确认 `kylix lsp` 命令行可用（终端跑 `kylix lsp` 不报错）② 确认 LSP4IJ 已安装 ③ 打开 `LSP Consoles` 工具窗口看 kylix-lsp 日志 |
 | 补全没有 stdlib 符号 | 设 `KYLIX_HOME`（或保证 kylix 可执行文件与 `stdlib/klx` 相对位置在 5 层内）后重启 IDE |
 | `kylix: command not found` | 把 Kylix 编译器加进 `PATH`，或设 `KYLIX_PATH` |
+| Run 配置报 `kylix: command not found` / 无 LLVM | 确认 `kylix` 在 `PATH`（或 `KYLIX_PATH`）且 `kylix run` 在终端可用；LLVM 缺失时报「llc not found」——装 LLVM 或用 `kylix run --backend=go`（需 Go 工具链） |
 | 安装 zip 提示版本不兼容 | 本插件要求 IDE 2023.3+；升级 IDE 或换对应版本的 SDK 重新构建 |
 
 ---
