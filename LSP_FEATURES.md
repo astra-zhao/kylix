@@ -63,6 +63,14 @@
 总计: 9/9 测试通过
 ```
 
+## ✨ v6.8.0 新增：语义诊断（未定义标识符 warning）
+
+- **功能**：`textDocument/publishDiagnostics` 除 parse/semantic **error**（severity 1，红色波浪线）外，新增 **warning**（severity 2，黄色波浪线）——未声明的变量/函数/类型引用被标记（`Undefined identifier 'x'`）。
+- **机制**：`pkg/lsp/diagnostics.go` 反射遍历 AST 收集所有 `*ast.Identifier`，对照 `SymbolTable.AllSymbols`（大小写不敏感）+ Kylix 内置标识符 + 隐式声明（循环变量/枚举成员/泛型参数/lambda 参数）判定。
+- **SymbolTable 补全**（`pkg/lsp/symbols.go`）：`type X = class` 递归展开（此前只收集类型名，方法参数/局部/字段全漏）、函数 `LocalDecls`（`var min, max: Integer;`）、泛型 `TypeParams`、类方法 `LocalDecls`——同时提升补全/跳转。
+- **降级保护**：`stdlib/klx` 不可用时跳过 warning（避免 used stdlib 函数误报）。
+- **验证**：51 教程全量扫描 **0 误报**；真实未定义（`typoVar`）正确检出；`diagnostics_test.go` 5 个测试覆盖。
+
 ## 🔧 LSP 服务器配置
 
 ### 初始化响应中的功能声明
