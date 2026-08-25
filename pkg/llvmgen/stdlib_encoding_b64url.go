@@ -9,7 +9,7 @@ import (
 // Base64URLDecode (RFC 4648 §5, URL-safe alphabet, NO padding).
 //
 // Mirrors the Go-backend stdlib/encoding.go surface (base64.RawURLEncoding —
-// unpadded). Placed in its own file (v6.8.0) so stdlib_encoding.go stays under
+// unpadded). Placed in its own file (v0.6.8) so stdlib_encoding.go stays under
 // the 1000-line cap. Shares jwtB64URLAlphabet from stdlib_jwt.go.
 
 // ---- Base64URLEncode: ptr @__kylix_encoding_Base64URLEncode(ptr %str) ----

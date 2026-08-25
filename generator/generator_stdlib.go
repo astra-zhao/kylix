@@ -81,7 +81,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	),
 	"websocket": strToSet(
 		"WsDial", "WsAccept", "WsSend", "WsRecv", "WsClose",
-		"WsDialConnect", "WsDialFinish", // v6.5.0 two-phase handshake
+		"WsDialConnect", "WsDialFinish", // v0.6.5 two-phase handshake
 	),
 	"container":  strToSet("NewContainer"),
 	"config":     strToSet("NewConfig", "NewAppConfig"),
@@ -127,7 +127,7 @@ var stdlibErrorFuncReturnTypes = map[string]string{
 	"WsDial":          "*stdlib.TWsConn",
 	"WsAccept":        "*stdlib.TWsConn",
 	"WsRecv":          "string",
-	"WsDialConnect":   "*stdlib.TWsConn", // v6.5.0 two-phase handshake
+	"WsDialConnect":   "*stdlib.TWsConn", // v0.6.5 two-phase handshake
 	"WsDialFinish":    "bool",
 	"ListDir":         "[]string",
 	"ListFiles":       "[]string",
@@ -140,7 +140,7 @@ var stdlibErrorFuncReturnTypes = map[string]string{
 	"JsonReadFile":    "interface{}",
 	"TcpDial":         "*stdlib.TTcpConn",
 	"TcpListen":       "*stdlib.TTcpListener",
-	"TcpAccept":       "*stdlib.TTcpConn", // v6.5.0: WsAccept takes a TcpAccept result
+	"TcpAccept":       "*stdlib.TTcpConn", // v0.6.5: WsAccept takes a TcpAccept result
 	"UdpDial":         "*stdlib.TUdpConn",
 	"DnsLookup":       "[]string",
 	"DnsLookupCNAME":  "string",
@@ -176,7 +176,7 @@ var stdlibErrorFuncs = map[string]bool{
 	"HttpPut": true, "HttpDelete": true, "HttpPostJSON": true,
 	"HttpDoGet": true, "HttpDoPost": true,
 	"WsDial": true, "WsAccept": true, "WsRecv": true,
-	"WsDialConnect": true, // v6.5.0 two-phase handshake (WsDialFinish returns bool, not error)
+	"WsDialConnect": true, // v0.6.5 two-phase handshake (WsDialFinish returns bool, not error)
 	"JsonDecode": true, "JsonDecodeMap": true, "JsonDecodeArray": true,
 	"JsonReadFile": true,
 	"AesEncrypt":   true, "AesDecrypt": true,
@@ -184,7 +184,7 @@ var stdlibErrorFuncs = map[string]bool{
 	"Base64Decode": true, "HexDecode": true, "UrlDecode": true,
 	"CsvDecode": true, "JsonLinesDecode": true,
 	"TcpDial": true, "TcpListen": true, "UdpDial": true,
-	"TcpAccept": true, // v6.5.0: WsAccept takes a TcpAccept result
+	"TcpAccept": true, // v0.6.5: WsAccept takes a TcpAccept result
 	"DnsLookup": true, "DnsLookupCNAME": true,
 	"JwtSign": true, "JwtVerify": true,
 	"DbOpen": true, "DbOpenSQLite": true,

@@ -21,9 +21,9 @@ import (
 // time() and deletes expired entries on access; Sweep() walks all ttl keys
 // (via @__kylix_htab_keys) and evicts everything already expired. The LRU
 // capacity from the Go backend's stdlib/cache.go is not replicated (the hash
-// table is unbounded), matching the pre-v6.6.0 behavior.
+// table is unbounded), matching the pre-v0.6.6 behavior.
 //
-// v6.6.0 adds PutWithTTL / Get / Sweep and real TTL semantics.
+// v0.6.6 adds PutWithTTL / Get / Sweep and real TTL semantics.
 
 const cacheHandleTypeName = "TCache"
 

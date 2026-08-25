@@ -1,5 +1,5 @@
 // boot_annotations.go — KylixBoot annotation scanning + auto-wiring for the
-// LLVM backend (v6.1.0).
+// LLVM backend (v0.6.1).
 //
 // Mirrors the Go backend's generator/generator_boot_annotations.go: the
 // [Controller] / [Service] / [Component] / [Inject] / [Get] / [Post] / [Put] /
@@ -153,7 +153,7 @@ func (g *Generator) emitBootGlobals() {
 		seen[route.ClassName] = true
 		g.line(fmt.Sprintf("@__kylix_boot_ctrl_%s = global ptr null", route.ClassName))
 	}
-	// v6.6.0: the runtime route table that @__kylix_boot_Boot<M> writes and
+	// v0.6.6: the runtime route table that @__kylix_boot_Boot<M> writes and
 	// @__kylix_boot_BootRun dispatches against. Fixed 64-entry capacity
 	// (enough for the tutorial controllers; overflows are dropped).
 	if len(g.bootRoutes) > 0 {
@@ -174,7 +174,7 @@ func (g *Generator) emitBootAutoWiring() error {
 	if len(g.bootRoutes) == 0 && len(g.bootComponents) == 0 && len(g.bootInjects) == 0 {
 		return nil
 	}
-	g.line("  ; --- KylixBoot auto-wiring (v6.1.0) ---")
+	g.line("  ; --- KylixBoot auto-wiring (v0.6.1) ---")
 
 	// 1. Instantiate components ([Service]/[Component]) and register them under
 	//    their full class name and short name (mirrors the Go backend).

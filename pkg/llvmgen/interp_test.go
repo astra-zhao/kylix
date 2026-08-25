@@ -19,7 +19,7 @@ begin
   n := 5;
   WriteLn('n=${n}');
 end.`)
-	assertInterpContains(t, ir, "call ptr @malloc(i64") // v6.5.0: sized to content, not fixed 256
+	assertInterpContains(t, ir, "call ptr @malloc(i64") // v0.6.5: sized to content, not fixed 256
 	assertInterpContains(t, ir, "alloca i64, align 8")  // total-length accumulator
 	assertInterpContains(t, ir, "store i8 0, ptr")      // NUL init
 }

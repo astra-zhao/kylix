@@ -1,5 +1,5 @@
 // regex_test.klx — Tests for stdlib/src/regex.klx validation helpers
-// Part of v3.0.0 stdlib Phase 4
+// Part of v0.3.0 stdlib Phase 4
 unit regex_test;
 
 uses regex;

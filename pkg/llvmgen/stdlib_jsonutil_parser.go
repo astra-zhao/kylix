@@ -4,7 +4,7 @@ import "fmt"
 
 // stdlib_jsonutil_parser.go — flat-object JSON parser IR for the LLVM backend.
 //
-// Replaces the v4.4.0 JsonDecodeMap stub (which returned an empty hash table)
+// Replaces the v0.4.4 JsonDecodeMap stub (which returned an empty hash table)
 // with a real state-machine parser. Handles flat JSON objects with scalar
 // values (string / number / true / false / null). Nested objects and arrays
 // are not recursed into — their raw JSON substring is stored as the value so
@@ -40,7 +40,7 @@ func (g *Generator) emitJsonParserBodies() {
 	g.emitJsonReadBare()
 	g.emitJsonSkipNested()
 	g.emitJsonReadValue()
-	g.emitJsonValueToVariant() // v5.1.0: shared by parse_flat & parse_array
+	g.emitJsonValueToVariant() // v0.5.1: shared by parse_flat & parse_array
 	g.emitJsonParseFlat()
 }
 
@@ -385,7 +385,7 @@ func (g *Generator) emitJsonSkipNested() {
 	// sibling keys (e.g. '{"user":{...},"version":3}' lost "version").
 	endAfter := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", endAfter, end))
-	// v4.9.0: include the closing char in the raw substring. curSlot points at
+	// v0.4.9: include the closing char in the raw substring. curSlot points at
 	// the matching close (depth reached 0 before advLbl advances past it), so
 	// the substring spans [start, endAfter) — i.e. endAfter - start bytes —
 	// which keeps the closing '}' / ']' so JsonGetArray's parser sees a
@@ -548,7 +548,7 @@ func (g *Generator) emitJsonParseFlat() {
 }
 
 // ---- parse_array: void @__kylix_json_parse_array(ptr %out, ptr %s) ----
-// v4.9.0: parse a JSON array substring "[...]" into the {ptr items, i64 len}
+// v0.4.9: parse a JSON array substring "[...]" into the {ptr items, i64 len}
 // struct at %out. Elements are stored as C strings (scalars as JSON text,
 // nested objects/arrays as their raw substring) in a growable malloc'd [N x ptr]
 // buffer. Mirrors parse_flat's state machine but for arrays: skip ws, expect
@@ -612,7 +612,7 @@ func (g *Generator) emitJsonParseArray() {
 	doneLbl := g.label()
 	elemLbl := g.label()
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isClose, doneLbl, elemLbl))
-	// elemLbl: read a value as a Variant box (v5.0.0: classified by
+	// elemLbl: read a value as a Variant box (v0.5.0: classified by
 	// value_to_variant → tagged box), then append to buffer (grow if needed).
 	g.line(fmt.Sprintf("%s:", elemLbl))
 	val := g.tmp()
@@ -692,7 +692,7 @@ func (g *Generator) emitJsonParseArray() {
 }
 
 // ---- value_to_variant: ptr @__kylix_json_value_to_variant(ptr %s, ptr %posSlot) ----
-// v5.0.0: reads one JSON value at %s[%pos] (advancing %pos) and returns a
+// v0.5.0: reads one JSON value at %s[%pos] (advancing %pos) and returns a
 // Variant box (tagged {i32, i64}) so array elements carry their runtime type.
 // Classification by the value's first char:
 //
@@ -745,7 +745,7 @@ func (g *Generator) emitJsonValueToVariant() {
 	sbox := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", sbox, sr))
 	g.line(fmt.Sprintf("  ret ptr %s", sbox))
-	// nested OBJECT → recursively parse_flat into a map-Variant box (v6.8.0
+	// nested OBJECT → recursively parse_flat into a map-Variant box (v0.6.8
 	// nested JSON: `m['user']['name']` chains through variant-map lookup).
 	g.line(fmt.Sprintf("%s:", objLbl))
 	nr := g.tmp()

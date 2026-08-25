@@ -35,8 +35,8 @@ type FieldInfo struct {
 	LLVMType  string
 	KylixType string // original Kylix type name (e.g. "TUserRepository", "Integer")
 	Index     int
-	ArrayType *ast.ArrayType // v4.8.0: set when the field is a static array (array[lo..hi] of T); enables self.Items[i] GEP
-	MapType   *ast.MapType   // v5.4.0: set when the field is a map (map[K]V); enables self.MapField[key] htab_get
+	ArrayType *ast.ArrayType // v0.4.8: set when the field is a static array (array[lo..hi] of T); enables self.Items[i] GEP
+	MapType   *ast.MapType   // v0.5.4: set when the field is a map (map[K]V); enables self.MapField[key] htab_get
 }
 
 // MethodInfo describes a class method in the vtable.
@@ -44,9 +44,9 @@ type MethodInfo struct {
 	Name          string
 	VtableIdx     int
 	RetType       string
-	RetKylixType  string   // v5.4.0: original Kylix return type name (for type inference on `x := obj.Method()`)
+	RetKylixType  string   // v0.5.4: original Kylix return type name (for type inference on `x := obj.Method()`)
 	Params        []string // LLVM param types
-	ParamKylixTypes []string // v6.3.0: Kylix param type names — to recognize a Variant param ("ptr" is ambiguous with String/class)
+	ParamKylixTypes []string // v0.6.3: Kylix param type names — to recognize a Variant param ("ptr" is ambiguous with String/class)
 	DefiningClass string // class where this method's implementation lives (for vtable emit)
 }
 
@@ -111,7 +111,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 		}
 		llvmT := "i64"
 		kylixT := ""
-		// v4.8.0/v5.4.0: capture ArrayType for array fields (static AND dynamic)
+		// v0.4.8/v0.5.4: capture ArrayType for array fields (static AND dynamic)
 		// so obj.Field[i] can GEP into the embedded storage. Dynamic slices use
 		// the {ptr,len,cap} struct; static arrays use [N x T]. Element types use
 		// llvmTypeOfExpr so class elements resolve to ptr (not the i64 fallback).
@@ -136,7 +136,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 				llvmT = fmt.Sprintf("[%d x %s]", size, elemT)
 			}
 		} else if mt, ok := f.Type.(*ast.MapType); ok {
-			// v5.4.0: map field — stored as an htab handle (ptr). Marked so the
+			// v0.5.4: map field — stored as an htab handle (ptr). Marked so the
 			// constructor initializes it (htab_new) and obj.Field[key] routes to
 			// htab_get instead of the array GEP path.
 			mapT = mt
@@ -185,7 +185,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 		retType := "void"
 		retKylix := ""
 		if m.ReturnType != nil {
-			// v5.5.0: use llvmTypeOfExpr (not llvmTypeFor) so array-of-T / map
+			// v0.5.5: use llvmTypeOfExpr (not llvmTypeFor) so array-of-T / map
 			// return types get the correct LLVM type ({ptr,i64,i64} / ptr).
 			// Previously this returned i64 for `array of T`, mismatching
 			// emitMethod's signature (which uses llvmTypeOfExpr correctly),
@@ -240,7 +240,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 // emitRecordDecl registers a record type as a class without methods (vtable
 // slot stays null). This lets record-typed locals/params/fields reuse the
 // existing class field-access machinery (emitFieldAccess/GEP, emitMember,
-// receiverKind). v5.4.0.
+// receiverKind). v0.5.4.
 func (g *Generator) emitRecordDecl(name string, rec *ast.RecordType) error {
 	info := &ClassInfo{Name: name, Parent: ""}
 	idx := 1 // slot 0 reserved (vtable ptr, null for records) so field indices
@@ -291,7 +291,7 @@ func (g *Generator) emitRecordDecl(name string, rec *ast.RecordType) error {
 	g.classes[name] = info
 	g.records[name] = true
 	g.emitStructType(info)
-	// v6.1.0: records also get an empty vtable constant (v5.5.0: emitFunctionDecl
+	// v0.6.1: records also get an empty vtable constant (v0.5.5: emitFunctionDecl
 	// stores it for record return types so `is` checks work; emitConstructor
 	// stores @X_vtable unconditionally).
 	g.line(fmt.Sprintf("@%s_vtable = constant [0 x ptr] []", name))
@@ -314,7 +314,7 @@ func (g *Generator) emitStructType(info *ClassInfo) {
 // Inherited method slots point to the parent's implementation; overridden
 // slots point to the child's implementation (DefiningClass tracks this).
 func (g *Generator) emitVtable(info *ClassInfo, decl *ast.ClassDecl) {
-	// v6.1.0: classes with no methods still get an EMPTY vtable constant, never
+	// v0.6.1: classes with no methods still get an EMPTY vtable constant, never
 	// skipped — is/as class checks (`obj is TClass`) compare vtable pointers, so
 	// a missing or null vtable makes every check on such a class return false
 	// (breaking the bootstrap compiler's `decl is TTypeDecl` dispatch, which
@@ -343,7 +343,7 @@ func (g *Generator) emitVtable(info *ClassInfo, decl *ast.ClassDecl) {
 // normalizeParams fills in nil Type fields for multi-name parameter groups
 // (e.g. `level, msg: String` — the parser leaves `level`.Type nil because the
 // colon+type come after `msg`). It back-propagates each group's type to all
-// preceding nil-typed params in the same semicolon-separated group. v5.4.0.
+// preceding nil-typed params in the same semicolon-separated group. v0.5.4.
 func normalizeParams(params []*ast.Parameter) []*ast.Parameter {
 	lastType := ast.Expression(nil)
 	for i := len(params) - 1; i >= 0; i-- {
@@ -358,7 +358,7 @@ func normalizeParams(params []*ast.Parameter) []*ast.Parameter {
 
 // emitMethod emits a class method:  define <ret> @TFoo_Bar(ptr %self, ...) { ... }
 func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error {
-	method.Parameters = normalizeParams(method.Parameters) // v5.4.0: `level, msg: String`
+	method.Parameters = normalizeParams(method.Parameters) // v0.5.4: `level, msg: String`
 	retType := "void"
 	if method.ReturnType != nil {
 		retType = g.llvmTypeOfExpr(method.ReturnType)
@@ -414,7 +414,7 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	}
 
 	defineLine := fmt.Sprintf("define %s @%s_%s(%s) {", retType, className, method.Name, strings.Join(params, ", "))
-	// v4.9.0: register a DISubprogram for the method so OOP methods get
+	// v0.4.9: register a DISubprogram for the method so OOP methods get
 	// per-line stepping + variable inspection (same pattern as emitFunctionDecl).
 	var methodSpID int
 	if g.debugInfo {
@@ -430,17 +430,17 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	savedFunc := g.funcName
 	savedClass := g.curClassName
 	savedMethod := g.curMethodName
-	savedFuncExit := g.funcExitLabel // v5.6.0
-	g.funcExitLabel = g.label()      // v5.6.0: exit block for `Exit`/`return`
+	savedFuncExit := g.funcExitLabel // v0.5.6
+	g.funcExitLabel = g.label()      // v0.5.6: exit block for `Exit`/`return`
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
-	g.registerGlobalsInScope() // v5.4.0: make globals visible in this method
+	g.registerGlobalsInScope() // v0.5.4: make globals visible in this method
 	g.funcName = className + "_" + method.Name
 	g.curClassName = className
 	g.curMethodName = method.Name
 
-	// v4.9.0: scope + position for DILocations emitted inside this method.
+	// v0.4.9: scope + position for DILocations emitted inside this method.
 	if g.debugInfo {
 		g.setDbgScope(methodSpID)
 		g.setDbgNode(method)
@@ -490,11 +490,11 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 		if kylixType != "" {
 			g.localTypes[p.Name] = kylixType
 		}
-		// v5.4.0: register slice params in arrayInfo (same as emitFunctionDecl).
+		// v0.5.4: register slice params in arrayInfo (same as emitFunctionDecl).
 		if isSlice {
 			g.arrayInfo[p.Name] = &arrayInfo{IsDynamic: true, ElementType: elemT, ElementKylixType: elemKylixT}
 		}
-		// v4.9.0: declare the parameter as a debug local.
+		// v0.4.9: declare the parameter as a debug local.
 		if g.debugInfo {
 			declLine := method.Token.Line
 			if p.Token.Line > 0 {
@@ -508,13 +508,13 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	if retType != "void" {
 		g.line(fmt.Sprintf("  %%result = alloca %s, align 8", retType))
 		g.locals["result"] = "%result"
-		g.resultLLVMType = retType // v5.4.0
+		g.resultLLVMType = retType // v0.5.4
 		if g.debugInfo {
 			g.emitDbgDeclare("result", method.Token.Line, retType, "%result")
 		}
 	}
 
-	// v5.4.0: emit method-local var/const declarations (method.Body.Statements
+	// v0.5.4: emit method-local var/const declarations (method.Body.Statements
 	// are emitted below, but LocalDecls — the `var` block — were previously
 	// skipped, so locals like `d: TDiagnostic` were auto-declared as i64 on
 	// first assignment). Mirrors emitFunctionDecl's LocalDecls loop.
@@ -535,7 +535,7 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 		}
 	}
 
-	// v5.6.0: return via the shared exit block so `Exit`/`return` in the
+	// v0.5.6: return via the shared exit block so `Exit`/`return` in the
 	// method body branch to it and actually return this value.
 	g.emitFuncEpilogue(retType)
 
@@ -548,7 +548,7 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	g.funcName = savedFunc
 	g.curClassName = savedClass
 	g.curMethodName = savedMethod
-	g.funcExitLabel = savedFuncExit // v5.6.0
+	g.funcExitLabel = savedFuncExit // v0.5.6
 	// Leaving this method: clear the debug scope + position so subsequent
 	// module-level code doesn't attach a stale !dbg.
 	if g.debugInfo {
@@ -626,7 +626,7 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 		return r, nil
 	}
 
-	// v5.5.0: calculate struct size from actual field LLVM types, not 8 × count.
+	// v0.5.5: calculate struct size from actual field LLVM types, not 8 × count.
 	// The old formula `8 * (1 + len(fields))` under-allocates when fields have
 	// types larger than 8 bytes (e.g. {ptr,i64,i64} = 24 for slices/maps). This
 	// caused heap buffer overflow on TParser (Errors: array of String = 24 bytes
@@ -639,7 +639,7 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 	allocReg := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", allocReg, size))
 
-	// v5.4.0: ALWAYS store the vtable pointer at offset 0, even for classes
+	// v0.5.4: ALWAYS store the vtable pointer at offset 0, even for classes
 	// with no methods. Previously only classes with methods got their vtable
 	// stored; classes like TClassDecl/TVarDecl (no methods) had garbage at
 	// offset 0, so `is TClassDecl` (which loads obj[0] as the vtable ptr)
@@ -648,13 +648,13 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 	vtablePtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds %%%s, ptr %s, i32 0, i32 0",
 		vtablePtr, className, allocReg))
-	// v6.1.0: EVERY class has a vtable constant — emitVtable now emits an empty
+	// v0.6.1: EVERY class has a vtable constant — emitVtable now emits an empty
 	// [0 x ptr] vtable for method-less classes — so this store always resolves.
 	// (Storing null here made `obj is TClass` on a method-less class return
 	// false, breaking bootstrap's `decl is TTypeDecl` dispatch → infinite loop.)
 	g.line(fmt.Sprintf("  store ptr @%s_vtable, ptr %s", className, vtablePtr))
 
-	// v5.4.0: initialize map fields (htab_new) and zero-init dynamic slice
+	// v0.5.4: initialize map fields (htab_new) and zero-init dynamic slice
 	// fields so they aren't garbage after malloc. The bootstrap's TGenerator
 	// has map fields (ClassTypes/ClassIsBase/ClassFields/...) that are read
 	// (never written) — they must be valid (non-null) empty htabs so htab_get
@@ -678,7 +678,7 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 		}
 	}
 
-	// v5.4.0: call the user-defined Create method (if any) to initialize fields
+	// v0.5.4: call the user-defined Create method (if any) to initialize fields
 	// (e.g. TGenerator.Create sets Output/Indent/...). Without this the object's
 	// fields stay garbage after malloc, crashing on first use (e.g. strlen(null)
 	// on an uninitialized String field in WriteLine).
@@ -755,7 +755,7 @@ func (g *Generator) emitVirtualCall(className, objReg, methodName string, argReg
 		}
 	}
 	if meth == nil {
-		// v5.4.0: external method `procedure ClassName.Method` — defined outside
+		// v0.5.4: external method `procedure ClassName.Method` — defined outside
 		// the class body, so not in the vtable. If a matching @ClassName_Method
 		// function signature exists, call it directly with self + args.
 		extSym := className + "_" + methodName
@@ -768,7 +768,7 @@ func (g *Generator) emitVirtualCall(className, objReg, methodName string, argReg
 			callArgs = append(callArgs, "ptr "+objReg)
 			for i, r := range argRegs {
 				at := argTypes[i]
-				// v6.3.0: a Variant box's real IR type is ptr — the "variant"
+				// v0.6.3: a Variant box's real IR type is ptr — the "variant"
 				// pseudo-type must never appear in a call's arg list.
 				if at == variantT {
 					at = "ptr"
@@ -833,12 +833,12 @@ func (g *Generator) emitVirtualCall(className, objReg, methodName string, argReg
 	var callArgs []string
 	callArgs = append(callArgs, "ptr "+objReg) // self
 	for i, r := range argRegs {
-		// v5.4.0: argTypes may carry a Kylix class name (emitMember returns the
+		// v0.5.4: argTypes may carry a Kylix class name (emitMember returns the
 		// class name for class-typed fields so downstream method dispatch can
 		// resolve the receiver). Coerce to the LLVM type (ptr for classes) so
 		// the call instruction is well-typed.
 		at := argTypes[i]
-		// v6.3.0: a Variant box's real IR type is ptr — the "variant"
+		// v0.6.3: a Variant box's real IR type is ptr — the "variant"
 		// pseudo-type must never appear in a call's arg list.
 		if at == variantT {
 			at = "ptr"
@@ -928,7 +928,7 @@ func (g *Generator) emitInherited(s *ast.InheritedStatement) error {
 			return err
 		}
 		if i < len(meth.Params) && meth.Params[i] != t {
-			// v6.3.0: a Variant method param receives the box as-is — coercing
+			// v0.6.3: a Variant method param receives the box as-is — coercing
 			// variant→ptr would as_str it. The Kylix name disambiguates "ptr".
 			if i < len(meth.ParamKylixTypes) && isVariantTypeName(meth.ParamKylixTypes[i]) && t == variantT {
 				t = "ptr"
@@ -960,7 +960,7 @@ func (g *Generator) emitInherited(s *ast.InheritedStatement) error {
 	return nil
 }
 
-// llvmTypeSize returns the byte size of an LLVM IR type string. v5.5.0.
+// llvmTypeSize returns the byte size of an LLVM IR type string. v0.5.5.
 // Used by emitConstructor to compute the correct malloc size for class/record
 // instances — the old `8 * fieldCount` formula under-allocated when fields
 // had types larger than 8 bytes (slices {ptr,i64,i64}=24, static arrays, etc.).

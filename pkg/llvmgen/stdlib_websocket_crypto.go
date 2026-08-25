@@ -6,7 +6,7 @@ import "fmt"
 // RFC 6455 WebSocket handshake (Sec-WebSocket-Accept = b64(sha1(key+GUID))).
 // The Go backend uses crypto/sha1 + encoding/base64; here we emit hand-rolled
 // IR (the encoding module's Base64Encode is strlen-based, and SHA-1 isn't in
-// the crypto module). v6.4.0.
+// the crypto module). v0.6.4.
 
 // wsWsGUID is RFC 6455 §4.2.2 magic string appended to Sec-WebSocket-Key.
 const wsWsGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -23,7 +23,7 @@ func (g *Generator) emitWsSha1Body() {
 	g.line("define void @__kylix_ws_sha1(ptr %data, i64 %len, ptr %out) {")
 	g.line("entry:")
 	// padLen = ((len + 8) / 64 + 1) * 64
-	// (v6.5.0: was len+9 — wrong when (len+9) is a multiple of 64, i.e.
+	// (v0.6.5: was len+9 — wrong when (len+9) is a multiple of 64, i.e.
 	//  len ≡ 55 (mod 64), producing an extra all-zero block and a bad digest.)
 	pl1 := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %%len, 8", pl1))

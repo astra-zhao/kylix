@@ -16,7 +16,7 @@ func cmdDoc(args []string) {
 	stdout := fs.Bool("stdout", false, "Print to stdout instead of writing files")
 	genOpenAPI := fs.Bool("openapi", false, "Generate OpenAPI 3.1 YAML instead of Markdown")
 	apiTitle := fs.String("title", "", "API title for OpenAPI output (default: derived from project)")
-	apiVersion := fs.String("api-version", "1.0.0", "API version for OpenAPI output")
+	apiVersion := fs.String("api-version", "0.1.0", "API version for OpenAPI output")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix doc [options] [file.klx...]
 

@@ -5,7 +5,7 @@
 //
 // kylix.toml [dependencies] format:
 //
-//	http    = "github.com/kylix-lang/http@v0.1.0"
+//	http    = "github.com/kylix-lang/http@v0.0.1"
 //	myutils = "github.com/alice/myutils"          (latest)
 //	local   = "./local_pkg"                        (local path)
 package pkgmgr
@@ -46,7 +46,7 @@ func New(cfg *project.Config) *Manager {
 
 // Add adds a package to kylix.toml and installs it.
 //
-//	ref examples: "github.com/kylix-lang/http@v0.1.0"  "./local/path"
+//	ref examples: "github.com/kylix-lang/http@v0.0.1"  "./local/path"
 func (m *Manager) Add(name, ref string) error {
 	if m.cfg.Dependencies == nil {
 		m.cfg.Dependencies = make(map[string]string)
@@ -268,7 +268,7 @@ type PublishResult struct {
 //
 //	registryURL: e.g. "https://kylix.top" or "http://localhost:8080"
 //	apiToken:    Bearer token from `kylix login`
-//	version:     semantic version to publish (e.g. "1.0.0")
+//	version:     semantic version to publish (e.g. "0.1.0")
 func (m *Manager) Publish(registryURL, apiToken, version string) (*PublishResult, error) {
 	cfg := m.cfg
 

@@ -36,12 +36,12 @@ func (g *Generator) generateTypeDecl(decl *ast.TypeDecl) {
 // base classes are emitted as empty Go interfaces to enable heterogeneous
 // collections and type assertions; concrete classes are plain structs with an
 // embedded parent (for field inheritance), skipping the embed when the parent
-// is a poly interface. See v5.2.0.
+// is a poly interface. See v0.5.2.
 func (g *Generator) generateClassDecl(decl *ast.ClassDecl) {
 	g.writeLineDirective(decl.Token.Line)
 	g.classTypes[decl.Name] = true
 
-	// v5.2.0: base classes (someone's parent) under polymorphism → empty
+	// v0.5.2: base classes (someone's parent) under polymorphism → empty
 	// interface. The bootstrap AST bases (TNode/TStatement/TExpression) have no
 	// fields/methods accessed through the base type, so an empty interface
 	// suffices and type assertions (`x.(*TSub)`) work directly.
@@ -125,7 +125,7 @@ func (g *Generator) generateClassMethod(className string, typeParams []*ast.Type
 	g.write(") ")
 	g.write(method.Name)
 	g.generateFunctionSignature(method)
-	g.setVarParams(method) // v6.0.0: var output params → deref in body
+	g.setVarParams(method) // v0.6.0: var output params → deref in body
 	g.writeLine(" {")
 	g.indent++
 
@@ -170,7 +170,7 @@ func (g *Generator) generateClassMethod(className string, typeParams []*ast.Type
 	if hasReturnType {
 		g.writeLine("return result")
 	}
-	g.clearVarParams() // v6.0.0
+	g.clearVarParams() // v0.6.0
 
 	g.indent--
 	g.writeLine("}")
@@ -356,7 +356,7 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 	}
 	g.generateTypeParams(decl.TypeParams)
 	g.generateFunctionSignature(decl)
-	g.setVarParams(decl) // v6.0.0: track `var` output params for body deref
+	g.setVarParams(decl) // v0.6.0: track `var` output params for body deref
 	g.writeLine(" {")
 	g.indent++
 
@@ -400,7 +400,7 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 	if hasReturnType && !hasMultiReturn {
 		g.write("return result\n")
 	}
-	g.clearVarParams() // v6.0.0
+	g.clearVarParams() // v0.6.0
 	g.multiReturn = false
 	g.multiReturnN = 0
 
@@ -416,7 +416,7 @@ func (g *Generator) generateAsyncFunctionDecl(decl *ast.FunctionDecl) {
 	g.write(fmt.Sprintf("func %s", decl.Name))
 	g.generateTypeParams(decl.TypeParams)
 	g.generateAsyncSignature(decl)
-	g.setVarParams(decl) // v6.0.0
+	g.setVarParams(decl) // v0.6.0
 	g.writeLine(" {")
 	g.indent++
 
@@ -454,7 +454,7 @@ func (g *Generator) generateAsyncFunctionDecl(decl *ast.FunctionDecl) {
 	g.indent--
 	g.writeLine("}()")
 	g.writeLine("return ch")
-	g.clearVarParams() // v6.0.0
+	g.clearVarParams() // v0.6.0
 	g.indent--
 	g.writeLine("}")
 	g.writeLine("")
@@ -469,7 +469,7 @@ func (g *Generator) generateAsyncSignature(decl *ast.FunctionDecl) {
 		g.write(param.Name)
 		if param.Type != nil {
 			if param.IsVar {
-				g.write(" *") // v6.0.0: var output param → pointer
+				g.write(" *") // v0.6.0: var output param → pointer
 			} else {
 				g.write(" ")
 			}
@@ -511,7 +511,7 @@ func (g *Generator) generateFunctionSignature(decl *ast.FunctionDecl) {
 		g.write(param.Name)
 		if param.Type != nil {
 			if param.IsVar {
-				g.write(" *") // v6.0.0: var output param → pointer
+				g.write(" *") // v0.6.0: var output param → pointer
 			} else {
 				g.write(" ")
 			}
@@ -575,11 +575,11 @@ func (g *Generator) generateTypeExpression(expr ast.Expression) {
 			}
 		}
 		if g.usesPolymorphism && g.classIsBase[typeName] {
-			// v5.2.0: base class under polymorphism → interface (no pointer), so
+			// v0.5.2: base class under polymorphism → interface (no pointer), so
 			// `[]TBase` holds subclasses and `x.(*TSub)` assertions are valid.
 			g.write(typeName)
 		} else if g.classTypes[typeName] {
-			// v3.1.0: concrete class types emit *TypeName (field inheritance
+			// v0.3.1: concrete class types emit *TypeName (field inheritance
 			// via embedding). Previously emitted interface{} for base classes,
 			// but that made fields inaccessible; polymorphism is now opt-in via
 			// `is`/`as` (see classIsBase branch above).
@@ -652,7 +652,7 @@ func (g *Generator) generateTypeExpression(expr ast.Expression) {
 func (g *Generator) generateTypeExpressionForCast(expr ast.Expression) {
 	if ident, ok := expr.(*ast.Identifier); ok {
 		if g.usesPolymorphism && g.classIsBase[ident.Value] {
-			// v5.2.0: assert to a base interface (no pointer) — `x.(TBase)`.
+			// v0.5.2: assert to a base interface (no pointer) — `x.(TBase)`.
 			g.write(ident.Value)
 			return
 		}

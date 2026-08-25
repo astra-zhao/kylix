@@ -18,7 +18,7 @@ import (
 // `break <function>`, per-line stepping (`step`/`next`), function-level
 // backtraces, and local-variable inspection.
 //
-// Scope (v4.6.0): per-instruction DILocation + DILocalVariable.
+// Scope (v0.4.6): per-instruction DILocation + DILocalVariable.
 //   - Each user-defined function (and `main`) gets a DISubprogram referenced
 //     from its `define` line via `!dbg !N`.
 //   - emitStatement/emitExpr set a "current source position" (line+column)
@@ -48,7 +48,7 @@ type dbgMeta struct {
 	progs       []dbgSubprogram
 	nextID      int // next metadata ID to allocate
 
-	// Per-instruction DILocation support (v4.6.0).
+	// Per-instruction DILocation support (v0.4.6).
 	// curLoc is the "current source position": the (line,column) of the AST
 	// node currently being emitted. line() appends !dbg !<locID> to each
 	// instruction-level IR line, where locID resolves to a DILocation scoped
@@ -59,10 +59,10 @@ type dbgMeta struct {
 	locs     []dbgLocation
 	locByKey map[dbgLocKey]int // dedup: (line,col,scope) → metadata ID
 
-	// DILocalVariable support (v4.6.0).
+	// DILocalVariable support (v0.4.6).
 	locals []dbgLocalVar
 
-	// DILexicalBlock support (v4.9.0): nested source scopes inside a
+	// DILexicalBlock support (v0.4.9): nested source scopes inside a
 	// subprogram. curScope may point at a lexical-block ID (instead of a
 	// subprogram) when emitting inside a block; DILocations + locals emitted
 	// there attach to the block, giving LLDB block-scoped variable visibility.
@@ -275,7 +275,7 @@ func (g *Generator) emitDbgMetadata() {
 	d.nextID++
 	baseEmptyListID := d.nextID
 	d.nextID++
-	// v4.8.0: per-llvmType DIBasicType nodes so LLDB formats values correctly
+	// v0.4.8: per-llvmType DIBasicType nodes so LLDB formats values correctly
 	// (int64 → DW_ATE_signed, double → DW_ATE_float, ptr → DW_ATE_address,
 	// i1 → DW_ATE_boolean). Collect the set of types actually referenced by
 	// locals; always include i64 as the fallback. Allocate IDs in sorted
@@ -307,7 +307,7 @@ func (g *Generator) emitDbgMetadata() {
 			sp.id, sp.name, sp.line, dbgRef(subrTypeID), sp.line, dbgRef(retainedID),
 		))
 	}
-	// DILexicalBlock nodes (v4.9.0): one per nested block. Each references its
+	// DILexicalBlock nodes (v0.4.9): one per nested block. Each references its
 	// enclosing scope (a subprogram or an outer lexical block) so the scope
 	// tree reflects source nesting. Locals/DILocations emitted inside the
 	// block point at the block ID (set via registerLexicalBlock → curScope).
@@ -437,7 +437,7 @@ func nodeToken(node ast.Node) token.Token {
 		t = n.Token
 	case *ast.InheritedStatement:
 		t = n.Token
-	// Declarations (v4.9.0: methods carry a Token for source position)
+	// Declarations (v0.4.9: methods carry a Token for source position)
 	case *ast.FunctionDecl:
 		t = n.Token
 	// Expressions

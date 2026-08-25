@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestNullGuard_StringCompare (v5.6.0) guards the fix for the bootstrap segfault
+// TestNullGuard_StringCompare (v0.5.6) guards the fix for the bootstrap segfault
 // at `cd.Parent <> ”` in GenerateClassDecl. A parentless class has cd.Parent
 // unset → null ptr in the LLVM backend (Go backend uses ""). strcmp(null, ...)
 // segfaulted (exit 139 / EXC_BAD_ACCESS in _platform_strcmp). String comparison

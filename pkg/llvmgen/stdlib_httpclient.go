@@ -59,7 +59,7 @@ const (
 
 // httpClientDefaultTimeout is the timeout (milliseconds) NewHttpClient stores
 // when no explicit timeout is provided. Mirrors the Go backend default (10s).
-// v6.1.0: unit changed from seconds to milliseconds to match the Kylix
+// v0.6.1: unit changed from seconds to milliseconds to match the Kylix
 // `NewHttpClient(baseURL, timeoutMs: Integer)` declaration; the handle stores
 // milliseconds and Get/Post pass CURLOPT_TIMEOUT_MS directly.
 const httpClientDefaultTimeout = 10000
@@ -107,7 +107,7 @@ func (g *Generator) emitHttpclientBody(funcName string) {
 }
 
 // emitHttpclientMethodCall handles THttpClient method calls
-// (c.SetHeader / c.Get / c.Post). Put/Delete/StatusCode (v6.1.0) delegate to
+// (c.SetHeader / c.Get / c.Post). Put/Delete/StatusCode (v0.6.1) delegate to
 // the one-shot DoRequest define, extracting the body or the response code.
 func (g *Generator) emitHttpclientMethodCall(receiver string, method string, args []ast.Expression) (string, string, error) {
 	switch method {
@@ -421,7 +421,7 @@ func (g *Generator) emitHttpclientGetBody() {
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%self, i64 %d", timeoutPtr, httpClientOffsetTimeout))
 	timeout := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", timeout, timeoutPtr))
-	// setopt: URL, WRITEFUNCTION, WRITEDATA, TIMEOUT_MS (handle stores ms; v6.1.0)
+	// setopt: URL, WRITEFUNCTION, WRITEDATA, TIMEOUT_MS (handle stores ms; v0.6.1)
 	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %%url)", curl, curloptUrl))
 	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr @__kylix_http_write_cb)", curl, curloptWritefunction))
 	g.line(fmt.Sprintf("  call i32 (ptr, i32, ...) @curl_easy_setopt(ptr %s, i32 %d, ptr %s)", curl, curloptWrdata, resp))
@@ -450,7 +450,7 @@ func (g *Generator) emitHttpclientGetBody() {
 //	  if ct != "" → slist = curl_slist_append(null, "Content-Type: "+ct); setopt(HTTPHEADER, slist)
 //	  setopt(POST, 1); setopt(POSTFIELDS, body)
 //
-// v6.1.0: signature matched to the Kylix declaration Post(path, contentType,
+// v0.6.1: signature matched to the Kylix declaration Post(path, contentType,
 // body). The 2-arg form Post(url, body) is still accepted (contentType empty).
 func (g *Generator) emitHttpclientPostCall(receiver string, args []ast.Expression) (string, string, error) {
 	if len(args) != 2 && len(args) != 3 {
@@ -552,10 +552,10 @@ func (g *Generator) emitHttpclientPostBody() {
 }
 
 // ---- One-shot helpers (HttpGet/HttpPost/HttpPut/HttpDelete/HttpGetJSON/
-// HttpPostJSON) — real libcurl IR via the shared DoRequest define (v6.1.0).
+// HttpPostJSON) — real libcurl IR via the shared DoRequest define (v0.6.1).
 // HttpGetJSON/HttpPostJSON parse the response body (a JSON object) into a
 // Variant map (JsonDecodeMap → box_map) so callers can do m['key'] with
-// variant-map indexing; the other helpers return the raw body string. v6.6.0.
+// variant-map indexing; the other helpers return the raw body string. v0.6.6.
 
 func (g *Generator) emitHttpclientHelperCall(funcName string, args []ast.Expression) (string, string, error) {
 	var method string
@@ -607,7 +607,7 @@ func (g *Generator) emitHttpclientHelperCall(funcName string, args []ast.Express
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_httpclient_Request(ptr %s, ptr %s, ptr %s, ptr %s, i64 %d)",
 		r, g.addString(method), urlReg, bodyOp, ctOp, httpClientDefaultTimeout))
-	// v6.6.0: HttpGetJSON/HttpPostJSON parse the response body (a JSON object)
+	// v0.6.6: HttpGetJSON/HttpPostJSON parse the response body (a JSON object)
 	// into a Variant map. JsonDecodeMap → parse_flat already boxes every value
 	// via value_to_variant, so box_map gives a map[String]Variant.
 	if funcName == "HttpGetJSON" || funcName == "HttpPostJSON" {
@@ -819,7 +819,7 @@ func (g *Generator) emitHttpclientDoRequestBody() {
 func (g *Generator) emitHttpclientRequestBody() {
 	// The Request define is a thin wrapper over DoRequest — ensure that body
 	// is emitted too (one-shot helpers HttpGet/HttpPost/... go through here).
-	// v6.6.0: previously DoRequest could end up undefined when only a one-shot
+	// v0.6.6: previously DoRequest could end up undefined when only a one-shot
 	// helper was used.
 	g.enqueueStdlib("httpclient", "DoRequest", "DoRequest", 0)
 	g.line("define ptr @__kylix_httpclient_Request(ptr %method, ptr %url, ptr %body, ptr %ct, i64 %timeoutMs) {")

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestMapFieldArrayRead_ZeroSlice (v5.6.0) guards the fix for the example27
+// TestMapFieldArrayRead_ZeroSlice (v0.5.6) guards the fix for the example27
 // segfault. emitMapFieldIndexGet's array-valued miss path returned
 // `insertvalue {ptr,len,cap} undef, ptr null, 0` — only data was null, len/cap
 // stayed undef (garbage). `Length(fields)` then read a garbage len, `i < len`

@@ -49,7 +49,7 @@ func firstBrTargetAfter(lines []string, start int) string {
 	return ""
 }
 
-// TestExit_EarlyReturnDoesNotFallThrough (v5.6.0) guards the fix for the bug
+// TestExit_EarlyReturnDoesNotFallThrough (v0.5.6) guards the fix for the bug
 // where `Exit` inside `if … then begin …; result := A; Exit; end;` was silently
 // dropped: the codegen emitted no terminator for `Exit`, so the then-block
 // fell through to the statements after the `if` and overwrote `result` (e.g.

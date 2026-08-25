@@ -1,6 +1,6 @@
 // result — Result type for error handling, implemented in pure Kylix.
 //
-// Part of v2.4.0 stdlib Phase 3.
+// Part of v0.2.4 stdlib Phase 3.
 // Provides TResult for explicit error handling without exceptions.
 // Inspired by Rust's Result<T, E> and Go's (value, error) pattern.
 unit resulttype;

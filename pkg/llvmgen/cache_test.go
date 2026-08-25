@@ -8,7 +8,7 @@ import (
 	"kylix/pkg/llvmgen"
 )
 
-// cache_test.go — tests for the LLVM incremental compilation cache (v4.5.0).
+// cache_test.go — tests for the LLVM incremental compilation cache (v0.4.5).
 
 func TestCache_PutAndGet(t *testing.T) {
 	dir := t.TempDir()

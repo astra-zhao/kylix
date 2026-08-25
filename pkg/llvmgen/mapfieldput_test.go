@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestMapFieldIndexPut_Assign (v5.6.0) guards the fix for `obj.MapField[k] := v`
+// TestMapFieldIndexPut_Assign (v0.5.6) guards the fix for `obj.MapField[k] := v`
 // (assign to a map-typed class field index). emitAssign previously fell through
 // to emitArrayIndex→emitMapFieldIndexGet (a READ) and stored the RHS to the
 // read result — for a Boolean map that was `store i1 …, ptr <icmp-result>`,
@@ -42,7 +42,7 @@ end.`)
 	}
 }
 
-// TestMapIndexPut_BooleanZext (v5.6.0) guards the fix for `m[k] := true` on a
+// TestMapIndexPut_BooleanZext (v0.5.6) guards the fix for `m[k] := true` on a
 // local map[String]Boolean. The Boolean `true` (i1) must be zext'd to i64
 // before snprintf("%lld"), else llc errors (`i1 defined but expected i64`).
 func TestMapIndexPut_BooleanZext(t *testing.T) {

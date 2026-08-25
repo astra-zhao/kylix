@@ -9,7 +9,7 @@ import (
 	"kylix/pkg/docgen"
 )
 
-// Code example extraction tests (v2.5.0 task 2).
+// Code example extraction tests (v0.2.5 task 2).
 
 func TestDocGen_CodeExampleInFunction(t *testing.T) {
 	src := "// Reverse returns the reversed string.\n" +

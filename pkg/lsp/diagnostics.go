@@ -9,7 +9,7 @@ import (
 	"kylix/token"
 )
 
-// diagnostics.go — v6.8.0 semantic diagnostics at warning severity.
+// diagnostics.go — v0.6.8 semantic diagnostics at warning severity.
 //
 // The LSP server previously published only parse/semantic errors (severity 1).
 // This file adds a warning-level check for identifiers that are used but never

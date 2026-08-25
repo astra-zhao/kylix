@@ -8,7 +8,7 @@ import (
 )
 
 // passes_test.go — tests for the process-in-LLVM IR optimization passes
-// (v4.5.0 Phase C): DCE removes unreferenced %tN defs; ConstantFold is a
+// (v0.4.5 Phase C): DCE removes unreferenced %tN defs; ConstantFold is a
 // structural no-op in the MVP.
 
 func TestDCE_RemovesUnreferencedTemp(t *testing.T) {

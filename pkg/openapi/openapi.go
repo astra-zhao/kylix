@@ -62,7 +62,7 @@ func Generate(files []string, title, version string) (*OpenAPIDoc, error) {
 		title = "Kylix API"
 	}
 	if version == "" {
-		version = "1.0.0"
+		version = "0.1.0"
 	}
 	doc := &OpenAPIDoc{
 		Title:   title,
@@ -350,7 +350,7 @@ func kyToOASType(expr ast.Expression) string {
 func RenderYAML(doc *OpenAPIDoc) string {
 	var b strings.Builder
 
-	b.WriteString("openapi: \"3.1.0\"\n")
+	b.WriteString("openapi: \"0.3.1\"\n")
 	b.WriteString("info:\n")
 	b.WriteString(fmt.Sprintf("  title: %s\n", yamlStr(doc.Title)))
 	b.WriteString(fmt.Sprintf("  version: %s\n", yamlStr(doc.Version)))

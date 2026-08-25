@@ -27,7 +27,7 @@ type Config struct {
 func Default() *Config {
 	return &Config{
 		Name:         "myapp",
-		Version:      "1.0.0",
+		Version:      "0.1.0",
 		Main:         "main.klx",
 		Output:       "build/",
 		GoMod:        "myapp",

@@ -138,7 +138,7 @@ end.`)
 	assertIRContains(t, ir, "define i64 @__kylix_encoding_hexval(i8 %c)")
 }
 
-// ---- Base64URL (v6.8.0) ----
+// ---- Base64URL (v0.6.8) ----
 
 func TestEncoding_Base64URLEncodeCallDispatch(t *testing.T) {
 	ir := generateIR(t, `program p;

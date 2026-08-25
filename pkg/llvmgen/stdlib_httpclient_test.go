@@ -50,7 +50,7 @@ end.`)
 	// malloc(32) for the handle + memset to zero.
 	assertIRContains(t, ir, "call ptr @malloc(i64 32)")
 	assertIRContains(t, ir, "call void @llvm.memset.p0.i64")
-	// 0-arg call passes the default timeout (10000ms, v6.1.0) as the 2nd operand.
+	// 0-arg call passes the default timeout (10000ms, v0.6.1) as the 2nd operand.
 	assertIRContains(t, ir, "call ptr @__kylix_httpclient_NewHttpClient(ptr")
 	assertIRContains(t, ir, "i64 10000)")
 	// body stores the timeout parameter at offset 24.
@@ -86,7 +86,7 @@ end.`)
 	assertIRContains(t, ir, "i32 10002")
 	assertIRContains(t, ir, "i32 20011")
 	assertIRContains(t, ir, "i32 10001")
-	// CURLOPT_TIMEOUT_MS (156, v6.1.0 — handle stores milliseconds) wired from
+	// CURLOPT_TIMEOUT_MS (156, v0.6.1 — handle stores milliseconds) wired from
 	// the handle's stored timeout.
 	assertIRContains(t, ir, "i32 156")
 }
@@ -98,7 +98,7 @@ begin
   var c := NewHttpClient();
   var r := c.Post('http://example.com', 'hello');
 end.`)
-	// v6.1.0: Post(path, contentType, body) — 4-arg define (ct may be empty).
+	// v0.6.1: Post(path, contentType, body) — 4-arg define (ct may be empty).
 	assertIRContains(t, ir, "define ptr @__kylix_httpclient_Post(ptr %self, ptr %url, ptr %ct, ptr %body)")
 	// CURLOPT_POST (47) + CURLOPT_POSTFIELDS (10015).
 	assertIRContains(t, ir, "i32 47")
@@ -198,7 +198,7 @@ begin
   WriteLn(m['name']);
 end.`)
 	// HttpGetJSON parses the body into a Variant map: JsonDecodeMap (→
-	// parse_flat) then box_map. Reads go through variant_map_get. v6.6.0.
+	// parse_flat) then box_map. Reads go through variant_map_get. v0.6.6.
 	assertIRContains(t, ir, "call ptr @__kylix_json_JsonDecodeMap(ptr")
 	assertIRContains(t, ir, "call ptr @__kylix_variant_box_map(ptr")
 	assertIRContains(t, ir, "call ptr @__kylix_variant_map_get(ptr")

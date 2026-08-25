@@ -81,14 +81,14 @@ end.`)
 	if !strings.Contains(ir, "sub i64") {
 		t.Error("expected 'sub i64' for Pascal 1-based → LLVM 0-based index")
 	}
-	// v4.7.0: the sub should be by the real lower bound (1), not a hardcoded 1.
+	// v0.4.7: the sub should be by the real lower bound (1), not a hardcoded 1.
 	if !strings.Contains(ir, "sub i64 %s, 1") && !strings.Contains(ir, ", 1\n") {
 		// Relax: just verify a sub-by-1 exists somewhere in the index path.
 	}
 }
 
 // TestIR_StaticArray_ZeroLowerBound verifies array[0..N] (lower bound 0) does
-// NOT subtract 1 from the index — the v4.5.0 bug that segfaulted example23
+// NOT subtract 1 from the index — the v0.4.5 bug that segfaulted example23
 // (0 - 1 underflowed to 0xFFFF…F, GEP went wild). With the fix, index 0 maps
 // directly to GEP index 0 via an `add idx, 0` (no-op).
 func TestIR_StaticArray_ZeroLowerBound(t *testing.T) {

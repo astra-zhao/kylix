@@ -35,7 +35,7 @@ OPTIONS:
 	}
 
 	runner := testrunner.New(*verbose)
-	runner.Backend = resolveRunBackend(*backend) // v6.5.0: auto-detects Go/LLVM like `kylix run`
+	runner.Backend = resolveRunBackend(*backend) // v0.6.5: auto-detects Go/LLVM like `kylix run`
 	if *filter != "" {
 		runner.SetFilter(*filter)
 	}

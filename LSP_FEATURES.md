@@ -63,7 +63,7 @@
 总计: 9/9 测试通过
 ```
 
-## ✨ v6.8.0 新增：语义诊断（未定义标识符 warning）
+## ✨ v0.6.8 新增：语义诊断（未定义标识符 warning）
 
 - **功能**：`textDocument/publishDiagnostics` 除 parse/semantic **error**（severity 1，红色波浪线）外，新增 **warning**（severity 2，黄色波浪线）——未声明的变量/函数/类型引用被标记（`Undefined identifier 'x'`）。
 - **机制**：`pkg/lsp/diagnostics.go` 反射遍历 AST 收集所有 `*ast.Identifier`，对照 `SymbolTable.AllSymbols`（大小写不敏感）+ Kylix 内置标识符 + 隐式声明（循环变量/枚举成员/泛型参数/lambda 参数）判定。

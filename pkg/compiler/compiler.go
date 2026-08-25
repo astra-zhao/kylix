@@ -34,7 +34,7 @@ type Result struct {
 	OutputFile  string
 	Diagnostics []Diagnostic
 
-	// Timing + cache statistics (v6.0.0) — populated by CompileProject for
+	// Timing + cache statistics (v0.6.0) — populated by CompileProject for
 	// `kylix build --time` and the compile-time benchmark. Zero for
 	// CompileFile/RunFile.
 	Duration    time.Duration // total CompileProject wall time

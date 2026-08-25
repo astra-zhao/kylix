@@ -1,5 +1,5 @@
 // jsonutil_test.klx — Test suite for JSON parsing
-// Part of v3.0.0 stdlib Phase 4
+// Part of v0.3.0 stdlib Phase 4
 unit jsonutil_test;
 
 uses jsonutil;

@@ -7,7 +7,7 @@ import (
 	"kylix/pkg/lsp"
 )
 
-// diagnostics_test.go — v6.8.0 undefined-identifier warnings (severity 2).
+// diagnostics_test.go — v0.6.8 undefined-identifier warnings (severity 2).
 
 // warnings returns the warning diagnostics (severity 2) for src.
 func warnings(t *testing.T, src string) []lsp.Diagnostic {

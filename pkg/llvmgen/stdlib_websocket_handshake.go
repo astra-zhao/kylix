@@ -80,7 +80,7 @@ func (g *Generator) wsAcceptKey(keyReg string) string {
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 36)", kp2, guidPtr))
 	sha1buf := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 20)", sha1buf))
-	// Hand-rolled SHA-1 (v6.5.0: padLen fixed — no longer needs OpenSSL).
+	// Hand-rolled SHA-1 (v0.6.5: padLen fixed — no longer needs OpenSSL).
 	g.line(fmt.Sprintf("  call void @__kylix_ws_sha1(ptr %s, i64 %s, ptr %s)", kp, kpLen, sha1buf))
 	expect := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_ws_b64(ptr %s, i64 20)", expect, sha1buf))

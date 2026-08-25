@@ -28,7 +28,7 @@ import (
 // excJmpBufSize is the alloca size for a setjmp buffer. arm64 macOS needs ~272
 // bytes; 288 aligned to 16 is a safe conservative bound. Over-allocating stack
 // is harmless. Windows x64 (UCRT) jmp_buf is larger (~512 bytes), so
-// excJmpBufSize() returns 512 there. v6.2.0.
+// excJmpBufSize() returns 512 there. v0.6.2.
 const excJmpBufSize = 288
 
 func (g *Generator) excJmpBufSize() int {
@@ -39,7 +39,7 @@ func (g *Generator) excJmpBufSize() int {
 }
 
 // setjmpFunc returns the libc setjmp symbol for the target platform
-// (Windows UCRT exposes _setjmp; setjmp is only a macro there). v6.2.0.
+// (Windows UCRT exposes _setjmp; setjmp is only a macro there). v0.6.2.
 func (g *Generator) setjmpFunc() string {
 	if g.targetOS == "windows" {
 		return "@_setjmp"

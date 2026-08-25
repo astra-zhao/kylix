@@ -8,7 +8,7 @@ import (
 	"kylix/pkg/lsp"
 )
 
-// LSP large file performance benchmark (v2.6.0 task 3).
+// LSP large file performance benchmark (v0.2.6 task 3).
 // Verifies that incremental didChange → diagnostics stays under 50ms
 // even on a large (1K+ line) file.
 

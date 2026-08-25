@@ -9,7 +9,7 @@ import (
 	"kylix/pkg/compiler"
 )
 
-// Constant propagation + dead code elimination tests (v2.6.0 task 2).
+// Constant propagation + dead code elimination tests (v0.2.6 task 2).
 
 func parseOpt(t *testing.T, src string) *ast.Program {
 	t.Helper()

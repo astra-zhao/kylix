@@ -36,7 +36,7 @@ var knownStdlibModules = map[string]bool{
 	"boot":       true,
 	"httpclient": true,
 	"jwt":        true,
-	"websocket":  true, // v6.4.0: RFC 6455 client+server
+	"websocket":  true, // v0.6.4: RFC 6455 client+server
 }
 
 // stdlibModuleFuncs maps each known stdlib module to the function names it
@@ -47,7 +47,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"sysutil": {
 		"ReadFile": true, "WriteFile": true, "FileExists": true,
 		"PathJoin": true, "PathBase": true,
-		// v6.2.0: file/dir/env operations.
+		// v0.6.2: file/dir/env operations.
 		"DirExists": true, "CreateDir": true, "DeleteFile": true,
 		"AppendFile": true, "CopyFile": true, "GetFileSize": true,
 		"GetWorkingDir": true, "SetWorkingDir": true, "GetTempDir": true,
@@ -93,7 +93,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"JsonHasKey": true, "JsonEncode": true, "JsonEncodePretty": true,
 	},
 	"boot": {
-		// v6.1.0: full KylixBoot API surface. Most are no-op stubs (see
+		// v0.6.1: full KylixBoot API surface. Most are no-op stubs (see
 		// stdlib_boot.go) since there is no HTTP server in the LLVM backend —
 		// enough for the tutorial examples to compile, register routes and run.
 		"BootText": true, "BootJSON": true, "BootHTML": true,
@@ -118,8 +118,8 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"JwtGetString": true, "JwtGetInt": true,
 	},
 	"websocket": {
-		// v6.4.0: RFC 6455 minimal client + server (text frames, ping/pong).
-		// v6.5.0: two-phase client handshake (WsDialConnect/WsDialFinish) for
+		// v0.6.4: RFC 6455 minimal client + server (text frames, ping/pong).
+		// v0.6.5: two-phase client handshake (WsDialConnect/WsDialFinish) for
 		// single-process echo loopbacks.
 		"WsDial": true, "WsAccept": true, "WsSend": true, "WsRecv": true, "WsClose": true,
 		"WsDialConnect": true, "WsDialFinish": true,
@@ -222,7 +222,7 @@ func (g *Generator) enqueueStdlib(module, name, bodyKey string, argCount int) bo
 // module-level defines. Called once at the end of emitProgram (after lambdas,
 // before string constants). Each emitter writes its own `define ... { ... }`.
 func (g *Generator) emitPendingStdlib() {
-	// v6.3.0: use an index loop so bodies enqueued while emitting (e.g.
+	// v0.6.3: use an index loop so bodies enqueued while emitting (e.g.
 	// JwtSign enqueues crypto.HmacSha256 + its b64url/hexdecode helpers) are
 	// also emitted in the same pass — a range loop snapshot would skip them.
 	for i := 0; i < len(g.stdlibQueue); i++ {

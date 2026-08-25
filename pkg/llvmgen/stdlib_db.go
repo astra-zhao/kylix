@@ -102,7 +102,7 @@ func (g *Generator) emitDbOpenSQLiteBody() {
 
 // ---- DbOpen: ptr @__kylix_db_DbOpen(ptr %driver, ptr %dsn) ----
 //
-// v6.1.0: driver=="sqlite3" → sqlite3_open(dsn) (same as DbOpenSQLite); any
+// v0.6.1: driver=="sqlite3" → sqlite3_open(dsn) (same as DbOpenSQLite); any
 // other driver (mysql/postgres) returns null — those drivers are not linked.
 func (g *Generator) emitDbOpenCall(args []ast.Expression) (string, string, error) {
 	if len(args) != 2 {
@@ -231,7 +231,7 @@ func (g *Generator) emitDbExecCall(args []ast.Expression) (string, string, error
 	g.line(fmt.Sprintf("  call i32 @sqlite3_step(ptr %s)", stmt))
 	// finalize
 	g.line(fmt.Sprintf("  call i32 @sqlite3_finalize(ptr %s)", stmt))
-	// v6.1.0: return rows affected (matches the Go backend's int64 return).
+	// v0.6.1: return rows affected (matches the Go backend's int64 return).
 	// sqlite3_changes(db) reports the count from the most recent DML statement.
 	rows := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i32 @sqlite3_changes(ptr %s)", rows, dbReg))
@@ -316,14 +316,14 @@ func (g *Generator) emitDbQueryScalarCall(args []ast.Expression) (string, string
 //
 // Runs a SELECT and returns every row as an `array of Variant` slice struct
 // ({ptr,len,cap}). Each element is a map-Variant box (tag=map) whose payload is
-// an htab (map[String]Variant): column name → value box (v6.4.0).
+// an htab (map[String]Variant): column name → value box (v0.6.4).
 //
 // Kylix consumer:
 //   var rows := DbQueryRows(db, 'SELECT name FROM u');
 //   var row  := rows[0];
 //   WriteLn(row['name']);
 // rows[i] reads a box (IsVariant array index); row['col'] lowers to
-// @__kylix_variant_map_get (array.go emitVariantMapIndex). v6.4.0.
+// @__kylix_variant_map_get (array.go emitVariantMapIndex). v0.6.4.
 func (g *Generator) emitDbQueryRowsCall(args []ast.Expression) (string, string, error) {
 	if len(args) != 2 {
 		return "", "", fmt.Errorf("db.DbQueryRows expects 2 arguments, got %d", len(args))

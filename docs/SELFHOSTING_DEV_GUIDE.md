@@ -1,6 +1,6 @@
 # 自举编译器开发指南 (Self-Hosting Development Guide)
 
-> 版本: v5.7.0+ (2026-07-29)
+> 版本: v0.5.7+ (2026-07-29)
 > 关联: [KYLIX_DEV_GUIDE.md](KYLIX_DEV_GUIDE.md) · [ROADMAP.md](../ROADMAP.md) · [TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md)
 
 本指南详细记录 Kylix 自举编译器的设计、构建流程、当前状态与后续开发方法。这是仓库中**最权威**的自举工作参考——动手改 `src/*.klx` 或 Go 后端多态 codegen 前，请先读本文档。
@@ -17,11 +17,11 @@
 |------|------|-------------|
 | **宿主编译器** | 现有 Go 写的编译器（`cmd/kylix` + `generator/` + `parser/` + `ast/`...），构建产物 `/tmp/kylix_bin` | ✅ 生产可用 |
 | **自举源码** | `src/*.klx`（7 文件、7451 行），用 Kylix 方言重写的编译器 | ✅ 源码完成 |
-| **自举产物** | 自举源码经 Go 后端转译 → 合并 main.go → `go build` → `kylix_self` 二进制 | ✅ 构建打通（v5.2.0）|
-| **round-trip** | `kylix_self` 产出的编译器（`kylix_self2`）能正确编译任意程序 | ✅ 达成（v5.3.0，含自繁殖）|
-| **self-reproduction 不动点** | `kylix_selfA` 编译 `src/*.klx` → `self_gen2.go` → `kylix_selfB` → `self_gen3.go`，两者逐字节一致 | ✅ 达成（v5.7.0，CI `selfrepro` job 自动验证）|
+| **自举产物** | 自举源码经 Go 后端转译 → 合并 main.go → `go build` → `kylix_self` 二进制 | ✅ 构建打通（v0.5.2）|
+| **round-trip** | `kylix_self` 产出的编译器（`kylix_self2`）能正确编译任意程序 | ✅ 达成（v0.5.3，含自繁殖）|
+| **self-reproduction 不动点** | `kylix_selfA` 编译 `src/*.klx` → `self_gen2.go` → `kylix_selfB` → `self_gen3.go`，两者逐字节一致 | ✅ 达成（v0.5.7，CI `selfrepro` job 自动验证）|
 
-> **关键**：自举链路已完整打通——v5.2.0 构建、v5.3.0 round-trip + 自繁殖、v5.7.0 LLVM 后端 self-host（51/51）+ self-reproduction 不动点。当前目标：LLVM 后端无 Go 闭环（`src/generator.klx` 实现 LLVM IR emitter——巨型工程，见 ROADMAP），以及新 stdlib 函数的 bootstrap 类型映射同步（每次加 stdlib 函数都要在 `src/generator.klx` 补类型映射，否则不动点打破）。
+> **关键**：自举链路已完整打通——v0.5.2 构建、v0.5.3 round-trip + 自繁殖、v0.5.7 LLVM 后端 self-host（51/51）+ self-reproduction 不动点。当前目标：LLVM 后端无 Go 闭环（`src/generator.klx` 实现 LLVM IR emitter——巨型工程，见 ROADMAP），以及新 stdlib 函数的 bootstrap 类型映射同步（每次加 stdlib 函数都要在 `src/generator.klx` 补类型映射，否则不动点打破）。
 
 ---
 
@@ -128,7 +128,7 @@ printf 'module kylixself\n\ngo 1.21\n' > /tmp/kxself_mod/go.mod
 
 ### 3.2 为什么复制到 /tmp
 
-`src/build/` 是 gitignored 的构建产物目录；根目录 `main.go` 也被 `.gitignore`（`:43 /main.go`）忽略——它们若残留在仓库根会污染 `go test ./...` 的根包（v5.2.0 开发期间踩过：根 `main.go` 导致 `kylix` 根包构建失败，误判为回归）。始终在 `/tmp` 副本里生成与构建。
+`src/build/` 是 gitignored 的构建产物目录；根目录 `main.go` 也被 `.gitignore`（`:43 /main.go`）忽略——它们若残留在仓库根会污染 `go test ./...` 的根包（v0.5.2 开发期间踩过：根 `main.go` 导致 `kylix` 根包构建失败，误判为回归）。始终在 `/tmp` 副本里生成与构建。
 
 ### 3.3 多文件合并机制
 
@@ -136,13 +136,13 @@ printf 'module kylixself\n\ngo 1.21\n' > /tmp/kxself_mod/go.mod
 
 ---
 
-## 4. Go 后端多态 codegen（v5.2.0 核心）
+## 4. Go 后端多态 codegen（v0.5.2 核心）
 
 ### 4.1 历史与 opt-in 设计
 
-- **v3.1.0 前**：基类发射成 `interface{}` → 多态可行，但 `var p: TClass; p.Field` 字段不可访问（KLX-C01）。
-- **v3.1.0 回退**：所有类发射成普通 struct + 嵌入父 struct，类型一律 `*ClassName` → 字段继承可用，但**无多态**；`classIsBase` map 从此变死代码。
-- **v5.2.0 opt-in**：仅当程序含 `is`/`as` 时，把「有子类的基类」发射成空 interface；否则保留 struct 嵌入。自举（含 `is`/`as`）→ interface 通过；教程 example19/example40（继承 + 字段访问、无 `is`/`as`）→ struct 不回归。
+- **v0.3.1 前**：基类发射成 `interface{}` → 多态可行，但 `var p: TClass; p.Field` 字段不可访问（KLX-C01）。
+- **v0.3.1 回退**：所有类发射成普通 struct + 嵌入父 struct，类型一律 `*ClassName` → 字段继承可用，但**无多态**；`classIsBase` map 从此变死代码。
+- **v0.5.2 opt-in**：仅当程序含 `is`/`as` 时，把「有子类的基类」发射成空 interface；否则保留 struct 嵌入。自举（含 `is`/`as`）→ interface 通过；教程 example19/example40（继承 + 字段访问、无 `is`/`as`）→ struct 不回归。
 
 ### 4.2 标志传播链路
 
@@ -194,7 +194,7 @@ if decl.Parent != "" && !(g.usesPolymorphism && g.classIsBase[decl.Parent]) {
 ### 4.4 适用范围与边界
 
 ✅ **支持**：「基类无字段无方法 + 多态靠 `is`/`as`」模式（自举即此）。
-❌ **不支持**（v5.2.0 边界；「program-level 标志过宽」已被 v5.9.0 多态 gate 收敛缓解——宿主与 bootstrap 的基类发射已一致，`type TNode interface`）：
+❌ **不支持**（v0.5.2 边界；「program-level 标志过宽」已被 v0.5.9 多态 gate 收敛缓解——宿主与 bootstrap 的基类发射已一致，`type TNode interface`）：
 - 基类含字段且通过基类变量访问 → 空 interface 上字段不可访问，会崩。需 getter 转发或 vtable。
 - 基类有虚方法需分派 → 空 interface 无方法签名。需 interface 方法 + 具体类实现。
 
@@ -204,7 +204,7 @@ if decl.Parent != "" && !(g.usesPolymorphism && g.classIsBase[decl.Parent]) {
 
 ### 5.1 `Args`（main.klx 命令行参数）
 
-main.klx 用 `Length(Args)` / `Args[i]` 读命令行参数。v5.2.0 在 `mapBuiltinFunction`（generator_types.go:660 builtinMap）加：
+main.klx 用 `Length(Args)` / `Args[i]` 读命令行参数。v0.5.2 在 `mapBuiltinFunction`（generator_types.go:660 builtinMap）加：
 ```go
 "Args": "os.Args[1:]",
 ```
@@ -224,7 +224,7 @@ main.klx 用 `Length(Args)` / `Args[i]` 读命令行参数。v5.2.0 在 `mapBuil
 
 ### 6.1 单元测试
 
-`generator/generator_polymorphism_test.go`（v5.2.0 新增，3 个测试）：
+`generator/generator_polymorphism_test.go`（v0.5.2 新增，3 个测试）：
 - `TestPolymorphism_BaseClassBecomesInterface`：含 `is`/`as` 程序 → 基类发射 `interface{}`、`array of TBase`→`[]TBase`、`x.(*TSub)` 断言在 interface 上。
 - `TestPolymorphism_NoIsAs_KeepsStructInheritance`：**回归**——无 `is`/`as` 继承程序仍发射 struct + 嵌入 + `*TBase`，字段访问保留（守护 example19/example40）。
 - `TestPolymorphism_AsBuiltinArgs`：`Args`→`os.Args[1:]` + `os` 导入。
@@ -257,9 +257,9 @@ example19_inheritance.klx、example40_declarative_oop.klx 用继承 + 字段访�
 
 ## 7. 当前状态与 v5.4 目标
 
-### 7.1 v5.3.0 已达成（round-trip + 自繁殖）
+### 7.1 v0.5.3 已达成（round-trip + 自繁殖）
 
-v5.3.0 打通自举编译器**运行时正确性**——`kylix_self2`（自举产出的编译器）能正确编译程序，且**自繁殖**（`kylix_self2` 重新编译 `src/*.klx` → `kylix_self3`，后者同样能正确编译 hello）。
+v0.5.3 打通自举编译器**运行时正确性**——`kylix_self2`（自举产出的编译器）能正确编译程序，且**自繁殖**（`kylix_self2` 重新编译 `src/*.klx` → `kylix_self3`，后者同样能正确编译 hello）。
 
 实测链路：
 ```
@@ -271,7 +271,7 @@ kylix_self3 → hello.klx → 正确输出  ✅ 编译器能编译自己
 ```
 `self_7.go` 与 `self_7_gen2.go` 均 5390 行——自举接近**不动点**（fixpoint）。
 
-v5.3.0 三处修复（都在 `src/generator.klx`，宿主 `generator/` 包零改动）：
+v0.5.3 三处修复（都在 `src/generator.klx`，宿主 `generator/` 包零改动）：
 1. **`Args` builtin**：`MapBuiltinFunction` 加 `Args`→`os.Args[1:]`。
 2. **条件导入**：`GenerateImports` 硬编码 → 末尾组装（`CollectImports` 手写 `StrContains` 扫描 body 前缀设 `Need*` 标志，`BuildImportBlock` 按标志构造）。**自检测 bug**：扫描 needle 拆分 `'fmt'+'.'`——否则编译器扫描自己输出时，CollectImports 字面量 `"fmt."` 永远命中 → 所有 `Need*` 恒真 → math/rand 假阳性未使用导入。
 3. **字符串转义（G14）**：`WriteEscapedGoString` 逐字符转义把 `\n` 反斜杠加倍成 `\\n`（字面 backslash-n 而非真换行）→ 2-char 前瞻，`\n`/`\t`/`\r` 序列不加倍反斜杠。这是 round-trip 关键运行时 bug——gen1 的 `'\n'` 由宿主正确发射，但 gen2 经自举 WriteEscapedGoString 发成字面 `\n` 致 `invalid character U+005C`。
@@ -301,16 +301,16 @@ v5.3 让自举编译器能正确编译**自举源码自身用到的特性子集*
 ## 8. 常见问题
 
 **Q: 自举产物 `kylix_self` 和宿主 `kylix` 有何区别？**
-A: 宿主是 Go 写的完整编译器；`kylix_self` 是自举源码（Kylix 方言）经 Go 后端转译出的等价编译器。v5.2.0 时 `generator.klx` 的 codegen 不完整；**v5.3.0 起已达成 round-trip + 自繁殖、v5.7.0 达成 self-reproduction 不动点**（`self_gen2 ≡ self_gen3`，CI `selfrepro` job 自动验证），自举产物能正确编译教程程序。剩余差异主要是后续宿主新增的 stdlib 类型映射需同步到 `src/generator.klx`（见 §1 状态表）。
+A: 宿主是 Go 写的完整编译器；`kylix_self` 是自举源码（Kylix 方言）经 Go 后端转译出的等价编译器。v0.5.2 时 `generator.klx` 的 codegen 不完整；**v0.5.3 起已达成 round-trip + 自繁殖、v0.5.7 达成 self-reproduction 不动点**（`self_gen2 ≡ self_gen3`，CI `selfrepro` job 自动验证），自举产物能正确编译教程程序。剩余差异主要是后续宿主新增的 stdlib 类型映射需同步到 `src/generator.klx`（见 §1 状态表）。
 
 **Q: 为什么不直接用 `GenerateMulti` 而要走 `CompileProject`？**
-A: `kylix build *.klx` 调 `CompileProject`（增量缓存 + topo 排序），它不调 `GenerateMulti`。这是 v5.2.0 把多态标志放进 `collectClassTypes`（而非 `GenerateMulti`）的原因——`collectClassTypes` 是所有路径的公共咽喉。
+A: `kylix build *.klx` 调 `CompileProject`（增量缓存 + topo 排序），它不调 `GenerateMulti`。这是 v0.5.2 把多态标志放进 `collectClassTypes`（而非 `GenerateMulti`）的原因——`collectClassTypes` 是所有路径的公共咽喉。
 
 **Q: 修改 `src/*.klx` 后怎么验证不影响宿主编译器？**
 A: `src/*.klx` 只是被编译的对象，不参与宿主编译器构建。但要跑 §6.1 教程回归——改 Go 后端多态 codegen 时必须确认不破坏无 `is`/`as` 的继承教程。
 
 **Q: round-trip 为什么这么难？**
-A: 自举编译器要「能编译自己」，要求 `generator.klx` 的 codegen 与宿主 `generator/` 包**语义完全一致**。v5.2.0 只打通了「宿主能编译自举源码」（单向），反向（自举产物能编译自举源码）需 `generator.klx` codegen 补全——这是 v5.3 的核心工作。
+A: 自举编译器要「能编译自己」，要求 `generator.klx` 的 codegen 与宿主 `generator/` 包**语义完全一致**。v0.5.2 只打通了「宿主能编译自举源码」（单向），反向（自举产物能编译自举源码）需 `generator.klx` codegen 补全——这是 v5.3 的核心工作。
 
 ---
 
@@ -318,6 +318,6 @@ A: 自举编译器要「能编译自己」，要求 `generator.klx` 的 codegen 
 
 - [KYLIX_DEV_GUIDE.md](KYLIX_DEV_GUIDE.md) — 通用开发指南（架构/工作流程/贡献）
 - [llvm-backend.md](llvm-backend.md) — LLVM 后端文档（自举目前用 Go 后端，但 LLVM 后端是 ROADMAP 终态之一）
-- [../ROADMAP.md](../ROADMAP.md) — 版本路线图（v5.2.0 自举行）
-- [../TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md) — v5.2.0 残留限制详表
-- [../CHANGELOG.md](../CHANGELOG.md) — v5.2.0 变更记录
+- [../ROADMAP.md](../ROADMAP.md) — 版本路线图（v0.5.2 自举行）
+- [../TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md) — v0.5.2 残留限制详表
+- [../CHANGELOG.md](../CHANGELOG.md) — v0.5.2 变更记录

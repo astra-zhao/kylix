@@ -13,7 +13,7 @@ import (
 
 // cmdDoctor diagnoses the Kylix toolchain: Go backend, LLVM backend
 // (llc/clang/opt), and the native stdlib system libraries (sqlite3/curl/
-// openssl). v6.2.0 — the KylixRT "preflight" for distribution (LLVM backend
+// openssl). v0.6.2 — the KylixRT "preflight" for distribution (LLVM backend
 // needs llc + clang; the Go backend needs go).
 func cmdDoctor(args []string) {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
@@ -70,7 +70,7 @@ Exit code is non-zero if any required tool is missing.
 		}
 	}
 
-	// v6.5.0: Distribution B — a bundled LLVM next to the executable (see
+	// v0.6.5: Distribution B — a bundled LLVM next to the executable (see
 	// scripts/bundle_llvm.sh). The compiler prefers it, so check it's complete.
 	if exe, err := os.Executable(); err == nil {
 		bundleDir := filepath.Join(filepath.Dir(exe), "llvm")

@@ -651,20 +651,20 @@ end.
 
 ### 未来增强
 
-- [x] ~~认证中间件（JWT、OAuth）~~ ✅ v3.3.0 已完成
+- [x] ~~认证中间件（JWT、OAuth）~~ ✅ v0.3.3 已完成
 - [ ] 数据库 ORM 集成（v4.0）
 - [ ] WebSocket 支持
-- [x] ~~API 文档生成器~~ ✅ v3.3.0 已完成（OpenAPI 3.1）
+- [x] ~~API 文档生成器~~ ✅ v0.3.3 已完成（OpenAPI 3.1）
 - [ ] 速率限制中间件
 - [ ] CORS 中间件
-- [x] ~~请求验证~~ ✅ v3.2.0 已完成（[Required]/[Email]/[Min] 等）
+- [x] ~~请求验证~~ ✅ v0.3.2 已完成（[Required]/[Email]/[Min] 等）
 - [ ] 文件上传处理
 
 ---
 
-## KylixBoot 框架（v3.2.0+）
+## KylixBoot 框架（v0.3.2+）
 
-v3.2.0 引入了 **KylixBoot**，Spring Boot 风格的注解驱动 Web 框架，通过编译器代码生成实现零运行时反射。
+v0.3.2 引入了 **KylixBoot**，Spring Boot 风格的注解驱动 Web 框架，通过编译器代码生成实现零运行时反射。
 
 ### 自动路由装配
 
@@ -693,7 +693,7 @@ begin
 end.
 ```
 
-### 请求体绑定（v3.3.0）
+### 请求体绑定（v0.3.3）
 
 `[Body(TEntity)]` 注解自动绑定并验证 JSON 请求体：
 
@@ -736,7 +736,7 @@ stdlib.BootPOST("/api/users", func(req *stdlib.BootRequest) *stdlib.BootResponse
 })
 ```
 
-### JWT 认证（v3.3.0）
+### JWT 认证（v0.3.3）
 
 ```pascal
 uses boot, jwt;
@@ -765,11 +765,11 @@ begin
 end.
 ```
 
-### OpenAPI 3.1 自动生成（v3.3.0）
+### OpenAPI 3.1 自动生成（v0.3.3）
 
 ```bash
 # 从源码生成 openapi.yaml
-kylix doc --openapi --title "My API" --api-version 1.0.0 main.klx
+kylix doc --openapi --title "My API" --api-version 0.1.0 main.klx
 
 # 输出到标准输出
 kylix doc --openapi --stdout main.klx
@@ -777,10 +777,10 @@ kylix doc --openapi --stdout main.klx
 
 生成结果示例：
 ```yaml
-openapi: "3.1.0"
+openapi: "0.3.1"
 info:
   title: My API
-  version: 1.0.0
+  version: 0.1.0
 paths:
   /api/users:
     post:
@@ -828,3 +828,71 @@ components:
 | `[Entity('table')]` | ORM 实体映射 | class |
 | `[Column('name')]` | 列名映射 | field |
 | `[PrimaryKey]` | 主键 | field |
+
+---
+
+## v0.7.0 Web 页面开发规划（HTML 页面 + 框架补强）
+
+KylixBoot 已有 REST API（JSON/路由/中间件/静态文件）。v0.7.0 补齐 **HTML 页面开发**能力，让 Kylix 能开发完整 web 应用（页面 + API），框架 API 对齐 Spring Boot/Go `html/template` 风格。
+
+### 1. 模板引擎（HTML 渲染）
+
+- **Go 端**：复用 `html/template`（自动 HTML 转义，防 XSS）。
+- **LLVM 端**：手写轻量模板渲染（`{{var}}` 替换 + `{{for}}` 循环 + `{{if}}` 条件），字符串替换 + 循环展开 IR。
+- **API**：
+  ```pascal
+  res.HTML(status, 'page.html');              // 渲染模板（无数据）
+  res.Render('page.html', data);              // 模板 + 数据（map[String]Variant）
+  ```
+- **模板语法**（mustache/Go template 子集）：
+  - `{{title}}` 变量替换
+  - `{{user.name}}` 字段/键访问（嵌套）
+  - `{{for item in items}}...{{end}}` 循环
+  - `{{if cond}}...{{else}}...{{end}}` 条件
+
+### 2. 表单处理
+
+```pascal
+var name := req.Form('name');     // POST application/x-www-form-urlencoded
+var age  := req.FormInt('age');   // 数字字段
+var ok   := req.FormBool('agree');// 复选框
+var f    := req.FormFile('avatar');// 文件上传（可选）
+```
+
+### 3. Cookie 与会话
+
+```pascal
+var sid := req.Cookie('sid');                  // 读 Cookie
+res.SetCookie('sid', 'abc123', 3600);          // 写 Cookie（maxAge 秒）
+```
+简单会话（签名 Cookie）可作为后续增强。
+
+### 4. 静态资源与项目结构约定
+
+```
+app/
+├── main.klx          # BootRun(8080) + 路由注册
+├── views/            # HTML 模板（res.Render('index.html') 默认从这找）
+├── static/           # css/js/img（app.Static('/static', 'static/')）
+└── controllers/      # [Controller] 类（可选）
+```
+
+### 5. 页面辅助 API
+
+- `res.Redirect('/login')` — 302 重定向
+- `res.SetHeader(name, value)` — 自定义响应头
+- `res.Status(status)` 链式（已有）
+
+### 6. 教程（新增 example58_web_page）
+
+完整 web 页面应用：首页（模板 `{{for}}` 渲染列表）+ 表单提交页（`req.Form` + 回显）+ 登录/登出（Cookie + `[Authenticated]`）+ 静态资源（style.css）。双后端（Go + LLVM）行为一致。
+
+### 7. 实现顺序
+
+1. **Go 端模板**：`html/template` 封装（`res.HTML/Render`）→ 快
+2. **表单/Cookie**：`req.Form*` / `res.SetCookie`（Go 端先）
+3. **模板语法定稿**：`{{var}}`/`{{for}}`/`{{if}}` 子集
+4. **LLVM 端模板渲染**：手写 IR（字符串替换 + 循环展开）
+5. **教程 + 文档**：example58 + 本文档补全
+
+> 完成后 KylixBoot = REST API + HTML 页面 + 静态资源 + 表单 + Cookie，成为完整 web 开发框架。全部 v0.6.9/v0.7.0 规划完成后发布 1.0.0。

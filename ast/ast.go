@@ -31,13 +31,13 @@ type Program struct {
 	// UsesPolymorphism is true if the program contains any `is`/`as` expression.
 	// The Go backend uses this to decide whether inheritance-participating
 	// base classes are emitted as Go interfaces (enabling polymorphism) or as
-	// plain structs (enabling field inheritance via embedding). See v5.2.0.
+	// plain structs (enabling field inheritance via embedding). See v0.5.2.
 	UsesPolymorphism bool
 	// IsMerged is true when this Program was produced by merging multiple
 	// source files (units + program). The LLVM backend uses it to emit
 	// top-level VarDecls as module-level globals (so unit vars like
 	// token.Keywords are visible to every function, not just main). Single-file
-	// programs keep top-level vars as main-local allocas. v5.4.0.
+	// programs keep top-level vars as main-local allocas. v0.5.4.
 	IsMerged bool
 }
 
@@ -108,7 +108,7 @@ type Parameter struct {
 	Token token.Token // NEW: the parameter name token
 	Name  string
 	Type  Expression
-	IsVar bool // v6.0.0: `var` output parameter — passed by pointer (*T)
+	IsVar bool // v0.6.0: `var` output parameter — passed by pointer (*T)
 }
 
 // Block Statement

@@ -1,6 +1,6 @@
 // iter — Array iteration utilities, implemented in pure Kylix.
 //
-// Part of v2.5.0 stdlib Phase 3+.
+// Part of v0.2.5 stdlib Phase 3+.
 // Provides common array operations without requiring function-type parameters
 // (Kylix does not yet support function pointers as parameter types).
 // Future versions will add Map/Filter/Reduce when function types are supported.

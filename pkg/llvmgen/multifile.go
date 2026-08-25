@@ -64,7 +64,7 @@ func MergePrograms(programs []*ast.Program) (*ast.Program, error) {
 
 	for _, p := range programs {
 		if !p.IsUnit {
-			// v6.2.0: a non-unit file with no program name and no top-level
+			// v0.6.2: a non-unit file with no program name and no top-level
 			// statements (e.g. a Kylix test file with only Test* procedures)
 			// is a declaration provider, not the entry program — its
 			// declarations are merged below, but it must not claim to be main.
@@ -106,7 +106,7 @@ func MergePrograms(programs []*ast.Program) (*ast.Program, error) {
 		Uses:         uses,
 		Declarations: decls,
 		Statements:   main.Statements,
-		IsMerged:     true, // v5.4.0: signal multi-file → top-level vars become globals
+		IsMerged:     true, // v0.5.4: signal multi-file → top-level vars become globals
 	}
 	return merged, nil
 }

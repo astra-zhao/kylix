@@ -53,7 +53,7 @@ type Runner struct {
 	Verbose   bool
 	Filter    string // optional substring filter on test names
 	ReportMem bool   // report B/op and allocs/op in benchmarks
-	Backend   string // "go" (default) or "llvm" (v6.2.0: native binary harness)
+	Backend   string // "go" (default) or "llvm" (v0.6.2: native binary harness)
 }
 
 // New returns a Runner.
@@ -183,7 +183,7 @@ func (r *Runner) Run(cases []TestCase) []TestResult {
 
 // runFile compiles a _test.klx with a test harness and runs each Test*.
 // Backend "llvm" uses the LLVM backend (native binary harness) instead of the
-// Go harness + `go run` (v6.2.0: KylixRT — run tests without a Go toolchain).
+// Go harness + `go run` (v0.6.2: KylixRT — run tests without a Go toolchain).
 func (r *Runner) runFile(file string, names []string) []TestResult {
 	if r.Backend == "llvm" {
 		return r.runFileLLVM(file, names)
@@ -505,7 +505,7 @@ func (r *Runner) runOneBench(harnessPath, name string, count int, reportMem bool
 // (no Go toolchain) and runs each Test*. The harness is a Kylix program that
 // defines Assert (raise on failure) and dispatches on Args[0] to the requested
 // Test* procedure; it is merged with the test file + its same-dir `uses`
-// dependencies via llvmgen.CompileFilesToNative. v6.2.0.
+// dependencies via llvmgen.CompileFilesToNative. v0.6.2.
 func (r *Runner) runFileLLVM(file string, names []string) []TestResult {
 	tmpDir, err := os.MkdirTemp("", "kylix-test-llvm-*")
 	if err != nil {
@@ -548,7 +548,7 @@ func (r *Runner) runFileLLVM(file string, names []string) []TestResult {
 		cmd := exec.Command(bin, name)
 		out, runErr := cmd.CombinedOutput()
 		outStr := strings.TrimSpace(string(out))
-		// v6.2.0: Assert prints "FAIL: <msg>" (no exception unwinding on the
+		// v0.6.2: Assert prints "FAIL: <msg>" (no exception unwinding on the
 		// native path), so a failure is detected by output, not just exit code.
 		if runErr != nil || strings.Contains(outStr, "FAIL:") {
 			msg := outStr
@@ -611,7 +611,7 @@ func formatNs(avgNs int64) string {
 
 // runBenchFileLLVM compiles a *_bench.klx into a native binary via the LLVM
 // backend (no Go toolchain) and runs each Bench* `count` times, timing with
-// wall-clock in the runner. v6.2.0.
+// wall-clock in the runner. v0.6.2.
 func (r *Runner) runBenchFileLLVM(file string, names []string, count int) []TestResult {
 	tmpDir, err := os.MkdirTemp("", "kylix-bench-llvm-*")
 	if err != nil {

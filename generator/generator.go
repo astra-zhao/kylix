@@ -31,7 +31,7 @@ type Generator struct {
 	inExceptHandler  bool                            // true when inside a recover() block for bare raise
 	reRaiseVar       string                          // Go variable holding the recovered value for re-raise
 	nameMap          map[string]string               // temporary name substitutions (e.g., E→e in on clause)
-	varParams        map[string]bool                 // v6.0.0: `var` output params of the current function (deref reads/writes)
+	varParams        map[string]bool                 // v0.6.0: `var` output params of the current function (deref reads/writes)
 	imports          map[string]bool                 // Go imports needed by the output
 	needsException   bool                            // whether Exception type must be emitted
 	needsSetLength   bool                            // whether the __kylixSetLength helper is needed
@@ -51,9 +51,9 @@ type Generator struct {
 	ormEntitiesOrder []string                        // deterministic order for ORM emission
 	ormRepositories  []ormRepository                 // ORM [Repository] classes
 	userFuncs        map[string]bool                 // user-defined function names (override built-in mapping)
-	funcParams       map[string][]*ast.Parameter     // v6.0.0: function name → parameter list (for `&` at var-arg call sites)
+	funcParams       map[string][]*ast.Parameter     // v0.6.0: function name → parameter list (for `&` at var-arg call sites)
 	usedModules      map[string]bool                 // modules imported via `uses` clause
-	usesPolymorphism bool                            // true if any compiled program uses `is`/`as` (→ base classes become interfaces). See v5.2.0.
+	usesPolymorphism bool                            // true if any compiled program uses `is`/`as` (→ base classes become interfaces). See v0.5.2.
 }
 
 func New() *Generator {
@@ -437,7 +437,7 @@ func (g *Generator) writeInterpolation(interp *ast.StringInterpolation) {
 // so generateTypeExpression can decide interface{} vs *ClassName. It also ORs
 // in Program.UsesPolymorphism — this is the universal prescan chokepoint (called
 // by Generate, GenerateMulti, CompileProject, and exported CollectClassTypes),
-// so the polymorphism flag is set for every codegen path. See v5.2.0.
+// so the polymorphism flag is set for every codegen path. See v0.5.2.
 func (g *Generator) collectClassTypes(program *ast.Program) {
 	g.usesPolymorphism = g.usesPolymorphism || program.UsesPolymorphism
 	for _, decl := range program.Declarations {
@@ -446,7 +446,7 @@ func (g *Generator) collectClassTypes(program *ast.Program) {
 			// Track user-defined functions so mapBuiltinFunction doesn't
 			// rewrite calls to them as Go built-ins (e.g. Abs → math.Abs).
 			g.userFuncs[d.Name] = true
-			// v6.0.0: record parameter list (for `&` at var-arg call sites).
+			// v0.6.0: record parameter list (for `&` at var-arg call sites).
 			g.funcParams[d.Name] = d.Parameters
 		case *ast.ClassDecl:
 			g.classTypes[d.Name] = true

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestHtabGet_NullOnMiss (v5.6.0) guards the fix for `map[String]Boolean`
+// TestHtabGet_NullOnMiss (v0.5.6) guards the fix for `map[String]Boolean`
 // presence tests reading as true for missing keys. htab_get previously
 // returned the empty-string ptr (non-null) on miss, so `if m[key]` (lowered to
 // `htab_get → icmp ne null`) read every missing key as TRUE. In the bootstrap

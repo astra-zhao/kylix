@@ -46,7 +46,7 @@ func (g *Generator) emitHashtabBodies() {
 	g.emitHashtabFind() // helper: returns ptr-to-node-or-null
 	g.emitHashtabPut()
 	g.emitHashtabGet()
-	// v5.1.0: htab_get_variant (Variant-box-valued map reads) references the
+	// v0.5.1: htab_get_variant (Variant-box-valued map reads) references the
 	// Variant nilbox global, so emit it only when the Variant runtime is in
 	// use — keeps cache/string-map modules free of Variant bloat.
 	if g.needVariantRuntime {
@@ -62,7 +62,7 @@ func (g *Generator) emitHashtabBodies() {
 
 // emitHashtabKeys emits `{ ptr, i64 } @__kylix_htab_keys(ptr %t)` — collects
 // every key in the table into a freshly malloc'd array (exact count = t->size,
-// so a single allocation suffices). Returns { items, len }. v6.6.0 (used by
+// so a single allocation suffices). Returns { items, len }. v0.6.6 (used by
 // cache Sweep to visit all TTL-tracked keys).
 func (g *Generator) emitHashtabKeys() {
 	g.line("define { ptr, i64 } @__kylix_htab_keys(ptr %t) {")
@@ -339,7 +339,7 @@ func (g *Generator) emitHashtabPut() {
 }
 
 // htab_get: ptr @__kylix_htab_get(ptr %t, ptr %key) — value or null.
-// v5.6.0: returns null on miss (was the empty-string ptr). The non-null
+// v0.5.6: returns null on miss (was the empty-string ptr). The non-null
 // miss return broke Boolean/presence tests: `if m[key]` lowers to
 // `htab_get → icmp ne null`, so a miss (emptyStr, non-null) read as TRUE —
 // e.g. the bootstrap's `self.ClassIsBase[type]` / `self.ClassTypes[type]`
@@ -371,7 +371,7 @@ func (g *Generator) emitHashtabGet() {
 }
 
 // htab_get_variant: ptr @__kylix_htab_get_variant(ptr %t, ptr %key)
-// v5.1.0: like htab_get but the value slot holds a Variant box pointer. On
+// v0.5.1: like htab_get but the value slot holds a Variant box pointer. On
 // miss returns the global nil-box (@__kylix_variant_nilbox, tag=0) so callers
 // (Variant map reads, JsonGet*) always receive a valid box — as_* dispatch on
 // tag 0 → the typed zero (str→"", int→0, float→0.0, bool→false). Variant

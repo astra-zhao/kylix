@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-// cache.go — incremental compilation cache for the LLVM backend (v4.5.0 Phase C).
+// cache.go — incremental compilation cache for the LLVM backend (v0.4.5 Phase C).
 //
 // Caches the compiled .o object file keyed on a hash of (source content +
 // compile options + dependency unit signatures). On a cache hit, llc is

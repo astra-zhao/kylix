@@ -72,7 +72,7 @@ end.`)
 }
 
 func TestWs_DialConnectFinishDispatch(t *testing.T) {
-	// v6.5.0: two-phase client handshake.
+	// v0.6.5: two-phase client handshake.
 	ir := generateIR(t, `program p;
 uses websocket;
 begin

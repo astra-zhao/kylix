@@ -1,6 +1,6 @@
 // jsonutil — JSON encoding/decoding, implemented in pure Kylix.
 //
-// Part of the v3.0.0 stdlib Kylix-ification Phase 4. This module provides
+// Part of the v0.3.0 stdlib Kylix-ification Phase 4. This module provides
 // a complete JSON parser with support for nested objects and arrays.
 unit jsonutil;
 

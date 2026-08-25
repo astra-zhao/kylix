@@ -32,7 +32,7 @@ func stdlibSysutilFuncSig(name string) (retType string, params []string, ok bool
 		return "ptr", nil, true // variadic (...String) → String; params built per-call
 	case "PathBase":
 		return "ptr", []string{"ptr"}, true // (path) → String
-	// v6.2.0: file/dir/env operations (POSIX).
+	// v0.6.2: file/dir/env operations (POSIX).
 	case "DirExists":
 		return "i1", []string{"ptr"}, true
 	case "CreateDir":
@@ -171,7 +171,7 @@ func (g *Generator) emitSysutilBody(name string, argCount int) {
 //	buf = malloc(size+1); fread(buf, 1, size, fp); buf[size] = 0; fclose(fp)
 //	ret buf
 func (g *Generator) emitSysutilReadFile() {
-	// v6.2.0: on Windows, fopen's "r" runs text-mode translation (\n→\r\n);
+	// v0.6.2: on Windows, fopen's "r" runs text-mode translation (\n→\r\n);
 	// use binary mode so ReadFile returns the file's raw bytes (POSIX-like).
 	modeR := "r"
 	if g.targetOS == "windows" {
@@ -217,7 +217,7 @@ func (g *Generator) emitSysutilReadFile() {
 //
 //	fopen(path, "w") → fp; if null ret; fputs(content, fp); fclose(fp); ret
 func (g *Generator) emitSysutilWriteFile() {
-	// v6.2.0: Windows "w" writes \n as \r\n (text mode) — use "wb" so the
+	// v0.6.2: Windows "w" writes \n as \r\n (text mode) — use "wb" so the
 	// content bytes are written verbatim (POSIX-like).
 	modeW := "w"
 	if g.targetOS == "windows" {
@@ -248,7 +248,7 @@ func (g *Generator) emitSysutilWriteFile() {
 //
 //	access(path, F_OK=0) == 0 → i1
 func (g *Generator) emitSysutilFileExists() {
-	// v6.2.0: Windows uses _access (POSIX access is not in UCRT).
+	// v0.6.2: Windows uses _access (POSIX access is not in UCRT).
 	accessFunc := "@access"
 	if g.targetOS == "windows" {
 		accessFunc = "@_access"
@@ -365,7 +365,7 @@ func (g *Generator) emitSysutilPathBase() {
 }
 
 // ---- DirExists: i1 @__kylix_sysutil_DirExists(ptr %path) ----
-// opendir(path) != null (POSIX). Windows has no opendir (v6.2.0 limitation).
+// opendir(path) != null (POSIX). Windows has no opendir (v0.6.2 limitation).
 func (g *Generator) emitSysutilDirExists() {
 	g.line("define i1 @__kylix_sysutil_DirExists(ptr %path) {")
 	g.line("entry:")
@@ -508,7 +508,7 @@ func (g *Generator) emitSysutilSetWorkingDir() {
 }
 
 // ---- GetTempDir: ptr @__kylix_sysutil_GetTempDir() ----
-// getenv("TMPDIR"); fallback "/tmp" (TMP/TEMP on Windows is a v6.2.0 limitation).
+// getenv("TMPDIR"); fallback "/tmp" (TMP/TEMP on Windows is a v0.6.2 limitation).
 func (g *Generator) emitSysutilGetTempDir() {
 	g.line("define ptr @__kylix_sysutil_GetTempDir() {")
 	g.line("entry:")

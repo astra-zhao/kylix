@@ -1,8 +1,8 @@
 # LLVM Backend Performance Guide
 
-> **Status**: v4.1.0 — `--llvm-opt` now runs the standalone `opt` tool for full IR-level optimization (mem2reg, inlining, loop induction, DCE), in addition to llc's codegen-level `-O<N>`.
+> **Status**: v0.4.1 — `--llvm-opt` now runs the standalone `opt` tool for full IR-level optimization (mem2reg, inlining, loop induction, DCE), in addition to llc's codegen-level `-O<N>`.
 >
-> **v6.5.0**: the default `-O0` build now also runs `opt --passes=mem2reg` before llc (the biggest single IR-shrinking step), cutting **compile time ~30×** (11.5s → 0.38s on the bootstrap compiler) — see [compile-performance.md](compile-performance.md). The runtime numbers below are unchanged (v6.5.0 doesn't alter codegen semantics).
+> **v0.6.5**: the default `-O0` build now also runs `opt --passes=mem2reg` before llc (the biggest single IR-shrinking step), cutting **compile time ~30×** (11.5s → 0.38s on the bootstrap compiler) — see [compile-performance.md](compile-performance.md). The runtime numbers below are unchanged (v0.6.5 doesn't alter codegen semantics).
 
 The LLVM backend produces standalone native binaries with no Go runtime dependency. With `--llvm-opt`, the `opt` IR optimizer runs before `llc`, enabling aggressive optimizations (inlining, loop induction, scalar replacement) that the codegen-level `-O` flag alone cannot perform.
 
@@ -38,7 +38,7 @@ kylix build --backend=llvm --llvm-opt=3 program.klx
 
 ## Benchmarks
 
-**Environment**: Apple Silicon (arm64), LLVM 22.1.7, Kylix v4.1.0.
+**Environment**: Apple Silicon (arm64), LLVM 22.1.7, Kylix v0.4.1.
 **Note**: Times are pure runtime (binary execution only, no compile time). `kylix run` (Go backend) includes Go compilation each run, so its times are not directly comparable — use the Go binary (`go build` then run) for a fair comparison.
 
 | Benchmark | unopt | O2 | O3 | Speedup (O2 vs unopt) |
@@ -74,7 +74,7 @@ Kylix emits SSA-via-alloca (`alloca` + `load`/`store` for every variable). This 
 ## Troubleshooting
 
 ### `opt: Unknown command line argument '-O=2'`
-You're using an older `opt` (pre-LLVM 15). Kylix v4.1.0 uses the new `--O<N>` syntax (new pass manager). Either upgrade LLVM or the backend will skip `opt` and fall back to `llc -O<N>` only.
+You're using an older `opt` (pre-LLVM 15). Kylix v0.4.1 uses the new `--O<N>` syntax (new pass manager). Either upgrade LLVM or the backend will skip `opt` and fall back to `llc -O<N>` only.
 
 ### Optimization changes program output
 All 01–04 tutorials produce byte-identical output with `--llvm-opt=2` and without. If you see a divergence, it's a compiler bug — please report it with the `.ll` and `.opt.ll` files.
@@ -105,4 +105,4 @@ done
 
 ---
 
-**Last Updated**: 2026-07-02 (v4.1.0)
+**Last Updated**: 2026-07-02 (v0.4.1)

@@ -1,6 +1,6 @@
 // collections — Generic-style collection types, implemented in pure Kylix.
 //
-// Part of v2.2.0 stdlib Kylix-ification Phase 2.
+// Part of v0.2.2 stdlib Kylix-ification Phase 2.
 // Provides TIntList (list of integers) as a foundational collection;
 // future versions will add TStringList, TStack, TQueue with full generics.
 unit collections;

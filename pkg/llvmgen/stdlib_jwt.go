@@ -10,7 +10,7 @@ import (
 // HS256 (HMAC-SHA256): token = base64url(header) "." base64url(payload) "."
 // base64url(HMAC-SHA256(secret, signing)). The header/payload JSON uses the
 // same key order as Go's json.Marshal (exp, iat, sub) so tokens interoperate
-// with the Go backend. v6.3.0.
+// with the Go backend. v0.6.3.
 
 // jwtB64URLAlphabet is the base64url alphabet (RFC 4648 §5, no padding).
 const jwtB64URLAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
@@ -43,7 +43,7 @@ func (g *Generator) emitJwtCall(funcName string, args []ast.Expression) (string,
 }
 
 // emitJwtClaimsAccess reads a fixed-key claim from a decoded claims Variant
-// map (v6.6.0). wantStr → String, else Integer.
+// map (v0.6.6). wantStr → String, else Integer.
 func (g *Generator) emitJwtClaimsAccess(args []ast.Expression, key string, wantStr bool) (string, string, error) {
 	if len(args) != 1 {
 		return "", "", fmt.Errorf("jwt claims access expects 1 argument, got %d", len(args))
@@ -103,7 +103,7 @@ func (g *Generator) emitJwtBody(funcName string) {
 
 // ---- JwtVerify: ptr @__kylix_jwt_JwtVerify(ptr %secret, ptr %token) → Variant
 //
-// Verifies the HS256 signature only (v6.3.0): splits the token into
+// Verifies the HS256 signature only (v0.6.3): splits the token into
 // header.payload.sig, recomputes base64url(HMAC-SHA256(secret, signing)) and
 // compares. Returns a non-nil Variant on success, the nil Variant otherwise.
 // Payload/claims parsing is a documented limitation.
@@ -152,7 +152,7 @@ func (g *Generator) emitJwtSignCall(args []ast.Expression) (string, string, erro
 		}
 		expiryReg = r
 	}
-	// v6.6.0: extraClaims — a Variant map of additional payload claims
+	// v0.6.6: extraClaims — a Variant map of additional payload claims
 	// (omitted / nil → null → no extra claims).
 	extraReg := "null"
 	if len(args) >= 4 {
@@ -160,7 +160,7 @@ func (g *Generator) emitJwtSignCall(args []ast.Expression) (string, string, erro
 		if err != nil {
 			return "", "", err
 		}
-		// v6.6.0: a map[String]Variant argument is boxed into a Variant map
+		// v0.6.6: a map[String]Variant argument is boxed into a Variant map
 		// (JwtSign's extraClaims parameter is Variant). A plain Variant arg
 		// (e.g. another JwtVerify result) passes through as a box.
 		if ident, ok := args[3].(*ast.Identifier); ok && g.mapVars[ident.Value] {
@@ -201,7 +201,7 @@ func (g *Generator) emitJwtSignBody() {
 	// payload = dynamic build: "{" + extra claims + ",\"sub\":\"...\",\"iat\":N"
 	// [+ ",\"exp\":M" when expiresIn > 0] + "}". Extra-claim values are
 	// serialized as JSON strings (as_str) — ints stay numeric on read-back
-	// via atoll. v6.6.0.
+	// via atoll. v0.6.6.
 	g.needHashtab = true
 	g.needVariantRuntime = true
 	payloadBuf := g.tmp()
@@ -481,7 +481,7 @@ func (g *Generator) emitJwtB64URLBody() {
 	c0t := g.tmp()
 	g.line(fmt.Sprintf("  %s = lshr i64 %s, 2", c0t, b0t))
 	g.emitStoreB64Char(out, o2, 0, table, c0t)
-	// v6.6.0: with rem==1 (1 byte left) two chars must be written — c1 =
+	// v0.6.6: with rem==1 (1 byte left) two chars must be written — c1 =
 	// (b0 & 3) << 4. Previously only c0 was stored, leaving the second
 	// output char as uninitialized heap garbage, so tokens whose payload
 	// length was 1 mod 3 carried a corrupted (non-standard) payload segment.
@@ -780,7 +780,7 @@ func (g *Generator) emitJwtVerifyBody() {
 //
 // base64url-decodes the first n bytes (RFC 4648 §5, no padding) into a
 // malloc'd, NUL-terminated buffer. Uses the shared @__kylix_jwt_b64url_val
-// nibble/value decoder. v6.6.0 (JWT payload → claims JSON).
+// nibble/value decoder. v0.6.6 (JWT payload → claims JSON).
 func (g *Generator) emitJwtB64URLDecodeBody() {
 	g.enqueueStdlib("jwt", "b64urlval", "b64urlval", 0)
 	g.line("define ptr @__kylix_jwt_b64url_decode(ptr %str, i64 %n) {")

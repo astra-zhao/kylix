@@ -6,9 +6,9 @@ uses token, ast, error;
 // ============================================================================
 
 type
-  // v5.9.0: ORM annotation metadata (mirrors host generator_orm_annotations.go).
+  // v0.5.9: ORM annotation metadata (mirrors host generator_orm_annotations.go).
   // Class-based arrays instead of maps — the bootstrap generator must avoid Go
-  // nil-map writes (v5.7.0), and ORM data is nested (entity fields / repository
+  // nil-map writes (v0.5.7), and ORM data is nested (entity fields / repository
   // queries), so plain comma-delimited strings would be unreadable.
   TOrmColumn = class
     FieldName: String;
@@ -49,11 +49,11 @@ type
     ExceptionTypes: map[String]Boolean;
     MultiReturn: Boolean;
     MultiReturnN: Integer;
-    ClassTypes: String;  // v5.7.0: comma-delimited class names (was map, Go nil map panic)
+    ClassTypes: String;  // v0.5.7: comma-delimited class names (was map, Go nil map panic)
     ClassIsBase: map[String]Boolean; // read-only (nil OK in Go)
-    ClassIsBaseStr: String; // v5.9.0: comma-delimited base class names (when UsesPolymorphism)
+    ClassIsBaseStr: String; // v0.5.9: comma-delimited base class names (when UsesPolymorphism)
     ClassFields: map[String]array of String; // read-only (nil OK in Go)
-    // v5.3.0: conditional import flags — set by CollectImports scanning the
+    // v0.5.3: conditional import flags — set by CollectImports scanning the
     // generated body; BuildImportBlock emits only the packages actually used.
     NeedFmt: Boolean;
     NeedStrings: Boolean;
@@ -62,18 +62,18 @@ type
     NeedOS: Boolean;
     NeedMath: Boolean;
     NeedRand: Boolean;
-    NeedStdlib: Boolean; // v5.6.0: any stdlib.FuncName call used → import kylix/stdlib
-    UserFuncs: String; // v5.7.0: comma-delimited user func names (was map, Go nil map panic)
-    UsesPolymorphism: Boolean; // v5.9.0: true if any program uses is/as
+    NeedStdlib: Boolean; // v0.5.6: any stdlib.FuncName call used → import kylix/stdlib
+    UserFuncs: String; // v0.5.7: comma-delimited user func names (was map, Go nil map panic)
+    UsesPolymorphism: Boolean; // v0.5.9: true if any program uses is/as
 
-    // v5.9.0: KylixBoot annotation collection (parallel to host bootRoutes/
+    // v0.5.9: KylixBoot annotation collection (parallel to host bootRoutes/
     // bootComponents/bootInjects). Stored as comma-delimited strings because
     // Go nil-map writes panic; the bootstrap generator must avoid maps.
     BootComponents: String;  // "<ClassName>|<Kind>," entries
     BootInjects: String;     // "<OwnerClass>|<FieldName>|<FieldType>," entries
     BootRoutes: String;      // "<Method>|<Path>|<ClassName>|<MethodName>|<HandlerKind>|<RequireAuth>|<Roles>|<BodyType>," entries
 
-    // v5.9.0: ORM annotation metadata (mirrors host ormEntities/ormRepositories).
+    // v0.5.9: ORM annotation metadata (mirrors host ormEntities/ormRepositories).
     OrmEntities: array of TOrmEntity;
     OrmRepositories: array of TOrmRepository;
 
@@ -118,7 +118,7 @@ type
     end;
 
     // Write a Go-escaped string: handle \, ", and the \n \t \r escape sequences.
-    // v5.3.0 (G14): a 2-char lookahead preserves \n \t \r as Go escape sequences
+    // v0.5.3 (G14): a 2-char lookahead preserves \n \t \r as Go escape sequences
     // (Go interprets them as newline/tab/CR). Without this, the backslash was
     // doubled to \\n, emitting a literal backslash-n instead of a newline —
     // which broke the bootstrap round-trip (gen2 output had literal \n where
@@ -193,7 +193,7 @@ type
       self.ScanORMAnnotations(prog);
       self.ScanForException(prog);
 
-      // v5.3.0: body is generated into self.Output first; package line and
+      // v0.5.3: body is generated into self.Output first; package line and
       // the import block are assembled at the end, after CollectImports has
       // scanned the body for actually-referenced packages (conditional imports
       // — so programs using only WriteLn emit only "fmt", avoiding Go's
@@ -213,7 +213,7 @@ type
           self.WriteLine('}');
         end;
 
-      // v5.6.0: emit Exception type AFTER the body — NeedsException is set
+      // v0.5.6: emit Exception type AFTER the body — NeedsException is set
       // during body generation (GenerateTryStatement on a try/except), not in
       // the pre-scan (ScanForException is a stub here, unlike host's
       // scanForException). Emitting before the body saw NeedsException=false
@@ -245,7 +245,7 @@ type
         self.ScanForException(prog);
       end;
 
-      // v5.3.0: body generated first; package + conditional imports assembled
+      // v0.5.3: body generated first; package + conditional imports assembled
       // at the end (see Generate).
 
       // Generate types from all programs
@@ -290,7 +290,7 @@ type
       if hasMain = false then
         self.WriteLine('func main() {}');
 
-      // v5.6.0: emit Exception type AFTER the body (NeedsException is set
+      // v0.5.6: emit Exception type AFTER the body (NeedsException is set
       // during body generation, not in the stub pre-scan). See Generate.
       self.GenerateExceptionTypes;
 
@@ -300,7 +300,7 @@ type
 
     // BuildImportBlock returns the Go import block from the Need* flags. Called
     // at the end of Generate/GenerateMulti after CollectImports has scanned the
-    // body. v5.3.0: conditional imports — only packages actually referenced
+    // body. v0.5.3: conditional imports — only packages actually referenced
     // are emitted, so small programs (e.g. hello → only fmt) compile without
     // Go's "imported and not used" error.
     function BuildImportBlock: String;
@@ -350,7 +350,7 @@ type
     // references and sets the corresponding Need* flags. Called at the end of
     // Generate/GenerateMulti, after the body is fully written.
     //
-    // v5.3.0 self-detection guard: each needle is split into a concatenation
+    // v0.5.3 self-detection guard: each needle is split into a concatenation
     // ('fmt' + '.') so the generated Go source contains "fmt" + "." as separate
     // tokens — which does NOT contain the substring "fmt.". This prevents the
     // compiler from matching its own CollectImports literals when self-compiling
@@ -386,15 +386,15 @@ type
       cd: TClassDecl;
       td: TTypeDecl;
     begin
-      // v5.9.0: copy UsesPolymorphism from program to generator (host generator.go:439)
+      // v0.5.9: copy UsesPolymorphism from program to generator (host generator.go:439)
       self.UsesPolymorphism := self.UsesPolymorphism or prog.UsesPolymorphism;
-      // v5.6.0: populate ClassTypes so MapType distinguishes class (*Type) from
+      // v0.5.6: populate ClassTypes so MapType distinguishes class (*Type) from
       // record/enum (value type). Without this every user type fell to MapType's
       // else branch — combined with the htab_get null-on-miss fix that made
       // ClassIsBase/ClassTypes reads return false, records/enums emitted *T
       // (should be value type T) → nil-deref / type-mismatch.
       //
-      // v5.9.0: ClassIsBaseStr is populated UNCONDITIONALLY (host
+      // v0.5.9: ClassIsBaseStr is populated UNCONDITIONALLY (host
       // collectClassTypes at generator.go:443 fills classIsBase without a gate).
       // The polymorphism gate lives in GenerateClassDecl / GenerateTypeExpression
       // via self.UsesPolymorphism (OR-ed across all programs). Previously this
@@ -427,7 +427,7 @@ type
         end
         else if decl is TFunctionDecl then
         begin
-          // v5.6.0: track user-defined functions so bare calls to them aren't
+          // v0.5.6: track user-defined functions so bare calls to them aren't
           // mis-mapped to stdlib.FuncName by the GenerateCallExpression fallback.
           var fd: TFunctionDecl;
           fd := decl as TFunctionDecl;
@@ -449,7 +449,7 @@ type
       // Not needed for bootstrap
     end;
 
-    // v5.9.0: case-insensitive name compare (no EqualFold in klx runtime).
+    // v0.5.9: case-insensitive name compare (no EqualFold in klx runtime).
     function AttrNameIs(a: String; b: String): Boolean;
     begin
       result := (Length(a) = Length(b)) and (self.StrContains(a + '|' + b, a));
@@ -459,7 +459,7 @@ type
       result := (a = b);
     end;
 
-    // v5.9.0: FindAttribute — first attribute in `attrs` whose name equals
+    // v0.5.9: FindAttribute — first attribute in `attrs` whose name equals
     // `name` (case-sensitive; tutorial annotations use canonical PascalCase).
     function FindAttribute(attrs: array of TAttribute; name: String): TAttribute;
     var i: Integer; a: TAttribute;
@@ -476,7 +476,7 @@ type
       end;
     end;
 
-    // v5.9.0: attributeStringArg — first arg as string literal, else fallback.
+    // v0.5.9: attributeStringArg — first arg as string literal, else fallback.
     function AttrStringArg(attr: TAttribute; fallback: String): String;
     var lit: TStringLiteral;
     begin
@@ -491,7 +491,7 @@ type
       end;
     end;
 
-    // v5.9.0: attributeIdentifierArg — first arg as identifier.
+    // v0.5.9: attributeIdentifierArg — first arg as identifier.
     function AttrIdentArg(attr: TAttribute): String;
     var ident: TIdentifier;
     begin
@@ -506,7 +506,7 @@ type
       end;
     end;
 
-    // v5.9.0: IsBootRouteAttr — map annotation name to HTTP method, or ''.
+    // v0.5.9: IsBootRouteAttr — map annotation name to HTTP method, or ''.
     function IsBootRouteAttr(name: String): String;
     begin
       if name = 'Get' then result := 'GET'
@@ -516,7 +516,7 @@ type
       else result := '';
     end;
 
-    // v5.9.0: IsBootRequestType — TRequest or BootRequest.
+    // v0.5.9: IsBootRequestType — TRequest or BootRequest.
     function IsBootRequestType(t: TExpression): Boolean;
     var ident: TIdentifier;
     begin
@@ -529,7 +529,7 @@ type
       end;
     end;
 
-    // v5.9.0: IsBootResponseType — TResponse or BootResponse.
+    // v0.5.9: IsBootResponseType — TResponse or BootResponse.
     function IsBootResponseType(t: TExpression): Boolean;
     var ident: TIdentifier;
     begin
@@ -542,7 +542,7 @@ type
       end;
     end;
 
-    // v5.9.0: FieldTypeName — extract base name from a field type expr
+    // v0.5.9: FieldTypeName — extract base name from a field type expr
     // (TIdentifier → Value; TGenericType → Base; else '').
     function FieldTypeName(t: TExpression): String;
     var ident: TIdentifier; gen: TGenericType;
@@ -560,19 +560,19 @@ type
       end;
     end;
 
-    // v5.9.0: IsBootRequestType on a parameter.
+    // v0.5.9: IsBootRequestType on a parameter.
     function ParamIsRequest(p: TParameter): Boolean;
     begin
       result := self.IsBootRequestType(p.ParamType);
     end;
 
-    // v5.9.0: IsBootResponseType on a parameter.
+    // v0.5.9: IsBootResponseType on a parameter.
     function ParamIsResponse(p: TParameter): Boolean;
     begin
       result := self.IsBootResponseType(p.ParamType);
     end;
 
-    // v5.9.0: BootHandlerKindFor — returns 'func' (function: 1 param, returns
+    // v0.5.9: BootHandlerKindFor — returns 'func' (function: 1 param, returns
     // TResponse), 'proc' (procedure: 2 params req,res, no return), or ''.
     function BootHandlerKindFor(m: TFunctionDecl): String;
     begin
@@ -588,7 +588,7 @@ type
         result := 'proc';
     end;
 
-    // v5.9.0: CollectBootSecurity — scans method attrs for [Authenticated]/
+    // v0.5.9: CollectBootSecurity — scans method attrs for [Authenticated]/
     // [Role('name')]. Returns "auth=Y;roles=r1,r2;".
     function CollectBootSecurity(attrs: array of TAttribute): String;
     var
@@ -616,7 +616,7 @@ type
         result := ';';
     end;
 
-    // v5.9.0: ScanBodyType — first [Body(T)] identifier arg, or ''.
+    // v0.5.9: ScanBodyType — first [Body(T)] identifier arg, or ''.
     function ScanBodyType(attrs: array of TAttribute): String;
     var i: Integer; a: TAttribute;
     begin
@@ -632,7 +632,7 @@ type
       end;
     end;
 
-    // v5.9.0: NormalizeBootPath — join base + sub into a single route path.
+    // v0.5.9: NormalizeBootPath — join base + sub into a single route path.
     function NormalizeBootPath(base: String; sub: String): String;
     var
       blen, slen: Integer;
@@ -681,7 +681,7 @@ type
       end;
     end;
 
-    // v5.9.0: ScanBootAnnotations — mirror host scanBootAnnotations. Walks
+    // v0.5.9: ScanBootAnnotations — mirror host scanBootAnnotations. Walks
     // program declarations; for each class collects service/component singletons,
     // [Inject] field dependencies, and controller route handlers into the
     // comma-delimited Boot* strings. Also flags the kylix/stdlib import when
@@ -787,7 +787,7 @@ type
         self.NeedStdlib := true;
     end;
 
-    // v5.9.0: GoStringLit — quote `s` as a Go string literal, escaping \ " and
+    // v0.5.9: GoStringLit — quote `s` as a Go string literal, escaping \ " and
     // preserving \n \t \r escape sequences (mirrors WriteEscapedGoString but
     // returns the quoted literal instead of writing it).
     function GoStringLit(s: String): String;
@@ -829,7 +829,7 @@ type
       result := result + '"';
     end;
 
-    // v5.9.0: ClassHasMethod — does the class already define `name` (with a
+    // v0.5.9: ClassHasMethod — does the class already define `name` (with a
     // body)? Mirrors host classHasMethod (generator_validation_annotations.go).
     function ClassHasMethod(cd: TClassDecl; name: String): Boolean;
     var
@@ -843,7 +843,7 @@ type
           result := true;
     end;
 
-    // v5.9.0: HasOrmEntity — is `name` a known [Entity] class?
+    // v0.5.9: HasOrmEntity — is `name` a known [Entity] class?
     function HasOrmEntity(name: String): Boolean;
     var
       i: Integer;
@@ -854,7 +854,7 @@ type
           result := true;
     end;
 
-    // v5.9.0: ScanORMAnnotations — mirror host scanORMAnnotations. Pass 1
+    // v0.5.9: ScanORMAnnotations — mirror host scanORMAnnotations. Pass 1
     // collects [Entity] classes (table + column metadata); Pass 2 collects
     // [Repository(TEntity)] classes and their [Query] methods. Flags the
     // kylix/stdlib import when any ORM artifact is found.
@@ -923,7 +923,7 @@ type
         self.NeedStdlib := true;
     end;
 
-    // v5.9.0: ScanORMEntity — collect [Entity("table")] class column metadata.
+    // v0.5.9: ScanORMEntity — collect [Entity("table")] class column metadata.
     procedure ScanORMEntity(className: String; attrs: array of TAttribute; cd: TClassDecl);
     var
       entityAttr: TAttribute;
@@ -991,7 +991,7 @@ type
       append(self.OrmEntities, entity);
     end;
 
-    // v5.9.0: ScanORMRepository — collect [Repository(TEntity)] classes and
+    // v0.5.9: ScanORMRepository — collect [Repository(TEntity)] classes and
     // their [Query] methods.
     procedure ScanORMRepository(className: String; attrs: array of TAttribute; cd: TClassDecl);
     var
@@ -1051,7 +1051,7 @@ type
       append(self.OrmRepositories, repo);
     end;
 
-    // v5.9.0: OrmQueryEntityName — resolve a [Query] method's return type
+    // v0.5.9: OrmQueryEntityName — resolve a [Query] method's return type
     // against known entities: TEntity → that entity, array of TEntity → that
     // entity too; '' when the return type is not a known entity. (Single-value
     // return only: the bootstrap compiler transpiles `var` out-params by value,
@@ -1086,7 +1086,7 @@ type
       end;
     end;
 
-    // v5.9.0: OrmQueryReturnsList — is the [Query] method's return type an
+    // v0.5.9: OrmQueryReturnsList — is the [Query] method's return type an
     // array of entity (list) vs a single entity? Call only after
     // OrmQueryEntityName returned non-empty.
     function OrmQueryReturnsList(m: TFunctionDecl): Boolean;
@@ -1100,7 +1100,7 @@ type
         result := true;
     end;
 
-    // v5.9.0: OrmGoType — Kylix field type → Go type for FromRow type
+    // v0.5.9: OrmGoType — Kylix field type → Go type for FromRow type
     // assertion. Mirrors host ormGoType.
     function OrmGoType(kylixType: String): String;
     begin
@@ -1119,7 +1119,7 @@ type
         result := '';
     end;
 
-    // v5.9.0: OrmQueryArgList — ", p1, p2" arg list for orm.QueryAll/Query calls.
+    // v0.5.9: OrmQueryArgList — ", p1, p2" arg list for orm.QueryAll/Query calls.
     function OrmQueryArgList(params: array of TParameter): String;
     var
       i: Integer;
@@ -1136,7 +1136,7 @@ type
       end;
     end;
 
-    // v5.9.0: GenerateORMEntityMethods — emit ToRow()/FromRow() for an
+    // v0.5.9: GenerateORMEntityMethods — emit ToRow()/FromRow() for an
     // [Entity] class unless the user already defined them.
     procedure GenerateORMEntityMethods(cd: TClassDecl);
     var
@@ -1165,7 +1165,7 @@ type
         self.EmitEntityFromRow(entity);
     end;
 
-    // v5.9.0: EmitEntityToRow — func (self *T) ToRow() map[string]interface{}.
+    // v0.5.9: EmitEntityToRow — func (self *T) ToRow() map[string]interface{}.
     procedure EmitEntityToRow(entity: TOrmEntity);
     var
       i: Integer;
@@ -1188,7 +1188,7 @@ type
       self.WriteLine('');
     end;
 
-    // v5.9.0: EmitEntityFromRow — func (self *T) FromRow(row map[string]interface{}).
+    // v0.5.9: EmitEntityFromRow — func (self *T) FromRow(row map[string]interface{}).
     procedure EmitEntityFromRow(entity: TOrmEntity);
     var
       i: Integer;
@@ -1215,7 +1215,7 @@ type
       self.WriteLine('');
     end;
 
-    // v5.9.0: GenerateORMRepositoryMethods — emit FindAll/FindById/Save/
+    // v0.5.9: GenerateORMRepositoryMethods — emit FindAll/FindById/Save/
     // DeleteById + each [Query] method for a [Repository] class unless the
     // user already defined them.
     procedure GenerateORMRepositoryMethods(cd: TClassDecl);
@@ -1252,7 +1252,7 @@ type
       end;
     end;
 
-    // v5.9.0: write the ORM receiver prefix "func (self *<Name>[T]) ".
+    // v0.5.9: write the ORM receiver prefix "func (self *<Name>[T]) ".
     procedure WriteOrmReceiver(cd: TClassDecl);
     begin
       self.Write('func (self *' + cd.Name);
@@ -1347,7 +1347,7 @@ type
       self.WriteLine('');
     end;
 
-    // v5.9.0: EmitRepoQuery — emit a [Query]-annotated repository method.
+    // v0.5.9: EmitRepoQuery — emit a [Query]-annotated repository method.
     procedure EmitRepoQuery(cd: TClassDecl; entity: TOrmEntity; q: TOrmQuery);
     var
       i: Integer;
@@ -1555,7 +1555,7 @@ type
       method: TFunctionDecl;
       prop: TPropertyDecl;
     begin
-      // v5.9.0: polymorphism gate — base classes (someone's parent) emit as
+      // v0.5.9: polymorphism gate — base classes (someone's parent) emit as
       // empty interfaces when the program uses is/as, matching host
       // generateClassDecl (generator_types.go:46). The bootstrap AST bases
       // (TNode/TStatement/TExpression) have no fields/methods accessed through
@@ -1604,7 +1604,7 @@ type
       for i := 0 to Length(cd.Methods) - 1 do
       begin
         method := cd.Methods[i];
-        // v5.9.0: skip forward declarations (no body) — these are defined
+        // v0.5.9: skip forward declarations (no body) — these are defined
         // outside the class as top-level `function ClassName.Method()`, and
         // emitting a stub here would duplicate the ORM-generated method
         // (host generator_types.go:91-93).
@@ -1619,12 +1619,12 @@ type
         self.GeneratePropertyAccessors(cd.Name, prop);
       end;
 
-      // v5.9.0: real validation methods (replaces stub IsValid). Scans fields
+      // v0.5.9: real validation methods (replaces stub IsValid). Scans fields
       // for [Required]/[Email]/[Min]/[Max]/[MinLen]/[MaxLen] annotations and
       // emits Validate() + IsValid(). Ported from host generator_validation_annotations.go.
       self.GenerateValidationMethods(cd);
 
-      // v5.9.0: ORM [Entity]/[Repository] auto-generated methods (ToRow/
+      // v0.5.9: ORM [Entity]/[Repository] auto-generated methods (ToRow/
       // FromRow + FindAll/FindById/Save/DeleteById + [Query] methods). Ported
       // from host generator_orm_annotations.go.
       self.GenerateORMEntityMethods(cd);
@@ -1632,7 +1632,7 @@ type
 
     end;
 
-    // v5.9.0: helper — check if field has a named attribute (case-insensitive)
+    // v0.5.9: helper — check if field has a named attribute (case-insensitive)
     function HasAttr(field: TVarDecl; attrName: String): Boolean;
     var i: Integer; a: TAttribute;
     begin
@@ -1648,7 +1648,7 @@ type
       end;
     end;
 
-    // v5.9.0: helper — is field's type String? (required: string → TrimSpace,
+    // v0.5.9: helper — is field's type String? (required: string → TrimSpace,
     // non-string → == 0). Mirrors host isStringFieldType/fieldTypeName.
     function IsStringField(field: TVarDecl): Boolean;
     var ident: TIdentifier;
@@ -1662,7 +1662,7 @@ type
       end;
     end;
 
-    // v5.9.0: helper — get int arg from named attribute (e.g. [Min(18)] → 18)
+    // v0.5.9: helper — get int arg from named attribute (e.g. [Min(18)] → 18)
     function AttrIntArg(field: TVarDecl; attrName: String): Integer;
     var i: Integer; a: TAttribute; intLit: TIntegerLiteral;
     begin
@@ -1685,7 +1685,7 @@ type
       end;
     end;
 
-    // v5.9.0: GenerateValidationMethods — scan fields for [Required]/[Email]/
+    // v0.5.9: GenerateValidationMethods — scan fields for [Required]/[Email]/
     // [Min]/[Max]/[MinLen]/[MaxLen] and emit Validate() + IsValid().
     procedure GenerateValidationMethods(cd: TClassDecl);
     var
@@ -1699,7 +1699,7 @@ type
       for i := 0 to Length(cd.Fields) - 1 do
       begin
         field := cd.Fields[i];
-        // v5.9.0: only validation annotations ([Required]/[Email]/[Min]/[Max]/
+        // v0.5.9: only validation annotations ([Required]/[Email]/[Min]/[Max]/
         // [MinLen]/[MaxLen]) trigger Validate/IsValid — other annotations
         // ([Entity]/[Column]/[PrimaryKey]/[Service]/[Inject]...) must not, else
         // every annotated class gains empty Validate/IsValid that host omits
@@ -1847,7 +1847,7 @@ type
       end;
     end;
 
-    // v5.9.0: SplitDelim — split s on sep into a freshly-allocated array.
+    // v0.5.9: SplitDelim — split s on sep into a freshly-allocated array.
     // "a,b,c," → ["a","b","c"]; "" → [].
     function SplitDelim(s: String; sep: String): array of String;
     var
@@ -1868,7 +1868,7 @@ type
         append(result, s[start:Length(s)]);
     end;
 
-    // v5.9.0: ShortComponentName — strip leading 'T' from a class name.
+    // v0.5.9: ShortComponentName — strip leading 'T' from a class name.
     function ShortComponentName(className: String): String;
     begin
       result := className;
@@ -1876,7 +1876,7 @@ type
         result := className[1:Length(className)];
     end;
 
-    // v5.9.0: EmitBootAutoWiring — mirror host emitBootAutoWiring. Emits
+    // v0.5.9: EmitBootAutoWiring — mirror host emitBootAutoWiring. Emits
     // component singleton construction, DI field injection, and route
     // registration into the current main() body. All output uses self.Write/
     // WriteLine so it lands in self.Output at the right indentation.
@@ -2060,7 +2060,7 @@ type
     begin
       hasReturn := (method.ReturnType <> nil) or (Length(method.ReturnTypes) > 0);
 
-      // v5.6.0: generic receiver — func (self *TStack[T]) Push(...), not *TStack
+      // v0.5.6: generic receiver — func (self *TStack[T]) Push(...), not *TStack
       self.Write('func (self *' + className);
       if Length(typeParams) > 0 then
       begin
@@ -2347,13 +2347,13 @@ type
       methodName: String;
       fullName: String;
     begin
-      // v5.6.0: skip forward declarations (no body) — unit interface section
+      // v0.5.6: skip forward declarations (no body) — unit interface section
       // has function signatures without bodies; implementation has the real defs.
       // Without this, both are emitted → "Square redeclared" (example33).
       if fd.Body = nil then
         Exit;
       hasReturn := (fd.ReturnType <> nil) or (Length(fd.ReturnTypes) > 0);
-      // v5.6.0: multi-return function (>1 ReturnTypes) — `result := (a, b)`
+      // v0.5.6: multi-return function (>1 ReturnTypes) — `result := (a, b)`
       // emits `return a, b`. Ported from host generateFunctionDecl:331.
       self.MultiReturn := Length(fd.ReturnTypes) > 1;
 
@@ -2439,7 +2439,7 @@ type
         end;
       end;
 
-      // v5.6.0: skip `return result` for multi-return (body's result:=(a,b)
+      // v0.5.6: skip `return result` for multi-return (body's result:=(a,b)
       // already emits `return a, b`; result var isn't declared for multi-return).
       if hasReturn then
         if self.MultiReturn = false then
@@ -2701,7 +2701,7 @@ type
       elem: TExpression;
       n: TIdentifier;
     begin
-      // v5.6.0: Multi-return: `result := (a, b)` → `return a, b` (host
+      // v0.5.6: Multi-return: `result := (a, b)` → `return a, b` (host
       // generator_stmt.go:176). Without this, the tuple RHS emits empty →
       // `result = ` then the implicit `return result` → "unexpected return".
       if self.MultiReturn then
@@ -2731,7 +2731,7 @@ type
         end;
       end;
 
-      // v5.6.0: Multi-var LHS: `(x, y) := Func()` → `x, y := Func()` (host:195).
+      // v0.5.6: Multi-var LHS: `(x, y) := Func()` → `x, y := Func()` (host:195).
       if asgn.Name is TTupleLiteral then
       begin
         tuple := asgn.Name as TTupleLiteral;
@@ -3026,7 +3026,7 @@ type
       if expr is TIdentifier then
       begin
         ident := expr as TIdentifier;
-        // v5.9.0: special-case builtins that map to Go expressions (not
+        // v0.5.9: special-case builtins that map to Go expressions (not
         // function calls). Args → os.Args[1:] and must flag the os import so
         // the generated bootstrap compiles (host mapBuiltinFunction path).
         if ident.Value = 'Args' then
@@ -3045,7 +3045,7 @@ type
       else if expr is TFloatLiteral then
       begin
         floatLit := expr as TFloatLiteral;
-        // v5.9.0: was a stub (always wrote '0.0') — emit the shortest round-trip
+        // v0.5.9: was a stub (always wrote '0.0') — emit the shortest round-trip
         // literal so small floats (0.0000005) survive into the generated Go.
         self.Write(FloatToStr(floatLit.Value));
       end
@@ -3083,7 +3083,7 @@ type
           self.Write('}');
         end;
       end
-      // v5.6.0: Generic type as expression: Foo<T> → Foo[T] (Go generics)
+      // v0.5.6: Generic type as expression: Foo<T> → Foo[T] (Go generics)
       else if expr is TGenericType then
       begin
         var genExp: TGenericType;
@@ -3155,7 +3155,7 @@ type
             self.Write('&' + ident.Value + '{}');
             Exit;
           end;
-          // v5.6.0: Fallback for non-TIdentifier Object (GenericType etc.)
+          // v0.5.6: Fallback for non-TIdentifier Object (GenericType etc.)
           self.Write('&');
           self.GenerateExpression(member.Obj);
           self.Write('{}');
@@ -3201,7 +3201,7 @@ type
         self.GenerateTypeExpressionForCast(asExpr.TargetType);
         self.Write(')');
       end
-      // v5.6.0: anonymous function/lambda → Go func literal. Ported from
+      // v0.5.6: anonymous function/lambda → Go func literal. Ported from
       // host generateLambdaExpression. `var greet := procedure(name: String)
       // begin ... end;` → `var greet = func(name string) { ... }`. Without this
       // the lambda was dropped → "undefined: greet" (example15_lambda).
@@ -3224,7 +3224,7 @@ type
         self.Write(') ');
         if lam.Body <> nil then
         begin
-          // v5.6.0: emit braces explicitly — GenerateStatement(BlockStatement)
+          // v0.5.6: emit braces explicitly — GenerateStatement(BlockStatement)
           // doesn't emit { } (just the statements), so `func(params) <stmts>`
           // would be parsed as a return type.
           self.WriteLine('{');
@@ -3272,7 +3272,7 @@ type
             self.Write('}');
             Exit;
           end;
-          // v5.6.0: Fallback for non-TIdentifier Object (GenericType etc.):
+          // v0.5.6: Fallback for non-TIdentifier Object (GenericType etc.):
           // &<GenerateExpression(Obj)>{} — avoids `is TGenericType` which
           // didn't fire at runtime. For GenericType → &TStack[int64]{}.
           self.Write('&');
@@ -3309,7 +3309,7 @@ type
         end;
         if ident.Value = 'FloatToStr' then
         begin
-          // v5.9.0: %v on float64 → shortest round-trip (Go float literal form).
+          // v0.5.9: %v on float64 → shortest round-trip (Go float literal form).
           self.Write('fmt.Sprintf("%v", ');
           self.GenerateExpression(call.Arguments[0]);
           self.Write(')');
@@ -3340,7 +3340,7 @@ type
         end;
         if ident.Value = 'ReadFile' then
         begin
-          self.NeedOS := true; // v5.6.0: the inline uses os.ReadFile → need "os"
+          self.NeedOS := true; // v0.5.6: the inline uses os.ReadFile → need "os"
           self.Write('func() string { data, _ := os.ReadFile(');
           self.GenerateExpression(call.Arguments[0]);
           self.Write('); return string(data) }()');
@@ -3348,7 +3348,7 @@ type
         end;
       end;
 
-      // v5.6.0: stdlib module function call heuristic. A bare TIdentifier call
+      // v0.5.6: stdlib module function call heuristic. A bare TIdentifier call
       // that is NOT a user-defined function and NOT a builtin (MapBuiltinFunction
       // leaves the name unchanged) is a stdlib module function (sysutil/datetime/
       // cache/crypto/net/regex/db/http ...). Emit stdlib.Name(args) and flag the
@@ -3363,7 +3363,7 @@ type
         if (self.StrContains(self.UserFuncs, "," + callee.Value + ",") = false) and
            (Length(callee.Value) > 0) and (callee.Value[0:1] >= 'A') and (callee.Value[0:1] <= 'Z') and
            (self.MapBuiltinFunction(callee.Value) = callee.Value) and
-           // v5.7.0: exclude Go builtins (append/len/copy/delete/insert/make/new/panic/recover)
+           // v0.5.7: exclude Go builtins (append/len/copy/delete/insert/make/new/panic/recover)
            (callee.Value <> 'append') and
            (callee.Value <> 'len') and
            (callee.Value <> 'copy') and
@@ -3375,7 +3375,7 @@ type
            (callee.Value <> 'recover') then
         begin
           self.NeedStdlib := true;
-          // v5.6.0: stdlib funcs returning (T, error) must be wrapped to
+          // v0.5.6: stdlib funcs returning (T, error) must be wrapped to
           // discard the error and return T, else `ln := stdlib.TcpListen(p)`
           // is multiple-value-in-single-value-context. Bare call is fine for
           // error-procedures (WriteFile) used as statements and for normal
@@ -3428,7 +3428,7 @@ type
       if expr is TIdentifier then
       begin
         ident := expr as TIdentifier;
-        // v5.6.0: KylixBoot types from `uses boot` → *stdlib.BootRequest /
+        // v0.5.6: KylixBoot types from `uses boot` → *stdlib.BootRequest /
         // *stdlib.BootResponse (host generator_types.go:536). These types only
         // appear with `uses boot`, so mapping them always is safe and avoids
         // porting usedModules tracking. Flag kylix/stdlib import.
@@ -3442,7 +3442,7 @@ type
           self.Write('*stdlib.BootResponse');
           self.NeedStdlib := true;
         end
-        // v5.9.0: base class under polymorphism → interface type name (no
+        // v0.5.9: base class under polymorphism → interface type name (no
         // pointer), matching host generateTypeExpression (generator_types.go:546)
         // so `var b: TBase` → `var b TBase` (an interface) and `[]TBase` can
         // hold subclasses. Concrete classes still map to *ClassName below.
@@ -3454,7 +3454,7 @@ type
       else if expr is TArrayType then
       begin
         arrType := expr as TArrayType;
-        // v5.8.0: static array (array[0..99] of T) → [100]T, not []T.
+        // v0.5.8: static array (array[0..99] of T) → [100]T, not []T.
         // Previously always emitted [] (dynamic slice) → Items had len 0 →
         // self.Items[self.Count] = item panicked (example21 Push).
         if arrType.Dynamic then
@@ -3506,7 +3506,7 @@ type
       if expr is TIdentifier then
       begin
         ident := expr as TIdentifier;
-        // v5.6.0: KylixBoot types (see GenerateTypeExpression). For `x as TRequest`.
+        // v0.5.6: KylixBoot types (see GenerateTypeExpression). For `x as TRequest`.
         if (ident.Value = 'TRequest') or (ident.Value = 'BootRequest') then
         begin
           self.Write('*stdlib.BootRequest');
@@ -3517,7 +3517,7 @@ type
           self.Write('*stdlib.BootResponse');
           self.NeedStdlib := true;
         end
-        // v5.9.0: gate ClassIsBase on UsesPolymorphism (was always-on map lookup).
+        // v0.5.9: gate ClassIsBase on UsesPolymorphism (was always-on map lookup).
         // Assert to the base interface name (no pointer) — `x.(TBase)` — matching
         // host generateTypeExpressionForCast (generator_types.go:623).
         else if (self.UsesPolymorphism) and (self.StrContains(self.ClassIsBaseStr, "," + ident.Value + ",")) then
@@ -3562,7 +3562,7 @@ type
         // Known record/enum types: use value type (not pointer)
         else if (kylixType = 'TToken') or (kylixType = 'TTokenType') then
           result := kylixType
-        // v5.9.0: gate ClassIsBase on UsesPolymorphism — only emit interface{}
+        // v0.5.9: gate ClassIsBase on UsesPolymorphism — only emit interface{}
         // for base classes when the program actually uses is/as polymorphism.
         // Without this gate, all user types with children would be interface{},
         // breaking field access via base class variables in non-polymorphism code.
@@ -3571,7 +3571,7 @@ type
         else if self.StrContains(self.ClassTypes, "," + kylixType + ",") then
           result := '*' + kylixType
         else
-          // v5.6.0: record/enum value type (was '*' + kylixType — a port gap
+          // v0.5.6: record/enum value type (was '*' + kylixType — a port gap
           // from generator.go whose mapType returns kylixType as-is for user
           // types, adding '*' for classes only in generateTypeExpression).
           result := kylixType;
@@ -3615,7 +3615,7 @@ type
         result := name;
     end;
 
-  // v5.6.0: StdlibErrorReturnType returns the Go return type of a stdlib
+  // v0.5.6: StdlibErrorReturnType returns the Go return type of a stdlib
   // function that returns (T, error), or '' if it isn't one. Used to wrap
   // stdlib calls so the error is discarded and the value is returned:
   //   func() T { _v, _ := stdlib.Name(args); return _v }()

@@ -23,13 +23,13 @@ func LLVMType(typeName string) string {
 	case "char":
 		return "i8"
 	case "variant":
-		// v5.0.0: a Variant storage slot holds a pointer to a boxed
+		// v0.5.0: a Variant storage slot holds a pointer to a boxed
 		// {i32 tag, i64 payload} value. The "variant" pseudo-type (returned
 		// by emitExpr for Variant *values*) is handled in emitInfix/WriteLn,
 		// not via LLVMType.
 		return "ptr"
 	case "trequest", "tresponse", "bootrequest", "bootresponse":
-		// v6.1.0: KylixBoot request/response framework types — opaque handles.
+		// v0.6.1: KylixBoot request/response framework types — opaque handles.
 		return "ptr"
 	default:
 		return "i64" // fallback
@@ -51,7 +51,7 @@ func typeExprName(expr ast.Expression) string {
 }
 
 // llvmTypeOfExpr maps a Kylix AST type expression to its LLVM IR type.
-// v5.4.0: handles array of T (dynamic slice {ptr,i64,i64} / static [N x elem]),
+// v0.5.4: handles array of T (dynamic slice {ptr,i64,i64} / static [N x elem]),
 // map[K]V (htab handle → ptr), and class types (ptr) directly from the AST.
 // This supersedes the LLVMType(typeExprName(...)) pattern, which collapsed
 // `array of T` and class types to the i64 fallback (the root cause of the
@@ -77,7 +77,7 @@ func (g *Generator) llvmTypeOfExpr(expr ast.Expression) string {
 			return "ptr"
 		}
 		if bootOpaqueTypes[t.Value] {
-			return "ptr" // TRequest/TResponse/Boot* opaque handles (v6.1.0)
+			return "ptr" // TRequest/TResponse/Boot* opaque handles (v0.6.1)
 		}
 		return LLVMType(t.Value)
 	}
@@ -87,7 +87,7 @@ func (g *Generator) llvmTypeOfExpr(expr ast.Expression) string {
 // emitExpr generates code for an expression, returning the SSA register holding the result.
 // Returns ("", type, error).
 func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, err error) {
-	// v4.6.0: record the source position so IR emitted for this expression
+	// v0.4.6: record the source position so IR emitted for this expression
 	// carries a !dbg DILocation (per-line stepping). Save/restore so the
 	// caller's position is unaffected when this returns — a sub-expression's
 	// position only applies to its own instructions, not subsequent ones in
@@ -107,7 +107,7 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 
 	case *ast.FloatLiteral:
 		r := g.tmp()
-		// v5.9.0: %f fixed 6 decimals truncated 0.0000005 → 0.000000; emit the
+		// v0.5.9: %f fixed 6 decimals truncated 0.0000005 → 0.000000; emit the
 		// shortest round-trip literal so small floats survive into IR. LLVM
 		// requires a decimal point in float constants, so normalize "1e+20" →
 		// "1.0e+20", "3" → "3.0".
@@ -167,7 +167,7 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 		return g.emitLambda(e)
 
 	case *ast.ArrayLiteral:
-		// v5.4.0: array literal → {ptr,len,cap} slice struct value (SSA, via
+		// v0.5.4: array literal → {ptr,len,cap} slice struct value (SSA, via
 		// insertvalue — not an alloca ptr, so downstream `store {ptr,i64,i64} %v`
 		// works directly for both call-returned slices and literals).
 		n := int64(len(e.Elements))
@@ -272,20 +272,20 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 		return g.emitExpr(constExpr)
 	}
 
-	// v5.4.0: check LOCALS before globals — a local variable (e.g. the loop
+	// v0.5.4: check LOCALS before globals — a local variable (e.g. the loop
 	// counter `i` in `for i := 0 to N do stmts[i]`) must shadow a same-named
 	// global (e.g. main's global `i`). Without this, `stmts[i]` loads the
 	// global i (stale value from an outer scope) instead of the local loop
 	// counter → wrong index → null element → all `is` checks fail → empty output.
 	if allocaReg, ok := g.locals[name]; ok {
-		// v5.4.0: the `result` variable is the function's return slot.
+		// v0.5.4: the `result` variable is the function's return slot.
 		if name == "result" && g.resultLLVMType != "" {
 			llvmT := g.resultLLVMType
 			r := g.tmp()
 			g.line(fmt.Sprintf("  %s = load %s, ptr %%result", r, llvmLoadType(llvmT)))
 			return r, llvmT, nil
 		}
-		// v5.4.0: Args builtin — registered in arrayInfo so Length/Args[i] work.
+		// v0.5.4: Args builtin — registered in arrayInfo so Length/Args[i] work.
 		if name == "Args" {
 			g.needArgs = true
 			g.arrayInfo["Args"] = &arrayInfo{IsDynamic: true, ElementType: "ptr", ElementKylixType: "String"}
@@ -293,7 +293,7 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 			g.line(fmt.Sprintf("  %s = load { ptr, i64, i64 }, ptr @__kylix_args", r))
 			return r, "{ ptr, i64, i64 }", nil
 		}
-		// v5.4.0: global variable registered in locals by registerGlobalsInScope.
+		// v0.5.4: global variable registered in locals by registerGlobalsInScope.
 		// But a REAL local (alloca %v_*) takes precedence — if the alloca starts
 		// with %v_ or is %self, it's a local. If it's @__kylix_g_*, it's a global.
 		if strings.HasPrefix(allocaReg, "@__kylix_g_") {
@@ -326,7 +326,7 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 		return r, llvmT, nil
 	}
 
-	// v5.4.0: global variable not shadowed by a local.
+	// v0.5.4: global variable not shadowed by a local.
 	if sym, ok := g.globals[name]; ok {
 		llvmT := g.globalTypes[name]
 		r := g.tmp()
@@ -334,7 +334,7 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 		return r, llvmT, nil
 	}
 
-	// v5.4.0: Args builtin when not in locals (shouldn't happen with
+	// v0.5.4: Args builtin when not in locals (shouldn't happen with
 	// registerGlobalsInScope, but as a fallback).
 	if name == "Args" {
 		g.needArgs = true
@@ -368,7 +368,7 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 		return "", "", err
 	}
 
-	// v5.0.0: Variant-aware comparison. If either operand is a Variant box
+	// v0.5.0: Variant-aware comparison. If either operand is a Variant box
 	// (pseudo-type "variant") and the operator is relational, box the other
 	// operand and dispatch to the runtime comparator (numeric coercion + tag
 	// dispatch). Placed BEFORE the string-concat/coerce/numeric paths so a
@@ -378,7 +378,7 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 		if isComparisonOp(e.Operator) {
 			return g.emitVariantCompare(e.Operator, lv, lt, rv, rt)
 		}
-		// v5.1.0: Variant arithmetic (+,-,*,/) dispatches to the runtime
+		// v0.5.1: Variant arithmetic (+,-,*,/) dispatches to the runtime
 		// (str concat for +, int/double per tag). Returns a Variant box.
 		if isArithOp(e.Operator) {
 			return g.emitVariantArith(e.Operator, lv, lt, rv, rt)
@@ -396,7 +396,7 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 		return g.emitStringConcat(lv, rv), "ptr", nil
 	}
 
-	// v5.4.0: emitMember returns a Kylix class name (e.g. "TExpression") as the
+	// v0.5.4: emitMember returns a Kylix class name (e.g. "TExpression") as the
 	// llvmType for class-typed fields so downstream method dispatch resolves the
 	// receiver. For arithmetic/comparison ops, normalize it to "ptr" (the actual
 	// LLVM type) so type-based dispatch (isFloat, icmp, ptr-compare) works.
@@ -478,7 +478,7 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 		if isFloat {
 			g.line(fmt.Sprintf("  %s = fcmp oeq double %s, %s", r, lv, rv))
 		} else if lt == "i1" || rt == "i1" {
-			// v5.4.0: Boolean comparison — operands are i1, not i64.
+			// v0.5.4: Boolean comparison — operands are i1, not i64.
 			g.line(fmt.Sprintf("  %s = icmp eq i1 %s, %s", r, lv, rv))
 		} else {
 			g.line(fmt.Sprintf("  %s = icmp eq i64 %s, %s", r, lv, rv))
@@ -488,7 +488,7 @@ func (g *Generator) emitInfix(e *ast.InfixExpression) (string, string, error) {
 		if isFloat {
 			g.line(fmt.Sprintf("  %s = fcmp one double %s, %s", r, lv, rv))
 		} else if lt == "i1" || rt == "i1" {
-			// v5.4.0: Boolean comparison — operands are i1, not i64.
+			// v0.5.4: Boolean comparison — operands are i1, not i64.
 			g.line(fmt.Sprintf("  %s = icmp ne i1 %s, %s", r, lv, rv))
 		} else {
 			g.line(fmt.Sprintf("  %s = icmp ne i64 %s, %s", r, lv, rv))
@@ -570,7 +570,7 @@ func (g *Generator) emitPtrCompare(op, lv, rv string) (string, string, error) {
 // addresses, not string contents, so this must not go through emitInfix's
 // normal numeric-comparison path.
 func (g *Generator) emitStringCompare(op, lv, rv string) (string, string, error) {
-	// v5.6.0: null-guard operands. Unset String fields (e.g. a class with no
+	// v0.5.6: null-guard operands. Unset String fields (e.g. a class with no
 	// parent → cd.Parent) are null ptrs in the LLVM backend (Go backend uses
 	// "" by default). strcmp(null, ...) segfaults, so normalize null → the
 	// empty-string global before comparing.
@@ -620,7 +620,7 @@ func (g *Generator) emitPrefix(e *ast.PrefixExpression) (string, string, error) 
 
 // emitStringConcat concatenates two string pointers (ptr operands) into a
 // freshly malloc'd buffer via strcpy + strcat, returning the result ptr.
-// v5.6.0: the buffer is sized to strlen(lv)+strlen(rv)+1. Previously every
+// v0.5.6: the buffer is sized to strlen(lv)+strlen(rv)+1. Previously every
 // concat did `malloc(512)` — a fixed 512-byte buffer that overflowed as soon
 // as the accumulated result exceeded 512 bytes (strcpy/strcat wrote past the
 // end → heap corruption → garbage leaked into the output). This bit the
@@ -630,7 +630,7 @@ func (g *Generator) emitPrefix(e *ast.PrefixExpression) (string, string, error) 
 // unescaped newlines inside string literals → "newline in string" errors,
 // making the bootstrap's output non-compilable for any non-trivial program).
 func (g *Generator) emitStringConcat(lv, rv string) string {
-	// v5.6.0: null-guard operands (unset String fields are null ptrs;
+	// v0.5.6: null-guard operands (unset String fields are null ptrs;
 	// strcpy/strcat/strlen on null segfaults). See emitStringCompare.
 	lv = g.nullGuardString(lv)
 	rv = g.nullGuardString(rv)
@@ -653,7 +653,7 @@ func (g *Generator) emitStringConcat(lv, rv string) string {
 // the empty-string global. The LLVM backend represents unset String fields as
 // null ptrs (Go backend uses ""), and libc string routines (strcmp/strlen/
 // strcpy/strcat) segfault on null. Routing every string operand through this
-// normalizes null → "" so the two backends agree. v5.6.0.
+// normalizes null → "" so the two backends agree. v0.5.6.
 func (g *Generator) nullGuardString(v string) string {
 	isNull := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", isNull, v))
@@ -679,7 +679,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		funcName = ident.Value
 	}
 
-	// v5.4.0: Ord(s) builtin — return the ASCII code of the first char (0 if empty).
+	// v0.5.4: Ord(s) builtin — return the ASCII code of the first char (0 if empty).
 	if funcName == "Ord" && len(e.Arguments) == 1 {
 		s, _, err := g.emitExpr(e.Arguments[0])
 		if err != nil {
@@ -692,7 +692,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		return r, "i64", nil
 	}
 
-	// v5.4.0: StrToInt64(s) → atoll(s) (i64); StrToFloat(s) → strtod(s, nil) (double).
+	// v0.5.4: StrToInt64(s) → atoll(s) (i64); StrToFloat(s) → strtod(s, nil) (double).
 	if (funcName == "StrToInt64" || funcName == "StrToFloat") && len(e.Arguments) == 1 {
 		s, _, err := g.emitExpr(e.Arguments[0])
 		if err != nil {
@@ -710,7 +710,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		return r, "double", nil
 	}
 
-	// v5.4.0: ReadFile(path) builtin — read a file into a heap-allocated,
+	// v0.5.4: ReadFile(path) builtin — read a file into a heap-allocated,
 	// null-terminated string. The bootstrap reads .klx sources with this.
 	// Implemented with libc fopen/fseek/ftell/malloc/fread so it works without
 	// a Go stdlib. Returns "" (empty ptr to a NUL) on failure.
@@ -811,7 +811,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		return g.emitIntToStr(e.Arguments[0])
 	}
 
-	// v6.1.0: FloatToStr(x) → snprintf("%.17g"). Without this the bootstrap
+	// v0.6.1: FloatToStr(x) → snprintf("%.17g"). Without this the bootstrap
 	// (src/generator.klx calls FloatToStr for float literal emission) lowered it
 	// to a call on an unknown function returning i64, so the String result was
 	// truncated to i64 and interface-method arg types mismatched.
@@ -821,7 +821,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 
 	// Built-in: Length(s)
 	if funcName == "Length" && len(e.Arguments) == 1 {
-		// v5.0.0: Length(arr) for a dynamic/static array must read the array's
+		// v0.5.0: Length(arr) for a dynamic/static array must read the array's
 		// length (slice len word / static count), not strlen the data pointer.
 		// emitArrayLength already exists but was never wired up (dead code).
 		if ident, ok := e.Arguments[0].(*ast.Identifier); ok {
@@ -832,7 +832,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		return g.emitLength(e.Arguments[0])
 	}
 
-	// v5.4.0: append(slice, elem) → new {ptr,len,cap} slice with elem appended.
+	// v0.5.4: append(slice, elem) → new {ptr,len,cap} slice with elem appended.
 	// Grows capacity (doubling) via realloc when len==cap. Returns an SSA slice
 	// struct value. The bootstrap appends to dynamic arrays pervasively
 	// (Errors, Declarations, Statements, ...).
@@ -840,7 +840,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		return g.emitAppend(e.Arguments[0], e.Arguments[1])
 	}
 
-	// v5.4.0: LowerCase(s)/UpperCase(s) → ptr to a heap-allocated lower/upper
+	// v0.5.4: LowerCase(s)/UpperCase(s) → ptr to a heap-allocated lower/upper
 	// copy (via libc tolower/toupper per char). The bootstrap uses these for
 	// keyword matching (LookupIdent).
 	if (funcName == "LowerCase" || funcName == "UpperCase") && len(e.Arguments) == 1 {
@@ -913,7 +913,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		// Coerce the argument to match the declared parameter type (e.g. an
 		// Integer literal passed to a Real parameter needs sitofp).
 		if sig != nil && i < len(sig.Parameters) && sig.Parameters[i].Type != nil {
-			// v6.3.0: a Variant parameter receives the boxed value as-is —
+			// v0.6.3: a Variant parameter receives the boxed value as-is —
 			// coercing variant→ptr here would as_str it and pass a plain string
 			// to a Variant param (crashing the callee's `<> nil`). GetVar() and
 			// stdlib calls (e.g. JwtVerify) return "variant"; both must stay boxed.
@@ -948,7 +948,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 	for i, r := range argRegs {
 		t := argTypes[i]
 		if t == variantT {
-			// v6.6.0: a Variant box's real IR type is ptr (the "variant"
+			// v0.6.6: a Variant box's real IR type is ptr (the "variant"
 			// pseudo-type is codegen-only). Normalize it so bare calls like
 			// `Has(m['key'])` emit `call i64 @Has(ptr %x)` instead of the
 			// invalid `call i64 @Has(variant %x)`.
@@ -973,13 +973,13 @@ func (g *Generator) coerceValue(reg, fromT, toT string) (string, string) {
 	if fromT == toT {
 		return reg, fromT
 	}
-	// v5.1.0: Variant→concrete unbox needs the Variant runtime.
+	// v0.5.1: Variant→concrete unbox needs the Variant runtime.
 	if fromT == variantT {
 		g.needVariantRuntime = true
 	}
 	cast := g.tmp()
 	switch {
-	// v5.1.0: Variant→concrete unbox (dispatches on tag at runtime). Enables
+	// v0.5.1: Variant→concrete unbox (dispatches on tag at runtime). Enables
 	// `n := v` (Variant→Integer), `s := v`, and call-arg coercion. Without
 	// this, a variant value stored into a concrete slot would type-mismatch.
 	case fromT == variantT && toT == "i64":
@@ -1022,7 +1022,7 @@ func (g *Generator) emitWriteLn(arg ast.Expression) (string, string, error) {
 
 	switch t {
 	case "variant":
-		// v5.0.0: Variant box — dispatch to the runtime println (tag-aware).
+		// v0.5.0: Variant box — dispatch to the runtime println (tag-aware).
 		return g.emitVariantPrint(v, true)
 	case "ptr":
 		// puts() prints the string + newline
@@ -1070,7 +1070,7 @@ func (g *Generator) emitWrite(arg ast.Expression) (string, string, error) {
 	}
 	switch t {
 	case "variant":
-		// v5.0.0: Variant box — dispatch to the runtime print (no newline).
+		// v0.5.0: Variant box — dispatch to the runtime print (no newline).
 		return g.emitVariantPrint(v, false)
 	case "ptr":
 		fmtReg := g.addString("%s")
@@ -1107,7 +1107,7 @@ func (g *Generator) emitIntToStr(arg ast.Expression) (string, string, error) {
 }
 
 // emitFloatToStr converts double to ptr via snprintf("%.17g") — round-trip
-// precision, the closest LLVM analogue to Go's fmt.Sprintf("%v"). v6.1.0.
+// precision, the closest LLVM analogue to Go's fmt.Sprintf("%v"). v0.6.1.
 func (g *Generator) emitFloatToStr(arg ast.Expression) (string, string, error) {
 	v, _, err := g.emitExpr(arg)
 	if err != nil {
@@ -1129,7 +1129,7 @@ func (g *Generator) emitFloatToStr(arg ast.Expression) (string, string, error) {
 // emitAppend lowers `append(slice, elem)` → new {ptr,len,cap} slice struct.
 // Conservative: allocates a new buffer of len+1, copies the old data, stores
 // the new element, returns a fresh slice (cap=len+1). Correct but not optimal.
-// v5.4.0.
+// v0.5.4.
 func (g *Generator) emitAppend(sliceArg, elemArg ast.Expression) (string, string, error) {
 	sliceVal, _, err := g.emitExpr(sliceArg)
 	if err != nil {
@@ -1180,7 +1180,7 @@ func (g *Generator) emitLength(arg ast.Expression) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	// v5.4.0: slice struct {ptr,len,cap} — extract the len field (index 1).
+	// v0.5.4: slice struct {ptr,len,cap} — extract the len field (index 1).
 	if t == "{ ptr, i64, i64 }" {
 		lenReg := g.tmp()
 		g.line(fmt.Sprintf("  %s = extractvalue { ptr, i64, i64 } %s, 1", lenReg, v))
@@ -1222,7 +1222,7 @@ func (g *Generator) emitWriteLnMulti(args []ast.Expression) (string, string, err
 		}
 		switch t {
 		case "variant":
-			// v5.0.0: unbox the Variant to a string and strcat it.
+			// v0.5.0: unbox the Variant to a string and strcat it.
 			strReg := g.emitVariantAsStr(reg)
 			g.line(fmt.Sprintf("  %s = call ptr @strcat(ptr %s, ptr %s)", g.tmp(), buf, strReg))
 		case "ptr":
@@ -1275,7 +1275,7 @@ func (g *Generator) isTDateTimeReceiver(obj ast.Expression) bool {
 
 // llvmFloatLit formats a float64 as an LLVM IR double constant. LLVM requires
 // a decimal point in float literals ("1e+20", "3" are rejected); this adds one
-// when missing while keeping the shortest round-trip form. v5.9.0.
+// when missing while keeping the shortest round-trip form. v0.5.9.
 func llvmFloatLit(v float64) string {
 	s := strconv.FormatFloat(v, 'g', -1, 64)
 	if !strings.ContainsAny(s, ".eE") {
@@ -1290,7 +1290,7 @@ func llvmFloatLit(v float64) string {
 // isVariantType reports whether a Kylix type expression is the Variant type
 // (its LLVM representation is a boxed ptr, but callers must pass the box as-is,
 // not coerce it to ptr via as_str). The parser produces *ast.VariantType for
-// `Variant` in a parameter/return position (not *ast.Identifier). v6.3.0.
+// `Variant` in a parameter/return position (not *ast.Identifier). v0.6.3.
 func isVariantType(expr ast.Expression) bool {
 	if expr == nil {
 		return false
@@ -1302,7 +1302,7 @@ func isVariantType(expr ast.Expression) bool {
 // Variant. typeExprName yields "variant" for *ast.VariantType (TokenLiteral)
 // and "Variant" for *ast.Identifier, so the match is case-insensitive. Used
 // where only the name is recorded (closure/method param types) and the original
-// AST is gone. v6.3.0.
+// AST is gone. v0.6.3.
 func isVariantTypeName(name string) bool {
 	return strings.EqualFold(name, "variant")
 }

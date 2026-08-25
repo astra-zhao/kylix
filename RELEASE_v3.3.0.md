@@ -1,10 +1,10 @@
-# Kylix v3.3.0 Release Notes
+# Kylix v0.3.3 Release Notes
 
 **发布日期**: 2026-06-29
 
 ## 概览
 
-v3.3.0 是 KylixBoot 框架的完善版本，新增 JWT 认证、请求体绑定、OpenAPI 自动生成，并完成了包管理器编译器集成和类型检查器实现。
+v0.3.3 是 KylixBoot 框架的完善版本，新增 JWT 认证、请求体绑定、OpenAPI 自动生成，并完成了包管理器编译器集成和类型检查器实现。
 
 ## 新增功能
 
@@ -52,7 +52,7 @@ end.
 `kylix doc --openapi` 从 KylixBoot 注解生成标准 OpenAPI 规范：
 
 ```bash
-kylix doc --openapi --title "My API" --api-version 1.0.0 api.klx
+kylix doc --openapi --title "My API" --api-version 0.1.0 api.klx
 # 输出: docs/api/openapi.yaml
 ```
 
@@ -114,7 +114,7 @@ kylix build main.klx
 
 ## 升级指南
 
-从 v3.2.0 升级到 v3.3.0 无需修改现有代码。新功能全部向后兼容。
+从 v0.3.2 升级到 v0.3.3 无需修改现有代码。新功能全部向后兼容。
 
 ### 使用新功能
 

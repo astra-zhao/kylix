@@ -1,6 +1,6 @@
 # LLVM Backend Guide
 
-> **Status**: Production-ready (v4.0.0 M3)  
+> **Status**: Production-ready (v0.4.0 M3)  
 > **Tutorial Coverage**: 14/15 basic tutorials compile to native binary (93%)
 
 The LLVM backend generates native machine code directly from Kylix source, bypassing the Go toolchain entirely. This enables standalone executables with no Go runtime dependency.
@@ -157,7 +157,7 @@ WriteLn(sq(5));  // Works
 ```
 
 ### 2. Multi-Return Tuple Destructuring (M4 ✅)
-**Status**: Fully supported since v4.1.0.
+**Status**: Fully supported since v0.4.1.
 ```pascal
 function DivMod(n, d: Integer): (Integer, Integer);
 begin
@@ -168,7 +168,7 @@ var q, r: Integer;
 (q, r) := DivMod(17, 5);  // Works: q=3, r=2
 ```
 ### 3. Optimization Level
-**Status**: ✅ Implemented in v4.1.0. `--llvm-opt=1/2/3` runs the standalone `opt` tool (IR-level: mem2reg, inlining, loop induction, DCE) before `llc -O<N>` (codegen-level). The `opt` step is where the biggest wins come from — Kylix's alloca/load/store style benefits greatly from mem2reg.
+**Status**: ✅ Implemented in v0.4.1. `--llvm-opt=1/2/3` runs the standalone `opt` tool (IR-level: mem2reg, inlining, loop induction, DCE) before `llc -O<N>` (codegen-level). The `opt` step is where the biggest wins come from — Kylix's alloca/load/store style benefits greatly from mem2reg.
 
 **Benchmark highlights** (see [docs/llvm-performance.md](llvm-performance.md)):
 - `loop_sum` (100M iterations): **20× speedup** at O2 (loop induced to closed-form)
@@ -285,7 +285,7 @@ call void @longjmp(ptr %jmp_buf, i32 1)
 
 ## Roadmap
 
-### M4 (v4.1.0) — Advanced Features ✅
+### M4 (v0.4.1) — Advanced Features ✅
 - [x] Lambda/closure support (captured variables in environment struct)
 - [x] Multi-return tuple destructuring (`(q, r) := func()`)
 - [x] `inherited` keyword (parent method dispatch)
@@ -293,13 +293,13 @@ call void @longjmp(ptr %jmp_buf, i32 1)
 - [x] OOP field access & method dispatch (vtable inheritance)
 - **Result**: 01–04 tutorials (19 files) produce byte-identical output to the Go backend; 27/49 tutorials compile via LLVM.
 
-#### Known limitations in v4.1.0
+#### Known limitations in v0.4.1
 - Expression-bodied lambda (`function(x): T -> expr`) — parser doesn't recognize `->` after a return type; use block-bodied lambdas.
 - `inherited` as an expression (`result := inherited F(x)`) — parser treats `inherited` as a statement only.
-- ~~stdlib-heavy tutorials still require the Go toolchain~~ — **resolved (v6.4.0)**: the LLVM backend now compiles **all 51 tutorials** with real stdlib IR implementations: db (DbOpen/DbExec/DbQueryScalar/**DbQueryRows**), **websocket** (RFC 6455 client+server), jwt (HS256; **claims map + exp expiry + extraClaims since v6.6.0**), httpclient (**HttpGetJSON/PostJSON → Variant map since v6.6.0**), sysutil, datetime, jsonutil, crypto, encoding (**UrlEncode/UrlDecode since v6.6.0, Base64URL since v6.8.0**), cache (**TTL: PutWithTTL/Get/Sweep since v6.6.0**), **boot — real HTTP server since v6.6.0** (`BootRun` serves HTTP/1.1 with a route table, `:param` path params and `req.Param/Query/Header/Body`; **v6.8.0** adds POST body reading (`req.Body`), `req.JSON` → `map[String]Variant` binding, and `BootRegisterJwtAuth` real HS256 verification — `Authorization: Bearer` validated, 401 on failure; KylixBoot apps run with **no Go toolchain**), regex, net (TCP). Remaining limitation: net Winsock / regex pcre2 real implementations need a Windows environment.
+- ~~stdlib-heavy tutorials still require the Go toolchain~~ — **resolved (v0.6.4)**: the LLVM backend now compiles **all 51 tutorials** with real stdlib IR implementations: db (DbOpen/DbExec/DbQueryScalar/**DbQueryRows**), **websocket** (RFC 6455 client+server), jwt (HS256; **claims map + exp expiry + extraClaims since v0.6.6**), httpclient (**HttpGetJSON/PostJSON → Variant map since v0.6.6**), sysutil, datetime, jsonutil, crypto, encoding (**UrlEncode/UrlDecode since v0.6.6, Base64URL since v0.6.8**), cache (**TTL: PutWithTTL/Get/Sweep since v0.6.6**), **boot — real HTTP server since v0.6.6** (`BootRun` serves HTTP/1.1 with a route table, `:param` path params and `req.Param/Query/Header/Body`; **v0.6.8** adds POST body reading (`req.Body`), `req.JSON` → `map[String]Variant` binding, and `BootRegisterJwtAuth` real HS256 verification — `Authorization: Bearer` validated, 401 on failure; KylixBoot apps run with **no Go toolchain**), regex, net (TCP). Remaining limitation: net Winsock / regex pcre2 real implementations need a Windows environment.
 
-### M5 (v5.0.0) — Go Independence
-- [x] Self-hosting: **LLVM backend compiles the Kylix compiler itself** — `kylix build --backend=llvm src/*.klx` → native `main_self` (no Go), which compiles all 51 tutorials (v5.6.0).
+### M5 (v0.5.0) — Go Independence
+- [x] Self-hosting: **LLVM backend compiles the Kylix compiler itself** — `kylix build --backend=llvm src/*.klx` → native `main_self` (no Go), which compiles all 51 tutorials (v0.5.6).
 - [~] Custom runtime KylixRT: native binaries run on libc + hand-rolled runtime (Variant box, htab, arena for datetime); **no GC yet** (malloc-based, long-running programs leak).
 - [ ] stdlib rewritten in pure Kylix (remove `stdlib/*.go`).
 - **Goal**: Zero Go dependency, standalone binaries — largely achieved for end-user programs (`kylix run`/`build --backend=llvm` need no Go). The bootstrap compiler still emits Go code; a pure-Kylix LLVM IR emitter in `src/generator.klx` is the remaining giant step (see ROADMAP).
@@ -345,7 +345,7 @@ If LLVM backend produces invalid IR or crashes:
 ## FAQ
 
 **Q: Can I ship binaries compiled with LLVM backend?**  
-A: Yes, starting from v4.0.0 M3. They are standalone executables with no external dependencies (besides libc).
+A: Yes, starting from v0.4.0 M3. They are standalone executables with no external dependencies (besides libc).
 
 **Q: Why is the binary so small compared to Go?**  
 A: No Go runtime. LLVM binary contains only your code + minimal C runtime. Go bunaries include GC, scheduler, goroutines (adds ~1-2 MB).
@@ -361,6 +361,6 @@ A: LLVM backend works on Windows with clang installed. Use `clang-cl` or MinGW t
 
 ---
 
-**Last Updated**: 2026-06-30 (v4.0.0 M3)  
+**Last Updated**: 2026-06-30 (v0.4.0 M3)  
 **Maintainer**: Kylix Core Team  
 **Feedback**: https://github.com/astra-zhao/kylix/issues

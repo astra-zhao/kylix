@@ -151,7 +151,7 @@ OPTIONS:
 // resolveRunBackend maps the --backend flag to a concrete backend. "auto"
 // prefers the Go backend when a Go toolchain is on PATH (existing behaviour),
 // and falls back to the LLVM backend otherwise — so `kylix run` works on a
-// machine with llc + clang but no Go toolchain (v6.1.0 KylixRT).
+// machine with llc + clang but no Go toolchain (v0.6.1 KylixRT).
 func resolveRunBackend(s string) string {
 	switch s {
 	case "llvm", "go":
@@ -170,7 +170,7 @@ func resolveRunBackend(s string) string {
 func runWithLLVM(srcFile string, keep bool, optLevel string, debug, verbose bool) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
-		// v6.5.0: don't claim "no Go toolchain" when the user explicitly
+		// v0.6.5: don't claim "no Go toolchain" when the user explicitly
 		// picked --backend=llvm and only LLVM is missing.
 		return fmt.Errorf("LLVM toolchain not found: %w\nHint: install LLVM (brew install llvm / apt install llvm clang), or install Go for the default backend", err)
 	}
@@ -219,7 +219,7 @@ func runWithLLVM(srcFile string, keep bool, optLevel string, debug, verbose bool
 func runProjectWithLLVM(cfg *project.Config, keep bool, optLevel string, debug, verbose bool) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
-		// v6.5.0: don't claim "no Go toolchain" when the user explicitly
+		// v0.6.5: don't claim "no Go toolchain" when the user explicitly
 		// picked --backend=llvm and only LLVM is missing.
 		return fmt.Errorf("LLVM toolchain not found: %w\nHint: install LLVM (brew install llvm / apt install llvm clang), or install Go for the default backend", err)
 	}

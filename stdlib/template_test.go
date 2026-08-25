@@ -318,7 +318,7 @@ func TestAutoConfig(t *testing.T) {
 
 	// Set and get
 	ac.Set("app.name", "My App")
-	ac.Set("app.version", "1.0.0")
+	ac.Set("app.version", "0.1.0")
 	ac.Set("server.port", 8080)
 	ac.Set("server.debug", true)
 
@@ -392,7 +392,7 @@ func TestAutoConfigFromEnvVars(t *testing.T) {
 	os.Setenv("TESTAPP_SERVER_PORT", "9090")
 	os.Setenv("TESTAPP_SERVER_HOST", "localhost")
 	os.Setenv("TESTAPP_APP_DEBUG", "true")
-	os.Setenv("TESTAPP_APP_VERSION", "2.0.0")
+	os.Setenv("TESTAPP_APP_VERSION", "0.2.0")
 	defer func() {
 		os.Unsetenv("TESTAPP_SERVER_PORT")
 		os.Unsetenv("TESTAPP_SERVER_HOST")

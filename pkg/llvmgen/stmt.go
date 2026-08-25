@@ -10,7 +10,7 @@ import (
 
 // emitStatement generates code for a single statement.
 func (g *Generator) emitStatement(node ast.Statement) error {
-	// v4.6.0: record the source position of this statement so every IR
+	// v0.4.6: record the source position of this statement so every IR
 	// instruction emitted while processing it carries a !dbg DILocation.
 	// Cleared on return so synthetic trailing instructions (ret) don't claim
 	// a stale source line. save/restore lets nested dispatch (e.g. Block →
@@ -30,7 +30,7 @@ func (g *Generator) emitStatement(node ast.Statement) error {
 	case *ast.AssignmentStatement:
 		return g.emitAssign(s)
 	case *ast.ExpressionStatement:
-		// v5.6.0: Pascal `Exit` (and `exit`) is parsed as an expression
+		// v0.5.6: Pascal `Exit` (and `exit`) is parsed as an expression
 		// statement whose expression is a bare TIdentifier("Exit"). It means
 		// "return from the current function/procedure" — lower it to a branch
 		// to the function's exit block. Before this, `Exit` was emitted as a
@@ -41,7 +41,7 @@ func (g *Generator) emitStatement(node ast.Statement) error {
 			g.emitEarlyReturn()
 			return nil
 		}
-		// v6.2.0: bare parameterless procedure call as a statement — `Foo;`
+		// v0.6.2: bare parameterless procedure call as a statement — `Foo;`
 		// (no parens, Pascal style) parses as a bare Identifier, not a
 		// CallExpression. If it names a known void procedure, emit a
 		// zero-argument call instead of loading the identifier as a value
@@ -52,7 +52,7 @@ func (g *Generator) emitStatement(node ast.Statement) error {
 				return nil
 			}
 		}
-		// v5.6.0: bare parameterless method call as a statement —
+		// v0.5.6: bare parameterless method call as a statement —
 		// `self.CollectImports;` / `self.IncreaseIndent;`. In Pascal these are
 		// written without parentheses, so the AST is a bare MemberExpression
 		// (not a CallExpression wrapping one). emitExpr→emitMember would treat
@@ -69,7 +69,7 @@ func (g *Generator) emitStatement(node ast.Statement) error {
 			}
 			return nil
 		}
-		// v5.4.0: statement-style `append(slice, elem)` is a mutating call —
+		// v0.5.4: statement-style `append(slice, elem)` is a mutating call —
 		// the new slice must be stored back to the original variable/field.
 		// Without this, `append(Files, x)` discards the result and Files stays
 		// empty → GenerateMulti gets no input → empty output.
@@ -175,9 +175,9 @@ func (g *Generator) emitBlockScoped(s *ast.BlockStatement) error {
 	g.closureLocals = cloneBoolMap(g.closureLocals)
 	g.closureSigs = cloneStringMap(g.closureSigs)
 	g.closureParams = cloneStringSliceMap(g.closureParams)
-	g.closureKylixParams = cloneStringSliceMap(g.closureKylixParams) // v6.3.0
+	g.closureKylixParams = cloneStringSliceMap(g.closureKylixParams) // v0.6.3
 
-	// v4.9.0: open a DILexicalBlock for this nested scope so locals declared
+	// v0.4.9: open a DILexicalBlock for this nested scope so locals declared
 	// inside (and the instructions emitted here) are scoped to the block,
 	// not the whole function. Only when we're actually inside a function
 	// (curScope != 0) and debug info is on; otherwise this is a no-op.
@@ -199,7 +199,7 @@ func (g *Generator) emitBlockScoped(s *ast.BlockStatement) error {
 	g.closureLocals = savedClosureLocals
 	g.closureSigs = savedClosureSigs
 	g.closureParams = savedClosureParams
-	g.closureKylixParams = savedClosureKylixParams // v6.3.0
+	g.closureKylixParams = savedClosureKylixParams // v0.6.3
 	// Restore the enclosing scope (subprogram or outer block) on block exit.
 	if g.debugInfo && g.dbg != nil && savedDbgScope != 0 {
 		g.setDbgScope(savedDbgScope)
@@ -244,9 +244,9 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	if decl.Body == nil {
 		return nil // forward declaration, skip
 	}
-	decl.Parameters = normalizeParams(decl.Parameters) // v5.4.0: `level, msg: String`
+	decl.Parameters = normalizeParams(decl.Parameters) // v0.5.4: `level, msg: String`
 
-	// v5.4.0: external method definition `procedure ClassName.MethodName` —
+	// v0.5.4: external method definition `procedure ClassName.MethodName` —
 	// the name contains a dot. Lower to @ClassName_MethodName with a leading
 	// `ptr %self` parameter (mirroring emitMethod), and register self's class
 	// so `self.Field` / `self.Method()` resolve. Without this, external methods
@@ -272,7 +272,7 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	// Build parameter list
 	var params []string
 	if extClassName != "" {
-		params = append(params, "ptr %self") // v5.4.0: external method receiver
+		params = append(params, "ptr %self") // v0.5.4: external method receiver
 	}
 	for _, p := range decl.Parameters {
 		llvmT := "i64"
@@ -294,18 +294,18 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	savedLocals := g.locals
 	savedTypes := g.localTypes
 	savedVarSeq := g.varNameSeq
-	savedFuncExit := g.funcExitLabel // v5.6.0: restore on exit (external methods can nest in class emission)
-	g.funcExitLabel = g.label()      // v5.6.0: exit block for `Exit`/`return`
+	savedFuncExit := g.funcExitLabel // v0.5.6: restore on exit (external methods can nest in class emission)
+	g.funcExitLabel = g.label()      // v0.5.6: exit block for `Exit`/`return`
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
-	g.registerGlobalsInScope() // v5.4.0: make globals visible in this function
-	// v5.4.0: external method receiver — register self as the class instance.
+	g.registerGlobalsInScope() // v0.5.4: make globals visible in this function
+	// v0.5.4: external method receiver — register self as the class instance.
 	if extClassName != "" {
 		g.locals["self"] = "%self"
 		g.localTypes["self"] = extClassName
 	}
-	// v4.6.0: scope for DILocations inside this function = its subprogram.
+	// v0.4.6: scope for DILocations inside this function = its subprogram.
 	// Position the entry-block setup at the function's declaration line so the
 	// %result alloca + parameter stores carry a valid !dbg before the body
 	// statements set their own positions.
@@ -318,19 +318,19 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	if retType != "void" {
 		g.line(fmt.Sprintf("  %%result = alloca %s, align 8", retType))
 		g.locals["result"] = "%result"
-		g.resultLLVMType = retType // v5.4.0: so emitIdentLoad loads `result` as the right type
+		g.resultLLVMType = retType // v0.5.4: so emitIdentLoad loads `result` as the right type
 		if isMultiRet {
 			// Mark result as a tuple so assignment can detect it.
 			g.localTypes["result"] = "__tuple__"
 		} else if decl.ReturnType != nil {
-			// v5.5.0: set localTypes["result"] to the Kylix return type name so
+			// v0.5.5: set localTypes["result"] to the Kylix return type name so
 			// receiverKind(result) resolves it for `result.Field := x` on
 			// class/record return types (e.g. TLexer.ReadNumber returns TToken,
 			// and `result.TokenType := tokType` needs to GEP into TToken).
 			retKylix := typeExprName(decl.ReturnType)
 			if _, isClass := g.classes[retKylix]; isClass {
 				g.localTypes["result"] = retKylix
-				// v5.5.0: for record/class return types, malloc the struct and
+				// v0.5.5: for record/class return types, malloc the struct and
 				// store its pointer into %result so `result.Field := x` GEPs
 				// into valid memory (not null). Records have no Create method.
 				if g.records[retKylix] {
@@ -346,7 +346,7 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 				}
 			}
 		}
-		// v4.6.0: declare `result` as a debug local so LLDB can show its
+		// v0.4.6: declare `result` as a debug local so LLDB can show its
 		// value while stepping through the function body (it's the implicit
 		// return slot — a real alloca, so dbg.declare applies directly).
 		if g.debugInfo {
@@ -388,13 +388,13 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 		if kylixType != "" {
 			g.localTypes[p.Name] = kylixType
 		}
-		// v5.4.0: register slice params in arrayInfo so Length(p)/p[i] work
+		// v0.5.4: register slice params in arrayInfo so Length(p)/p[i] work
 		// (previously function array-of-T params weren't tracked, causing
 		// "variable progs is not an array" when indexing them).
 		if isSlice {
 			g.arrayInfo[p.Name] = &arrayInfo{IsDynamic: true, ElementType: elemT, ElementKylixType: elemKylixT}
 		}
-		// v4.6.0: declare the parameter as a debug local so LLDB can show it.
+		// v0.4.6: declare the parameter as a debug local so LLDB can show it.
 		if g.debugInfo {
 			declLine := decl.Token.Line
 			if p.Token.Line > 0 {
@@ -425,7 +425,7 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 		}
 	}
 
-	// Return result — v5.6.0: via the shared exit block so `Exit`/`return`
+	// Return result — v0.5.6: via the shared exit block so `Exit`/`return`
 	// (which branch to funcExitLabel) actually return this value.
 	g.emitFuncEpilogue(retType)
 
@@ -434,7 +434,7 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	g.locals = savedLocals
 	g.localTypes = savedTypes
 	g.varNameSeq = savedVarSeq
-	g.funcExitLabel = savedFuncExit // v5.6.0
+	g.funcExitLabel = savedFuncExit // v0.5.6
 	// Leaving this function: clear the debug scope + position so subsequent
 	// module-level code (other functions, stdlib defines, metadata) doesn't
 	// attach a stale !dbg.
@@ -487,7 +487,7 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 				g.closureLocals[name] = true
 				g.closureSigs[name] = retT
 				g.closureParams[name] = paramTypes
-				g.closureKylixParams[name] = kylixParamTypes // v6.3.0: for Variant-param coerce
+				g.closureKylixParams[name] = kylixParamTypes // v0.6.3: for Variant-param coerce
 			}
 			return nil
 		}
@@ -516,14 +516,14 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 		isOpaquePtr := false
 		switch llvmType {
 		case variantT:
-			// v6.4.0: a Variant-typed expression (DbQueryRows(...)[0],
+			// v0.6.4: a Variant-typed expression (DbQueryRows(...)[0],
 			// JwtVerify(...)) yields a box pointer. Keep the pseudo-type so the
 			// alloc switch below picks the `_var` suffix — reads then return
 			// "variant", enabling row['col'] indexing and variant-aware print.
 			inferredClass = "Variant"
 			g.needVariantRuntime = true
 		case "{ ptr, i64, i64 }":
-			// v6.4.0: slice-typed RHS (DbQueryRows, JsonGetArray, array
+			// v0.6.4: slice-typed RHS (DbQueryRows, JsonGetArray, array
 			// literal). Keep it (skip opaque normalization) so the alloc switch
 			// below picks the `_dyn` suffix + arrayInfo registration.
 		case "i1", "i64", "double", "ptr", "void", "TDateTime":
@@ -553,11 +553,11 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 				suffix = "_str"
 				actualLLVMType = "ptr"
 			case variantT:
-				// v6.4.0: Variant-typed slot holds a box pointer.
+				// v0.6.4: Variant-typed slot holds a box pointer.
 				suffix = "_var"
 				actualLLVMType = "ptr"
 			case "{ ptr, i64, i64 }":
-				// v6.4.0: slice-typed slot — register a dynamic array so
+				// v0.6.4: slice-typed slot — register a dynamic array so
 				// Length()/[] work. A function-returned slice (DbQueryRows,
 				// JsonGetArray) is a Variant array (box ptr elements); an array
 				// literal infers its element type from the first element.
@@ -606,7 +606,7 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 
 // literalElemType returns the LLVM element type for an array-literal element
 // expression, used to register arrayInfo when `var a := [...]` infers a slice.
-// v6.4.0.
+// v0.6.4.
 func literalElemType(e ast.Expression) string {
 	switch e.(type) {
 	case *ast.IntegerLiteral:
@@ -664,10 +664,10 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 	// Plain class-typed local: hold a ptr to the heap-allocated instance.
 	if ident, ok := varType.(*ast.Identifier); ok {
 		if g.records[ident.Value] {
-			// v5.4.0: record local — heap-allocate the struct now (records have
+			// v0.5.4: record local — heap-allocate the struct now (records have
 			// no Create method, so `var tok: TToken` must malloc the storage
 			// up front so `tok.Field := x` GEPs into valid memory).
-			// v5.5.0: use llvmTypeSize for correct sizing (slice/map fields are
+			// v0.5.5: use llvmTypeSize for correct sizing (slice/map fields are
 			// >8 bytes; the old 8×count formula under-allocated).
 			allocaReg := g.freshVarReg(name, "")
 			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
@@ -692,7 +692,7 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 		}
 	}
 
-	// v5.0.0: Variant-typed local. `var v: Variant` parses as Identifier
+	// v0.5.0: Variant-typed local. `var v: Variant` parses as Identifier
 	// (capital V is not the discriminated-union keyword `variant`). The slot
 	// holds a pointer to a boxed {i32 tag, i64 payload} value. Must come
 	// BEFORE the generic fallback below (which would allocate a ptr slot with
@@ -745,7 +745,7 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 	if kylixType != "" {
 		g.localTypes[name] = kylixType
 	}
-	// v4.6.0: declare the local as a debug variable (DILocalVariable +
+	// v0.4.6: declare the local as a debug variable (DILocalVariable +
 	// llvm.dbg.declare) so LLDB can resolve its name + value at breakpoints.
 	if g.debugInfo {
 		g.emitDbgDeclare(name, varDeclLine(varType), llvmT, allocaReg)
@@ -894,7 +894,7 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		if leftIdent, ok := idx.Left.(*ast.Identifier); ok && g.mapVars[leftIdent.Value] {
 			return g.emitMapIndexPut(idx, v, t)
 		}
-		// v5.6.0: map-typed CLASS FIELD assignment `obj.MapField[k] := v` →
+		// v0.5.6: map-typed CLASS FIELD assignment `obj.MapField[k] := v` →
 		// emitMapFieldIndexPut (htab_put into the field's htab). Without this,
 		// emitAssign fell through to emitArrayIndex→emitMapFieldIndexGet (a READ)
 		// and stored the RHS to the read result (e.g. `self.ClassTypes[name] :=
@@ -919,7 +919,7 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		if err != nil {
 			return err
 		}
-		// v5.0.0: for `array of Variant`, box the RHS into a Variant before
+		// v0.5.0: for `array of Variant`, box the RHS into a Variant before
 		// storing (the element slot holds a box pointer). A Variant RHS (e.g.
 		// arr[0] := arr[1]) is passed through; a scalar RHS is boxed by type.
 		if leftIdent, ok := idx.Left.(*ast.Identifier); ok {
@@ -944,7 +944,7 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 			if err != nil {
 				return err
 			}
-			// v5.4.0: a class/record-typed field's RHS may carry the Kylix type
+			// v0.5.4: a class/record-typed field's RHS may carry the Kylix type
 			// name (emitMember returns it for receiver resolution). Coerce to
 			// ptr (the actual LLVM type) so the store is well-typed.
 			if _, isClass := g.classes[fieldType]; isClass {
@@ -953,7 +953,7 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 			if _, isClass := g.classes[t]; isClass {
 				t = "ptr"
 			}
-			// v5.6.0: record field assignment (e.g. self.CurToken := self.PeekToken)
+			// v0.5.6: record field assignment (e.g. self.CurToken := self.PeekToken)
 			// must deep-copy the record struct (value semantics, matching Go's
 			// `self.CurToken = self.PeekToken` which copies the entire TToken struct).
 			// Without this, CurToken and PeekToken share the same TToken object —
@@ -985,7 +985,7 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 				g.line(fmt.Sprintf("%s:", doneLbl))
 				return nil
 			}
-			// v5.4.0: slice field — RHS is an SSA struct value (from call or
+			// v0.5.4: slice field — RHS is an SSA struct value (from call or
 			// ArrayLiteral insertvalue), store directly.
 			if fieldType == "{ ptr, i64, i64 }" && t == "{ ptr, i64, i64 }" {
 				g.line(fmt.Sprintf("  store { ptr, i64, i64 } %s, ptr %s", v, gepReg))
@@ -1015,7 +1015,7 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 
 	allocaReg, ok := g.locals[varName]
 	if !ok {
-		// v5.4.0: type-inferred local — choose the alloca type from the RHS's
+		// v0.5.4: type-inferred local — choose the alloca type from the RHS's
 		// LLVM type (t), so a ptr/string RHS gets a _str slot (not the default
 		// i64, which type-mismatches on store). Also try exprKylixType for
 		// class-typed RHS so receiverKind resolves for later field/method access.
@@ -1033,7 +1033,7 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 			g.locals[varName] = allocaReg
 			g.arrayInfo[varName] = &arrayInfo{IsDynamic: true, ElementType: "ptr"}
 		} else if t == "ptr" {
-			// v5.4.0: string/ptr RHS (e.g. map lookup, LowerCase, ReadFile) →
+			// v0.5.4: string/ptr RHS (e.g. map lookup, LowerCase, ReadFile) →
 			// _str slot so the value isn't truncated to i64.
 			allocaReg = g.freshVarReg(varName, "_str")
 			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", allocaReg))
@@ -1055,19 +1055,19 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		}
 	}
 
-	// v4.9.0: dynamic-array assignment. `arr := JsonGetArray(...)` (or any RHS
+	// v0.4.9: dynamic-array assignment. `arr := JsonGetArray(...)` (or any RHS
 	// yielding a {ptr, i64, i64} slice) must copy the whole slice struct into
 	// arr's alloca — the generic scalar path below would store only the first
 	// word and leave len/cap stale. If the LHS is a _dyn alloca and the RHS is
 	// a slice struct value (carried as a pointer to a temporary alloca), load
 	// the struct from the RHS alloca and store it into the LHS alloca.
 	if strings.HasSuffix(allocaReg, "_dyn") && t == "{ ptr, i64, i64 }" {
-		// v5.4.0: slice RHS is an SSA struct value (from call or ArrayLiteral
+		// v0.5.4: slice RHS is an SSA struct value (from call or ArrayLiteral
 		// insertvalue) — store directly, no load needed.
 		g.line(fmt.Sprintf("  store { ptr, i64, i64 } %s, ptr %s", v, allocaReg))
 		return nil
 	}
-	// v6.1.0: `arr := nil` for a dynamic array — the RHS is a null ptr, but a
+	// v0.6.1: `arr := nil` for a dynamic array — the RHS is a null ptr, but a
 	// _dyn slot must receive a zeroed slice struct ({ptr null, i64 0, i64 0}),
 	// not a pointer store (which llc rejects: store i64 %nil, ptr %_dyn).
 	if strings.HasSuffix(allocaReg, "_dyn") && t == "ptr" {
@@ -1089,13 +1089,13 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 	} else if strings.HasSuffix(allocaReg, "_map") {
 		actualType = "ptr"
 	} else if isVariantSlot {
-		// v5.0.0: a Variant slot stores a box pointer (ptr). The RHS is
+		// v0.5.0: a Variant slot stores a box pointer (ptr). The RHS is
 		// boxed below before the store, so treat the slot as a ptr sink.
 		actualType = "ptr"
 	} else if allocaReg == "%result" && t != "" {
 		actualType = t
 	} else if gt, ok := g.globalTypes[varName]; ok {
-		// v5.4.0: global variable — use its declared LLVM type for the store.
+		// v0.5.4: global variable — use its declared LLVM type for the store.
 		actualType = gt
 	} else if kylixT, ok := g.localTypes[varName]; ok {
 		// Class-typed local (alloca %v_name, no suffix) holds a ptr.
@@ -1104,11 +1104,11 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		}
 	}
 
-	// v5.0.0: Variant assignment. Box the RHS into a Variant when storing
+	// v0.5.0: Variant assignment. Box the RHS into a Variant when storing
 	// into a Variant slot; a Variant RHS (v := otherVariant) is already a box
 	// and passes through as-is. Either way the store writes the box pointer
 	// (actualType is "ptr" for a _var slot) — coercing variant→ptr would
-	// as_str the box, turning a map/nil Variant into an empty string. v6.6.0.
+	// as_str the box, turning a map/nil Variant into an empty string. v0.6.6.
 	if isVariantSlot {
 		if t != variantT {
 			v = g.emitVariantBox(v, t)
@@ -1117,7 +1117,7 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 	}
 
 	// Type coercion: if RHS type doesn't match the alloca type, cast it.
-	// v5.1.0: a Variant RHS unboxes to the concrete slot type via coerceValue
+	// v0.5.1: a Variant RHS unboxes to the concrete slot type via coerceValue
 	// (variant→i64/double/ptr/i1 dispatch on tag); this also covers the
 	// legacy i1↔i64 / i64↔double casts.
 	if t != actualType {
@@ -1129,7 +1129,7 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 }
 
 // fieldKylixType returns the Kylix type name of a class field, or "" if not
-// found. v5.6.0.
+// found. v0.5.6.
 func fieldKylixType(className, fieldName string, g *Generator) string {
 	info, ok := g.classes[className]
 	if !ok {
@@ -1143,9 +1143,9 @@ func fieldKylixType(className, fieldName string, g *Generator) string {
 	return ""
 }
 
-// emitReturn generates a return via the result variable. v5.6.0: branch to
+// emitReturn generates a return via the result variable. v0.5.6: branch to
 // the function's shared exit block (which holds `ret %result`) and open a
-// fresh unreachable block so following IR stays valid — the pre-v5.6.0 code
+// fresh unreachable block so following IR stays valid — the pre-v0.5.6 code
 // branched to a freshly-created dead label and then fell through to the rest
 // of the body, so `return` never actually returned.
 func (g *Generator) emitReturn(s *ast.ReturnStatement) error {

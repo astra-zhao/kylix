@@ -30,7 +30,7 @@ import (
 
 // emitNetCall dispatches a `net.Func(args)` / bare `Func(args)` call.
 func (g *Generator) emitNetCall(funcName string, args []ast.Expression) (string, string, error) {
-	// v6.2.0: Windows uses Winsock (SOCKET is UINT_PTR, needs WSAStartup,
+	// v0.6.2: Windows uses Winsock (SOCKET is UINT_PTR, needs WSAStartup,
 	// closesocket) — a full shim needs a Windows environment to verify. Return
 	// typed stubs (args evaluated for side effects) so net programs compile and
 	// run without crashing; real Winsock support is a documented limitation.

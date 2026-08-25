@@ -1,6 +1,6 @@
 // arrayutil — Generic array operations, implemented in pure Kylix.
 //
-// Part of v2.2.0 stdlib Kylix-ification Phase 2.
+// Part of v0.2.2 stdlib Kylix-ification Phase 2.
 // All functions are non-mutating: they return new arrays rather than modifying input.
 unit arrayutil;
 

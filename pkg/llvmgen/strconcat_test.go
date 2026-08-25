@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestStringConcat_SizedBuffer (v5.6.0) guards the fix for string concatenation
+// TestStringConcat_SizedBuffer (v0.5.6) guards the fix for string concatenation
 // overflowing a fixed 512-byte buffer. emitStringConcat previously did
 // `malloc(512) + strcpy(lv) + strcat(rv)` for EVERY `a + b` string concat — a
 // fixed 512-byte buffer that overflowed as soon as the concatenated result

@@ -15,7 +15,7 @@ func makeTestProject(t *testing.T) *project.Config {
 	dir := t.TempDir()
 	cfg := &project.Config{
 		Name:         "testapp",
-		Version:      "1.0.0",
+		Version:      "0.1.0",
 		Main:         "main.klx",
 		Output:       "build/",
 		GoMod:        "testapp",

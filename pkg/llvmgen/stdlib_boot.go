@@ -8,7 +8,7 @@ import (
 )
 
 // bootOpaqueTypes are the KylixBoot HTTP framework types lowered to opaque
-// pointers in LLVM IR (v6.1.0). TRequest/TResponse carry no IR-visible
+// pointers in LLVM IR (v0.6.1). TRequest/TResponse carry no IR-visible
 // structure for the tutorial handlers — they are passed/returned by pointer
 // and only their field accesses (resp.Body) are compiled to real GEP loads.
 var bootOpaqueTypes = map[string]bool{
@@ -26,7 +26,7 @@ var bootOpaqueTypes = map[string]bool{
 // default — enough for the tutorial examples (41-47, 49-51) to compile,
 // register routes and run without crashing. BootText/BootJSON/BootHTML return
 // a real {i64 status, ptr body} response handle so handler bodies lower to
-// valid IR (the pre-v6.1.0 catch-all i64 stub produced a store type mismatch
+// valid IR (the pre-v0.6.1 catch-all i64 stub produced a store type mismatch
 // when their ptr result was stored into an i64 %result).
 
 // bootStubReturnTypes maps each boot function to the LLVM type its call-site
@@ -60,7 +60,7 @@ func (g *Generator) emitBootCall(funcName string, args []ast.Expression) (string
 		// Real response handle {i64 status, ptr body}.
 		return g.emitBootResponseCall(funcName, args)
 	case "BootRun":
-		// v6.6.0: real HTTP server (listen + accept + dispatch).
+		// v0.6.6: real HTTP server (listen + accept + dispatch).
 		if len(args) < 1 {
 			return "", "", fmt.Errorf("boot.BootRun expects a port, got %d", len(args))
 		}
@@ -73,7 +73,7 @@ func (g *Generator) emitBootCall(funcName string, args []ast.Expression) (string
 		g.line(fmt.Sprintf("  %s = call i64 @__kylix_boot_BootRun(i64 %s)", r, portReg))
 		return r, "i64", nil
 	case "BootRegisterJwtAuth":
-		// v6.8.0: store the JWT secret as a module global so BootEnforceAuth can
+		// v0.6.8: store the JWT secret as a module global so BootEnforceAuth can
 		// verify `Authorization: Bearer <token>` at request time. Only string
 		// literals are supported as the secret (a literal constant → module-level
 		// @.str.N can be referenced from the wrapper define).
@@ -119,7 +119,7 @@ func (g *Generator) emitBootResponseCall(funcName string, args []ast.Expression)
 		if err != nil {
 			return "", "", err
 		}
-		// v6.8.0: a Variant body (e.g. BootText(200, data['name'])) must be
+		// v0.6.8: a Variant body (e.g. BootText(200, data['name'])) must be
 		// unboxed to a string before BootText strlen()s it — passing the box
 		// pointer directly would read the box's tag/payload bytes as text.
 		if rt == variantT {
@@ -139,7 +139,7 @@ func (g *Generator) emitBootBody(funcName string) {
 	case "BootText", "BootJSON", "BootHTML":
 		g.emitBootResponseBody(funcName)
 	case "BootGET", "BootPOST", "BootPUT", "BootDELETE":
-		// v6.6.0: real route registration — store {method, path, handler} in
+		// v0.6.6: real route registration — store {method, path, handler} in
 		// the module route table for @__kylix_boot_BootRun to dispatch.
 		g.emitBootRegisterRouteBody(funcName)
 	case "BootRegisterInstance", "BootUseLogger", "BootUseRecover", "BootUseCORS",
@@ -150,12 +150,12 @@ func (g *Generator) emitBootBody(funcName string) {
 		g.line("  ret void")
 		g.line("}")
 	case "BootRun":
-		// v6.6.0: real HTTP server (listen + accept + dispatch).
+		// v0.6.6: real HTTP server (listen + accept + dispatch).
 		g.emitBootRunBody()
 	case "readheaders":
 		g.emitBootReadHeadersBody()
 	case "readbody":
-		// v6.8.0: read Content-Length request body bytes after the header block
+		// v0.6.8: read Content-Length request body bytes after the header block
 		// and store the NUL-terminated body on the request handle (req[24]).
 		g.emitBootReadBodyBody()
 	case "parsereq":
@@ -165,7 +165,7 @@ func (g *Generator) emitBootBody(funcName string) {
 	case "pathmatch":
 		g.emitBootPathMatchBody()
 	case "BootEnforceAuth":
-		// v6.8.0: real auth guard — read `Authorization: Bearer <token>` from
+		// v0.6.8: real auth guard — read `Authorization: Bearer <token>` from
 		// the request headers and verify with JwtVerify(secret, token) (HS256).
 		// Returns null = pass, or a 401 response handle on missing/invalid auth.
 		g.emitBootEnforceAuthBody()
@@ -231,7 +231,7 @@ func (g *Generator) emitBootResponseFieldAccess(obj ast.Expression, field string
 }
 
 // emitBootEnforceAuthBody — ptr @__kylix_boot_BootEnforceAuth(ptr %req).
-// v6.8.0: reads `Authorization: Bearer <token>` from the request headers and
+// v0.6.8: reads `Authorization: Bearer <token>` from the request headers and
 // verifies it with jwt.JwtVerify(secret, token) (HS256). Returns null = pass,
 // or a {401, "Unauthorized"} response handle when the header is absent/malformed
 // or the signature fails. When no BootRegisterJwtAuth secret was configured the
@@ -365,7 +365,7 @@ func (g *Generator) emitBootStubCall(funcName string, args []ast.Expression, ret
 	return r, "i64", nil
 }
 
-// emitBootRegisterRouteBody — v6.6.0: `void @__kylix_boot_Boot<M>(ptr %path,
+// emitBootRegisterRouteBody — v0.6.6: `void @__kylix_boot_Boot<M>(ptr %path,
 // ptr %wrapper)` writes {method, path, handler} into the module route table
 // (@__kylix_boot_routes / @__kylix_boot_nroutes), which @__kylix_boot_BootRun
 // dispatches against. Capacity 64; overflow is dropped.

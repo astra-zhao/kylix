@@ -406,7 +406,7 @@ func (g *Generator) emitDatetimeAddSecondsCall(receiver string, args []ast.Expre
 // emitLocaltimeCall emits a localtime call filling a 56-byte struct tm buffer.
 // POSIX localtime_r(time, tm) returns the tm pointer; Windows localtime_s(tm,
 // time) fills the buffer in place and returns errno_t. The result register gets
-// the buffer address in both cases. v6.2.0.
+// the buffer address in both cases. v0.6.2.
 func (g *Generator) emitLocaltimeCall(resultReg, timePtr, tmBuf string) {
 	if g.targetOS == "windows" {
 		g.line(fmt.Sprintf("  call i32 @localtime_s(ptr %s, ptr %s)", tmBuf, timePtr))

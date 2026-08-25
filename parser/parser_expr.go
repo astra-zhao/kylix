@@ -93,7 +93,7 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 	}
 	leftExp := prefix()
 
-	// v5.9.0: as/is (or a group containing them) may leave curToken directly on
+	// v0.5.9: as/is (or a group containing them) may leave curToken directly on
 	// '.', with the member name as peek — and peek is not an infix, so the Pratt
 	// loop below would exit and drop `.Field`. Bind member chains here.
 	for p.curTokenIs(token.DOT) {
@@ -101,7 +101,7 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 	}
 
 	for !p.peekTokenIs(token.SEMICOLON) && precedence < p.peekPrecedence() {
-		// v5.9.0: as/is parse their right-hand type with parseTypeExpression,
+		// v0.5.9: as/is parse their right-hand type with parseTypeExpression,
 		// which can leave curToken on a *closing* token (e.g. `(x as T).Field`
 		// — after `T` the curToken is `)`). The Pratt loop resumes on the
 		// *peeked* infix, so without stopping here it would skip the `)` and
@@ -282,7 +282,7 @@ func (p *Parser) parseGroupedExpression() ast.Expression {
 	}
 
 	if p.curTokenIs(token.RPAREN) {
-		// v5.9.0: as/is may have left curToken on the closing ')' (their right
+		// v0.5.9: as/is may have left curToken on the closing ')' (their right
 		// side is parsed by parseTypeExpression, which stops on the ')' after
 		// the type). Consume it here; expectPeek would wrongly look at peek.
 		p.nextToken()

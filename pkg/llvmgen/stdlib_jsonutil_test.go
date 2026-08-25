@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// stdlib_jsonutil tests — verify the v4.5.0 flat-object parser lowers to real
-// @__kylix_json_parse_* defines (not the v4.4.0 empty-htab stub).
+// stdlib_jsonutil tests — verify the v0.4.5 flat-object parser lowers to real
+// @__kylix_json_parse_* defines (not the v0.4.4 empty-htab stub).
 
 func TestJson_DecodeMap_ParserEmitted(t *testing.T) {
 	ir := generateIR(t, `program p;
@@ -29,7 +29,7 @@ end.`)
 }
 
 func TestJson_DecodeMap_NotStubEmpty(t *testing.T) {
-	// The v4.4.0 stub body was: call htab_new(); ret. The real body calls
+	// The v0.4.4 stub body was: call htab_new(); ret. The real body calls
 	// parse_flat. Ensure the DecodeMap body calls parse_flat, not just htab_new.
 	ir := generateIR(t, `program p;
 uses jsonutil;
@@ -57,7 +57,7 @@ begin
   var s := JsonGetString(m, 'a');
 end.`)
 	assertIRContains(t, ir, "call ptr @__kylix_json_JsonGetString")
-	// v5.1.0: jsonutil maps hold Variant boxes; JsonGetString unboxes via
+	// v0.5.1: jsonutil maps hold Variant boxes; JsonGetString unboxes via
 	// htab_get_variant + variant_as_str (not htab_get + raw ptr).
 	assertIRContains(t, ir, "call ptr @__kylix_htab_get_variant")
 	assertIRContains(t, ir, "call ptr @__kylix_variant_as_str(ptr")
@@ -71,7 +71,7 @@ begin
   var n := JsonGetInt(m, 'a');
 end.`)
 	assertIRContains(t, ir, "call i64 @__kylix_json_JsonGetInt")
-	// v5.1.0: JsonGetInt unboxes via variant_as_int (atoll now lives inside
+	// v0.5.1: JsonGetInt unboxes via variant_as_int (atoll now lives inside
 	// the as_int body, not the JsonGetInt body).
 	assertIRContains(t, ir, "call i64 @__kylix_variant_as_int(ptr")
 }
@@ -84,7 +84,7 @@ begin
   var b := JsonGetBool(m, 'a');
 end.`)
 	assertIRContains(t, ir, "call i1 @__kylix_json_JsonGetBool")
-	// v5.1.0: JsonGetBool unboxes via variant_as_bool (strcmp now inside as_bool).
+	// v0.5.1: JsonGetBool unboxes via variant_as_bool (strcmp now inside as_bool).
 	assertIRContains(t, ir, "call i1 @__kylix_variant_as_bool(ptr")
 }
 
@@ -96,7 +96,7 @@ begin
   var f := JsonGetFloat(m, 'a');
 end.`)
 	assertIRContains(t, ir, "call double @__kylix_json_JsonGetFloat")
-	// v5.1.0: JsonGetFloat unboxes via variant_as_double (strtod inside as_double).
+	// v0.5.1: JsonGetFloat unboxes via variant_as_double (strtod inside as_double).
 	assertIRContains(t, ir, "call double @__kylix_variant_as_double(ptr")
 }
 
@@ -119,8 +119,8 @@ begin
 end.`)
 	assertIRContains(t, ir, "call ptr @__kylix_json_JsonGetMap")
 	assertIRContains(t, ir, "define ptr @__kylix_json_JsonGetMap")
-	// v4.7.0: GetMap recursively parses the raw substring. The body should
-	// call parse_flat (not just `ret ptr null` like the v4.5.0 stub).
+	// v0.4.7: GetMap recursively parses the raw substring. The body should
+	// call parse_flat (not just `ret ptr null` like the v0.4.5 stub).
 	getMapIdx := strings.Index(ir, "define ptr @__kylix_json_JsonGetMap")
 	bodyEnd := strings.Index(ir[getMapIdx:], "\n}")
 	body := ir[getMapIdx : getMapIdx+bodyEnd]
@@ -140,7 +140,7 @@ begin
   var m := JsonDecodeMap('{"a":[1,2]}');
   var arr := JsonGetArray(m, 'a');
 end.`)
-	// v4.9.0: JsonGetArray now returns a {ptr,i64,i64} slice via an out-param
+	// v0.4.9: JsonGetArray now returns a {ptr,i64,i64} slice via an out-param
 	// (define void), not a bare ptr. The call writes into a temp alloca.
 	assertIRContains(t, ir, "call void @__kylix_json_JsonGetArray")
 	assertIRContains(t, ir, "define void @__kylix_json_JsonGetArray")
@@ -207,7 +207,7 @@ end.`)
 	}
 }
 
-// ---- v6.8.0: nested JSON objects become real map-Variant boxes ----
+// ---- v0.6.8: nested JSON objects become real map-Variant boxes ----
 
 func TestJson_ValueToVariant_NestedObjectBoxedAsMap(t *testing.T) {
 	ir := generateIR(t, `program p;
@@ -230,7 +230,7 @@ begin
   var m := JsonDecodeMap('{"a":{"b":1}}');
   var sub := JsonGetMap(m, 'a');
 end.`)
-	// v6.8.0: JsonGetMap fast-paths a nested map box → return its htab via
+	// v0.6.8: JsonGetMap fast-paths a nested map box → return its htab via
 	// inttoptr(payload), while keeping the legacy raw-substring re-parse.
 	assertIRContains(t, ir, "define ptr @__kylix_json_JsonGetMap")
 	getMapIdx := strings.Index(ir, "define ptr @__kylix_json_JsonGetMap")

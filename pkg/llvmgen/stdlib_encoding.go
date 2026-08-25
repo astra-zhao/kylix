@@ -18,7 +18,7 @@ import (
 // UrlEncode/CsvEncode/JsonLinesEncode are deliberately not implemented here
 // (CsvEncode/JsonLinesEncode involve compound types — [][]string / []map —
 // that the LLVM backend does not yet lower). UrlEncode/UrlDecode are real
-// implementations (v6.6.0), mirroring Go's url.QueryEscape/QueryUnescape.
+// implementations (v0.6.6), mirroring Go's url.QueryEscape/QueryUnescape.
 
 // emitEncodingCall dispatches a `encoding.Func(args)` / bare `Func(args)`
 // call to the codec IR emitter. It emits the `call` instruction at the call
@@ -69,7 +69,7 @@ func (g *Generator) emitEncodingBody(funcName string) {
 	case "UrlDecode":
 		g.emitEncodingUrlDecodeBody()
 	case "hexval":
-		// Shared nibble decoder used by HexDecode and UrlDecode (v6.6.0).
+		// Shared nibble decoder used by HexDecode and UrlDecode (v0.6.6).
 		g.emitEncodingHexvalBody()
 	}
 }
@@ -167,7 +167,7 @@ func (g *Generator) emitEncodingHexDecodeCall(args []ast.Expression) (string, st
 	g.enqueueStdlib("encoding", "HexDecode", "HexDecode", 0)
 	// The hexval nibble decoder is emitted independently (also used by
 	// UrlDecode) — queue it so it's defined even if HexDecode's body alone
-	// wouldn't be reached. v6.6.0.
+	// wouldn't be reached. v0.6.6.
 	g.enqueueStdlib("encoding", "hexval", "hexval", 0)
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_encoding_HexDecode(ptr %s)", r, argReg))
@@ -255,7 +255,7 @@ func (g *Generator) emitEncodingHexDecodeBody() {
 	g.line("}")
 	g.line("")
 	// The @__kylix_encoding_hexval helper is emitted independently
-	// (emitEncodingHexvalBody), since UrlDecode also references it. v6.6.0.
+	// (emitEncodingHexvalBody), since UrlDecode also references it. v0.6.6.
 }
 
 // emitEncodingHexvalBody emits the shared nibble decoder:
@@ -637,7 +637,7 @@ func (g *Generator) emitEncodingBase64DecodeBody() {
 //
 //	Mirrors Go's url.QueryEscape: unreserved (A-Z a-z 0-9 - _ . ~) pass
 //	through, space → '+', everything else → %XX (uppercase hex). Output
-//	buffer worst case 3*len + 1. v6.6.0.
+//	buffer worst case 3*len + 1. v0.6.6.
 func (g *Generator) emitEncodingUrlEncodeCall(args []ast.Expression) (string, string, error) {
 	if len(args) != 1 {
 		return "", "", fmt.Errorf("encoding.UrlEncode expects 1 argument, got %d", len(args))
@@ -797,7 +797,7 @@ func (g *Generator) emitEncodingUrlEncodeBody() {
 //
 //	Mirrors Go's url.QueryUnescape: '+' → space, %XX → byte (best-effort
 //	on malformed input — non-hex after '%' copies '%' literally). Uses the
-//	shared @__kylix_encoding_hexval nibble decoder. v6.6.0.
+//	shared @__kylix_encoding_hexval nibble decoder. v0.6.6.
 func (g *Generator) emitEncodingUrlDecodeCall(args []ast.Expression) (string, string, error) {
 	if len(args) != 1 {
 		return "", "", fmt.Errorf("encoding.UrlDecode expects 1 argument, got %d", len(args))

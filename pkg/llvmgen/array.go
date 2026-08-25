@@ -25,13 +25,13 @@ import (
 type arrayInfo struct {
 	IsDynamic   bool
 	ElementType string // LLVM type, e.g. "i64", "double", "ptr"
-	// ElementKylixType is the Kylix type name of elements (v5.4.0), so that
+	// ElementKylixType is the Kylix type name of elements (v0.5.4), so that
 	// `arr[i].Method()` / `arr[i] is TFoo` can resolve the receiver type when
 	// the element is a class (e.g. array of TNode → elements are TNode).
 	ElementKylixType string
 	Size             int64 // for static arrays only
 	LowerBound       int64 // Pascal range lower bound (default 1)
-	// v5.0.0: IsVariant marks `array of Variant` — elements are box pointers
+	// v0.5.0: IsVariant marks `array of Variant` — elements are box pointers
 	// (ptr), and index reads return the "variant" pseudo-type so downstream
 	// comparisons/printing dispatch on the tag.
 	IsVariant bool
@@ -45,14 +45,14 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 	isVariant := false
 	if arr.ElementType != nil {
 		elemKylix = typeExprName(arr.ElementType)
-		// v5.0.0: detect Variant element → elements are box pointers (ptr),
+		// v0.5.0: detect Variant element → elements are box pointers (ptr),
 		// and flag IsVariant so index reads return the "variant" pseudo-type.
 		if isVariantTypeExpr(arr.ElementType) {
 			isVariant = true
 			elemType = "ptr"
 			g.needVariantRuntime = true
 		} else {
-			// v5.4.0: resolve element type via the AST (class elements → ptr,
+			// v0.5.4: resolve element type via the AST (class elements → ptr,
 			// instead of the old LLVMType(typeExprName(...)) which fell back
 			// to i64 for every class/nested-array element).
 			elemType = g.llvmTypeOfExpr(arr.ElementType)
@@ -108,7 +108,7 @@ func (g *Generator) emitArrayVarDecl(name string, arr *ast.ArrayType) bool {
 
 // emitVariantMapIndex lowers `variantVar['key']` — the variant holds a
 // map[String]Variant handle (tag=map). Returns the value box (pseudo-type
-// "variant"); downstream unboxing/printing dispatches on the tag. v6.4.0.
+// "variant"); downstream unboxing/printing dispatches on the tag. v0.6.4.
 func (g *Generator) emitVariantMapIndex(idx *ast.IndexExpression, varName string) (string, string, error) {
 	allocaReg, ok := g.locals[varName]
 	if !ok {
@@ -120,7 +120,7 @@ func (g *Generator) emitVariantMapIndex(idx *ast.IndexExpression, varName string
 }
 
 // emitVariantMapGetReg emits the variant-map lookup on an already-computed box
-// register: `variant_map_get(box, key)` → value box. v6.4.0.
+// register: `variant_map_get(box, key)` → value box. v0.6.4.
 func (g *Generator) emitVariantMapGetReg(boxReg string, keyExpr ast.Expression) (string, string, error) {
 	keyReg, _, err := g.emitExpr(keyExpr)
 	if err != nil {
@@ -142,7 +142,7 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 	// the array field name. Resolve the field address (the [N x T] static
 	// storage or the {ptr,len,cap} dynamic slice embedded in the struct) via
 	// emitFieldStore (GEP without load), then index into it.
-	// v5.4.0: handles dynamic array fields (slice GEP) in addition to static,
+	// v0.5.4: handles dynamic array fields (slice GEP) in addition to static,
 	// and uses llvmTypeOfExpr so class elements resolve to ptr (not i64).
 	if member, ok := idx.Left.(*ast.MemberExpression); ok {
 		kind, typeName := g.receiverKind(member.Object)
@@ -168,7 +168,7 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 				}
 			}
 			if mt != nil {
-				// v5.4.0: map field obj.Field[key] → load the htab handle from the
+				// v0.5.4: map field obj.Field[key] → load the htab handle from the
 				// field slot, then htab_get(handle, key).
 				return g.emitMapFieldIndexGet(typeName, objReg, member.Member, mt, idx)
 			}
@@ -230,7 +230,7 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 	// Resolve the array variable
 	leftIdent, ok := idx.Left.(*ast.Identifier)
 	if !ok {
-		// v6.4.0: chained index `rows[i]['col']` — evaluate the inner index
+		// v0.6.4: chained index `rows[i]['col']` — evaluate the inner index
 		// (rows[i] → map-Variant box), then variant-map lookup.
 		if _, isIdx := idx.Left.(*ast.IndexExpression); isIdx {
 			leftVal, leftT, err := g.emitExpr(idx.Left)
@@ -241,7 +241,7 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 				return g.emitVariantMapGetReg(leftVal, idx.Index)
 			}
 		}
-		// v5.4.0 diagnostic: identify why the class-field branch above didn't
+		// v0.5.4 diagnostic: identify why the class-field branch above didn't
 		// handle this MemberExpression index (e.g. receiver not recognized as a
 		// class, or the Object is a non-Identifier expression).
 		if m, mok := idx.Left.(*ast.MemberExpression); mok {
@@ -252,7 +252,7 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 		return "", "", fmt.Errorf("array index target must be an identifier (left type %T)", idx.Left)
 	}
 
-	// v6.4.0: Variant-typed variable indexed by a String key → variant-map
+	// v0.6.4: Variant-typed variable indexed by a String key → variant-map
 	// lookup (`var row := DbQueryRows(...)[0]; row['col']`). localTypes records
 	// the Kylix type name ("Variant"); the box holds a map[String]Variant
 	// handle. Must come before the mapVars/arrayInfo checks (row is neither).
@@ -266,7 +266,7 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 		return g.emitMapIndexGet(idx)
 	}
 
-	// v6.2.0: Args[i] — command-line arguments (argv[1:] as a {ptr,len,cap}
+	// v0.6.2: Args[i] — command-line arguments (argv[1:] as a {ptr,len,cap}
 	// slice global). Register it like a dynamic array backed by @__kylix_args.
 	allocaReg := ""
 	if leftIdent.Value == "Args" {
@@ -321,7 +321,7 @@ func (g *Generator) emitArrayIndex(idx *ast.IndexExpression, asLValue bool) (str
 		}
 		return ptr, info.ElementType, nil
 	}
-	// v5.0.0: for Variant arrays, load the box pointer and return the
+	// v0.5.0: for Variant arrays, load the box pointer and return the
 	// "variant" pseudo-type so downstream comparisons/printing dispatch.
 	if info.IsVariant {
 		loaded := g.tmp()
@@ -439,7 +439,7 @@ func evalConstInt(e ast.Expression) int64 {
 // indexElementKylixType returns the Kylix type name of an array-index
 // expression's element (e.g. rec.Fields[i] → "TVarDecl"), or "" if unknown.
 // Used by emitAssign to type-infer `field := rec.Fields[i]` locals so a later
-// `field.Names[j]` resolves the receiver class. v5.4.0.
+// `field.Names[j]` resolves the receiver class. v0.5.4.
 func (g *Generator) indexElementKylixType(idx *ast.IndexExpression) string {
 	if idx == nil {
 		return ""
@@ -468,7 +468,7 @@ func (g *Generator) indexElementKylixType(idx *ast.IndexExpression) string {
 
 // callReturnKylixType returns the Kylix type name returned by a call, or "" if
 // unknown. Used by exprKylixType for `x := func()`/`x := obj.Method()`/`x :=
-// TFoo.Create()` type-inferred locals. v5.4.0.
+// TFoo.Create()` type-inferred locals. v0.5.4.
 func (g *Generator) callReturnKylixType(call *ast.CallExpression) string {
 	if call == nil {
 		return ""
@@ -495,7 +495,7 @@ func (g *Generator) callReturnKylixType(call *ast.CallExpression) string {
 		if sig, ok := g.funcSigs[ident.Value]; ok && sig.ReturnType != nil {
 			return typeExprName(sig.ReturnType)
 		}
-		// stdlib one-shot helpers returning a THttpResponse handle (v6.1.0).
+		// stdlib one-shot helpers returning a THttpResponse handle (v0.6.1).
 		if ident.Value == "HttpDoGet" || ident.Value == "HttpDoPost" {
 			return "THttpResponse"
 		}
@@ -506,7 +506,7 @@ func (g *Generator) callReturnKylixType(call *ast.CallExpression) string {
 // exprKylixType returns the Kylix type name of an expression, for type-inferring
 // `x := <expr>` locals so later field/array/method access resolves the
 // receiver class. Covers identifier, array index, `as TClass` cast, function
-// call, and field access. v5.4.0.
+// call, and field access. v0.5.4.
 func (g *Generator) exprKylixType(expr ast.Expression) string {
 	if expr == nil {
 		return ""
@@ -535,7 +535,7 @@ func (g *Generator) exprKylixType(expr ast.Expression) string {
 		}
 		// obj.Field → field's declared Kylix type (for `x := obj.Field` where
 		// Field is a class-typed field). Recursive on e.Object so chained access
-		// (X.Y.Z) resolves through each field's class type. v5.4.0.
+		// (X.Y.Z) resolves through each field's class type. v0.5.4.
 		objType := g.exprKylixType(e.Object)
 		if objType != "" {
 			if info, ok := g.classes[objType]; ok {

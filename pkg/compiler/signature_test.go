@@ -8,7 +8,7 @@ import (
 )
 
 // Method signature verification for class→interface implementation.
-// This is a strict-mode follow-up to v2.1.2's name-only check.
+// This is a strict-mode follow-up to v0.2.1's name-only check.
 
 func TestSignature_MatchingSignature(t *testing.T) {
 	src := `program Test;

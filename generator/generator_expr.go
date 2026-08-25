@@ -11,7 +11,7 @@ import (
 func (g *Generator) generateExpression(expr ast.Expression) {
 	switch e := expr.(type) {
 	case *ast.Identifier:
-		// v6.0.0: `var` output parameter — the Go parameter is a pointer, so a
+		// v0.6.0: `var` output parameter — the Go parameter is a pointer, so a
 		// read must dereference it.
 		if g.varParams[e.Value] {
 			g.write("*")
@@ -25,7 +25,7 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 	case *ast.IntegerLiteral:
 		g.write(fmt.Sprintf("%d", e.Value))
 	case *ast.FloatLiteral:
-		// v5.9.0: %f fixed 6 decimals truncated 0.0000005 → 0.000000. Emit the
+		// v0.5.9: %f fixed 6 decimals truncated 0.0000005 → 0.000000. Emit the
 		// shortest round-trip form, kept a float literal (add ".0" when the
 		// shortest form is "3"/"0" so -0.0 stays a negative float, not int 0).
 		s := strconv.FormatFloat(e.Value, 'g', -1, 64)
@@ -243,7 +243,7 @@ func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 				return
 			}
 		case "FloatToStr":
-			// v5.9.0: %v on float64 → shortest round-trip (Go float literal form).
+			// v0.5.9: %v on float64 → shortest round-trip (Go float literal form).
 			if len(e.Arguments) == 1 {
 				g.imports["fmt"] = true
 				g.write(`fmt.Sprintf("%v", `)
@@ -295,7 +295,7 @@ func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 		if i > 0 {
 			g.write(", ")
 		}
-		// v6.0.0: `var` output parameter → pass the argument's address.
+		// v0.6.0: `var` output parameter → pass the argument's address.
 		if i < len(params) && params[i].IsVar {
 			g.write("&")
 		}

@@ -33,7 +33,7 @@ type Generator struct {
 	localTypes       map[string]string            // var name → Kylix type name (class/interface)
 	arrayInfo        map[string]*arrayInfo        // var name → array metadata
 	varNameSeq       map[string]int               // Kylix var name → count of allocas emitted so far
-	// v5.4.0: top-level (unit/program) VarDecls are emitted as LLVM globals so
+	// v0.5.4: top-level (unit/program) VarDecls are emitted as LLVM globals so
 	// they're accessible from every function (e.g. token.Kewords is set in
 	// InitKeywords and read in the lexer). globals maps name→"@__kylix_g_<name>";
 	// globalTypes holds the LLVM type (for emitIdentLoad); globalMaps/globalArrays
@@ -42,11 +42,11 @@ type Generator struct {
 	globalTypes         map[string]string     // name → LLVM type
 	globalKylixTypes    map[string]string     // name → Kylix type name (class/interface), for receiverKind
 	globalMaps          map[string]bool       // name → is a map[K]V global
-	globalMapValueTypes map[string]string     // name → Kylix value type name (v5.4.0: for typed map reads)
+	globalMapValueTypes map[string]string     // name → Kylix value type name (v0.5.4: for typed map reads)
 	globalArrays        map[string]*arrayInfo // name → array metadata (for array globals)
 	program             *ast.Program          // current AST root (for cross-pass access)
 	funcName            string                // current function being generated
-	resultLLVMType      string                // v5.4.0: current function's return LLVM type (for loading `result`)
+	resultLLVMType      string                // v0.5.4: current function's return LLVM type (for loading `result`)
 	strings             []stringConst         // string constants (emitted at module level)
 
 	// Exception handling (M3): global exception slot + setjmp/longjmp.
@@ -66,7 +66,7 @@ type Generator struct {
 	closureLocals map[string]bool     // local var names holding a closure value
 	closureSigs   map[string]string   // closure local var name → LLVM return type
 	closureParams map[string][]string // closure local var name → LLVM param types
-	// v6.3.0: closure local var name → Kylix param type names (parallel to
+	// v0.6.3: closure local var name → Kylix param type names (parallel to
 	// closureParams). Needed to recognize a Variant param — its LLVM type "ptr"
 	// is indistinguishable from String/class, but a Variant box must be passed
 	// as-is, not as_str'd.
@@ -77,14 +77,14 @@ type Generator struct {
 	curClassName  string
 	curMethodName string
 
-	// stdlib (v4.2.0 Phase 1): stdlib module functions (e.g. sysutil.ReadFile)
+	// stdlib (v0.4.2 Phase 1): stdlib module functions (e.g. sysutil.ReadFile)
 	// are lowered to module-level @__kylix_<Module>_<Func> defines that call
 	// libc. Bodies are queued during expression emission and emitted at module
 	// end (like lambdas) — they can't be defined inline mid-expression.
 	stdlibEmitted map[string]bool // function key ("sysutil.ReadFile") → body already queued
 	stdlibQueue   []stdlibFunc    // deferred stdlib function bodies to emit
 
-	// KylixBoot annotations (v6.1.0): collected by scanBootAnnotations from
+	// KylixBoot annotations (v0.6.1): collected by scanBootAnnotations from
 	// [Controller]/[Service]/[Component]/[Inject]/[Get]/[Post]/[Put]/[Delete]
 	// attributes and lowered to auto-wiring IR in emitMain (instance creation +
 	// route registration) plus wrapper defines at module end.
@@ -96,14 +96,14 @@ type Generator struct {
 	// bootJwtSecretConst is the module-level string constant register holding
 	// the JWT secret passed to BootRegisterJwtAuth(secret). When set, emitBootGlobals
 	// emits `@__kylix_boot_jwt_secret = global ptr <const>` and BootEnforceAuth
-	// verifies `Authorization: Bearer <token>` against it (v6.8.0).
+	// verifies `Authorization: Bearer <token>` against it (v0.6.8).
 	bootJwtSecretConst string
 
 	// base64TableEmitted guards the @__kylix_b64_table global (emitted once
 	// per module, on first Base64Encode/Decode use).
 	base64TableEmitted bool
 
-	// base64URLTableEmitted guards the @__kylix_b64url_table global (v6.8.0,
+	// base64URLTableEmitted guards the @__kylix_b64url_table global (v0.6.8,
 	// URL-safe alphabet, emitted once per module on first Base64URL use).
 	base64URLTableEmitted bool
 
@@ -116,11 +116,11 @@ type Generator struct {
 	jsonParserEmitted bool
 
 	// jsonArrayParserEmitted guards the @__kylix_json_parse_array define
-	// (v4.9.0, emitted once per module, on first JsonGetArray use).
+	// (v0.4.9, emitted once per module, on first JsonGetArray use).
 	jsonArrayParserEmitted bool
 
 	// variantRuntimeEmitted guards the @__kylix_variant_* runtime helpers
-	// (v5.0.0, emitted once per module when any Variant value is used).
+	// (v0.5.0, emitted once per module when any Variant value is used).
 	variantRuntimeEmitted bool
 
 	// nowMsEmitted guards @__kylix_now_ms (cache TTL millisecond clock).
@@ -131,19 +131,19 @@ type Generator struct {
 	// bodies only if actually needed (avoids bloating every module).
 	needVariantRuntime bool
 
-	// debugInfo (v4.5.0 Phase C): when true, emit DWARF metadata so LLDB/GDB
+	// debugInfo (v0.4.5 Phase C): when true, emit DWARF metadata so LLDB/GDB
 	// can resolve function names + source files. dbg holds the collector
 	// (nil when debugInfo is off).
 	debugInfo bool
 	dbg       *dbgMeta
 
-	// targetOS/targetArch (v6.2.0): cross-compilation target (host by default).
+	// targetOS/targetArch (v0.6.2): cross-compilation target (host by default).
 	// emitHeader uses them via tripleFor; platform API shims (net/regex/
 	// datetime/exc/sysutil) branch on targetOS.
 	targetOS   string
 	targetArch string
 
-	// strDedup (v4.5.0 Phase C) deduplicates string constants by content —
+	// strDedup (v0.4.5 Phase C) deduplicates string constants by content —
 	// two addString("hello") calls return the same @.str.N register instead
 	// of emitting two identical globals. Reduces IR size and binary rodata.
 	strDedup map[string]string
@@ -154,33 +154,33 @@ type Generator struct {
 	needHashtab bool
 
 	// needArgs is set when the Args builtin (command-line arguments) is used;
-	// main() then declares argc/argv params and populates @__kylix_args. v5.4.0.
+	// main() then declares argc/argv params and populates @__kylix_args. v0.5.4.
 	needArgs bool
 
 	// records tracks record type names (registered via emitRecordDecl) so
 	// record-typed locals can be heap-allocated (records have no Create method).
-	// v5.4.0.
+	// v0.5.4.
 	records map[string]bool
 
 	// needToLower is set when LowerCase/UpperCase is used; emitRuntimeDecls
-	// then declares tolower/toupper. v5.4.0.
+	// then declares tolower/toupper. v0.5.4.
 	needToLower bool
 
 	// needAtoll is set when a typed map read converts a string value to i64.
-	// v5.4.0.
+	// v0.5.4.
 	needAtoll bool
 
-	// needReadFile is set when the ReadFile builtin is used. v5.4.0.
+	// needReadFile is set when the ReadFile builtin is used. v0.5.4.
 	needReadFile bool
 
-	// needStrtod is set when StrToFloat is used. v5.4.0.
+	// needStrtod is set when StrToFloat is used. v0.5.4.
 	needStrtod bool
 
-	// needMemcpy is set when append copies data. v5.4.0.
+	// needMemcpy is set when append copies data. v0.5.4.
 	needMemcpy bool
 
 	// needClassRTTI is set when is/as class checks are used; emitClassRuntime
-	// emits the edge table + __kylix_class_is_a helper. v5.4.0.
+	// emits the edge table + __kylix_class_is_a helper. v0.5.4.
 	needClassRTTI bool
 
 	// needLibcrypto is set when crypto module functions are used; the compile
@@ -191,7 +191,7 @@ type Generator struct {
 	// driver checks for db symbols in the IR and adds -lsqlite3 at link.
 	needLibsqlite bool
 
-	// v6.4.0: websocket module used — emit the SHA-1/base64/rand/IO helpers.
+	// v0.6.4: websocket module used — emit the SHA-1/base64/rand/IO helpers.
 	needWebsocketHelpers bool
 
 	// mapVars tracks local variables declared as map[K]V — their alloca
@@ -199,16 +199,16 @@ type Generator struct {
 	// routes to htab_get/htab_put instead of the array-index path.
 	mapVars map[string]bool
 
-	// variantMaps (v5.1.0) tracks map[String]Variant locals — the htab's
+	// variantMaps (v0.5.1) tracks map[String]Variant locals — the htab's
 	// value slots hold Variant box pointers (not C strings), so reads return
 	// the "variant" pseudo-type and writes box the RHS before htab_put.
 	variantMaps map[string]bool
 
-	// funcExitLabel (v5.6.0) is the current function's single exit block —
+	// funcExitLabel (v0.5.6) is the current function's single exit block —
 	// the block that ends with `ret %result`/`ret void`. `Exit`/`return`
 	// branch here instead of falling through, so an early return actually
 	// leaves the function rather than executing the statements that follow
-	// (pre-v5.6.0 codegen dropped `Exit` entirely, so e.g. an assignment
+	// (pre-v0.5.6 codegen dropped `Exit` entirely, so e.g. an assignment
 	// built in `if c then begin …; result := x; Exit; end;` was silently
 	// overwritten by the fall-through expression-statement builder —
 	// `x := 1` emitted as bare `x`). Set at the start of every user-code
@@ -297,16 +297,16 @@ func GenerateWithOpts(prog *ast.Program, srcFile string, opts CompileOpts) (stri
 // they're accessible from every function (e.g. token.Keywords is set in
 // InitKeywords and read in the lexer — a main-local alloca wouldn't be visible
 // there). Registers each global's symbol/type/map/array metadata so existing
-// access code finds it via registerGlobalsInScope. v5.4.0.
+// access code finds it via registerGlobalsInScope. v0.5.4.
 func (g *Generator) collectGlobals(prog *ast.Program) {
-	// v5.4.0: only multi-file (merged) programs emit top-level vars as globals
+	// v0.5.4: only multi-file (merged) programs emit top-level vars as globals
 	// (so unit vars like token.Keywords are visible to every function). Single-file
 	// programs keep top-level vars as main-local allocas (preserves existing
 	// debug/IR test expectations).
 	if !prog.IsMerged {
 		return
 	}
-	// v5.4.0: pre-register the Args builtin as a global slice so Args[i] /
+	// v0.5.4: pre-register the Args builtin as a global slice so Args[i] /
 	// Length(Args) resolve via the normal array path (the slice is populated
 	// from argc/argv in main). needArgs is set so main() declares argc/argv
 	// and emits the @__kylix_args global.
@@ -353,7 +353,7 @@ func (g *Generator) collectGlobals(prog *ast.Program) {
 			}
 			g.globals[name] = sym
 			g.globalTypes[name] = llvmT
-			// v5.4.0: record the Kylix class/interface name so receiverKind
+			// v0.5.4: record the Kylix class/interface name so receiverKind
 			// resolves class-typed globals (e.g. main's `Par: TParser` global →
 			// `Par.Errors` finds TParser's Fields).
 			if vd.Type != nil {
@@ -372,9 +372,9 @@ func (g *Generator) collectGlobals(prog *ast.Program) {
 // registerGlobalsInScope re-adds global symbols into the current scope's
 // locals/mapVars/arrayInfo (which are reset per function) so existing access
 // code (emitIdentLoad/emitArrayIndex/emitMapIndexGet/emitAssign) finds them.
-// Call after `g.locals = make(...)` in each function entry. v5.4.0.
+// Call after `g.locals = make(...)` in each function entry. v0.5.4.
 func (g *Generator) registerGlobalsInScope() {
-	// v6.5.0: sorted order keeps the generated IR deterministic (map iteration
+	// v0.6.5: sorted order keeps the generated IR deterministic (map iteration
 	// order is random and would otherwise vary the IR text run to run).
 	gNames := make([]string, 0, len(g.globals))
 	for n := range g.globals {
@@ -399,7 +399,7 @@ func (g *Generator) registerGlobalsInScope() {
 func (g *Generator) emitProgram(prog *ast.Program) error {
 	g.program = prog
 	g.emitHeader()
-	// v6.2.0: Args backing store at module scope so Args[i] in any statement
+	// v0.6.2: Args backing store at module scope so Args[i] in any statement
 	// resolves even when needArgs is only detected during statement emission;
 	// main() fills it from argv when needArgs. Defined unconditionally (unused
 	// otherwise, harmless).
@@ -430,7 +430,7 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 				g.line(fmt.Sprintf("%%__ret_%s = type { %s }", fd.Name, strings.Join(llvmTypes, ", ")))
 			}
 		}
-		// v5.4.0: register enum constants so `tkProgram` etc. resolve to their
+		// v0.5.4: register enum constants so `tkProgram` etc. resolve to their
 		// ordinal value (i64) instead of being treated as undefined variables.
 		// Without this, InitKeywords stores 0 for every keyword token type,
 		// LookupIdent always returns tkIdent, and the parser's if-else-if chain
@@ -444,7 +444,7 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 		}
 	}
 
-	// v5.4.0: emit top-level VarDecls as LLVM globals (accessible from every
+	// v0.5.4: emit top-level VarDecls as LLVM globals (accessible from every
 	// function) before emitting declarations/function bodies.
 	// Pre-register class names so collectGlobals can tell a class-typed global
 	// (e.g. `Par: TParser`) from a primitive — g.classes is otherwise populated
@@ -462,7 +462,7 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 					g.classes[cd.Name] = &ClassInfo{Name: cd.Name, Parent: cd.Parent, Interfaces: cd.Interfaces}
 				}
 			}
-			// v5.4.0: pre-register record types too (so record-typed globals
+			// v0.5.4: pre-register record types too (so record-typed globals
 			// like `var tok: TToken` resolve before emitRecordDecl runs).
 			if recDecl, ok := td.Type.(*ast.RecordType); ok {
 				g.emitRecordDecl(td.Name, recDecl)
@@ -470,7 +470,7 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 		}
 	}
 
-	// v6.1.0: scan KylixBoot annotations ([Controller]/[Service]/[Inject]/[Get]
+	// v0.6.1: scan KylixBoot annotations ([Controller]/[Service]/[Inject]/[Get]
 	// ...) now that class names are pre-registered, and emit the controller
 	// instance globals for the route wrappers.
 	g.scanBootAnnotations(prog)
@@ -515,7 +515,7 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	// collected during expression emission. Module-level defines, like lambdas.
 	g.emitPendingStdlib()
 
-	// v6.1.0: emit the KylixBoot route handler wrappers after the Boot*
+	// v0.6.1: emit the KylixBoot route handler wrappers after the Boot*
 	// defines, so @__kylix_boot_BootText etc. are already in the IR.
 	g.emitPendingBootDefines()
 
@@ -523,7 +523,7 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	// module referenced it. Idempotent. Also emit it when the Variant runtime
 	// is in use: @__kylix_variant_map_get (part of that runtime) calls
 	// @__kylix_htab_get_variant, so a program using only Variant arithmetic
-	// (e.g. `v div 2`) must still have the hashtab helpers defined. v6.6.0.
+	// (e.g. `v div 2`) must still have the hashtab helpers defined. v0.6.6.
 	if g.needHashtab || g.needVariantRuntime {
 		g.emitHashtabBodies()
 	}
@@ -534,7 +534,7 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 		g.emitVariantRuntimeBodies()
 	}
 
-	// v6.4.0: WebSocket handshake/frame helpers (SHA-1, base64, randomness,
+	// v0.6.4: WebSocket handshake/frame helpers (SHA-1, base64, randomness,
 	// exact-length TCP IO). Emitted once when any websocket function is used.
 	if g.needWebsocketHelpers {
 		g.emitWsRecvnBody()
@@ -546,7 +546,7 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 		g.emitWsRandBody()
 	}
 
-	// v5.4.0: declare libc tolower/toupper for LowerCase/UpperCase builtins.
+	// v0.5.4: declare libc tolower/toupper for LowerCase/UpperCase builtins.
 	if g.needToLower {
 		g.line("declare i32 @tolower(i32)")
 		g.line("declare i32 @toupper(i32)")
@@ -563,7 +563,7 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 		// memcpy is declared in emitRuntimeDecls.
 		_ = g.needMemcpy
 	}
-	// v5.4.0: class hierarchy RTTI for is/as class checks.
+	// v0.5.4: class hierarchy RTTI for is/as class checks.
 	if g.needClassRTTI {
 		g.emitClassRuntime()
 	}
@@ -585,7 +585,7 @@ func (g *Generator) emitHeader() {
 
 func (g *Generator) emitRuntimeDecls() {
 	g.line("; ===== Runtime declarations (libc) =====")
-	g.line("@__kylix_emptystr = global [1 x i8] c\"\\00\" ; empty C string; null string operands are normalized to this (v5.6.0)")
+	g.line("@__kylix_emptystr = global [1 x i8] c\"\\00\" ; empty C string; null string operands are normalized to this (v0.5.6)")
 	g.line("declare i32 @printf(ptr noundef, ...)")
 	g.line("declare i32 @puts(ptr noundef)")
 	g.line("declare ptr @malloc(i64 noundef)")
@@ -602,15 +602,15 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare double @fabs(double)")
 	g.line("declare ptr @strchr(ptr noundef, i32)")
 	g.line("declare ptr @strstr(ptr noundef, ptr noundef)")
-	// v6.6.0: strncmp (boot route path matching).
+	// v0.6.6: strncmp (boot route path matching).
 	g.line("declare i32 @strncmp(ptr noundef, ptr noundef, i64 noundef)")
-	// v6.6.0: millisecond wall clock (cache TTL expiry; time() is second-
+	// v0.6.6: millisecond wall clock (cache TTL expiry; time() is second-
 	// granularity). gettimeofday is POSIX and works on macOS/Linux; the
 	// CLOCK_MONOTONIC constant differs by platform (1 on Linux, 6 on macOS).
 	g.line("declare i32 @gettimeofday(ptr, ptr)")
 	g.line("; ===== Exception handling runtime (setjmp/longjmp) =====")
 	g.line("declare i32 @setjmp(ptr)")
-	// v6.2.0: Windows UCRT exposes _setjmp/_longjmp (setjmp is a macro).
+	// v0.6.2: Windows UCRT exposes _setjmp/_longjmp (setjmp is a macro).
 	g.line("declare i32 @_setjmp(ptr)")
 	g.line("declare void @_longjmp(ptr, i32)")
 	g.line("declare void @longjmp(ptr, i32)")
@@ -624,7 +624,7 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i32 @fseek(ptr noundef, i64 noundef, i32 noundef)")
 	g.line("declare i64 @ftell(ptr noundef)")
 	g.line("declare i32 @access(ptr noundef, i32 noundef)")
-	// v6.2.0: sysutil file/dir/env operations.
+	// v0.6.2: sysutil file/dir/env operations.
 	g.line("declare i32 @mkdir(ptr noundef, i32 noundef)")
 	g.line("declare i32 @remove(ptr noundef)")
 	g.line("declare ptr @getcwd(ptr noundef, i64 noundef)")
@@ -641,7 +641,7 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i64 @send(i32 noundef, ptr noundef, i64 noundef, i32 noundef)")
 	g.line("declare i64 @recv(i32 noundef, ptr noundef, i64 noundef, i32 noundef)")
 	g.line("declare i32 @close(i32 noundef)")
-	// v6.4.0: WebSocket handshake randomness (darwin arc4random_buf / linux getrandom).
+	// v0.6.4: WebSocket handshake randomness (darwin arc4random_buf / linux getrandom).
 	g.line("declare void @arc4random_buf(ptr noundef, i64 noundef)")
 	g.line("declare i64 @getrandom(ptr noundef, i64 noundef, i32 noundef)")
 	g.line("declare i32 @setsockopt(i32 noundef, i32 noundef, i32 noundef, ptr noundef, i32 noundef)")
@@ -650,7 +650,7 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare ptr @SHA256(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @MD5(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @strncpy(ptr noundef, ptr noundef, i64 noundef)")
-	g.line("; EVP_CIPHER API for AES-256-CBC (v4.5.0 stdlib Phase 3)")
+	g.line("; EVP_CIPHER API for AES-256-CBC (v0.4.5 stdlib Phase 3)")
 	g.line("declare ptr @EVP_CIPHER_CTX_new()")
 	g.line("declare void @EVP_CIPHER_CTX_free(ptr noundef)")
 	g.line("declare ptr @EVP_aes_256_cbc()")
@@ -680,7 +680,7 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare double @sqlite3_column_double(ptr noundef, i32 noundef)")
 	g.line("declare i32 @sqlite3_finalize(ptr noundef)")
 	g.line("declare i32 @sqlite3_changes(ptr noundef)")
-	g.line("; ===== libcurl (used by stdlib httpclient, v4.5.0 Phase 3) =====")
+	g.line("; ===== libcurl (used by stdlib httpclient, v0.4.5 Phase 3) =====")
 	g.line("declare ptr @curl_easy_init()")
 	g.line("declare i32 @curl_easy_setopt(ptr noundef, i32 noundef, ...)")
 	g.line("declare i32 @curl_easy_perform(ptr noundef)")
@@ -695,7 +695,7 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i64 @time(ptr)")
 	g.line("declare ptr @localtime(ptr)")
 	g.line("declare ptr @localtime_r(ptr, ptr)")
-	// v6.2.0: Windows uses localtime_s(tm, time) (reversed args, returns errno_t).
+	// v0.6.2: Windows uses localtime_s(tm, time) (reversed args, returns errno_t).
 	g.line("declare i32 @localtime_s(ptr, ptr)")
 	g.line("declare i64 @mktime(ptr)")
 	g.line("declare i64 @strftime(ptr, i64, ptr, ptr)")
@@ -711,7 +711,7 @@ func (g *Generator) emitRuntimeDecls() {
 
 func (g *Generator) emitMain(stmts []ast.Statement) error {
 	g.line("; ===== Entry point =====")
-	// v5.4.0: when the Args builtin is used, main takes argc/argv and populates
+	// v0.5.4: when the Args builtin is used, main takes argc/argv and populates
 	// @__kylix_args (a {ptr,len,cap} slice of argv[1:] as C strings).
 	defineLine := "define i32 @main() {"
 	if g.needArgs || statementsUseArgs(stmts) {
@@ -731,14 +731,14 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	g.line(defineLine)
 	g.line("entry:")
 	g.funcName = "main"
-	g.funcExitLabel = g.label() // v5.6.0: exit block for `Exit`/`return` in main
+	g.funcExitLabel = g.label() // v0.5.6: exit block for `Exit`/`return` in main
 	// main() has no `result` return slot; reset so a `var result := ...` local
 	// (e.g. example27's `var result := SafeDivide(...)`) resolves to its own
-	// alloca instead of a stale %result from the previous function (v6.1.0).
+	// alloca instead of a stale %result from the previous function (v0.6.1).
 	g.resultLLVMType = ""
 	g.locals = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
-	g.registerGlobalsInScope() // v5.4.0: make globals visible in main
+	g.registerGlobalsInScope() // v0.5.4: make globals visible in main
 	// Scope for DILocations inside main = the main subprogram.
 	if g.debugInfo {
 		g.setDbgScope(mainSpID)
@@ -752,13 +752,13 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 		}
 	}
 
-	// v5.4.0: top-level VarDecls. For multi-file (merged) programs they're LLVM
+	// v0.5.4: top-level VarDecls. For multi-file (merged) programs they're LLVM
 	// globals (see collectGlobals) — at main() entry, initialize map globals with
 	// htab_new so they're non-null before any function (e.g. InitKeywords)
 	// populates them. For single-file programs, emit them as main-local allocas
 	// (the original behavior).
 	if g.program.IsMerged {
-		// v6.5.0: iterate in sorted order — map iteration is random, which made
+		// v0.6.5: iterate in sorted order — map iteration is random, which made
 		// the IR text (and therefore the .o cache key) non-deterministic.
 		gNames := make([]string, 0, len(g.globals))
 		for n := range g.globals {
@@ -784,7 +784,7 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 		}
 	}
 
-	// v5.4.0: populate @__kylix_args with argv[1:] as a {ptr,len,cap} slice of
+	// v0.5.4: populate @__kylix_args with argv[1:] as a {ptr,len,cap} slice of
 	// C-string pointers. len = max(0, argc-1); data = argv+1.
 	if g.needArgs {
 		n := g.tmp()
@@ -808,7 +808,7 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 		g.line(fmt.Sprintf("  store i64 %s, ptr %s", count64, capSlot))
 	}
 
-	// v6.1.0: KylixBoot auto-wiring — instantiate controllers/components and
+	// v0.6.1: KylixBoot auto-wiring — instantiate controllers/components and
 	// register routes before any user statement (mirrors the Go backend).
 	if err := g.emitBootAutoWiring(); err != nil {
 		return err
@@ -821,7 +821,7 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	}
 
 	// ret i32 0 is synthetic (implicit program exit); clear any !dbg so it
-	// doesn't claim a source line it doesn't correspond to. v5.6.0: branch
+	// doesn't claim a source line it doesn't correspond to. v0.5.6: branch
 	// to main's exit block so `Exit`/`return` in the program body land here.
 	g.clearDbgPos()
 	g.line(fmt.Sprintf("  br label %%%s", g.funcExitLabel))
@@ -881,7 +881,7 @@ func (g *Generator) emitDecl(node ast.Node) error {
 			ifaceDecl.Name = d.Name
 			return g.emitInterfaceDecl(ifaceDecl)
 		}
-		// v5.4.0: record type — register as a "class without methods/vtable" so
+		// v0.5.4: record type — register as a "class without methods/vtable" so
 		// the existing field-access machinery (receiverKind/emitMember/GEP)
 		// works for record-typed locals, params, and class fields (e.g.
 		// TToken, used pervasively in the bootstrap AST). Records are heap-
@@ -889,7 +889,7 @@ func (g *Generator) emitDecl(node ast.Node) error {
 		// doesn't affect the bootstrap, which doesn't rely on record copy
 		// independence.
 		if _, ok := d.Type.(*ast.RecordType); ok {
-			// v5.4.0: records are pre-emitted in collectGlobals (before the
+			// v0.5.4: records are pre-emitted in collectGlobals (before the
 			// emitDecl loop) so cross-file field access works regardless of
 			// declaration order. Skip here to avoid duplicate struct emission.
 			return nil
@@ -979,7 +979,7 @@ func (g *Generator) label() string {
 	return l
 }
 
-// emitEarlyReturn (v5.6.0) implements Pascal `Exit` / `return`: branch to the
+// emitEarlyReturn (v0.5.6) implements Pascal `Exit` / `return`: branch to the
 // current function's exit block (the block holding `ret %result`/`ret void`)
 // and open a fresh unreachable block afterwards so any IR emitted for the
 // statements that follow remains structurally valid (a basic block must not
@@ -992,7 +992,7 @@ func (g *Generator) emitEarlyReturn() {
 	g.line(fmt.Sprintf("%s:", dead))
 }
 
-// emitFuncEpilogue (v5.6.0) emits the function's single exit block: a branch
+// emitFuncEpilogue (v0.5.6) emits the function's single exit block: a branch
 // from the (always-open) end of the body into the funcExitLabel block, which
 // loads %result and returns it (or `ret void` for void functions). Called at
 // the end of every user-code function emitter in place of the former inline
@@ -1035,7 +1035,7 @@ func (g *Generator) freshVarReg(name, suffix string) string {
 
 // addString adds a string constant and returns its global register name.
 func (g *Generator) addString(val string) string {
-	// v5.4.0: decode Kylix source escape sequences (\n, \t, \r, \\, \") into
+	// v0.5.4: decode Kylix source escape sequences (\n, \t, \r, \\, \") into
 	// real bytes. The lexer leaves the raw source bytes (e.g. 'a\nb' is 4
 	// bytes: a, \, n, b); the Go backend relies on the Go compiler to
 	// interpret these inside Go string literals, but the LLVM backend emits
@@ -1060,7 +1060,7 @@ func (g *Generator) addString(val string) string {
 }
 
 // decodeKylixString decodes backslash escape sequences in a Kylix source string
-// literal (the lexer keeps them raw). Supports \n \t \r \\ \" \'. v5.4.0.
+// literal (the lexer keeps them raw). Supports \n \t \r \\ \" \'. v0.5.4.
 func decodeKylixString(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
@@ -1132,7 +1132,7 @@ func llvmEscapeString(s string) string {
 
 // statementsUseArgs reports whether any top-level statement (recursively)
 // references the Args builtin, so main() gets the argc/argv signature before
-// the statement list is emitted. v6.2.0.
+// the statement list is emitted. v0.6.2.
 func statementsUseArgs(stmts []ast.Statement) bool {
 	for _, s := range stmts {
 		if nodeUsesArgs(reflect.ValueOf(s)) {

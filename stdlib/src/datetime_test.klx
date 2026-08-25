@@ -1,5 +1,5 @@
 // datetime_test.klx — Tests for stdlib/src/datetime.klx
-// Part of v3.0.0 stdlib Phase 4
+// Part of v0.3.0 stdlib Phase 4
 unit datetime_test;
 
 uses datetime;

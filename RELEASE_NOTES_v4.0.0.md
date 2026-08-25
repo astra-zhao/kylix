@@ -1,4 +1,4 @@
-# Kylix v4.0.0 Release Notes
+# Kylix v0.4.0 Release Notes
 
 **发布日期**: 2026-07-01  
 **版本类型**: Major Release  
@@ -8,7 +8,7 @@
 
 ## 🎉 概览
 
-v4.0.0 是 Kylix 的重大版本，标志着 **LLVM 后端达到生产可用基础覆盖**，同时新增 stdlib Phase 7 四大模块和 VS Code 代码片段。LLVM 后端现在可以编译真实 Pascal 程序到原生二进制，无需 Go 工具链。
+v0.4.0 是 Kylix 的重大版本，标志着 **LLVM 后端达到生产可用基础覆盖**，同时新增 stdlib Phase 7 四大模块和 VS Code 代码片段。LLVM 后端现在可以编译真实 Pascal 程序到原生二进制，无需 Go 工具链。
 
 ### 核心数字
 - ✅ **14/15 基础教程通过 LLVM 编译到原生二进制**（93%）
@@ -117,7 +117,7 @@ WriteLn(c.GetString('key'));
 
 ## ⚠️ 已知限制（不影响发布）
 
-以下限制有文档化的 workaround，将在 **v4.1.0（LLVM M4）** 修复：
+以下限制有文档化的 workaround，将在 **v0.4.1（LLVM M4）** 修复：
 
 1. **Lambda/闭包**（LLVM 后端）— example15_lambda 编译失败
    - Workaround: 使用命名函数
@@ -159,10 +159,10 @@ kylix build --backend=llvm program.klx
 ## 📚 文档
 
 - [CHANGELOG.md](CHANGELOG.md) — 完整版本历史
-- [ROADMAP.md](ROADMAP.md) — 开发路线图（v4.1.0/v4.2.0/v5.0.0）
+- [ROADMAP.md](ROADMAP.md) — 开发路线图（v0.4.1/v0.4.2/v0.5.0）
 - [VERSION_PLAN.md](VERSION_PLAN.md) — 版本规划总结
 - [docs/llvm-backend.md](docs/llvm-backend.md) — LLVM 后端使用指南
-- [docs/v4.1.0-plan.md](docs/v4.1.0-plan.md) — v4.1.0 详细计划
+- [docs/v0.4.1-plan.md](docs/v0.4.1-plan.md) — v0.4.1 详细计划
 
 ---
 
@@ -174,13 +174,13 @@ kylix build --backend=llvm program.klx
 
 ## 🚀 下一步
 
-v4.1.0（LLVM M4）将解决本次的已知限制：
+v0.4.1（LLVM M4）将解决本次的已知限制：
 - 闭包/Lambda 支持（最高优先级）
 - 完整多返回值
 - inherited 关键字
 - 优化通道（`--llvm-opt`）
 
-预计 6-8 周。详见 `docs/v4.1.0-plan.md`。
+预计 6-8 周。详见 `docs/v0.4.1-plan.md`。
 
 ---
 

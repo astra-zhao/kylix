@@ -1,4 +1,4 @@
-// rtti.go — v5.4.0: runtime class hierarchy type-info for `is`/`as` class casts.
+// rtti.go — v0.5.4: runtime class hierarchy type-info for `is`/`as` class casts.
 //
 // The exception runtime (exc.go) uses i32 type IDs for the Exception subtree;
 // this is the general counterpart for ALL user classes, keyed by vtable pointer
@@ -40,11 +40,11 @@ func (g *Generator) collectClassHierarchy() []classEdge {
 type classEdge struct{ child, parent string }
 
 // emitClassRuntime emits the class subtype edge table and the
-// @__kylix_class_is_a helper. Idempotent. v5.4.0.
+// @__kylix_class_is_a helper. Idempotent. v0.5.4.
 func (g *Generator) emitClassRuntime() {
 	edges := g.collectClassHierarchy()
 
-	// v6.1.0: every class gets a vtable constant from emitVtable (method-less
+	// v0.6.1: every class gets a vtable constant from emitVtable (method-less
 	// classes get an empty [0 x ptr] one), so no fallback emission is needed
 	// here — the old duplicate `@X_vtable = constant [0 x ptr] []` loop
 	// redefined globals for method-less classes and llc rejected the module.
@@ -81,7 +81,7 @@ func (g *Generator) emitClassRuntime() {
 	// scan runs i=0..N (N = edge count) and the chain only moves upward (acyclic
 	// class hierarchy), so total iterations ≤ depth·N.
 	//
-	// v6.1.0: rewritten with NO phi nodes — %c/%i live in allocas and are
+	// v0.6.1: rewritten with NO phi nodes — %c/%i live in allocas and are
 	// load/stored each iteration. The old SSA-phi loop (with a found→update
 	// edge) hung forever when the bootstrap compiler (58-class edge table) ran
 	// it: llc kept the program spinning in the loop body. Memory-based state
@@ -132,7 +132,7 @@ ret_false:
 // the vtable pointer). targetClassName names the class to test against.
 func (g *Generator) classIsACall(objReg, targetClassName string) (string, error) {
 	g.needClassRTTI = true
-	// v5.4.0: guard against null object pointers — `decl is TClass` where decl
+	// v0.5.4: guard against null object pointers — `decl is TClass` where decl
 	// is nil should return false, not crash on vtable load.
 	nullCk := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", nullCk, objReg))

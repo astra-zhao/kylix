@@ -26,7 +26,7 @@ func (g *Generator) emitMapVarDecl(name string, mapT *ast.MapType) error {
 	g.needHashtab = true
 	isVariant := isVariantTypeExpr(mapT.ValueType)
 	if isVariant {
-		// v5.1.0: map[String]Variant — the htab's value slots hold Variant
+		// v0.5.1: map[String]Variant — the htab's value slots hold Variant
 		// box pointers (not C strings). Reads return "variant", writes box.
 		g.needVariantRuntime = true
 	}
@@ -77,7 +77,7 @@ func (g *Generator) emitMapIndexGet(idx *ast.IndexExpression) (string, string, e
 }
 
 // mapReadResult converts a raw htab_get result (ptr, now null on miss per
-// v5.6.0) to the map's value type. v5.6.0:
+// v0.5.6) to the map's value type. v0.5.6:
 //   - Boolean value → `icmp ne ptr, null` (presence: present→true, miss→false).
 //     This is the set-membership semantic the bootstrap relies on for
 //     ClassIsBase/ClassTypes (fixes "user type → interface{}"). Returning i1
@@ -103,7 +103,7 @@ func (g *Generator) mapReadResult(rawReg string, left ast.Expression) (string, s
 }
 
 // isIntegerLikeType reports whether a Kylix type name is an integer/enum type
-// (so map values of that type should be atoll-converted on read). v5.4.0.
+// (so map values of that type should be atoll-converted on read). v0.5.4.
 func (g *Generator) isIntegerLikeType(t string) bool {
 	switch strings.ToLower(t) {
 	case "integer", "int", "int64", "longint", "word", "cardinal", "byte":
@@ -126,7 +126,7 @@ func (g *Generator) isIntegerLikeType(t string) bool {
 
 // mapValueKylixType resolves the value type name for a map index expression's
 // target (local/param map via globalMapValueTypes, or class field map).
-// v5.4.0.
+// v0.5.4.
 func (g *Generator) mapValueKylixType(left ast.Expression) string {
 	if left == nil {
 		return ""
@@ -153,7 +153,7 @@ func (g *Generator) mapValueKylixType(left ast.Expression) string {
 }
 
 // emitMapFieldIndexGet handles obj.Field[key] for a map-typed class field → load
-// the htab handle from the field slot, then htab_get. v5.4.0.
+// the htab handle from the field slot, then htab_get. v0.5.4.
 //
 // Array-valued maps (map[K]array of T): the LLVM htab stores string→string, so
 // it cannot represent slice values. The bootstrap only reads (never writes)
@@ -163,9 +163,9 @@ func (g *Generator) mapValueKylixType(left ast.Expression) string {
 func (g *Generator) emitMapFieldIndexGet(typeName, objReg, fieldName string, mt *ast.MapType, idx *ast.IndexExpression) (string, string, error) {
 	if mt != nil {
 		if _, ok := mt.ValueType.(*ast.ArrayType); ok {
-			// v5.4.0: return a zero slice SSA struct value (not an alloca ptr)
+			// v0.5.4: return a zero slice SSA struct value (not an alloca ptr)
 			// so downstream `store {ptr,i64,i64} %v` is well-typed.
-			// v5.6.0: base on zeroinitializer (was undef) — undef left len/cap
+			// v0.5.6: base on zeroinitializer (was undef) — undef left len/cap
 			// as garbage, so `Length(fields)` on a miss read a garbage len and
 			// `if i < Length(fields)` wrongly entered the fields[i] branch,
 			// GEP-ing the null data ptr → segfault (example27_try_except crashed
@@ -189,7 +189,7 @@ func (g *Generator) emitMapFieldIndexGet(typeName, objReg, fieldName string, mt 
 	g.needHashtab = true
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", r, tbl, keyReg))
-	// v5.6.0: htab_get returns null on miss; null-guard before atoll/use as
+	// v0.5.6: htab_get returns null on miss; null-guard before atoll/use as
 	// string (Boolean field maps use the raw ptr via the caller's icmp ne null,
 	// but typed map fields here are Integer/String — guard those).
 	if mt != nil {
@@ -214,7 +214,7 @@ func (g *Generator) emitMapFieldIndexGet(typeName, objReg, fieldName string, mt 
 }
 
 // emitMapFieldIndexPut handles `obj.MapField[key] := value` for a map-typed
-// class field → htab_put. v5.6.0: previously unimplemented — emitAssign fell
+// class field → htab_put. v0.5.6: previously unimplemented — emitAssign fell
 // through to emitArrayIndex→emitMapFieldIndexGet (a READ) and tried to store
 // the RHS to the read result (e.g. `self.ClassTypes[name] := true` became
 // `store i1 …, ptr <icmp-result>`, an llc type error). Now mirrors
@@ -281,7 +281,7 @@ func (g *Generator) emitMapIndexPut(idx *ast.IndexExpression, valReg string, val
 		// Box the RHS into a Variant; the slot stores the box pointer.
 		vPtr = g.emitVariantBox(valReg, valType)
 	} else if valType == "i1" {
-		// v5.6.0: Boolean map value — zext i1→i64 then stringify (snprintf
+		// v0.5.6: Boolean map value — zext i1→i64 then stringify (snprintf
 		// "%lld" expects i64; passing i1 crashed llc). The stored "1"/"0"
 		// string's content is irrelevant for reads (Boolean reads use presence
 		// via icmp ne null), so any non-null string for `true` suffices.

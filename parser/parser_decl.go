@@ -315,7 +315,7 @@ func (p *Parser) parseParameterList() []*ast.Parameter {
 
 		param := &ast.Parameter{}
 		if p.curTokenIs(token.VAR) {
-			// v6.0.0: `var` output parameter — record it so codegen passes it by
+			// v0.6.0: `var` output parameter — record it so codegen passes it by
 			// pointer and dereferences reads/writes in the body.
 			groupIsVar = true
 			p.nextToken() // skip 'var' modifier

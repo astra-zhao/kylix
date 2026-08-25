@@ -1,6 +1,6 @@
 // di.go — Dependency Injection container for KylixBoot.
 //
-// In v3.1.0, the container is a simple map-based registry. Future versions
+// In v0.3.1, the container is a simple map-based registry. Future versions
 // will integrate with [Inject] attributes for compile-time auto-wiring.
 package boot
 

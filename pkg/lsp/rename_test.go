@@ -6,7 +6,7 @@ import (
 	"kylix/pkg/lsp"
 )
 
-// LSP refactoring tests (v2.5.0 task 1).
+// LSP refactoring tests (v0.2.5 task 1).
 
 func TestRename_SingleFile(t *testing.T) {
 	store := lsp.NewDocumentStore()

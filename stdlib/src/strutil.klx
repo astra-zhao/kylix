@@ -1,6 +1,6 @@
 // strutil — String manipulation utilities, implemented in pure Kylix.
 //
-// Part of the v2.1.0 stdlib Kylix-ification effort. This module demonstrates
+// Part of the v0.2.1 stdlib Kylix-ification effort. This module demonstrates
 // that core utilities can be self-hosted using slice-based string operations.
 unit strutil;
 

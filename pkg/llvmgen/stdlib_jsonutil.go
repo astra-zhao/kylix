@@ -247,7 +247,7 @@ func (g *Generator) emitJsonGetStringCall(args []ast.Expression) (string, string
 }
 
 func (g *Generator) emitJsonGetStringBody() {
-	// v5.1.0: the map's value slots hold Variant boxes; unbox to string.
+	// v0.5.1: the map's value slots hold Variant boxes; unbox to string.
 	g.needVariantRuntime = true
 	g.line("define ptr @__kylix_json_JsonGetString(ptr %m, ptr %k) {")
 	g.line("entry:")
@@ -281,7 +281,7 @@ func (g *Generator) emitJsonGetIntCall(args []ast.Expression) (string, string, e
 }
 
 func (g *Generator) emitJsonGetIntBody() {
-	// v5.1.0: unbox the Variant (variant_as_int dispatches by tag).
+	// v0.5.1: unbox the Variant (variant_as_int dispatches by tag).
 	g.needVariantRuntime = true
 	g.line("define i64 @__kylix_json_JsonGetInt(ptr %m, ptr %k) {")
 	g.line("entry:")
@@ -315,7 +315,7 @@ func (g *Generator) emitJsonGetBoolCall(args []ast.Expression) (string, string, 
 }
 
 func (g *Generator) emitJsonGetBoolBody() {
-	// v5.1.0: unbox the Variant (variant_as_bool dispatches by tag).
+	// v0.5.1: unbox the Variant (variant_as_bool dispatches by tag).
 	g.needVariantRuntime = true
 	g.line("define i1 @__kylix_json_JsonGetBool(ptr %m, ptr %k) {")
 	g.line("entry:")
@@ -379,7 +379,7 @@ func (g *Generator) emitJsonGetFloatCall(args []ast.Expression) (string, string,
 }
 
 func (g *Generator) emitJsonGetFloatBody() {
-	// v5.1.0: unbox the Variant (variant_as_double dispatches by tag).
+	// v0.5.1: unbox the Variant (variant_as_double dispatches by tag).
 	g.needVariantRuntime = true
 	g.line("define double @__kylix_json_JsonGetFloat(ptr %m, ptr %k) {")
 	g.line("entry:")
@@ -393,7 +393,7 @@ func (g *Generator) emitJsonGetFloatBody() {
 }
 
 // ---- JsonGetMap: ptr @__kylix_json_JsonGetMap(ptr %m, ptr %k) ----
-// Nested-object support (v4.7.0): the flat parser stores nested objects as
+// Nested-object support (v0.4.7): the flat parser stores nested objects as
 // their raw JSON substring (skip_nested). JsonGetMap retrieves that substring
 // and recursively parses it with parse_flat into a fresh htab, so callers can
 // chain JsonGetString(inner, 'name') on the result. Returns null when the key
@@ -420,9 +420,9 @@ func (g *Generator) emitJsonGetMapCall(args []ast.Expression) (string, string, e
 func (g *Generator) emitJsonGetMapBody() {
 	// Ensure parse_flat + helpers are emitted (JsonGetMap depends on parse_flat).
 	g.emitJsonParserBodies()
-	// v5.1.0: the map's value slots hold Variant boxes; the nested object's
+	// v0.5.1: the map's value slots hold Variant boxes; the nested object's
 	// raw substring is stored as a str box, so unbox it before re-parsing.
-	// v6.8.0: value_to_variant now boxes nested objects as a map-Variant box,
+	// v0.6.8: value_to_variant now boxes nested objects as a map-Variant box,
 	// so return its htab directly when the box tag is map.
 	g.needVariantRuntime = true
 	g.line("define ptr @__kylix_json_JsonGetMap(ptr %m, ptr %k) {")
@@ -437,7 +437,7 @@ func (g *Generator) emitJsonGetMapBody() {
 	mapLbl := g.label()
 	oldLbl := g.label()
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isMap, mapLbl, oldLbl))
-	// v6.8.0 fast path: the value is already a nested map box → return its htab.
+	// v0.6.8 fast path: the value is already a nested map box → return its htab.
 	g.line(fmt.Sprintf("%s:", mapLbl))
 	payloadLoc := g.boxAddr(box, 1)
 	payload := g.tmp()
@@ -471,7 +471,7 @@ func (g *Generator) emitJsonGetMapBody() {
 }
 
 // ---- JsonGetArray: ptr @__kylix_json_JsonGetArray(ptr %m, ptr %k) ----
-// Nested-array support (v4.9.0). The flat parser stores a JSON array as its
+// Nested-array support (v0.4.9). The flat parser stores a JSON array as its
 // raw substring (skip_nested). JsonGetArray retrieves that substring and parses
 // it into a Kylix dynamic-array slice struct { ptr items; i64 len; i64 cap },
 // where:
@@ -480,7 +480,7 @@ func (g *Generator) emitJsonGetMapBody() {
 //     ("1", "true", "\"hi\""), nested objects/arrays as their raw JSON substring
 //   - len = element count; cap = allocated capacity (≥ len)
 //
-// This is the array analogue of v4.7.0's JsonGetMap. A full Variant runtime
+// This is the array analogue of v0.4.7's JsonGetMap. A full Variant runtime
 // (tagged values + dispatch) is out of scope; callers use JsonArrayLen /
 // JsonArrayGetString to read elements. Returns a zero-length slice
 // (items=null, len=0, cap=0) when the key is absent or the stored value is
@@ -503,7 +503,7 @@ func (g *Generator) emitJsonGetArrayCall(args []ast.Expression) (string, string,
 	g.needHashtab = true
 	// Result is a {ptr, i64, i64} slice written into a local alloca, then loaded
 	// back as a value so callers can store it into a `var arr: array of ...`
-	// slot with a single struct copy. (v6.1.0: the alloca register itself is a
+	// slot with a single struct copy. (v0.6.1: the alloca register itself is a
 	// ptr, not a slice value — returning it with the "{ ptr, i64, i64 }" type
 	// made `arr := JsonGetArray(...)` emit `store {ptr,i64,i64} %t, ptr %arr`
 	// with a ptr-typed source, which llc rejects.)
@@ -520,13 +520,13 @@ func (g *Generator) emitJsonGetArrayBody() {
 	// Ensure parse helpers + the new array parser are emitted.
 	g.emitJsonParserBodies()
 	g.emitJsonArrayParserBodies()
-	// v5.0.0: parse_array now produces Variant boxes (value_to_variant calls
+	// v0.5.0: parse_array now produces Variant boxes (value_to_variant calls
 	// box_str/box_float/box_bool), so the Variant runtime must be emitted.
 	g.needVariantRuntime = true
 	emptyStr := g.addString("")
 	g.line("define void @__kylix_json_JsonGetArray(ptr %out, ptr %m, ptr %k) {")
 	g.line("entry:")
-	// v5.1.0: the array's raw substring is stored as a str box; unbox first.
+	// v0.5.1: the array's raw substring is stored as a str box; unbox first.
 	box := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get_variant(ptr %%m, ptr %%k)", box))
 	raw := g.tmp()
@@ -664,7 +664,7 @@ func (g *Generator) emitJsonArrayGetStringBody() {
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", inRange, getLbl, emptyLbl))
 	g.line(fmt.Sprintf("%s:", emptyLbl))
 	g.line(fmt.Sprintf("  ret ptr %s", emptyPtr))
-	// v5.0.0: items[i] is now a Variant box ptr; unbox to its string form
+	// v0.5.0: items[i] is now a Variant box ptr; unbox to its string form
 	// (variant_as_str dispatches on tag) and return that.
 	g.line(fmt.Sprintf("%s:", getLbl))
 	// Variant runtime is needed for as_str.
@@ -686,7 +686,7 @@ func (g *Generator) emitJsonArrayGetStringBody() {
 
 // ── JsonEncode / JsonEncodePretty: Variant → JSON string ──────────────────
 //
-// v5.9.0: LLVM implementation of jsonutil.JsonEncode. Encodes a Variant box
+// v0.5.9: LLVM implementation of jsonutil.JsonEncode. Encodes a Variant box
 // ({i32 tag, i64 payload}) as a JSON string matching Go's json.Marshal for the
 // scalar types Variant can hold:
 //

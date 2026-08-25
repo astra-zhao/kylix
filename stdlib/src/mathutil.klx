@@ -1,6 +1,6 @@
 // mathutil — Common math utilities, implemented in pure Kylix.
 //
-// Part of the v2.1.0 stdlib Kylix-ification effort.
+// Part of the v0.2.1 stdlib Kylix-ification effort.
 unit mathutil;
 
 // Abs returns the absolute value of x.

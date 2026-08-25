@@ -6,7 +6,7 @@ import (
 	"kylix/ast"
 )
 
-// stdlib_boot_http.go — v6.6.0: KylixBoot HTTP server for the LLVM backend.
+// stdlib_boot_http.go — v0.6.6: KylixBoot HTTP server for the LLVM backend.
 //
 // @__kylix_boot_BootRun(port) listens on a BSD socket (reusing the net module's
 // TcpListen/TcpAccept/TcpClose), reads each request's HTTP headers, parses the
@@ -93,7 +93,7 @@ func (g *Generator) emitBootRunBody() {
 	// ---- serve: fill headers/body, dispatch, build+send response.
 	g.line(fmt.Sprintf("%s:", doServeLbl))
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", headers, g.bootReqField(req, 16)))
-	// v6.8.0: read the POST body (per Content-Length) into req[24]. After
+	// v0.6.8: read the POST body (per Content-Length) into req[24]. After
 	// read_headers stops at \r\n\r\n, the body bytes are still in the socket
 	// buffer; read_body recv's them into a NUL-terminated malloc'd buffer so
 	// req.Body / req.JSON return the real request body.
@@ -266,7 +266,7 @@ func (g *Generator) emitBootReadHeadersBody() {
 }
 
 // emitBootReadBodyBody — void @__kylix_boot_read_body(ptr %conn, ptr %headers,
-// ptr %req). v6.8.0: after read_headers stops at \r\n\r\n, the request body (if
+// ptr %req). v0.6.8: after read_headers stops at \r\n\r\n, the request body (if
 // any, per Content-Length) still sits in the socket buffer. This reads it into
 // a NUL-terminated malloc'd buffer and stores it at req[24], so req.Body /
 // req.JSON return real POST body data (previously constant null).
@@ -662,7 +662,7 @@ func (g *Generator) icmpSgt64(a string, v int64) string {
 }
 
 // emitBootRequestMethodCall lowers req.Param/Query/Header/Body on a TRequest
-// handle (v6.6.0). The lookup IR is emitted INLINE at the call site (it runs
+// handle (v0.6.6). The lookup IR is emitted INLINE at the call site (it runs
 // inside the caller's function), so results go through an alloca slot and are
 // returned as a register — never `ret` (that would return from the caller).
 func (g *Generator) emitBootRequestMethodCall(req, method string, args []ast.Expression) (string, string, error) {
@@ -676,7 +676,7 @@ func (g *Generator) emitBootRequestMethodCall(req, method string, args []ast.Exp
 	case "Body", "GetBody":
 		return g.emitBootReqBody(req, args)
 	case "JSON":
-		// v6.8.0: req.JSON — parse the request body as JSON into a Variant map
+		// v0.6.8: req.JSON — parse the request body as JSON into a Variant map
 		// (map[String]Variant), reusing the JsonDecodeMap → box_map pipeline.
 		return g.emitBootReqJSON(req, args)
 	default:
@@ -960,7 +960,7 @@ func (g *Generator) emitBootReqBody(req string, args []ast.Expression) (string, 
 
 // emitBootReqJSON — req.JSON: parse the request body (req[24]) as a JSON object
 // into a Variant map (map[String]Variant), reusing the JsonDecodeMap → box_map
-// pipeline (v6.8.0; nested objects box as map-Variants per value_to_variant).
+// pipeline (v0.6.8; nested objects box as map-Variants per value_to_variant).
 func (g *Generator) emitBootReqJSON(req string, args []ast.Expression) (string, string, error) {
 	if len(args) != 0 {
 		return "", "", fmt.Errorf("TRequest.JSON expects 0 arguments, got %d", len(args))

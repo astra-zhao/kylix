@@ -77,7 +77,7 @@ end.
 
 ```bash
 $ kylix repl
-Kylix REPL v0.2.0
+Kylix REPL v0.0.2
 Type Kylix code (press Enter twice to execute, Ctrl+D to exit)
 
 kylix> var x := 10

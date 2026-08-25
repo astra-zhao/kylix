@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestBareMemberMethodCall_Statement (v5.6.0) guards the fix for bare
+// TestBareMemberMethodCall_Statement (v0.5.6) guards the fix for bare
 // parameterless method-call statements like `self.CollectImports;`. In Pascal
 // these are written without parentheses, so the AST is a bare MemberExpression
 // (not a CallExpression wrapping one). Pre-fix, emitStatement fell through to

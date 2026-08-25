@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// variant_test.go — tests for the v5.0.0 Variant runtime (boxed-pointer tagged
+// variant_test.go — tests for the v0.5.0 Variant runtime (boxed-pointer tagged
 // union): scalar decl/assign/compare/print, array of Variant element store/
 // load, JsonGetArray producing Variant boxes, and Length(arr) routing.
 
@@ -99,7 +99,7 @@ end.`)
 	// Length(arr) on a dynamic array reads the slice len word (GEP field 1 of
 	// the {ptr,i64,i64} struct), NOT strlen the data pointer.
 	assertIRContains(t, ir, "getelementptr inbounds { ptr, i64, i64 }, ptr")
-	// v5.6.0: emitStringConcat now sizes its buffer via strlen(lv)+strlen(rv)+1
+	// v0.5.6: emitStringConcat now sizes its buffer via strlen(lv)+strlen(rv)+1
 	// (was a fixed malloc(512) that overflowed). WriteLn's internal string
 	// building legitimately calls strlen on the concatenated operands — so
 	// `call i64 @strlen` may appear in the IR. The real Length-routing guard is
@@ -169,7 +169,7 @@ func containsCount(s, substr string) int {
 	return n
 }
 
-// ===== v5.1.0: Variant arithmetic + map[String]Variant + Variant→concrete =====
+// ===== v0.5.1: Variant arithmetic + map[String]Variant + Variant→concrete =====
 
 func TestVariant_ArithIntAdd(t *testing.T) {
 	ir := generateIR(t, `program p;
@@ -289,7 +289,7 @@ begin
   v := v mod w;
 end.`)
 	// `div` (Pascal integer-division keyword) and `mod` dispatch to the
-	// runtime idiv/mod helpers (v6.6.0).
+	// runtime idiv/mod helpers (v0.6.6).
 	assertIRContains(t, ir, "call ptr @__kylix_variant_idiv(ptr")
 	assertIRContains(t, ir, "call ptr @__kylix_variant_mod(ptr")
 	assertIRContains(t, ir, "define ptr @__kylix_variant_idiv(ptr")

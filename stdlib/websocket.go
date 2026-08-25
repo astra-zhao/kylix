@@ -38,7 +38,7 @@ type TWsConn struct {
 	br       *bufio.Reader
 	isServer bool // server-side writes must NOT mask frames
 	writeBuf []byte
-	key      string // v6.5.0: Sec-WebSocket-Key for the two-phase client handshake
+	key      string // v0.6.5: Sec-WebSocket-Key for the two-phase client handshake
 }
 
 // wsOpcode per RFC 6455 section 5.2.
@@ -64,7 +64,7 @@ func WsDial(addr, path string) (*TWsConn, error) {
 	return ws, nil
 }
 
-// WsDialConnect is phase 1 of the client handshake (v6.5.0): connect and send
+// WsDialConnect is phase 1 of the client handshake (v0.6.5): connect and send
 // the GET upgrade request, returning a half-open connection (the 101 response
 // is NOT read yet). WsDial = WsDialConnect + WsDialFinish — the split lets a
 // single process act as both client and server (connect first, then accept +
@@ -93,7 +93,7 @@ func WsDialConnect(addr, path string) (*TWsConn, error) {
 		writeBuf: make([]byte, 0, 256), key: key}, nil
 }
 
-// WsDialFinish is phase 2 of the client handshake (v6.5.0): read the 101
+// WsDialFinish is phase 2 of the client handshake (v0.6.5): read the 101
 // response and verify Sec-WebSocket-Accept against the key from phase 1.
 // Returns true when the handshake is complete.
 func WsDialFinish(ws *TWsConn) bool {

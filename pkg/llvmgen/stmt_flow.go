@@ -1,5 +1,5 @@
 // stmt_flow.go — control-flow statement codegen (if/while/for/repeat/foreach/
-// case/match/break/continue) — split from stmt.go in v4.5.0 to keep each
+// case/match/break/continue) — split from stmt.go in v0.4.5 to keep each
 // source file under 1000 lines.
 package llvmgen
 
@@ -11,7 +11,7 @@ import (
 )
 
 // coerceToBool converts a condition value of any type (i1/i64/ptr) to an i1
-// for use as a branch condition. v5.4.0: a map lookup (htab_get) or a class
+// for use as a branch condition. v0.5.4: a map lookup (htab_get) or a class
 // field read returns a ptr — `if map[key]` / `if obj.Field` must test non-null.
 func (g *Generator) coerceToBool(v, t string) string {
 	switch t {
@@ -114,7 +114,7 @@ func (g *Generator) emitFor(s *ast.ForStatement) error {
 
 	headerLbl := g.label()
 	bodyLbl := g.label()
-	// v6.1.0: `continue` must jump to the INCREMENT block, not the header —
+	// v0.6.1: `continue` must jump to the INCREMENT block, not the header —
 	// otherwise the counter is never advanced and the loop spins forever on the
 	// same value (broke the bootstrap compiler: ScanBootAnnotations' for loop
 	// `continue`d on every non-Controller class and hung).
@@ -330,7 +330,7 @@ func (g *Generator) emitForEach(s *ast.ForEachStatement) error {
 
 	headerLbl := g.label()
 	bodyLbl := g.label()
-	// v6.1.0: continue → increment block (see emitFor for the hang rationale).
+	// v0.6.1: continue → increment block (see emitFor for the hang rationale).
 	incLbl := g.label()
 	exitLbl := g.label()
 

@@ -179,7 +179,7 @@ func (c *symbolCollector) collectDeclaration(node ast.Node) {
 			Location: d.Token,
 		}
 		c.addSymbol(sym)
-		// v6.8.0: `type X = class/interface ...` — recurse into the inner
+		// v0.6.8: `type X = class/interface ...` — recurse into the inner
 		// declaration so the class's fields/methods (and their params/locals)
 		// are collected too. Previously only the type name was recorded, so
 		// method params and locals were reported as undefined.
@@ -283,7 +283,7 @@ func (c *symbolCollector) collectDeclaration(node ast.Node) {
 			sym.Children = append(sym.Children, methodSym)
 		}
 
-		// v6.8.0: generic type parameters (`class TStack<T>`) are visible in
+		// v0.6.8: generic type parameters (`class TStack<T>`) are visible in
 		// field/method types and bodies.
 		for _, tp := range d.TypeParams {
 			tpSym := &Symbol{

@@ -1,14 +1,14 @@
 # Kylix 技术债务与后续开发清单
 
 > 最后更新: 2026-07-30
-> 当前版本: v5.8.0 已发布（51/51 runtime 正确）
+> 当前版本: v0.5.8 已发布（51/51 runtime 正确）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
-本文档记录 v3.1.0 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
+本文档记录 v0.3.1 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
 
 ---
 
-## ✅ v5.8.0 修复：example21 泛型 Push runtime panic
+## ✅ v0.5.8 修复：example21 泛型 Push runtime panic
 
 **症状**：`var intStack := TStack<Integer>.Create(); intStack.Push(10)` → `panic: runtime error: index out of range [0] with length 0`。go-build 过但运行崩溃。
 
@@ -20,7 +20,7 @@
 
 ---
 
-## ✅ v5.9.0 — 多态 gate + KylixBoot 注解自动装配（2026-08-08 发布）
+## ✅ v0.5.9 — 多态 gate + KylixBoot 注解自动装配（2026-08-08 发布）
 
 ### ✅ #2: validation 注解 stub
 
@@ -38,14 +38,14 @@
 
 `ScanORMAnnotations` + `GenerateORMEntityMethods`/`GenerateORMRepositoryMethods` 移植（`TOrmColumn`/`TOrmEntity`/`TOrmQuery`/`TOrmRepository` 类数组）。`[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]` → `ToRow`/`FromRow` + `FindAll`/`FindById`/`Save`/`DeleteById` + `[Query]` 方法。example47 宿主 vs bootstrap 方法列表一致。
 
-### 📌 v5.9.0 遗留观察（klx 编译器限制，留 v6.0.0）
+### 📌 v0.5.9 遗留观察（klx 编译器限制，留 v0.6.0）
 
 - **`var` 输出参数转译成值传递**（非 Go 指针）：`OrmQueryReturnEntity` var 参数不生效，本轮改为单返回函数规避。需修 klx 编译器参数 codegen
 - **`(expr as T).Field` 链式解析失败**（KLX004）：需中间变量。需修 klx parser/表达式 codegen
 
 ---
 
-## 📋 v6.0.0 — KylixRT 生产就绪
+## 📋 v0.6.0 — KylixRT 生产就绪
 
 ### 🟢 #6: CI/CD 自动化
 GitHub Actions：`go test` + `test_all.sh` + self-reproduction 验证。
@@ -62,11 +62,11 @@ IntelliJ IDEA / GoLand 插件（语法高亮 + LSP 集成）。
 ### 🟢 #10: JsonEncode 双端 parity
 Go 后端 `encoding/json` vs LLVM 后端手写 IR serializer → 确保输出逐字节一致。
 
-**症状**：v5.3.0 在 Go 后端达成自举不动点（`kylix_self2` ≡ `kylix_self3` 逐字节），但 LLVM 后端无法编译自举源码——`kylix build --backend=llvm src/*.klx` 失败，暴露整套类层次多态 + 类型系统缺失。
+**症状**：v0.5.3 在 Go 后端达成自举不动点（`kylix_self2` ≡ `kylix_self3` 逐字节），但 LLVM 后端无法编译自举源码——`kylix build --backend=llvm src/*.klx` 失败，暴露整套类层次多态 + 类型系统缺失。
 
 **根因**：LLVM 后端在自举源码（5250 行重多态）上暴露 20+ 缺口——类型系统（LLVMType 不感知 class/array）、函数 array 参数（fallback i64）、is/as 只支持 interface、异构 array of TBase（元素 i64）、无 collectClassTypes/classIsBase、无全局变量支持、无 record 支持、无外部方法支持。
 
-**修复**（详见 CHANGELOG v5.4.0）：类型系统（llvmTypeOfExpr）、全局变量（collectGlobals + IsMerged 窄化）、record 支持（emitRecordDecl）、外部方法（@ClassName_Method + self）、类型推断（exprKylixType 递归 + auto-declare 按 RHS 类型 + 局部遮蔽全局）、is/as 运行时（vtable 边表 + class_is_a + null guard）、map 值类型化、builtin（Args/Ord/StrToFloat/LowerCase/ReadFile/append）、Boolean 比较 + 条件 coerce + G14 转义解码 + llc -O0 + emitConstructor call Create。
+**修复**（详见 CHANGELOG v0.5.4）：类型系统（llvmTypeOfExpr）、全局变量（collectGlobals + IsMerged 窄化）、record 支持（emitRecordDecl）、外部方法（@ClassName_Method + self）、类型推断（exprKylixType 递归 + auto-declare 按 RHS 类型 + 局部遮蔽全局）、is/as 运行时（vtable 边表 + class_is_a + null guard）、map 值类型化、builtin（Args/Ord/StrToFloat/LowerCase/ReadFile/append）、Boolean 比较 + 条件 coerce + G14 转义解码 + llc -O0 + emitConstructor call Create。
 
 **验证**：`kylix build --backend=llvm src/*.klx` → 原生二进制 127KB → 运行 hello.klx exit 0 产出 Go 代码。回归 16 包 + 51 教程全绿。
 
@@ -81,9 +81,9 @@ v5.4 让 LLVM 自举二进制能运行产出 Go 代码，但自举 parser（2400
 
 ---
 
-## ✅ v5.3.0 修复：自举编译器 round-trip 打通 + 自繁殖
+## ✅ v0.5.3 修复：自举编译器 round-trip 打通 + 自繁殖
 
-**症状**：v5.2.0 打通自举「构建」（`src/*.klx` → `kylix_self`），但 `kylix_self2`（自举产出的编译器）构建成功却运行产出空/错误——自举 `generator.klx` 的 codegen 保真度缺口。
+**症状**：v0.5.2 打通自举「构建」（`src/*.klx` → `kylix_self`），但 `kylix_self2`（自举产出的编译器）构建成功却运行产出空/错误——自举 `generator.klx` 的 codegen 保真度缺口。
 
 **诊断**：自举 7 文件产出 `self_7.go` 全量 `go build` 仅 4 个错误（`Args`×3 + `os`×1）。自举源码不实际用 match/try/async/插值/lambda/注解/stdlib 模块（只在 token.klx 关键字表，是数据非代码）。故 G1–G27 大缺口不阻断自举自编译 round-trip。
 
@@ -119,9 +119,9 @@ v5.3 让自举编译器能正确编译**自举源码自身用到的特性子集*
 
 ---
 
-## 🟠 v5.2.0 自举编译器残留限制
+## 🟠 v0.5.2 自举编译器残留限制
 
-v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行二进制，208→0 错误），但完整 round-trip（自举编译器能正确编译任意程序）未达成，留 v5.3。
+v0.5.2 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行二进制，208→0 错误），但完整 round-trip（自举编译器能正确编译任意程序）未达成，留 v5.3。
 
 | 限制 | 影响 | 修复方向 | 状态 |
 |------|------|---------|------|
@@ -130,11 +130,11 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 | program-level 多态标志过宽 | 含 `is`/`as` 的程序会把所有「有子类的基类」都变 interface；混合程序（部分基类需字段继承、部分需多态）会误伤 | per-base 检测：仅对实际承载子类实例/作断言操作数的基类发射 interface | 🟠 待 v5.3 |
 | `Args` builtin 无变量名守卫 | `mapBuiltinFunction("Args")` 无 var 守卫，若用户程序声明 `var Args` 会被改写成 `os.Args[1:]` | 全仓库无此用例；可加 var-name 守卫或在标识符 codegen 查 var 表 | ⚪ 文档化为限制 |
 
-### ✅ v5.2.0 修复：自举编译器构建打通
+### ✅ v0.5.2 修复：自举编译器构建打通
 
 **症状**：自举源码 `src/*.klx`（7 文件 5250 行）经 Go 后端转译后 `go build` 失败 208 个错误，无法生成可运行的 `kylix_self`。
 
-**根因**：Go 后端把所有类发射成普通 struct + 嵌入父 struct（给字段继承但无多态）。自举源码用经典 Pascal OOP 多态：`decl: TNode; decl := prog.Declarations[i]; if decl is TClassDecl then cd := decl as TClassDecl`——异构 `array of TNode` 持有子类实例 + `is`/`as` 下转。struct 指针基类上 `x.(*TSub)` 非法、子类装不进 `[]*TBase`。`classIsBase` map 早已在 `collectClassTypes` 填充但 v3.1.0（KLX-C01）回退后从不读取（死代码）。
+**根因**：Go 后端把所有类发射成普通 struct + 嵌入父 struct（给字段继承但无多态）。自举源码用经典 Pascal OOP 多态：`decl: TNode; decl := prog.Declarations[i]; if decl is TClassDecl then cd := decl as TClassDecl`——异构 `array of TNode` 持有子类实例 + `is`/`as` 下转。struct 指针基类上 `x.(*TSub)` 非法、子类装不进 `[]*TBase`。`classIsBase` map 早已在 `collectClassTypes` 填充但 v0.3.1（KLX-C01）回退后从不读取（死代码）。
 
 **修复**（opt-in，避免回归教程 example19/example40 的字段继承）：
 - Parser 端 `parseIsExpression`/`parseAsExpression` 置 `p.usesPolymorphism=true` → `program.UsesPolymorphism`（新增 `ast.Program.UsesPolymorphism bool`）。
@@ -148,7 +148,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ---
 
-## ✅ v3.1.0 修复的编译器缺陷
+## ✅ v0.3.1 修复的编译器缺陷
 
 | ID | 缺陷 | 修复内容 |
 |----|------|---------|
@@ -158,7 +158,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 | **KLX-C04** | `match` 语句生成无效 Go 代码 | 改为 tagless `switch { case _v == p: }` |
 | **KLX-C05** | `uses sysutil/jsonutil/...` 在 program 中符号不可见 | `generator/generator_stdlib.go` 映射 40+ stdlib 函数 |
 
-详见 CHANGELOG.md v3.1.0 章节。
+详见 CHANGELOG.md v0.3.1 章节。
 
 ---
 
@@ -182,15 +182,15 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ---
 
-### ✅ 标准库已知缺陷 — v3.0.0-alpha 修复
+### ✅ 标准库已知缺陷 — v0.3.0-alpha 修复
 
-**`TDateTime` +/- 运算符未实现** → ✅ 已修复（v3.0.0-alpha）
+**`TDateTime` +/- 运算符未实现** → ✅ 已修复（v0.3.0-alpha）
 `DateAdd(dt, days)` 和 `DateSub(dt, days)` 在 `stdlib/src/datetime.klx` 中实现，替代运算符重载。
 
-**`jsonutil` 仅支持扁平 JSON** → ✅ 已修复（v3.0.0-alpha）
+**`jsonutil` 仅支持扁平 JSON** → ✅ 已修复（v0.3.0-alpha）
 `stdlib/src/jsonutil.klx` 重写为完整递归下降解析器（TJsonLexer + TJsonParser），支持任意深度嵌套。
 
-**`external` 函数声明在文件末尾解析失败** → ✅ 已修复（v3.0.0-alpha）
+**`external` 函数声明在文件末尾解析失败** → ✅ 已修复（v0.3.0-alpha）
 `ast/ast.go` 新增 `IsExternal bool`，`parser/parser_decl.go` 识别 `EXTERNAL` 修饰词，`generator/generator_types.go` 跳过 body 生成。
 
 ---
@@ -199,7 +199,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 这些是 LLVM 后端 Milestone 1 + Phase 1 后剩余的范围外项目。
 
-### ✅ 6.0 数组未支持 → v3.1.0 修复
+### ✅ 6.0 数组未支持 → v0.3.1 修复
 
 `pkg/llvmgen/array.go`（~200 行）：
 - 静态 `array[1..N] of T` → `alloca [N x T]`
@@ -207,15 +207,15 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 - Pascal 1-based 索引转 LLVM 0-based
 - 6 个新测试
 
-### ✅ 6.3 无优化 Pass → v3.1.0 修复
+### ✅ 6.3 无优化 Pass → v0.3.1 修复
 
 `CompileOpts.OptLevel` + `--llvm-opt=0/1/2/3` CLI 标志；`llc -O=N`。
 
-### ✅ 6.1 接口未支持 → v3.2.0 M2 Phase 2 修复
+### ✅ 6.1 接口未支持 → v0.3.2 M2 Phase 2 修复
 
 `pkg/llvmgen/interface.go`（~230 行）：fat pointer（`{ ptr vtable, ptr data }`）、每接口方法 thunk、`is`/`as` 断言。23 个测试。
 
-### ✅ 6.2 泛型无单态化 → v3.2.0 M2 Phase 3 修复
+### ✅ 6.2 泛型无单态化 → v0.3.2 M2 Phase 3 修复
 
 `pkg/llvmgen/monomorph.go`（~270 行）：`collectInstantiations` AST walker + 类型参数替换 + mangling（`TBox<Integer>` → `TBox_Integer`）。6 个 IR 测试。
 
@@ -230,7 +230,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 附带修复：字符串插值 codegen、带参构造 `T.Create(args)`、类字段继承（子类 struct 包含父类字段）。
 
-### ✅ 6.5 文件大小约束违反 → v4.5.0 修复
+### ✅ 6.5 文件大小约束违反 → v0.4.5 修复
 
 **已修复：** expr.go(1207行) / stmt.go(1081行) 超过 1000 行约束。
 
@@ -240,7 +240,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 - `stmt.go` 1081→**614 行**（核心语句 codegen）
 - `stmt_flow.go` **484 行**（新，控制流 if/while/for/case/match/try）
 
-### ✅ 6.6 无优化深化（DCE/内联/循环优化）→ v4.5.0 修复
+### ✅ 6.6 无优化深化（DCE/内联/循环优化）→ v0.4.5 修复
 
 **已修复：** `pkg/llvmgen/passes.go`（126 行）—— 进程内 IR 优化 pass 管线：
 - DeadCodeElim (DCE)：删除未被引用的 `%tN` 临时寄存器定义（纯指令），词边界检查防止 `%t1` 误匹配 `%t10`
@@ -248,29 +248,29 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 - 默认运行（-O0 时自动），`--llvm-opt` 时跳过（外部 opt 跑更强 pass）
 - 字符串常量去重：`addString` 按内容去重，两个 `"hello"` 共享一个 `@.str.N`
 
-### ✅ 6.7 无增量编译（每次全量 llc）→ v4.5.0 修复
+### ✅ 6.7 无增量编译（每次全量 llc）→ v0.4.5 修复
 
 **已修复：** `pkg/llvmgen/cache.go`（149 行）—— 按 IR 内容 + opts 的 SHA256 缓存 `.o`：
 - 缓存命中时直接复用 `.o`，跳过 llc
 - 实测：example01 二次构建 **0.939s → 0.029s（32x 加速）**
 - best-effort：缓存失败非致命（静默降级到全量编译）
 
-### ✅ 6.8 无调试符号（LLDB/GDB 不可用）→ v4.5.0 函数级 / v4.6.0 逐行
+### ✅ 6.8 无调试符号（LLDB/GDB 不可用）→ v0.4.5 函数级 / v0.4.6 逐行
 
 **已修复：** `pkg/llvmgen/debug.go` —— DWARF 调试符号：
 - `-g` flag：`kylix build --backend=llvm -g` 发出 DWARF 调试信息
 - metadata：`!llvm.dbg.cu` + `DICompileUnit` + `DIFile` + `DISubprogram`（每个用户函数 + main）
-- v4.5.0 函数级：函数级断点、backtrace 显示函数+行号、源文件关联
-- v4.6.0 逐行：per-instruction DILocation（每条 IR 指令附 `!dbg !N` 源行号+列号+scope）+ DILocalVariable + `#dbg_declare` 记录
+- v0.4.5 函数级：函数级断点、backtrace 显示函数+行号、源文件关联
+- v0.4.6 逐行：per-instruction DILocation（每条 IR 指令附 `!dbg !N` 源行号+列号+scope）+ DILocalVariable + `#dbg_declare` 记录
   - LLDB 支持：按源文件行号设断点、`step`/`next` 逐行单步、`frame variable` 检视局部变量（参数/`result`/用户变量）
   - LLVM 22 适配：用 `#dbg_declare` 记录语法替代废弃的 `call @llvm.dbg.declare` intrinsic
   - `emitStatement`/`emitExpr` 入口 `setDbgNode` 设置源位置；`line()` 自动给指令行附加 `!dbg`
 - -g 与 -O 互斥：`-g` 强制 `-O0`（优化重排指令会使调试信息误导）
-- 已知残留（v4.7.0）：stdlib 预生成 IR 无源码行号（不附 DILocation）；DIBasicType 单一化（double/ptr 值格式化可能不精确）；类方法/lambda 未给 DISubprogram；无 DILexicalBlock（块作用域归函数级）
+- 已知残留（v0.4.7）：stdlib 预生成 IR 无源码行号（不附 DILocation）；DIBasicType 单一化（double/ptr 值格式化可能不精确）；类方法/lambda 未给 DISubprogram；无 DILexicalBlock（块作用域归函数级）
 
 ---
 
-### ✅ 2.1 类型检查层完全缺失 → v1.5.0+
+### ✅ 2.1 类型检查层完全缺失 → v0.1.5+
 
 **已修复：** `pkg/compiler/typecheck.go` 实现 MVP 类型检查器：
 - 未声明变量检测
@@ -280,20 +280,20 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ---
 
-### ✅ 2.2 `kylix add` 的 git 包逻辑错误 → v1.5.0+
+### ✅ 2.2 `kylix add` 的 git 包逻辑错误 → v0.1.5+
 
 **已修复：** `installGit` 逻辑修正：有 tag 才跳过（版本固定幂等），无 tag 每次重新拉取。
 
 ---
 
-### ✅ 2.3 多返回值 TupleLiteral LHS 生成 → v1.5.0+
+### ✅ 2.3 多返回值 TupleLiteral LHS 生成 → v0.1.5+
 
 **已修复：** `generator_stmt.go` 的 `generateAssignment` 新增 TupleLiteral LHS 分支：
 - `x, y := Pair()` 正确生成 Go: `x, y := Pair()`
 
 ---
 
-### ✅ 2.4 包管理器与编译器未集成 → v1.5.0+
+### ✅ 2.4 包管理器与编译器未集成 → v0.1.5+
 
 **已修复：**
 - `compiler.Options` 新增 `PackageSearchDirs []string`
@@ -304,7 +304,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ## 优先级 3：测试覆盖空洞 🟡
 
-### ✅ 3.1 pkgmgr + cache 基础测试 → v1.5.0+
+### ✅ 3.1 pkgmgr + cache 基础测试 → v0.1.5+
 
 | 模块 | 测试文件 | 测试数 |
 |------|----------|--------|
@@ -313,7 +313,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ---
 
-### ✅ 3.2 parser 泛型/多返回值回归测试 → v1.5.0+
+### ✅ 3.2 parser 泛型/多返回值回归测试 → v0.1.5+
 
 `parser/parser_regression_test.go`: 5 个测试
 - `TestParseGenericInstantiation`
@@ -324,7 +324,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ---
 
-### ✅ 3.3 LSP stdlib 加载测试 → v1.5.0+
+### ✅ 3.3 LSP stdlib 加载测试 → v0.1.5+
 
 `pkg/lsp/stdlib_test.go`: 4 个测试
 - `TestStdlibKlxFilesExist`
@@ -334,7 +334,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ---
 
-### ✅ 3.4 generator 多返回值回归测试 → v1.5.0+
+### ✅ 3.4 generator 多返回值回归测试 → v0.1.5+
 
 `generator/generator_multireturn_test.go`: 4 个测试
 - `TestGenerateMultiReturnFunction`
@@ -346,7 +346,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ## 优先级 4：工程质量 🟢
 
-### ✅ 4.1 `cmd/kylix/main.go` 拆分 → v1.5.0+
+### ✅ 4.1 `cmd/kylix/main.go` 拆分 → v0.1.5+
 
 763 行 → 5 个文件（最大 220 行）：
 - `main.go` (159 行)
@@ -357,14 +357,14 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ---
 
-### ✅ 4.2 `stdlib/klx/*.klx` 可解析性测试 → v1.5.0+
+### ✅ 4.2 `stdlib/klx/*.klx` 可解析性测试 → v0.1.5+
 
 `stdlib/klx_test.go`: `TestKlxDeclarationsAreParseable`
 发现并修复了 `jsonutil.klx` 的 `Map<K,V>` → `map[K]V` 语法错误。
 
 ---
 
-### ✅ 4.3 `ioutil` 废弃替换 → v1.5.0+
+### ✅ 4.3 `ioutil` 废弃替换 → v0.1.5+
 
 `pkg/compiler/compiler.go` 和 `pkg/project/project.go` 全部替换为 `os.ReadFile`/`os.WriteFile`。
 
@@ -408,14 +408,14 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ## 当前状态总结（2026-06-25）
 
-### 新增已知缺陷（v3.1.0 引入或残留）
+### 新增已知缺陷（v0.3.1 引入或残留）
 
 | ID | 问题 | 严重度 | 目标 |
 |----|------|--------|------|
-| **KLX-G01** | `example21_generic_class` 泛型类 receiver codegen 错误 | 中 | ✅ v3.1.1 |
-| **KLX-M01** | `example33_use_module` 多文件 unit 编译路径失败 | 中 | ✅ v3.1.1 |
+| **KLX-G01** | `example21_generic_class` 泛型类 receiver codegen 错误 | 中 | ✅ v0.3.1 |
+| **KLX-M01** | `example33_use_module` 多文件 unit 编译路径失败 | 中 | ✅ v0.3.1 |
 
-### Phase 11 完成度（v1.5.0–v2.0.0）
+### Phase 11 完成度（v0.1.5–v0.2.0）
 
 | 优先级 | 项数 | 已完成 | 完成率 |
 |--------|------|--------|--------|
@@ -425,7 +425,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 | P4（工程质量） | 3 | 3 | 100% |
 | P5（设计债务） | 3 | 0 | 0%（长期）|
 
-### v3.1.1 新增修复
+### v0.3.1 新增修复
 
 | 项目 | 状态 |
 |------|------|
@@ -434,7 +434,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 | 教程测试覆盖 | ✅ `test_all.sh` 覆盖所有目录，35/35 通过 |
 | 增量缓存 codegen 失效 | ✅ `CacheVersion` 防止复用旧 fragment |
 
-### v3.0.0-alpha 新增修复
+### v0.3.0-alpha 新增修复
 
 | 项目 | 状态 |
 |------|------|
@@ -442,7 +442,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 | jsonutil 仅支持扁平 JSON | ✅ 嵌套解析器 |
 | external 函数解析失败 | ✅ IsExternal 字段 |
 
-### v3.1.0 新增修复
+### v0.3.1 新增修复
 
 | 项目 | 状态 |
 |------|------|
@@ -464,15 +464,15 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ---
 
-## ✅ v4.7.0 修复：example23_arrays 静态数组段错误
+## ✅ v0.4.7 修复：example23_arrays 静态数组段错误
 
 **症状**：`example23_arrays.klx`（静态 `array[0..N] of T`）经 LLVM 后端编译运行时段错误（exit 139），不带 `-g` 也复现。
 
-**排查**：v4.5.0（HEAD）与 v4.6.0 生成的 IR **逐字节一致**（`diff` 无差异），且两个版本都段错误——确认为 v4.5.0 预先存在的 bug，非 v4.6.0 引入。
+**排查**：v0.4.5（HEAD）与 v0.4.6 生成的 IR **逐字节一致**（`diff` 无差异），且两个版本都段错误——确认为 v0.4.5 预先存在的 bug，非 v0.4.6 引入。
 
 **根因**：`pkg/llvmgen/array.go` 第 69 行硬编码 `LowerBound: 1`（Pascal 默认），但 `array[0..4]` 的下界是 0。`emitArrayIndex` 第 106 行 `sub i64 idx, LowerBound` 把 `0 - 1 = -1`（i64 无符号下溢成 0xFFFFFFFFFFFFFFFF），GEP 越界访问非法内存 → 段错误。
 
-**修复**（v4.7.0）：
+**修复**（v0.4.7）：
 - `ast/ast.go`：`ArrayType` 新增 `LowerBound Expression` 字段
 - `parser/parser_expr.go`：DOTDOT 分支设置 `arrayType.LowerBound = lowerBound`（解析时记录，不再丢弃）
 - `pkg/llvmgen/array.go`：`emitArrayVarDecl` 用 `evalConstInt(arr.LowerBound)` 计算真实下界，传给 `arrayInfo.LowerBound`
@@ -484,37 +484,37 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ---
 
-## 🟠 v4.6.0 DWARF 调试信息残留限制
+## 🟠 v0.4.6 DWARF 调试信息残留限制
 
 | 限制 | 影响 | 修复方向 | 状态 |
 |------|------|---------|------|
 | stdlib 预生成 IR 无 DILocation | 进入 stdlib 函数时无可单步源码 | 给 stdlib IR 注入合成 DILocation（或文档化为预期） | 🟠 待 v5.0 |
-| DIBasicType 单一化（int64） | double/ptr/string 局部变量值格式化不精确 | 按 llvmType 发射独立 DIBasicType（DW_ATE_float/address/...） | ✅ v4.8.0 已修复 |
-| 类方法/lambda 无 DISubprogram | OOP 方法/闭包体内不可逐行单步 | emitMethod/emitLambda 注册 subprogram + setDbgScope | ✅ v4.9.0 已修复 |
-| 无 DILexicalBlock | 块级 `begin var x; end` 变量归函数级 scope | 为 BlockStatement 发射 DILexicalBlock 作 scope | ✅ v4.9.0 已修复 |
+| DIBasicType 单一化（int64） | double/ptr/string 局部变量值格式化不精确 | 按 llvmType 发射独立 DIBasicType（DW_ATE_float/address/...） | ✅ v0.4.8 已修复 |
+| 类方法/lambda 无 DISubprogram | OOP 方法/闭包体内不可逐行单步 | emitMethod/emitLambda 注册 subprogram + setDbgScope | ✅ v0.4.9 已修复 |
+| 无 DILexicalBlock | 块级 `begin var x; end` 变量归函数级 scope | 为 BlockStatement 发射 DILexicalBlock 作 scope | ✅ v0.4.9 已修复 |
 | 块作用域变量 location list 范围窄 | 块内变量在块外 PC（如 WriteLn 调用点）报 `<variable not available>` | 把块内 alloca 提升到 entry block（结构重构） | 🟠 待 v5.0 |
 
 ---
 
-## 🟠 v4.7.0 jsonutil 残留限制
+## 🟠 v0.4.7 jsonutil 残留限制
 
 | 限制 | 影响 | 修复方向 | 状态 |
 |------|------|---------|------|
-| ~~`JsonGetArray` 返回 null~~ | ~~array of Variant 需 Variant 运行时~~ | ~~v4.9.0 字符串数组 slice；v5.0.0 类型标签 Variant box~~ | ✅ v5.0.0 已修复（类型标签 Variant box 切片） |
-| ~~`array of Variant` 数值比较（`arr[0] = 1.0`）~~ | ~~v4.9.0 字符串数组版不支持 Variant 数值索引~~ | ~~Variant 运行时（类型标签 + union + dispatch）~~ | ✅ v5.0.0 已修复（variant_compare 按标签派发） |
-| Variant 算术（`v + 1`、`v * 2`） | v5.0.0 未实现 Variant 运算符重载 | 运行时按标签算术派发 | ✅ v5.1.0 已修复（variant_add/sub/mul/div，LLVM-only） |
-| ~~`map[String]Variant` 真实化~~ | ~~htab 值槽是字符串，Variant map 值需宽化~~ | ~~htab 变体值槽（结构重写）或 Variant-valued map~~ | ✅ v5.1.0 已修复（htab 值槽存 box ptr，不动结构） |
-| `div`/`mod` Variant | v5.1.0 算术只支持 `+,-,*,/`，`div`/`mod` 留 stub | 整数除/模按标签派发 | 🟠 待 v5.2 |
+| ~~`JsonGetArray` 返回 null~~ | ~~array of Variant 需 Variant 运行时~~ | ~~v0.4.9 字符串数组 slice；v0.5.0 类型标签 Variant box~~ | ✅ v0.5.0 已修复（类型标签 Variant box 切片） |
+| ~~`array of Variant` 数值比较（`arr[0] = 1.0`）~~ | ~~v0.4.9 字符串数组版不支持 Variant 数值索引~~ | ~~Variant 运行时（类型标签 + union + dispatch）~~ | ✅ v0.5.0 已修复（variant_compare 按标签派发） |
+| Variant 算术（`v + 1`、`v * 2`） | v0.5.0 未实现 Variant 运算符重载 | 运行时按标签算术派发 | ✅ v0.5.1 已修复（variant_add/sub/mul/div，LLVM-only） |
+| ~~`map[String]Variant` 真实化~~ | ~~htab 值槽是字符串，Variant map 值需宽化~~ | ~~htab 变体值槽（结构重写）或 Variant-valued map~~ | ✅ v0.5.1 已修复（htab 值槽存 box ptr，不动结构） |
+| `div`/`mod` Variant | v0.5.1 算术只支持 `+,-,*,/`，`div`/`mod` 留 stub | 整数除/模按标签派发 | 🟠 待 v5.2 |
 | Variant 算术 Go 不支持 | Go `interface{}`不支持运算符，Variant 算术仅 LLVM | Go 端 type-switch codegen 或文档化 | ⚪ 文档化为限制 |
 | jsonutil 嵌套递归深度无界 | 超深 JSON 可能栈溢出 | 教程用例 2-3 层可接受；超深场景文档化为限制 | ⚪ 文档化为限制 |
 | null 打印分歧 | LLVM nil box → "nil"，Go `nil` → "<nil>" | 统一 null 语义（v5.2） | ⚪ 文档化为限制 |
-| ~~example21 泛型类方法 stub~~ | ~~`TStack<T>.Push/Pop` 输出 `Pop: 0`（unsupported receiver）~~ | ~~泛型类单态化后的方法 codegen~~ | ✅ v4.8.0 已修复 |
+| ~~example21 泛型类方法 stub~~ | ~~`TStack<T>.Push/Pop` 输出 `Pop: 0`（unsupported receiver）~~ | ~~泛型类单态化后的方法 codegen~~ | ✅ v0.4.8 已修复 |
 
 ---
 
-## ✅ v5.1.0 修复：完成 Variant 运行时（map[String]Variant 真实化 + Variant 算术）
+## ✅ v0.5.1 修复：完成 Variant 运行时（map[String]Variant 真实化 + Variant 算术）
 
-**症状**：v5.0.0 让标量 + `array of Variant` 成为真 Variant，但 `map[String]Variant` 仍是 htab 字符串（`m['pi']` 返回 C 串 → `m['pi']=3.14` 是 string-vs-double），Variant 算术（`v+1`）发 stub。
+**症状**：v0.5.0 让标量 + `array of Variant` 成为真 Variant，但 `map[String]Variant` 仍是 htab 字符串（`m['pi']` 返回 C 串 → `m['pi']=3.14` 是 string-vs-double），Variant 算术（`v+1`）发 stub。
 
 **修复**：
 - **map[String]Variant 真实化**（htab 值槽类型无关，仅 map codegen 层 + jsonutil 改动，cache/string-map 不回归）：`stdlib_map.go` `emitMapVarDecl` 检测 Variant 值类型设 `variantMaps`；`emitMapIndexGet` 走 `htab_get_variant` 返回 `"variant"`；`emitMapIndexPut` 装箱 RHS。`stdlib_hashtab.go` 新增 `htab_get_variant`（miss 返回 `@__kylix_variant_nilbox` 全局 tag=0 → as_* 走 nil 默认，与「missing key 返回默认」契约一致）。`parse_flat` 改调 `value_to_variant` 让 JsonDecodeMap 产出 Variant map；`JsonGetString/Int/Float/Bool/Map/Array` 全部 unbox via `htab_get_variant` + `variant_as_*`。新增 `as_int`/`as_bool` 主体 + nilbox 全局。
@@ -526,9 +526,9 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ---
 
-## ✅ v5.0.0 修复：Variant 运行时（标量 + `array of Variant`）
+## ✅ v0.5.0 修复：Variant 运行时（标量 + `array of Variant`）
 
-**症状**：LLVM 后端把 `Variant` 静默当 `i64` 别名——`LLVMType("Variant")` 走 `default → "i64"`，`var v: Variant; v := 1.0` 把 double 截断成 i64，`array of Variant` 元素槽是裸 i64（无类型标签），`arr[0] = 10.0` 比较的是位模式/数据指针而非数值。v4.9.0 的 `JsonGetArray` 退而产出「C 字符串指针切片」并文档化「完整 Variant 运行时留 v5.0」。
+**症状**：LLVM 后端把 `Variant` 静默当 `i64` 别名——`LLVMType("Variant")` 走 `default → "i64"`，`var v: Variant; v := 1.0` 把 double 截断成 i64，`array of Variant` 元素槽是裸 i64（无类型标签），`arr[0] = 10.0` 比较的是位模式/数据指针而非数值。v0.4.9 的 `JsonGetArray` 退而产出「C 字符串指针切片」并文档化「完整 Variant 运行时留 v5.0」。
 
 **修复**（新文件 `pkg/llvmgen/variant.go` + expr/stmt/array/codegen/jsonutil 接线）：
 - **boxed-pointer 表示**：`%struct.kylix_variant = { i32 tag, i64 payload }`（16 字节，tag 0=nil/1=int/2=float/3=str/4=bool）。Variant 值是 `ptr`（指向堆 box）；存储槽（`_var` alloca / Variant 数组元素槽）是 `ptr`。
@@ -536,7 +536,7 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 - **合成类型 "variant"**：`emitExpr` 对 Variant box 值返回伪类型字符串 `"variant"`，让 Variant 身份贯穿 `emitInfix`（`+` guard 前插比较分支）/`emitWriteLn` 等而无需平行类型表。逐点审计现有 switch。
 - **标量 + 数组**：`emitVarDeclSingle` Variant 分支（`_var` suffix，generic fallback 前）；`arrayInfo.IsVariant` + `emitArrayIndex` asLValue/rvalue 类型分流；`emitAssign` 装箱（arr[i] 路径 + 标量 `_var` 路径，coercion 前）。
 - **JsonGetArray 升级**：`emitJsonParseArray` 改调 `value_to_variant`（窥首字符分类 → box_str/float/bool，数字全 float box 与 Go json 的 float64 对齐）；`JsonArrayGetString` unbox via `as_str`；`JsonArrayLen` 不变。
-- **Length(arr) 路由修复**：`emitCall` Length 分支先查 `arrayInfo` → `emitArrayLength`（slice len word / 静态常量），否则 strlen。此前 `emitArrayLength` 是死代码、`Length(arr)` 对数组返回 0（v3.1.0 起遗漏）。
+- **Length(arr) 路由修复**：`emitCall` Length 分支先查 `arrayInfo` → `emitArrayLength`（slice len word / 静态常量），否则 strlen。此前 `emitArrayLength` 是死代码、`Length(arr)` 对数组返回 0（v0.3.1 起遗漏）。
 
 **验证**：example56_variant 双后端输出逐字节一致（`arr[0]=10.0` 数值比较、`WriteLn(arr[i])` 按标签打印、`Length(arr)` 正确、字符串/布尔数组）。LLVM 测试 255→266（+11 Variant 测试），教程 49→50。
 
@@ -544,11 +544,11 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ---
 
-## ✅ v4.9.0 修复：类方法/lambda DISubprogram + DILexicalBlock + jsonutil 嵌套数组
+## ✅ v0.4.9 修复：类方法/lambda DISubprogram + DILexicalBlock + jsonutil 嵌套数组
 
 ### 类方法/lambda DISubprogram
 
-**症状**：v4.6.0 只给用户函数和 main 注册 DISubprogram，类方法（`emitMethod`）和 lambda（`emitLambdaFunc`）无调试元数据——OOP 方法不可逐行单步、`frame variable` 不显示 `self`/参数/捕获变量。
+**症状**：v0.4.6 只给用户函数和 main 注册 DISubprogram，类方法（`emitMethod`）和 lambda（`emitLambdaFunc`）无调试元数据——OOP 方法不可逐行单步、`frame variable` 不显示 `self`/参数/捕获变量。
 
 **修复**：`emitMethod`/`emitLambdaFunc` 复用 `emitFunctionDecl` 模式——`registerSubprogram` + `defineLineWithDbg` + `setDbgScope`/`setDbgNode` + `self`/参数/`result`/捕获变量 `emitDbgDeclare` + 退出 `setDbgScope(0)`/`clearDbgPos` + 合成 ret 前 `clearDbgPos`。stub 方法（`Body==nil`）不发调试信息。`nodeToken` 加 `FunctionDecl` 分支。
 
@@ -556,11 +556,11 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 ### DILexicalBlock
 
-**症状**：v4.6.0–v4.8.0 块内 `var` 声明的变量全归函数级 subprogram scope，块作用域语义在调试信息中丢失。
+**症状**：v0.4.6–v0.4.8 块内 `var` 声明的变量全归函数级 subprogram scope，块作用域语义在调试信息中丢失。
 
 **修复**：`dbgMeta` 加 `lexBlocks` + `registerLexicalBlock()`；`emitBlockScoped` 进出块时切/恢复 `curScope`；`emitDbgMetadata` 发射 `!DILexicalBlock(scope: !parent, ...)`；`retainedNodes` 只含 subprogram 级变量（块作用域变量经 lexical block scope 链可达）。
 
-**已知限制**：块作用域变量的 alloca 跟随 VarDecl 在块的基本块发射（非 entry block），LLVM location-list 生成器据此限制变量可用范围——LLDB 在块外（如 `WriteLn(y)` 调用点）可能报 `<variable not available>`。这是 v4.6.0 起 alloca-in-block 设计的固有行为（v4.8.0 同样存在，非 v4.9.0 回归）；DILexicalBlock 仍正确反映 scope 树。完整修复需把块内 alloca 提升到 entry block（留 v5.0）。
+**已知限制**：块作用域变量的 alloca 跟随 VarDecl 在块的基本块发射（非 entry block），LLVM location-list 生成器据此限制变量可用范围——LLDB 在块外（如 `WriteLn(y)` 调用点）可能报 `<variable not available>`。这是 v0.4.6 起 alloca-in-block 设计的固有行为（v0.4.8 同样存在，非 v0.4.9 回归）；DILexicalBlock 仍正确反映 scope 树。完整修复需把块内 alloca 提升到 entry block（留 v5.0）。
 
 ### jsonutil JsonGetArray 嵌套数组 + skip_nested off-by-one
 
@@ -570,11 +570,11 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 **验证**：`{"items":["apple","banana","cherry"]}` → `JsonArrayLen=3` + 三字符串；`{"nums":[10,20,30]}` 数字数组；`{"users":[{...},{...}]}` 嵌套对象数组；缺失键 → 0 长度。
 
-**务实范围**：完整 Variant 运行时（`array of Variant` 的 `arr[0] = 1.0` 数值比较）是 v5.0 级工作。v4.9.0 字符串数组版覆盖字符串/数字数组读取 80% 用例，不引入 Variant。
+**务实范围**：完整 Variant 运行时（`array of Variant` 的 `arr[0] = 1.0` 数值比较）是 v5.0 级工作。v0.4.9 字符串数组版覆盖字符串/数字数组读取 80% 用例，不引入 Variant。
 
 ---
 
-## ✅ v4.8.0 修复：example21 泛型类方法 codegen
+## ✅ v0.4.8 修复：example21 泛型类方法 codegen
 
 **症状**：`example21_generic_class.klx` LLVM 后端输出 `Stack count: 0 / Pop: 0`（应为 `Stack count: 3 / Pop: 30`）。Go 后端正确。
 
@@ -591,4 +591,4 @@ v5.2.0 打通自举编译器**构建**（`src/*.klx` → `kylix_self` 可运行�
 
 **验证**：example21 LLVM 输出与 Go 后端逐字节一致（`Stack count: 3 / Pop: 30 / Pop: 20 / Stack count: 1 / Pop: World`）。
 
-**附注**：example21 的静态数组字段 `array[0..99]` 现在也受益于 v4.7.0 的 LowerBound 修复（下界 0 → 不调整索引）。两个修复协同使泛型栈类完整工作。
+**附注**：example21 的静态数组字段 `array[0..99]` 现在也受益于 v0.4.7 的 LowerBound 修复（下界 0 → 不调整索引）。两个修复协同使泛型栈类完整工作。

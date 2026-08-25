@@ -39,7 +39,7 @@ type CacheEntry struct {
 type BuildCache struct {
 	dir string // directory where cache files live
 
-	// Hit counters (v6.0.0) — populated by Load for reporting cache efficiency
+	// Hit counters (v0.6.0) — populated by Load for reporting cache efficiency
 	// (kylix build --time / benchmarks). Load is called sequentially from
 	// CompileProject's pre-parse loop, so no locking is needed.
 	Hits   int
@@ -62,7 +62,7 @@ func (c *BuildCache) cacheFile(srcPath string) string {
 
 // Load returns the cached entry for srcPath if it is still valid (fingerprint
 // matches current file stat). Returns nil when the cache is cold or stale.
-// Each call bumps the Hits/Misses counters (v6.0.0).
+// Each call bumps the Hits/Misses counters (v0.6.0).
 func (c *BuildCache) Load(srcPath string) *CacheEntry {
 	info, err := os.Stat(srcPath)
 	if err != nil {

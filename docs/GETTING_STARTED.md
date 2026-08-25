@@ -2,7 +2,7 @@
 
 > 本教程包含 5 个经过测试的 Kylix 示例，从 Hello World 到类与对象，逐步介绍 Kylix 语言的核心特性。
 > 
-> **环境要求**: 已安装 Kylix 编译器（v3.0.0-alpha 或更高版本）
+> **环境要求**: 已安装 Kylix 编译器（v0.3.0-alpha 或更高版本）
 > 
 > **运行方式**: `kylix build example.klx && go run example.go`
 
@@ -274,5 +274,5 @@ kylix test myfile_test.klx
 
 ---
 
-**版本**: 适用于 Kylix v3.0.0-alpha  
+**版本**: 适用于 Kylix v0.3.0-alpha  
 **最后更新**: 2026-06-21

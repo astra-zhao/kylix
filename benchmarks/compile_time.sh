@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# compile_time.sh — Compile-time benchmark for the Kylix compiler (v6.0.0 #7).
+# compile_time.sh — Compile-time benchmark for the Kylix compiler (v0.6.0 #7).
 #
 # Measures wall-clock time to compile the bootstrap sources (src/*.klx,
 # ~7.5k lines) on both backends:
@@ -35,7 +35,7 @@ cp src/*.klx "$TMP/"
 cd "$TMP"
 # After cd, the sources are plain `*.klx` here — NOT `src/*.klx` (that glob
 # would expand to nothing and `kylix build` would fall into project mode and
-# fail fast, giving a bogus ~0ms measurement). v6.1.0 fix.
+# fail fast, giving a bogus ~0ms measurement). v0.6.1 fix.
 SRC=(*.klx)
 
 now_ns() {

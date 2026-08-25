@@ -25,21 +25,21 @@ type LLVMPaths struct {
 // FindLLVM looks for llc, clang, and opt in common install locations.
 func FindLLVM() (*LLVMPaths, error) {
 	searchDirs := []string{
-		`C:\LLVM\bin`,                // Windows (CI installs to C:\LLVM, v6.2.0)
+		`C:\LLVM\bin`,                // Windows (CI installs to C:\LLVM, v0.6.2)
 		`C:\Program Files\LLVM\bin`,  // Windows (default LLVM installer dir)
 		"/opt/homebrew/opt/llvm/bin", // Homebrew ARM
 		"/usr/local/opt/llvm/bin",    // Homebrew x86
 		"/usr/bin",                   // Linux system
 		"/usr/local/bin",
 	}
-	// v6.3.0: bundled LLVM next to the executable (distribution form B:
+	// v0.6.3: bundled LLVM next to the executable (distribution form B:
 	// kylix + llvm/bin + llvm/lib) takes precedence over system installs.
 	if exe, err := os.Executable(); err == nil {
 		searchDirs = append([]string{filepath.Join(filepath.Dir(exe), "llvm", "bin")}, searchDirs...)
 	}
 
 	find := func(name string) string {
-		// v6.3.0: bundled LLVM next to the executable (kylix + llvm/bin) has
+		// v0.6.3: bundled LLVM next to the executable (kylix + llvm/bin) has
 		// top priority — a self-contained distribution must not pick up a
 		// different system clang/llc.
 		if exe, err := os.Executable(); err == nil {
@@ -97,13 +97,13 @@ type CompileOpts struct {
 	// Empty defaults to -O0 (no optimization).
 	OptLevel string
 
-	// DebugInfo (v4.5.0): when true, emit DWARF debug info so LLDB/GDB can
+	// DebugInfo (v0.4.5): when true, emit DWARF debug info so LLDB/GDB can
 	// resolve function names + source files (kylix build --backend=llvm -g).
 	// Implies -O0: optimization reorders/drops instructions, making debug info
 	// misleading, so OptLevel is forced to "" when DebugInfo is on.
 	DebugInfo bool
 
-	// Target (v6.2.0): cross-compilation target "os/arch" (e.g. "linux/amd64",
+	// Target (v0.6.2): cross-compilation target "os/arch" (e.g. "linux/amd64",
 	// "windows/amd64", "darwin/arm64"). Empty means the host (runtime.GOOS/GOARCH).
 	// Drives the LLVM IR target triple + datalayout, llc codegen, clang link
 	// flags and the system-library search. See tripleFor.
@@ -112,7 +112,7 @@ type CompileOpts struct {
 
 // appendHomebrewLib adds -L + -Wl,-rpath for a Homebrew-installed library on
 // macOS (openssl/sqlite/curl). No-op on other platforms or when the dir is
-// absent (Linux uses the system default path). v6.2.0.
+// absent (Linux uses the system default path). v0.6.2.
 func appendHomebrewLib(clangArgs *[]string, brewName string) {
 	for _, dir := range []string{
 		"/opt/homebrew/opt/" + brewName + "/lib", // Homebrew ARM
@@ -138,7 +138,7 @@ func resolveTarget(target string) (string, string) {
 }
 
 // tripleFor returns the LLVM target triple + datalayout for an os/arch pair
-// (v6.2.0). The IR header carries these so llc produces the right object file;
+// (v0.6.2). The IR header carries these so llc produces the right object file;
 // previously the triple was hardcoded to arm64-apple-macosx, so cross-compiling
 // (or even running the LLVM backend on Linux/Windows) emitted Mach-O objects
 // that the platform linker could not read.
@@ -195,7 +195,7 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		return nil, fmt.Errorf("LLVM IR generation: %w", err)
 	}
 
-	// v4.5.0 Phase C: run the process-in-LLVM pass pipeline (ConstantFold +
+	// v0.4.5 Phase C: run the process-in-LLVM pass pipeline (ConstantFold +
 	// DCE) on the generated IR. These are cheap, always-safe IR-text cleanups
 	// that reduce IR/binary size for the common -O0 case and run by default
 	// (no flag). They are skipped when external opt --O<N> is set, since opt
@@ -214,7 +214,7 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	// llc: .ll → .o with optional optimization level
 	objFile := base + ".o"
 
-	// v4.5.0 Phase C: incremental cache. v6.5.0: checked BEFORE opt/llc so a
+	// v0.4.5 Phase C: incremental cache. v0.6.5: checked BEFORE opt/llc so a
 	// hit skips both — the key is the pre-opt IR hash (after the in-process DCE
 	// above), so any codegen change invalidates. Best-effort: cache failure is
 	// non-fatal.
@@ -245,10 +245,10 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 			}
 			irFile = optIRFile // feed optimized IR to llc
 		} else if llvmPaths.Opt != "" {
-			// v6.5.0: for the default -O0 build, run mem2reg first (alloca→SSA
+			// v0.6.5: for the default -O0 build, run mem2reg first (alloca→SSA
 			// promotion) so llc sees a much smaller IR. This is the cheapest,
 			// safest part of opt -O2 and delivers most of its speedup, without
-			// the vtable-load fold risk of full -O2 (v5.4.0).
+			// the vtable-load fold risk of full -O2 (v0.5.4).
 			memIR := base + ".mem.ll"
 			optArgs := []string{"--passes=mem2reg", "-disable-verify", irFile, "-o", memIR}
 			if _, err := exec.Command(llvmPaths.Opt, optArgs...).CombinedOutput(); err == nil {
@@ -256,7 +256,7 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 			}
 		}
 
-		// v5.4.0: force -O0 when no explicit level — LLVM 22 llc defaults to
+		// v0.5.4: force -O0 when no explicit level — LLVM 22 llc defaults to
 		// -O2 (the full optimization pipeline), which mis-optimizes the vtable
 		// load sequence (folding obj[0]=vtable-ptr + vtable[idx] into obj[idx*8],
 		// corrupting indirect calls). -O0 keeps the IR's explicit load/GEP steps.
@@ -271,8 +271,8 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		default:
 			llcArgs = append(llcArgs, "-O=2")
 		}
-		llcArgs = append(llcArgs, "-disable-verify") // v6.5.0: skip IR verification on large modules
-		// v6.2.0: cross-compilation — pin the target so llc honors it even if
+		llcArgs = append(llcArgs, "-disable-verify") // v0.6.5: skip IR verification on large modules
+		// v0.6.2: cross-compilation — pin the target so llc honors it even if
 		// the IR triple were lost; llc is a multi-target compiler.
 		if opts.Target != "" {
 			tOS, tArch := resolveTarget(opts.Target)
@@ -295,7 +295,7 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		outBin = base
 	}
 
-	// v6.2.0: cross-compilation target (host default when opts.Target empty).
+	// v0.6.2: cross-compilation target (host default when opts.Target empty).
 	// Drives the clang --target flag, the Windows linker driver, and which
 	// system-library search path to use.
 	targetOS, targetArch := resolveTarget(opts.Target)
@@ -314,13 +314,13 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	}
 	// Linux: the IR accesses string constants with absolute relocations
 	// (R_X86_64_32S against .rodata), which the linker rejects under PIE
-	// ("can not be used when making a PIE object"). Link non-PIE. v6.2.0.
+	// ("can not be used when making a PIE object"). Link non-PIE. v0.6.2.
 	if targetOS == "linux" {
 		clangArgs = append(clangArgs, "-no-pie")
 	}
 
 	// Link system libraries by scanning the IR for stdlib module symbols.
-	// v6.2.0: the -L/rpath handling is macOS-only (Homebrew); Linux uses the
+	// v0.6.2: the -L/rpath handling is macOS-only (Homebrew); Linux uses the
 	// system default path; Windows relies on clang's .lib search.
 	if strings.Contains(ir, "@__kylix_crypto_") || strings.Contains(ir, "@SHA1") {
 		clangArgs = append(clangArgs, "-lcrypto")
@@ -342,7 +342,7 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	}
 	clangCmd := exec.Command(llvmPaths.Clang, clangArgs...)
 	if out, err := clangCmd.CombinedOutput(); err != nil {
-		// v6.2.0: cross-compiling on a host that lacks the target's CRT/libc
+		// v0.6.2: cross-compiling on a host that lacks the target's CRT/libc
 		// (e.g. linking linux/amd64 from macOS) fails at link even though llc
 		// produced a correct object file. Explain instead of a bare clang error.
 		if opts.Target != "" && targetOS != runtime.GOOS {

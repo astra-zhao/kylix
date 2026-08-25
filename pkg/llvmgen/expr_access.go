@@ -1,5 +1,5 @@
 // expr_access.go — member/method/interface/closure access expression codegen
-// (split from expr.go in v4.5.0 to keep each source file under 1000 lines).
+// (split from expr.go in v0.4.5 to keep each source file under 1000 lines).
 package llvmgen
 
 import (
@@ -14,7 +14,7 @@ import (
 // statement (`self.CollectImports;`) from a field access — Pascal writes such
 // calls without parentheses, so the AST is a bare MemberExpression that must be
 // lowered to a method call, not a field load (which would emit a no-op "field
-// not found" and silently drop the call). v5.6.0.
+// not found" and silently drop the call). v0.5.6.
 func (g *Generator) memberIsMethod(e *ast.MemberExpression) bool {
 	kind, typeName := g.receiverKind(e.Object)
 	if kind != "class" {
@@ -62,7 +62,7 @@ func (g *Generator) emitMember(e *ast.MemberExpression) (string, string, error) 
 		return g.emitHttpclientFieldAccess(e.Object, e.Member)
 	}
 
-	// TResponse (KylixBoot response handle {i64 status, ptr body}, v6.1.0):
+	// TResponse (KylixBoot response handle {i64 status, ptr body}, v0.6.1):
 	// `.Body` / `.Status` are lowered to GEP+load on the 16-byte handle.
 	if typeName == "TResponse" || typeName == "BootResponse" {
 		return g.emitBootResponseFieldAccess(e.Object, e.Member)
@@ -75,7 +75,7 @@ func (g *Generator) emitMember(e *ast.MemberExpression) (string, string, error) 
 	}
 
 	if kind != "class" {
-		// v5.4.0: emit a null ptr (not i64 0) so downstream comparisons with
+		// v0.5.4: emit a null ptr (not i64 0) so downstream comparisons with
 		// ptr/string operands stay type-consistent and llc accepts the IR.
 		// This is a conservative fallback for member access whose receiver
 		// type is unknown (e.g. record-typed, not yet supported); it may
@@ -132,7 +132,7 @@ func (g *Generator) loadObjectPtr(obj ast.Expression, typeName string) (string, 
 	}
 	// `self` is registered as "%self" (a function parameter, already a ptr);
 	// other locals are "%v_name" allocas that need a load to dereference.
-	// v5.4.0: a global (`@__kylix_g_*`) stores the object pointer — load it
+	// v0.5.4: a global (`@__kylix_g_*`) stores the object pointer — load it
 	// into a fresh register so downstream GEP/load use the object, not the
 	// global address (which llc could mis-optimize by forward-substituting the
 	// global's stored value and conflating object/vtable offsets).
@@ -141,7 +141,7 @@ func (g *Generator) loadObjectPtr(obj ast.Expression, typeName string) (string, 
 		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", r, alloca))
 		return r, "ptr", nil
 	}
-	// v5.5.0: `result` for a class/record return type is an alloca ptr that
+	// v0.5.5: `result` for a class/record return type is an alloca ptr that
 	// stores the object pointer — load it so `result.Field := x` GEPs into
 	// the object, not the alloca. Without this, `result.TokenType := tokType`
 	// in TLexer.ReadNumber (returns TToken) was "unhandled member assignment".
@@ -219,7 +219,7 @@ func (g *Generator) emitMethodCall(member *ast.MemberExpression, args []ast.Expr
 		}
 		return g.emitHttpclientMethodCall(objReg, member.Member, args)
 	}
-	// TRequest (KylixBoot request handle, v6.6.0): req.Param/Query/Header/Body.
+	// TRequest (KylixBoot request handle, v0.6.6): req.Param/Query/Header/Body.
 	if typeName == "TRequest" || typeName == "BootRequest" {
 		objReg, _, err := g.emitExpr(member.Object)
 		if err != nil {
@@ -359,7 +359,7 @@ func (g *Generator) emitClosureCall(varName string, args []ast.Expression) (stri
 
 	// Evaluate arguments, coercing each to the lambda's declared param type.
 	paramTypes := g.closureParams[varName]
-	kylixParamTypes := g.closureKylixParams[varName] // v6.3.0
+	kylixParamTypes := g.closureKylixParams[varName] // v0.6.3
 	retType := g.closureSigs[varName]
 	if retType == "" {
 		retType = "void"
@@ -373,7 +373,7 @@ func (g *Generator) emitClosureCall(varName string, args []ast.Expression) (stri
 			return "", "", err
 		}
 		if i < len(paramTypes) && paramTypes[i] != t {
-			// v6.3.0: a Variant lambda param receives the box as-is — coercing
+			// v0.6.3: a Variant lambda param receives the box as-is — coercing
 			// variant→ptr would as_str it (same bug as emitCall). Without the
 			// Kylix type name, "ptr" params are indistinguishable from String.
 			if i < len(kylixParamTypes) && isVariantTypeName(kylixParamTypes[i]) && t == variantT {
@@ -394,7 +394,7 @@ func (g *Generator) emitClosureCall(varName string, args []ast.Expression) (stri
 	callArgs := []string{"ptr " + eptr}
 	for i, r := range argRegs {
 		at := argTypes[i]
-		// v6.3.0: a Variant box's real IR type is ptr — the "variant"
+		// v0.6.3: a Variant box's real IR type is ptr — the "variant"
 		// pseudo-type must never appear in a call's arg list.
 		if at == variantT {
 			at = "ptr"
@@ -426,7 +426,7 @@ func (g *Generator) emitIsExpr(e *ast.IsExpression) (string, string, error) {
 		g.line(fmt.Sprintf("  %s = add i1 0, %d ; %s is %s", r, val, typeName, target))
 		return r, "i1", nil
 	}
-	// v5.4.0: class target — runtime subtype check via vtable hierarchy.
+	// v0.5.4: class target — runtime subtype check via vtable hierarchy.
 	// `obj is TClass` where obj's compile-time type is a base class (or the
 	// same class): load obj's vtable ptr and walk the class edge table to see
 	// if TClass is an ancestor. This is what makes the bootstrap's ~95
@@ -465,7 +465,7 @@ func (g *Generator) emitAsExpr(e *ast.TypeCastExpression) (string, string, error
 		_ = vt
 		return data, "ptr", nil
 	}
-	// v5.4.0: `obj as TConcreteClass` — the cast target is a class (not an
+	// v0.5.4: `obj as TConcreteClass` — the cast target is a class (not an
 	// interface), so the instance is already the right opaque ptr (subclass
 	// prefix layout is compatible). Return the object pointer. Runtime subtype
 	// validation (classID + __kylix_class_is_a) is added in Stage 2 proper;
@@ -490,7 +490,7 @@ func (g *Generator) emitAsExpr(e *ast.TypeCastExpression) (string, string, error
 // Conservative: only String and Integer expression parts are formatted; other
 // types are skipped (the substring is omitted). Buffer is a fixed 256 bytes.
 func (g *Generator) emitStringInterpolation(e *ast.StringInterpolation) (string, string, error) {
-	// v6.5.0: compute the total buffer size up front (string literals use their
+	// v0.6.5: compute the total buffer size up front (string literals use their
 	// constant length; runtime parts use strlen; i64/double/bool use generous
 	// fixed caps) and malloc exactly that + 1. The old fixed 256-byte buffer
 	// overflowed for long interpolations (bare strcat past the end).

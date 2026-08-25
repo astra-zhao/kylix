@@ -19,7 +19,7 @@ type
     CurToken: TToken;
     PeekToken: TToken;
     UsesPolymorphism: Boolean;
-    CastBoundary: Boolean; // v5.9.0: as/is type parse stopped on a closing token
+    CastBoundary: Boolean; // v0.5.9: as/is type parse stopped on a closing token
   end;
 
 // ============================================================================
@@ -119,7 +119,7 @@ begin
   append(self.Errors, msg);
 end;
 
-// v5.9.0: ParseAttributeList replaces SkipAttributes. Parses [Name] or
+// v0.5.9: ParseAttributeList replaces SkipAttributes. Parses [Name] or
 // [Name(args...)] attributes and returns them as array of TAttribute.
 // Leaves parser positioned at the next non-attribute token (the decl).
 function TParser.ParseAttributeList(): array of TAttribute;
@@ -305,7 +305,7 @@ begin
     end;
 
     var attrs: array of TAttribute;
-    attrs := self.ParseAttributeList(); // v5.9.0: parse [Attribute] before a decl
+    attrs := self.ParseAttributeList(); // v0.5.9: parse [Attribute] before a decl
     if self.CurTokenIs(tkEOF) or self.CurTokenIs(tkEnd) or self.CurTokenIs(tkDot) then
       break;
 
@@ -336,7 +336,7 @@ begin
       begin
         var td: TTypeDecl;
         td := self.ParseSingleTypeDecl();
-        td.Attributes := attrs; // v5.9.0: attach to type decl
+        td.Attributes := attrs; // v0.5.9: attach to type decl
         append(prog.Declarations, td);
         while self.CurTokenIs(tkSemicolon) do
           self.NextToken();
@@ -346,19 +346,19 @@ begin
     begin
       var fd: TFunctionDecl;
       fd := self.ParseFunctionDecl();
-      fd.Attributes := attrs; // v5.9.0: attach to function decl
+      fd.Attributes := attrs; // v0.5.9: attach to function decl
       append(prog.Declarations, fd);
     end
     else if self.CurTokenIs(tkClass) then
     begin
       var cdl: TClassDecl;
       cdl := self.ParseClassDecl();
-      cdl.Attributes := attrs; // v5.9.0: attach to class decl
+      cdl.Attributes := attrs; // v0.5.9: attach to class decl
       append(prog.Declarations, cdl);
     end
     else if self.CurTokenIs(tkInterface) then
     begin
-      // v5.6.0: unit section marker `interface` vs interface type decl.
+      // v0.5.6: unit section marker `interface` vs interface type decl.
       // In unit files, `interface` is a section marker (skip). Otherwise it's
       // an interface type declaration.
       if prog.IsUnit then
@@ -368,7 +368,7 @@ begin
     end
     else if self.CurTokenIs(tkImplementation) then
     begin
-      // v5.6.0: unit section marker `implementation` — skip.
+      // v0.5.6: unit section marker `implementation` — skip.
       self.NextToken();
     end
     else if self.CurTokenIs(tkBegin) then
@@ -400,7 +400,7 @@ begin
       self.NextToken();
   end;
 
-  prog.UsesPolymorphism := self.UsesPolymorphism; // v5.9.0: copy to program for generator gate
+  prog.UsesPolymorphism := self.UsesPolymorphism; // v0.5.9: copy to program for generator gate
   result := prog;
 end;
 
@@ -551,7 +551,7 @@ end;
 
 function TParser.ParseFunctionDecl(): TFunctionDecl;
 var decl: TFunctionDecl; var isProcedure: Boolean; var hasFuncKeyword: Boolean;
-    var localDecls: array of TNode;  // v5.2.0: TNode (not TStatement) — matches TFunctionDecl.LocalDecls element type; Go slices are invariant.
+    var localDecls: array of TNode;  // v0.5.2: TNode (not TStatement) — matches TFunctionDecl.LocalDecls element type; Go slices are invariant.
 begin
   decl := TFunctionDecl.Create();
   localDecls := [];
@@ -817,7 +817,7 @@ begin
   while (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkEOF) = false) do
   begin
     var mattrs: array of TAttribute;
-    mattrs := self.ParseAttributeList(); // v5.9.0: parse [Attribute] before a member
+    mattrs := self.ParseAttributeList(); // v0.5.9: parse [Attribute] before a member
     if self.CurTokenIs(tkEnd) or self.CurTokenIs(tkEOF) then
       break;
     if self.CurTokenIs(tkPublic) or self.CurTokenIs(tkPrivate) or self.CurTokenIs(tkProtected) then
@@ -832,7 +832,7 @@ begin
       begin
         var fvd: TVarDecl;
         fvd := self.ParseSingleVarDecl();
-        fvd.Attributes := mattrs; // v5.9.0: attach to field
+        fvd.Attributes := mattrs; // v0.5.9: attach to field
         append(decl.Fields, fvd);
         while self.CurTokenIs(tkSemicolon) do
           self.NextToken();
@@ -842,7 +842,7 @@ begin
     begin
       var mfd: TFunctionDecl;
       mfd := self.ParseFunctionDecl();
-      mfd.Attributes := mattrs; // v5.9.0: attach to method
+      mfd.Attributes := mattrs; // v0.5.9: attach to method
       append(decl.Methods, mfd);
     end
     else if self.CurTokenIs(tkProperty) then
@@ -851,7 +851,7 @@ begin
     begin
       var fvd2: TVarDecl;
       fvd2 := self.ParseSingleVarDecl();
-      fvd2.Attributes := mattrs; // v5.9.0: attach to field
+      fvd2.Attributes := mattrs; // v0.5.9: attach to field
       append(decl.Fields, fvd2);
       while self.CurTokenIs(tkSemicolon) do
         self.NextToken();
@@ -1251,7 +1251,7 @@ begin
   begin
     self.NextToken();
     stmt.Condition := self.ParseExpression(PREC_LOWEST);
-    self.NextToken(); // v5.6.0: advance past the condition's last token
+    self.NextToken(); // v0.5.6: advance past the condition's last token
     // (host parser.go:223 has this; without it CurToken stays on the
     // condition's RHS, so the enclosing block re-parses it as a statement —
     // `until i > 5;` emitted a bare `5` statement after the repeat).
@@ -1662,7 +1662,7 @@ begin
     result := nil;
   end;
 
-  // v5.9.0: as/is (or a group containing them) may leave CurToken directly on
+  // v0.5.9: as/is (or a group containing them) may leave CurToken directly on
   // '.', with the member name as Peek — Peek is not an infix, so the loop
   // below would exit and drop `.Field`. Bind member chains here.
   while self.CurTokenIs(tkDot) do
@@ -1673,7 +1673,7 @@ begin
   begin
     if self.CastBoundary then
     begin
-      // v5.9.0: as/is left CurToken on a closing token (e.g. `(x as T).Field`
+      // v0.5.9: as/is left CurToken on a closing token (e.g. `(x as T).Field`
       // — after `T` CurToken is `)`). Stop so the group closes and the outer
       // loop binds `.Field`; without this the loop would skip the `)`.
       self.CastBoundary := false;
@@ -1825,7 +1825,7 @@ begin
   result := expr;
 end;
 
-// v5.6.0: ParseLTExpression handles < ambiguity: generic instantiation
+// v0.5.6: ParseLTExpression handles < ambiguity: generic instantiation
 // (TStack<Integer>) vs comparison (a < b). Ported from host parser_expr.go:750.
 function TParser.ParseLTExpression(left: TExpression): TExpression;
 var leftIdent: TIdentifier; var gen: TGenericType; var tp: TExpression;
@@ -1856,7 +1856,7 @@ begin
               else
                 break;
             end;
-            // v5.6.0: do NOT consume > — leave it as CurToken so the infix
+            // v0.5.6: do NOT consume > — leave it as CurToken so the infix
             // loop sees PeekToken = . (PREC_MEMBER) and continues to parse
             // .Create(). Consuming > left PeekToken = Create (PREC_LOWEST) →
             // loop exited → .Create() unparsed → TStack<Integer> returned
@@ -1929,7 +1929,7 @@ begin
 
   if self.CurTokenIs(tkRParen) then
   begin
-    // v5.9.0: as/is may have left CurToken on the closing ')' (their right
+    // v0.5.9: as/is may have left CurToken on the closing ')' (their right
     // side is parsed by ParseTypeExpression, which stops on the ')' after the
     // type). Consume it here; ExpectPeek would wrongly look at Peek.
     self.NextToken();
@@ -2115,7 +2115,7 @@ begin
   expr.Token := isToken;
   expr.Expression := left;
   expr.TargetType := self.ParseTypeExpression();
-  self.UsesPolymorphism := true; // v5.9.0: signal for polymorphism gate
+  self.UsesPolymorphism := true; // v0.5.9: signal for polymorphism gate
   self.MarkCastBoundary();
   result := expr;
 end;
@@ -2129,12 +2129,12 @@ begin
   expr.Token := asToken;
   expr.Expression := left;
   expr.TargetType := self.ParseTypeExpression();
-  self.UsesPolymorphism := true; // v5.9.0: signal for polymorphism gate
+  self.UsesPolymorphism := true; // v0.5.9: signal for polymorphism gate
   self.MarkCastBoundary();
   result := expr;
 end;
 
-// v5.9.0: MarkCastBoundary — parseTypeExpression stops on a closing token
+// v0.5.9: MarkCastBoundary — parseTypeExpression stops on a closing token
 // (`)`, `,`, `]`, EOF); record that so the enclosing ParseExpression infix
 // loop stops instead of skipping the closing token to reach a peeked infix
 // (e.g. `(x as T).Field` — after `T` CurToken is `)`, Peek is `.`). The loop

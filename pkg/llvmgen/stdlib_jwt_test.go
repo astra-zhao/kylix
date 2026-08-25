@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// stdlib_jwt tests — verify the v6.3.0 (signature) + v6.6.0 (claims) jwt
+// stdlib_jwt tests — verify the v0.6.3 (signature) + v0.6.6 (claims) jwt
 // module lowers to real IR: JwtVerify parses the payload into a Variant map
 // with exp expiry; JwtSign supports extraClaims; accessors read claims.
 
@@ -18,7 +18,7 @@ begin
   WriteLn(JwtSubject(c));
 end.`)
 	// Verify decodes the payload (b64urldecode) and parses it into a claims
-	// htab, then box_map's it into a Variant map (v6.6.0).
+	// htab, then box_map's it into a Variant map (v0.6.6).
 	assertIRContains(t, ir, "define ptr @__kylix_jwt_b64url_decode(ptr %str, i64 %n)")
 	assertIRContains(t, ir, "call ptr @__kylix_json_parse_flat(ptr")
 	assertIRContains(t, ir, "call ptr @__kylix_variant_box_map(ptr")
@@ -35,7 +35,7 @@ begin
   if c = nil then WriteLn('bad');
 end.`)
 	// A rejected/tampered token must return the nilbox Variant (not a null
-	// ptr), so `c = nil` compares correctly without crashing. v6.6.0.
+	// ptr), so `c = nil` compares correctly without crashing. v0.6.6.
 	assertIRContains(t, ir, "ret ptr @__kylix_variant_nilbox")
 }
 

@@ -24,7 +24,7 @@ func cmdBuild(args []string) {
 	backend := fs.String("backend", "go", "Compiler backend: go (default) or llvm (experimental)")
 	llvmOpt := fs.String("llvm-opt", "", "LLVM optimization level (0/1/2/3); only meaningful with --backend=llvm")
 	llvmDebug := fs.Bool("g", false, "Emit DWARF debug info (LLVM backend; implies -O0, enables GDB/LLDB function-level debugging)")
-	showTime := fs.Bool("time", false, "Print compile duration and incremental-cache hit rate (v6.0.0)")
+	showTime := fs.Bool("time", false, "Print compile duration and incremental-cache hit rate (v0.6.0)")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix build [options] [file.klx]
 

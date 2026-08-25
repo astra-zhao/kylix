@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// stdlib_boot_http tests — verify the v6.6.0 KylixBoot HTTP server lowers to
+// stdlib_boot_http tests — verify the v0.6.6 KylixBoot HTTP server lowers to
 // real IR: route registration into @__kylix_boot_routes, a BootRun loop using
 // BSD sockets, and inline req.Param/Query/Header lookups.
 
@@ -77,7 +77,7 @@ func contains(t *testing.T, s, sub string) bool {
 	return false
 }
 
-// ---- v6.8.0: POST body read / req.JSON / BootRegisterJwtAuth ----
+// ---- v0.6.8: POST body read / req.JSON / BootRegisterJwtAuth ----
 
 func TestBoot_ReadBodyReal(t *testing.T) {
 	ir := generateIR(t, `program p;

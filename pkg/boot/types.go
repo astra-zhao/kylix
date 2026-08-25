@@ -4,7 +4,7 @@
 // This package provides the runtime that powers declarative annotations
 // like [Controller], [Get], [Inject], [Value], etc.
 //
-// In v3.1.0 (initial alpha), boot exposes a programmatic API:
+// In v0.3.1 (initial alpha), boot exposes a programmatic API:
 //
 //	boot.GET("/users", handleListUsers)
 //	boot.POST("/users", handleCreateUser)

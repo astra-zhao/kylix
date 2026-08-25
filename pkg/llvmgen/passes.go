@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// passes.go — process-in-LLVM IR optimization passes (v4.5.0 Phase C).
+// passes.go — process-in-LLVM IR optimization passes (v0.4.5 Phase C).
 //
 // Post-generation text transforms applied to the complete IR module BEFORE it
 // is written to .ll and fed to llc. They complement the external `opt --O<N>`
@@ -78,7 +78,7 @@ func (deadCodeElimPass) run(ir string) string {
 		idx int
 	}
 	var defs []def
-	// v6.5.0: single pass over the IR counts every %tN token (a `%` followed by
+	// v0.6.5: single pass over the IR counts every %tN token (a `%` followed by
 	// digits). The old per-def full-module strings.Index scan was O(defs × len)
 	// and dominated -O0 compile time on large modules.
 	counts := make(map[string]int)
@@ -112,7 +112,7 @@ func (deadCodeElimPass) run(ir string) string {
 // countToks scans one IR line and increments the occurrence count for every
 // SSA token (%tN — `%` + optional `t` + digits). This keeps %t1 distinct from
 // %t10 (word-boundary semantics, matching the old countOccurrences behaviour).
-// v6.5.0.
+// v0.6.5.
 func countToks(ln string, counts map[string]int) {
 	for i := 0; i < len(ln); i++ {
 		if ln[i] == '%' {

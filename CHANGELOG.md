@@ -4,7 +4,15 @@ All notable changes to the Kylix compiler are documented in this file.
 
 > 🌐 [kylix.top](https://kylix.top) — Official website with interactive docs and live code examples.
 
-## v6.8.0 (2026-08-23) — boot server 补强 + stdlib 补全 + JetBrains 插件完善
+## 🔄 版本号体系调整（2026-08-25）
+
+**全库版本号降级**：Kylix 版本从 `vX.Y.Z` 统一降为 **`v0.X.Y`**（pre-1.0 迭代编号，全部功能完成后升 `v1.0.0`）。规则：
+- `v6.8.0 → v0.6.8`、`v5.10.0 → v0.5.10`、`v4.9.0 → v0.4.9` …（主次版本号保留，patch=0 省略）。
+- 历史早期开发版本 `v0.1.0/v0.2.0/v0.3.0`（2026-05）→ `v0.0.1/v0.0.2/v0.0.3`（避免与降级后的 `v1.0.0→v0.1.0` 等撞车）。
+- 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
+- **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
+
+## v0.6.8 (2026-08-23) — boot server 补强 + stdlib 补全 + JetBrains 插件完善
 
 ### boot HTTP server 补强（LLVM 端，KylixBoot 无 Go 更完整）
 
@@ -42,10 +50,10 @@ All notable changes to the Kylix compiler are documented in this file.
 
 
 
-## v6.7.0 (2026-08-22) — JetBrains 插件 + 安装使用手册
+## v0.6.7 (2026-08-22) — JetBrains 插件 + 安装使用手册
 ### #9 JetBrains 插件（IntelliJ IDEA / GoLand）
 
-- **新模块 `jetbrains-plugin/`**（与 `vscode-ext/` 平级，完整 Gradle Kotlin 项目，IntelliJ Platform Gradle Plugin 2.3.0 + Kotlin 2.1.20 + IC 2024.3 SDK）。
+- **新模块 `jetbrains-plugin/`**（与 `vscode-ext/` 平级，完整 Gradle Kotlin 项目，IntelliJ Platform Gradle Plugin 0.2.3 + Kotlin 2.1.20 + IC 2024.3 SDK）。
 - **语法高亮**：复用 `vscode-ext/syntaxes/kylix.tmLanguage.json`（TextMate grammar，8 段 23 pattern），注册为 IntelliJ TextMate bundle（`com.intellij.textmate.bundleProvider` 扩展点，`getBundles(): List<PluginBundle>`）——`.klx` 文件自动高亮 + 文件类型识别。
 - **LSP 集成**：LSP4IJ 桥接 `kylix lsp`（stdio JSON-RPC，`pkg/lsp` 零改动）——`ProcessStreamConnectionProvider`（`KYLIX_PATH` 环境变量 → PATH 探测 → `kylix`）+ `LanguageServerFactory` + plugin.xml `<server>`/`<languageMapping>` 扩展点。补全 / 跳转 / 引用 / 重命名 / 格式化 / 悬停 / 签名帮助 / 诊断全通。
 - **25 个 Live Templates**（`prog/func/proc/class/record/if/for/while/controller/routeget/entity/unit` 等，从 `vscode-ext/snippets/kylix.json` 转换）。
@@ -56,7 +64,7 @@ All notable changes to the Kylix compiler are documented in this file.
 
 
 
-## v6.6.0 (2026-08-21) — boot HTTP server + stdlib 补全 5 项
+## v0.6.6 (2026-08-21) — boot HTTP server + stdlib 补全 5 项
 ### boot HTTP server（KylixBoot 无 Go 环境真正可用）
 
 - **路由表**：`Boot<M>(path, handler)` 从 void no-op 改为把 `{method, path, handler}` 写入模块路由表 `@__kylix_boot_routes`（`[64 x {ptr,ptr,ptr}]` + `@__kylix_boot_nroutes`），供 `BootRun` 分发。
@@ -67,36 +75,36 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ### stdlib 补全 5 项（LLVM 端与 Go 端 parity）
 
-#### jwt claims（v6.6.0）
+#### jwt claims（v0.6.6）
 - **JwtVerify 返回 claims map**：验签后 b64url-decode payload → `parse_flat` 解析成 Variant map（box_map）返回；**exp 过期检查**（claims['exp'] 存在且 < now → 失败返回 nilbox）。
 - **JwtSubject / JwtGetString / JwtGetInt**：`variant_map_get` + as_str/as_int 读取 claims（stdlib.go 裸调用表补 JwtGetString/GetInt）。
 - **JwtSign extraClaims**：第 4 参（Variant map）遍历 `htab_keys` + `htab_get_variant` 并入 payload JSON（首个 claim 无前导逗号，sub/iat/exp 按需拼）。
-- **b64url 潜伏 bug 修复**：tail `rem==1`（1 字节剩余）只写 1 字符漏第二字符 → 输出含垃圾（token payload 非标准）。v6.3.0 的 payload 长度恰好 mod 3 ≠ 1 避开；动态 payload 触发。
+- **b64url 潜伏 bug 修复**：tail `rem==1`（1 字节剩余）只写 1 字符漏第二字符 → 输出含垃圾（token payload 非标准）。v0.6.3 的 payload 长度恰好 mod 3 ≠ 1 避开；动态 payload 触发。
 - 验证：Python 标准 HS256 验签 LLVM token（含 extra claims）逐字节一致 + 过期跨秒验证。
 
-#### cache TTL（v6.6.0）
+#### cache TTL（v0.6.6）
 - TCache 从「直接 htab 句柄」改为 **24 字节句柄** `{ptr htab, ptr ttl, i64 defaultTtlMs}`；TTL 旁表存 key → malloc'd `{i64 expiresAt}`。
 - 新增 **PutWithTTL / Get（Variant）/ Sweep**；Get/GetString/Has 惰性过期检查（过期即删），Sweep 经新 `@__kylix_htab_keys`（通用 key 遍历）删全部过期。
 - 毫秒时钟 `@__kylix_now_ms`（gettimeofday——CLOCK_MONOTONIC 常量跨平台不同，改用 POSIX 通用）。
 - 教程 example53 无回归；TTL 1ms 忙等过期验证通过。
 
-#### httpclient JSON（v6.6.0）
+#### httpclient JSON（v0.6.6）
 - **HttpGetJSON/HttpPostJSON 返回 Variant map**（不再 raw body 字符串）：body → `JsonDecodeMap`（parse_flat 值已是 Variant box）→ `box_map`。`var m := HttpGetJSON(url); m['key']` 双端 parity。
 - 顺带修复 `Request` body 漏 enqueue `DoRequest`（one-shot helper 会 undefined）。
 
-#### UrlEncode / UrlDecode（v6.6.0）
+#### UrlEncode / UrlDecode（v0.6.6）
 - encoding 模块补齐（对齐 Go `url.QueryEscape`/`QueryUnescape`）：unreserved 原样、空格→`+`、其余 `%XX`（大写）；decode 反向（+ → 空格、`%XX` → 字节）。共享 `hexval` helper 从 HexDecode 抽为独立 body（UrlDecode 复用）。双端逐字节一致。
 
-#### Variant div/mod（v6.6.0）
+#### Variant div/mod（v0.6.6）
 - `div` 关键字 / `mod` 从 `add i64 0,0` stub 转正：双 int → `sdiv`/`srem`（box_int），否则 → `fdiv`/`frem`（box_float）。`isArithOp` 表补两 op + `emitVariantArithBody` 新分支 + `emitVariantRuntimeBodies` 发射。
 
-### 顺带修复（v6.6.0）
+### 顺带修复（v0.6.6）
 - **Variant 赋值 as_str 误 coerce**：`m := HttpGetJSON(...)`（Variant map box 赋 Variant 槽）被 coerceValue variant→ptr 转成 as_str → 空字符串。`isVariantSlot && t==variantT` 改为直接存 box 指针。
 - **emitCall 参数 variant→ptr 归一化**：未知函数调用的 Variant 参数原样传 `variant %x`（非法 IR）→ 归一化为 box 真实类型 ptr。
 - **hashtab 门控**：`emitHashtabBodies` 增加 `|| g.needVariantRuntime`——Variant runtime 的 `map_get` 引用 `htab_get_variant`，纯 Variant 算术程序（`v div 2`）也需 htab 定义。
 
 ### 文档
-- README/README_CN/CLAUDE/html 更新 v6.6.0 + v6.7.0 规划（#9 JetBrains 插件）。
+- README/README_CN/CLAUDE/html 更新 v0.6.6 + v0.6.7 规划（#9 JetBrains 插件）。
 
 
 
@@ -106,11 +114,11 @@ All notable changes to the Kylix compiler are documented in this file.
 - **修复**：3 个初始常量改正 + padLen `len+8` + 触发手写 `@__kylix_ws_sha1`（此前是死代码，握手用 OpenSSL `@SHA1`）。`wsAcceptKey` 改回手写 sha1（去掉 `needLibcrypto`）。
 - **验证**：RFC 6455 已知向量 + WS 端到端（accept 匹配 + echo）通过。
 
-### WS 自回环（分阶段 API，v6.5.0）
+### WS 自回环（分阶段 API，v0.6.5）
 
 - **WsDialConnect / WsDialFinish**（LLVM + Go 双端）：把客户端握手拆成「连接+发请求」与「读响应+验证」两段，`WsDial` = 组合。**单进程自回环**（客户端先连接排队 → 服务端 TcpAccept/WsAccept → 客户端 Finish → echo）不再需要线程/非阻塞。
 - 教程 **example55** 启用真实自回环（双端 51/51）。
-- 顺带修复 **WsAccept 的 snprintf varargs spill 崩溃**（LLVM -O0 下 expect 参数读回垃圾，改 strcat 链——与 v6.4.0 WsDial 同一问题）。
+- 顺带修复 **WsAccept 的 snprintf varargs spill 崩溃**（LLVM -O0 下 expect 参数读回垃圾，改 strcat 链——与 v0.6.4 WsDial 同一问题）。
 - Go 端补 WsDialConnect/WsDialFinish + TcpAccept 类型映射（generator + bootstrap）。
 
 ### KylixRT 完善
@@ -126,7 +134,7 @@ All notable changes to the Kylix compiler are documented in this file.
 - **.o 缓存查询提前到 opt/llc 之前**（-O2 热构建 0.281s → 0.037s，7.6×）。
 - **IR 生成确定性**（globals map 排序，缓存命中的前提）。
 - **llc/opt 加 `-disable-verify`**（大模块省验证时间）。
-- **-O0 默认跑 `opt --passes=mem2reg`**（alloca→SSA 提升，缩小 IR 给 llc；已验证不触发 v5.4.0 vtable 折叠）。
+- **-O0 默认跑 `opt --passes=mem2reg`**（alloca→SSA 提升，缩小 IR 给 llc；已验证不触发 v0.5.4 vtable 折叠）。
 - **结果**：bootstrap `-O0` 编译 11.5s → **0.381s（30×）**；-O2 热构建大幅提速。
 
 ### 验证
@@ -135,7 +143,7 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ---
 
-## v6.4.0 (2026-08-18) — LLVM stdlib 真实现：DbQueryRows + websocket
+## v0.6.4 (2026-08-18) — LLVM stdlib 真实现：DbQueryRows + websocket
 
 ### db.DbQueryRows（LLVM 后端，返回 array of Variant）
 
@@ -158,7 +166,7 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ---
 
-## v6.3.0 (2026-08-11) — jwt 双端 + 分发 B（捆绑 LLVM）
+## v0.6.3 (2026-08-11) — jwt 双端 + 分发 B（捆绑 LLVM）
 
 ### jwt JwtSign 真实现 + JwtVerify 验签版
 
@@ -177,7 +185,7 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ---
 
-## v6.2.0 (2026-08-11) — 跨平台（Linux 达成）+ KylixRT 分发形态（A 预检+文档）
+## v0.6.2 (2026-08-11) — 跨平台（Linux 达成）+ KylixRT 分发形态（A 预检+文档）
 
 > 🎯 **LLVM 后端跨平台解锁**：IR target triple/datalayout 原硬编码 `arm64-apple-macosx15.0.0`（永远产 Mach-O，Linux/Windows 无法链接）——参数化后 llc 产正确 .o（ELF/COFF/aarch64），**Linux 51 教程 LLVM 编译+运行 51/51**（CI 稳定绿）。加 `kylix doctor` 预检命令（分发形态 A）。
 
@@ -205,7 +213,7 @@ All notable changes to the Kylix compiler are documented in this file.
 
 **验证**：Windows target 编译 net/datetime/regex 教程 llc 产 COFF .o 成功（stub 生效）；macOS host 51/51 + 16 包无回归。net/regex 真实现（Winsock/pcre2）为后续增量（需 Windows 环境）。
 
-### v6.2.0 续：stdlib sysutil 补齐 + kylix test/bench LLVM 路由
+### v0.6.2 续：stdlib sysutil 补齐 + kylix test/bench LLVM 路由
 
 - **sysutil 补齐**（9 函数）：DirExists/CreateDir/DeleteFile/AppendFile/CopyFile/GetWorkingDir/SetWorkingDir/GetTempDir/GetFileSize（POSIX libc IR: opendir/mkdir/remove/getcwd/chdir/getenv/fopen）。AppendFile 用追加模式。
 - **`kylix test --backend=llvm`**：无 Go 工具链跑测试（KylixRT）。testrunner 生成 Kylix harness（Assert 打印 FAIL + dispatch main 按 Args[0] 调 Test*）+ llvmgen multifile 编译（测试文件 + uses 依赖）+ 运行原生二进制。顺带修 3 个 LLVM bug：MergePrograms 允许无名字无语句非 unit 文件作声明合并；**Args[N] 索引**（arrayInfo 注册 + @__kylix_args 模块级定义 + statementsUseArgs 反射预扫描让 main 带 argc/argv）；harness dispatch 用带括号调用。
@@ -219,18 +227,18 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ---
 
-## v6.1.0 修复 (2026-08-11) — LLVM bootstrap 编译器编译死循环（KylixRT 前置 bug）
+## v0.6.1 修复 (2026-08-11) — LLVM bootstrap 编译器编译死循环（KylixRT 前置 bug）
 
 > 🎯 **LLVM 编译的 bootstrap 编译器（`main`）编译任何含声明/类的程序死循环**（hello 无声明秒出）——直接违背 KylixRT「bootstrap 产物可直接编译任意程序」愿景。定位为两个真实 codegen bug，修复后 `main` 秒出编译含 is/as、for+continue 的程序（t2 输出 42、loop 奇数求和 25）。
 
-### 根因 1：无方法类 vtable = null → `is` 检查永远 false（v6.1.0 引入）
+### 根因 1：无方法类 vtable = null → `is` 检查永远 false（v0.6.1 引入）
 
-v6.1.0 修复「无方法类悬空 @X_vtable」时把 `emitConstructor` 改为无方法类 store **null** vtable。但 `decl is TTypeDecl` 的 `class_is_a(null, target)` 永远 false → bootstrap 的 ScanBootAnnotations 对每个声明 `cd=nil → continue` → 死循环。
+v0.6.1 修复「无方法类悬空 @X_vtable」时把 `emitConstructor` 改为无方法类 store **null** vtable。但 `decl is TTypeDecl` 的 `class_is_a(null, target)` 永远 false → bootstrap 的 ScanBootAnnotations 对每个声明 `cd=nil → continue` → 死循环。
 
 **修复**（三处，class.go + rtti.go）：
 - `emitVtable`：无方法类**不再 return**，发空 vtable 常量 `@X_vtable = constant [0 x ptr] []`（is 检查可匹配）。
 - `emitConstructor`：恢复无条件 store `@X_vtable`（不再分无方法类 store null）。
-- `emitRecordDecl`：record 也发空 vtable（v5.5.0 的 record is 检查需要；删除了 `emitClassRuntime` 的重复兜底循环——它与 emitVtable 重复定义全局）。
+- `emitRecordDecl`：record 也发空 vtable（v0.5.5 的 record is 检查需要；删除了 `emitClassRuntime` 的重复兜底循环——它与 emitVtable 重复定义全局）。
 
 ### 根因 2：for/forEach 的 `continue` 跳循环头跳过递增（v5.4 潜伏）
 
@@ -246,7 +254,7 @@ v6.1.0 修复「无方法类悬空 @X_vtable」时把 `emitConstructor` 改为�
 
 ---
 
-## v6.1.0 (2026-08-10) — KylixRT 核心：kylix run 单二进制无 Go + LLVM boot 注解自动装配 + 51 教程 LLVM 全过
+## v0.6.1 (2026-08-10) — KylixRT 核心：kylix run 单二进制无 Go + LLVM boot 注解自动装配 + 51 教程 LLVM 全过
 
 > 🎯 **KylixRT 核心达成**：`kylix run` 在无 Go 工具链环境直接产出原生二进制并运行（auto 探测回退 LLVM 后端）。LLVM 后端补齐 KylixBoot 注解自动装配（此前全 stub），51 教程 **51/51** LLVM 编译+运行全过（新增 `test_all_llvm.sh` + CI `llvm-tutorials` job）。
 
@@ -284,7 +292,7 @@ v6.1.0 修复「无方法类悬空 @X_vtable」时把 `emitConstructor` 改为�
 
 ---
 
-## v6.0.0 (2026-08-10) — 性能 benchmark（#7）+ LLVM -O2 优化验证（#8）
+## v0.6.0 (2026-08-10) — 性能 benchmark（#7）+ LLVM -O2 优化验证（#8）
 
 > 🎯 **首次编译时间 benchmark**：bootstrap 源码（7 文件 7451 行）冷/热 + Go/LLVM 四场景，3 轮中位数。同时为 `Result`/`BuildCache` 加统计字段 + `build --time` flag。**#8 -O2 优化验证**：51 教程 `--llvm-opt=2` 全过，输出与 -O0 逐字节一致。
 
@@ -292,7 +300,7 @@ v6.1.0 修复「无方法类悬空 @X_vtable」时把 `emitConstructor` 改为�
 
 - `test_all_llvm.sh` 加 `LLVM_OPT`/`OUTDIR` 环境变量支持（-O2 编译 + 输出捕获比对）。
 - **51 教程 `--llvm-opt=2` 编译+运行 51/51**；`-O0` vs `-O2` 输出捕获 diff **全部一致**（-O2 不破坏正确性）。
-- 前置：bootstrap LLVM 编译的 `arr := nil` slice 零值 + `FloatToStr` builtin 两个类型错误修复（见 v6.1.0），使 -O0/-O2 均稳定编译。
+- 前置：bootstrap LLVM 编译的 `arr := nil` slice 零值 + `FloatToStr` builtin 两个类型错误修复（见 v0.6.1），使 -O0/-O2 均稳定编译。
 
 ### klx codegen 修复：var 输出参数 → Go 指针（host 端）
 
@@ -325,7 +333,7 @@ v5.9 遗留限制「`var` 输出参数转译成值传递」在 **host Go 后端*
 
 ---
 
-## v5.9.0 (2026-08-08) — 多态 gate + KylixBoot 注解自动装配 + validation 注解完整化
+## v0.5.9 (2026-08-08) — 多态 gate + KylixBoot 注解自动装配 + validation 注解完整化
 
 > 🎯 **self-host 多态 gate 缺口排查修复**：宿主编译器与 bootstrap 编译器（src/*.klx）对同一源码产出不一致的基类发射（interface vs struct），本轮定位根因并 4 处修复，两路径收敛为一致。
 
@@ -384,7 +392,7 @@ v5.9 遗留限制「`var` 输出参数转译成值传递」在 **host Go 后端*
 - **example47 ORM 双端一致**：宿主 vs bootstrap 产物方法列表完全一致（`ToRow`/`FromRow`/`FindAll`/`FindById`/`Save`/`DeleteById`/`ByEmail`/`All`），`go build` + 运行输出一致
 - **bootstrap 51/51 教程回归**（适配 bootstrap stdout 输出的等价 test_all.sh）：全部编译 → go build → 运行通过，含 example42/45/47/49/50/51（boot/validation/orm/body-binding/jwt/openapi）
 
-## v5.8.0 (2026-07-30) — Runtime 正确性（51/51 全部 runtime 正确）
+## v0.5.8 (2026-07-30) — Runtime 正确性（51/51 全部 runtime 正确）
 
 > 🎯 **从 "go-build 过" 到 "go-build + 运行正确"，达到真正的 51/51 runtime 正确。**
 
@@ -403,11 +411,11 @@ v5.9 遗留限制「`var` 输出参数转译成值传递」在 **host Go 后端*
 
 ### 注
 
-validation 注解完整化（#2）移至 v5.9.0——需先移植 `parseAttributeList`（SkipAttributes → 保留注解到 AST），与 KylixBoot 注解自动装配同批做。
+validation 注解完整化（#2）移至 v0.5.9——需先移植 `parseAttributeList`（SkipAttributes → 保留注解到 AST），与 KylixBoot 注解自动装配同批做。
 
-## v5.7.0 (2026-07-29) — LLVM 后端 self-reproduction 不动点（自繁殖）
+## v0.5.7 (2026-07-29) — LLVM 后端 self-reproduction 不动点（自繁殖）
 
-> 🎯 **LLVM 编译的 bootstrap → Go 编译的 bootstrap → 产出逐字节一致的 Go 代码 → 自繁殖成功。** 对应 v5.3.0 在 Go 后端达成的自举不动点——现在 LLVM 后端也达成了。
+> 🎯 **LLVM 编译的 bootstrap → Go 编译的 bootstrap → 产出逐字节一致的 Go 代码 → 自繁殖成功。** 对应 v0.5.3 在 Go 后端达成的自举不动点——现在 LLVM 后端也达成了。
 
 ### Phase 1-4 全链路验证
 
@@ -442,15 +450,15 @@ main_self (LLVM bootstrap, src/*.klx → LLVM IR → 原生二进制, 无 Go 依
 - main_self / main_self2 / main_self3 三个二进制均编译 51 教程 51/51 全过
 - 回归：16 包 Go 测试 + 教程 51/51 始终绿，无回归
 
-## v5.6.0 (2026-07-28) — LLVM 后端 bootstrap self-host 达成 51/51（100%）
+## v0.5.6 (2026-07-28) — LLVM 后端 bootstrap self-host 达成 51/51（100%）
 
-> 🎯 **自举源码 `src/*.klx`（7 文件、5250 行）经 LLVM 后端多文件构建成原生二进制 `main_self`（无 Go 依赖），编译全部 51 个教程示例产出的 Go 代码能 `go build` 成功并正确运行。** 从 v5.5.0 的 "产出 Go 但有 bug" 到 v5.6.0 的 "产出完整正确 Go"，修复 28 个 codegen bug + 移植缺口。
+> 🎯 **自举源码 `src/*.klx`（7 文件、5250 行）经 LLVM 后端多文件构建成原生二进制 `main_self`（无 Go 依赖），编译全部 51 个教程示例产出的 Go 代码能 `go build` 成功并正确运行。** 从 v0.5.5 的 "产出 Go 但有 bug" 到 v0.5.6 的 "产出完整正确 Go"，修复 28 个 codegen bug + 移植缺口。
 
 ### 第一类：LLVM codegen bug（8 个）
 
 | # | commit | 修复 | 影响 |
 |---|--------|------|------|
-| 1 | 96f4990 | Exit/return funcExit 出口块 | v5.5.0"整数解析失败"真因——`x := 1` 产出裸 `x`（赋值 fall-through 覆盖）|
+| 1 | 96f4990 | Exit/return funcExit 出口块 | v0.5.5"整数解析失败"真因——`x := 1` 产出裸 `x`（赋值 fall-through 覆盖）|
 | 2 | 8bb16ef | 裸无参方法调用 `self.X;` → emitMethodCall | `self.CollectImports;` 被当字段→no-op→空 import→Go 无法编译 |
 | 3 | 6e65db2 | strconcat 按 strlen 求和分配 | 固定 malloc(512) 溢出→堆损坏→垃圾泄漏到输出 |
 | 4 | aa44793 | 字符串 null 守卫（@__kylix_emptystr） | 未设 String 字段=null→strcmp/strlen 段错误 |
@@ -486,7 +494,7 @@ main_self (LLVM bootstrap, src/*.klx → LLVM IR → 原生二进制, 无 Go 依
 
 ### 关键技术发现
 
-1. **Exit 不发射**是 v5.5.0"整数解析失败"真因（不是 record 值拷贝）
+1. **Exit 不发射**是 v0.5.5"整数解析失败"真因（不是 record 值拷贝）
 2. **LLVM addString decodeKylixString** 把 `\\`→`\`、`\"`→`"`——WriteEscapedGoString 须用拼接（各部分独立 decode，运行时 concat 产生正确字节）
 3. **ParseGenericInstantiation 不消费 `>`**——留 CurToken=`>`, PeekToken=`.`(PREC_MEMBER) 让 infix loop 继续解析 `.Create()`
 4. **generator.klx vs generator.go 是两套代码**——差异是移植缺口（值类型/exception 顺序/stdlib 启发式/泛型/lambda/multireturn/validation/unit），非 LLVM codegen bug
@@ -500,20 +508,20 @@ main_self (LLVM bootstrap, src/*.klx → LLVM IR → 原生二进制, 无 Go 依
 
 ### 后续开发规划
 
-**v5.7.0 已完成** ✅：LLVM self-reproduction 不动点（self_gen.go ≡ self_gen2.go）。详见 v5.7.0 条目。
+**v0.5.7 已完成** ✅：LLVM self-reproduction 不动点（self_gen.go ≡ self_gen2.go）。详见 v0.5.7 条目。
 
-**v5.8.0 — Runtime 正确性**（下一步）：
+**v0.5.8 — Runtime 正确性**（下一步）：
 - example21 泛型 Push panic（`emitConstructor` 对泛型类 slice 字段未 zero-init）
 - validation 注解完整化（SkipAttributes → parseAttributeList + 移植 generateValidationMethods）
 - 目标：51/51 全部 runtime 正确（当前 49/51）
 
-**v5.9.0 — 多态 gate + KylixBoot 注解自动装配**：
+**v0.5.9 — 多态 gate + KylixBoot 注解自动装配**：
 - usesPolymorphism gate（is/as 基类在 polymorphism 时用 interface{}）
 - 移植 generator_boot_annotations.go（[Controller]/[Get]/[Inject] 路由/DI 装配）
 - 移植 generator_orm_annotations.go（[Entity]/[Repository]/[Query] CRUD 生成）
 - 目标：真实 KylixBoot 应用在 LLVM bootstrap 下正确工作
 
-**v6.0.0 — KylixRT 生产就绪**：
+**v0.6.0 — KylixRT 生产就绪**：
 - CI/CD 自动化（GitHub Actions: go test + 51 教程 + self-reproduction 验证）
 - 性能 benchmark（大型 .klx 程序编译时间对比 Go vs LLVM）
 - LLVM 后端 -O2 优化验证
@@ -525,7 +533,7 @@ main_self (LLVM bootstrap, src/*.klx → LLVM IR → 原生二进制, 无 Go 依
 - 跨平台：Linux/Windows/ARM64 原生二进制（目前只验证 macOS arm64）
 - 自举 stdlib：stdlib 本身用 Kylix 编写（.klx），经 bootstrap 编译 → 真正自包含
 
-## v5.5.0 (2026-07-22) — LLVM 自举 parser 深层 bug 修复（分配大小 + 返回类型 + record 返回槽）
+## v0.5.5 (2026-07-22) — LLVM 自举 parser 深层 bug 修复（分配大小 + 返回类型 + record 返回槽）
 
 > 🎯 **修复两个根因 bug，让 LLVM 自举二进制产出完整正确的 Go 代码**：`WriteLn('Hello')` → `fmt.Println("Hello from LLVM self!")`（完整参数），`WriteLn(42)` → `fmt.Println(42)`（整数正确）。此前产出 `fmt.Println()` 缺参数 + 整数报 "no prefix parse function for 0"。
 
@@ -559,9 +567,9 @@ main_self (LLVM bootstrap, src/*.klx → LLVM IR → 原生二进制, 无 Go 依
 - `./main int.klx`（`WriteLn(42)`）→ `fmt.Println(42)`（整数正确）✅
 - 回归：go test 16 包全绿、教程 51/51 无回归
 
-## v5.4.0 (2026-07-22) — LLVM 后端自举编译打通（类层次 RTTI + 全局变量 + record + 外部方法 + 20+ 运行时修复）
+## v0.5.4 (2026-07-22) — LLVM 后端自举编译打通（类层次 RTTI + 全局变量 + record + 外部方法 + 20+ 运行时修复）
 
-> 🎯 **LLVM 后端能编译自举源码 `src/*.klx`（7 文件、5250 行）成原生二进制 `kylix_self_llvm`（127KB，无 Go 依赖）**，推进 KylixRT 里程碑（「LLVM 后端可编译 Kylix 编译器自身」）。v5.2-v5.3 在 Go 后端达成自举构建+round-trip+不动点；v5.4.0 让 **LLVM 后端**也能编译自举源码——IR 生成成功（main.ll 736KB）→ llc 验证通过 → 链接成原生二进制 → 运行 exit 0 产出 Go 代码（含真换行 + WriteLn 语句识别）。
+> 🎯 **LLVM 后端能编译自举源码 `src/*.klx`（7 文件、5250 行）成原生二进制 `kylix_self_llvm`（127KB，无 Go 依赖）**，推进 KylixRT 里程碑（「LLVM 后端可编译 Kylix 编译器自身」）。v5.2-v5.3 在 Go 后端达成自举构建+round-trip+不动点；v0.5.4 让 **LLVM 后端**也能编译自举源码——IR 生成成功（main.ll 736KB）→ llc 验证通过 → 链接成原生二进制 → 运行 exit 0 产出 Go 代码（含真换行 + WriteLn 语句识别）。
 
 ### 本轮修复的 LLVM 后端缺口（20+ 项）
 
@@ -588,9 +596,9 @@ main_self (LLVM bootstrap, src/*.klx → LLVM IR → 原生二进制, 无 Go 依
 - 字符串参数未传递到输出（`fmt.Println()` 缺参数）
 - 这两个是 2400 行 parser.klx 编译成 LLVM 后的运行时 bug，需逐行追踪 IR 定位
 
-## v5.3.0 (2026-07-19) — 自举编译器 round-trip 打通（条件导入 + 字符串转义 + 自繁殖）
+## v0.5.3 (2026-07-19) — 自举编译器 round-trip 打通（条件导入 + 字符串转义 + 自繁殖）
 
-> 🎯 **自举编译器完成完整 round-trip**：`kylix_self2`（自举产出的编译器）能正确编译程序，且**自繁殖**——`kylix_self2` 重新编译 `src/*.klx` 得到 `kylix_self3`，后者同样能正确编译程序。编译器能编译自己。v5.2.0 只打通「构建」（自举源码 → 可运行 `kylix_self`）；v5.3.0 打通「运行时正确性」——自举编译器产出的编译器功能正确。
+> 🎯 **自举编译器完成完整 round-trip**：`kylix_self2`（自举产出的编译器）能正确编译程序，且**自繁殖**——`kylix_self2` 重新编译 `src/*.klx` 得到 `kylix_self3`，后者同样能正确编译程序。编译器能编译自己。v0.5.2 只打通「构建」（自举源码 → 可运行 `kylix_self`）；v0.5.3 打通「运行时正确性」——自举编译器产出的编译器功能正确。
 
 ### 验收（端到端实测）
 
@@ -618,9 +626,9 @@ main_self (LLVM bootstrap, src/*.klx → LLVM IR → 原生二进制, 无 Go 依
 
 v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子集**（类/继承/is-as/数组/for/if/WriteLn/ReadFile/append/字符串拼接 + Args）。自举源码不用的特性（字符串插值、match、try/except、lambda、async、注解、stdlib 模块派发、variant、多返回值）仍 stub/缺失——这些是 G2/G7/G8/G11/G15/G16/G22-G24/G6 等，留 v5.4（让自举编译器能编译用了这些特性的*其它*程序）。
 
-## v5.2.0 (2026-07-18) — 自举编译器构建打通（多态基类 opt-in interface codegen + Args builtin）
+## v0.5.2 (2026-07-18) — 自举编译器构建打通（多态基类 opt-in interface codegen + Args builtin）
 
-> 🎯 **自举编译器源码 `src/*.klx`（7 文件、5250 行）首次构建成可运行的 `kylix_self` 二进制**。此前转译产物 `go build` 失败 208 个错误：130×`is`/`as` 类型断言作用在 struct 指针基类变量上（Go 断言要求 interface）、~75×子类实例无法赋值/追加到基类类型容器（无多态）、1×切片协变、3×`Args` builtin 缺失。根因：Go 后端把所有类发射成普通 struct + 嵌入父 struct——给字段继承但无多态；`classIsBase` map 早在 `collectClassTypes` 填充但 v3.1.0（KLX-C01）回退后从不读取（死代码）。
+> 🎯 **自举编译器源码 `src/*.klx`（7 文件、5250 行）首次构建成可运行的 `kylix_self` 二进制**。此前转译产物 `go build` 失败 208 个错误：130×`is`/`as` 类型断言作用在 struct 指针基类变量上（Go 断言要求 interface）、~75×子类实例无法赋值/追加到基类类型容器（无多态）、1×切片协变、3×`Args` builtin 缺失。根因：Go 后端把所有类发射成普通 struct + 嵌入父 struct——给字段继承但无多态；`classIsBase` map 早在 `collectClassTypes` 填充但 v0.3.1（KLX-C01）回退后从不读取（死代码）。
 
 ### 多态基类 opt-in interface codegen
 
@@ -649,13 +657,13 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 - 仅支持「基类无字段无方法 + 多态靠 is/as」模式（自举即此）。基类含字段且通过基类变量访问、或基类有虚方法需分派 → 留 v5.3（getter 转发 / vtable）。
 - program-level `is`/`as` 标志：含 `is`/`as` 的程序会把所有「有子类的基类」都变 interface；混合程序（部分基类需字段继承、部分需多态）的 per-base 检测留后续。
 
-## v5.1.0 (2026-07-17) — 完成 Variant 运行时（map[String]Variant 真实化 + Variant 算术）
+## v0.5.1 (2026-07-17) — 完成 Variant 运行时（map[String]Variant 真实化 + Variant 算术）
 
-> 🎯 **补齐 v5.0.0 留的两个 Variant 缺口**。v5.0.0 让标量 + `array of Variant` 成为真正的标签联合，但 `map[String]Variant` 仍是 htab 字符串（`m['pi']` 返回 C 串而非 Variant box → `m['pi']=3.14` 是 string-vs-double，错），且 Variant 算术（`v+1`）发 stub。v5.1.0：**(A) map[String]Variant 真实化**——htab 值槽存 Variant box 指针（htab 本身类型无关，不动结构，cache/string-map 不回归）；`emitMapVarDecl` 检测 Variant 值类型设 `variantMaps`；`emitMapIndexGet` 走新 `htab_get_variant`（miss 返回 nilbox 全局，tag=0 → as_* 走 nil 默认）返回 `"variant"`；`emitMapIndexPut` 装箱 RHS 存 box 指针（不 stringify）；jsonutil `parse_flat` 改调 `value_to_variant`（同 parse_array 的 v5.0.0 改动）让 JsonDecodeMap 产出真实 Variant map；`JsonGetString/Int/Float/Bool/Map/Array` 全部改 unbox（`htab_get_variant` + `variant_as_*`）。**(B) Variant 算术**——新增 `variant_add/sub/mul/div` 运行时（按标签派发：`+` 字符串拼接/双 int→int/else double，`-`,`*` 双 int→int else double，`/` 始终 double；`div`/`mod` 留 stub）；`emitInfix` 算术 stub 替换为 `emitVariantArith`；`coerceValue` 加 variant→concrete case（`n := v` 解箱 via `variant_as_int`，统一 emitAssign 内联 coercion 改调 coerceValue）。新增 `as_int`/`as_bool` unbox 主体 + `@__kylix_variant_nilbox` 全局。LLVM 测试 266→**274**（+8 Variant map/算术），教程通过率 **50→51**（新增 example57_variant_map 双端输出逐字节一致）无回归。Variant 算术仅 LLVM（Go `interface{}`不支持运算符），无共享教程。
+> 🎯 **补齐 v0.5.0 留的两个 Variant 缺口**。v0.5.0 让标量 + `array of Variant` 成为真正的标签联合，但 `map[String]Variant` 仍是 htab 字符串（`m['pi']` 返回 C 串而非 Variant box → `m['pi']=3.14` 是 string-vs-double，错），且 Variant 算术（`v+1`）发 stub。v0.5.1：**(A) map[String]Variant 真实化**——htab 值槽存 Variant box 指针（htab 本身类型无关，不动结构，cache/string-map 不回归）；`emitMapVarDecl` 检测 Variant 值类型设 `variantMaps`；`emitMapIndexGet` 走新 `htab_get_variant`（miss 返回 nilbox 全局，tag=0 → as_* 走 nil 默认）返回 `"variant"`；`emitMapIndexPut` 装箱 RHS 存 box 指针（不 stringify）；jsonutil `parse_flat` 改调 `value_to_variant`（同 parse_array 的 v0.5.0 改动）让 JsonDecodeMap 产出真实 Variant map；`JsonGetString/Int/Float/Bool/Map/Array` 全部改 unbox（`htab_get_variant` + `variant_as_*`）。**(B) Variant 算术**——新增 `variant_add/sub/mul/div` 运行时（按标签派发：`+` 字符串拼接/双 int→int/else double，`-`,`*` 双 int→int else double，`/` 始终 double；`div`/`mod` 留 stub）；`emitInfix` 算术 stub 替换为 `emitVariantArith`；`coerceValue` 加 variant→concrete case（`n := v` 解箱 via `variant_as_int`，统一 emitAssign 内联 coercion 改调 coerceValue）。新增 `as_int`/`as_bool` unbox 主体 + `@__kylix_variant_nilbox` 全局。LLVM 测试 266→**274**（+8 Variant map/算术），教程通过率 **50→51**（新增 example57_variant_map 双端输出逐字节一致）无回归。Variant 算术仅 LLVM（Go `interface{}`不支持运算符），无共享教程。
 
 ### map[String]Variant 真实化
 
-**问题**：v5.0.0 的 `JsonGetArray` 已产出 Variant box 切片，但 `JsonDecodeMap` 的 htab 仍存 C 字符串（`parse_flat` 用 `read_value`）。`var m: map[String]Variant; m := JsonDecodeMap(...); if m['pi'] = 3.14` —— `m['pi']` 返回字符串 ptr，`= 3.14` 是 string-vs-double。
+**问题**：v0.5.0 的 `JsonGetArray` 已产出 Variant box 切片，但 `JsonDecodeMap` 的 htab 仍存 C 字符串（`parse_flat` 用 `read_value`）。`var m: map[String]Variant; m := JsonDecodeMap(...); if m['pi'] = 3.14` —— `m['pi']` 返回字符串 ptr，`= 3.14` 是 string-vs-double。
 
 **修复**（htab 值槽类型无关，仅 map codegen 层 + jsonutil 改动，不动 htab 结构）：
 - `stdlib_map.go`：`emitMapVarDecl` 检测 `isVariantTypeExpr(mapT.ValueType)` → `variantMaps[name]=true` + `needVariantRuntime`；`emitMapIndexGet` 若 `variantMaps[name]` → `htab_get_variant` 返回 `"variant"`；`emitMapIndexPut` 装箱 RHS（`emitVariantBox`）存 box 指针。
@@ -675,9 +683,9 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 
 **限制**：Variant 算术仅 LLVM（Go `interface{}+int` 是编译错误，无共享教程，IR 测试覆盖）。`div`/`mod` Variant 留 stub。box 内存不释放（no-GC 一致）。
 
-## v5.0.0 (2026-07-17) — Variant 运行时（标量 + `array of Variant`）
+## v0.5.0 (2026-07-17) — Variant 运行时（标量 + `array of Variant`）
 
-> 🎯 **第一个带类型标签的动态值运行时**。LLVM 后端此前把 `Variant` 静默当成 `i64` 别名——`var v: Variant; v := 1.0` 把 double 截断成 i64，`array of Variant` 元素槽是裸 i64 无类型标签，`arr[0] = 10.0` 比较的是位模式/指针而非数值。v5.0.0 实现 boxed-pointer Variant 运行时：一个 Variant 值是 `ptr`，指向 16 字节 `{i32 tag, i64 payload}`（tag 0=nil/1=int/2=float/3=str/4=bool）。`var v: Variant` + `array of Variant` 元素槽装 box 指针；赋值按 RHS 类型装箱（box_int/float/str/bool）；比较 `arr[0] = 10.0` 经运行时 `variant_compare` 按标签派发（数值双方提升为 double 比，字符串 strcmp，布尔按 payload，异类型不相等）；`WriteLn(variantValue)` 按标签打印。jsonutil `JsonGetArray` 从 v4.9.0 的「C 字符串指针切片」升级为**带类型标签的 Variant box 切片**——`value_to_variant` 窥首字符分类（`"`→str、`{`/`[`→str raw、`t`/`f`→bool、数字→float，与 Go json 把所有数字解析为 float64 对齐）。顺带修复 `Length(arr)` 路由 bug（`emitArrayLength` 是死代码，`Length` 只走 strlen 对数组返回 0；现按 arrayInfo 派发到 slice len word）。LLVM 测试 255→**266**（+11 Variant 测试），教程通过率 **49→50 (100%)** 新增 example56_variant（双后端输出逐字节一致），无回归。
+> 🎯 **第一个带类型标签的动态值运行时**。LLVM 后端此前把 `Variant` 静默当成 `i64` 别名——`var v: Variant; v := 1.0` 把 double 截断成 i64，`array of Variant` 元素槽是裸 i64 无类型标签，`arr[0] = 10.0` 比较的是位模式/指针而非数值。v0.5.0 实现 boxed-pointer Variant 运行时：一个 Variant 值是 `ptr`，指向 16 字节 `{i32 tag, i64 payload}`（tag 0=nil/1=int/2=float/3=str/4=bool）。`var v: Variant` + `array of Variant` 元素槽装 box 指针；赋值按 RHS 类型装箱（box_int/float/str/bool）；比较 `arr[0] = 10.0` 经运行时 `variant_compare` 按标签派发（数值双方提升为 double 比，字符串 strcmp，布尔按 payload，异类型不相等）；`WriteLn(variantValue)` 按标签打印。jsonutil `JsonGetArray` 从 v0.4.9 的「C 字符串指针切片」升级为**带类型标签的 Variant box 切片**——`value_to_variant` 窥首字符分类（`"`→str、`{`/`[`→str raw、`t`/`f`→bool、数字→float，与 Go json 把所有数字解析为 float64 对齐）。顺带修复 `Length(arr)` 路由 bug（`emitArrayLength` 是死代码，`Length` 只走 strlen 对数组返回 0；现按 arrayInfo 派发到 slice len word）。LLVM 测试 255→**266**（+11 Variant 测试），教程通过率 **49→50 (100%)** 新增 example56_variant（双后端输出逐字节一致），无回归。
 
 ### Variant 运行时核心（`pkg/llvmgen/variant.go` 新文件）
 
@@ -706,7 +714,7 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 
 - `emitJsonParseArray` 改调 `@__kylix_json_value_to_variant(ptr %s, ptr %posSlot)→ptr`（取代 `read_value`）：窥首字符分类，调既有 read_string/skip_nested/read_bare + box_*，元素仍按 8 字节 box 指针存进可增长缓冲（grow 算法不变）。`JsonArrayLen` 不变（读 len word）；`JsonArrayGetString` 改 unbox（`call ptr @__kylix_variant_as_str(boxPtr)`）。
 - **双端 parity**：Go 后端 `Variant→interface{}`，`JsonGetArray→[]interface{}`，json 把所有数字解析为 `float64`；LLVM 把数字装 float box，`variant_compare` 数值按 double 比 → `arr[0]=10.0`、`arr[0]=42`（int 字面量 vs float64，类型不匹配→false）行为与 Go 一致。example56 双后端输出逐字节相同。
-- **Length(arr) 修复**：`emitCall` 的 `Length` 分支先查 `arrayInfo` → 派发 `emitArrayLength`（slice len word / 静态常量），否则 `emitLength`（string strlen）。此前 `emitArrayLength` 是死代码、`Length(arr)` 对数组返回 0（v3.1.0 起遗漏）。
+- **Length(arr) 修复**：`emitCall` 的 `Length` 分支先查 `arrayInfo` → 派发 `emitArrayLength`（slice len word / 静态常量），否则 `emitLength`（string strlen）。此前 `emitArrayLength` 是死代码、`Length(arr)` 对数组返回 0（v0.3.1 起遗漏）。
 
 ### 已知限制（留 v5.0.x）
 
@@ -715,13 +723,13 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 - **box 内存不释放**：与现有 no-GC 约定一致（htab/jsonutil 同样不释放）。
 - **null 打印分歧**：LLVM nil box → "nil"，Go `nil` → "<nil>"；example 不含 null。
 
-## v4.9.0 (2026-07-15) — DWARF 调试信息 Phase 2 + jsonutil 嵌套数组
+## v0.4.9 (2026-07-15) — DWARF 调试信息 Phase 2 + jsonutil 嵌套数组
 
-> 🎯 **OOP 方法逐行调试 + 块作用域 + JSON 数组**。补齐 v4.6.0 逐行调试的覆盖盲区：类方法/lambda 现在注册独立 DISubprogram（define 行附 `!dbg`、`self`/参数/捕获变量声明为调试局部变量），v4.8.0 的泛型类方法可逐行单步 + LLDB 检视 receiver/捕获值。新增 DILexicalBlock——块内 `var` 声明的变量归属正确的嵌套作用域（不再全归函数级 subprogram），LLDB 报告正确的块层级。jsonutil `JsonGetArray` 从返回 null 的 stub 升级为真实解析器：把 JSON 数组解析为字符串数组 slice `{ptr items, i64 len, i64 cap}`（标量存文本、嵌套对象/数组存 raw 子串），新增 `JsonArrayLen`/`JsonArrayGetString` 访问器。顺手修复 `skip_nested` 丢失闭合 `]`/`}` 的 off-by-one（length `end-start` → `endAfter-start`），此前嵌套对象数组丢失闭合括号、`parse_array` 无限循环。LLVM 测试 250→**255**，教程通过率 **49/49 (100%)** 无回归。
+> 🎯 **OOP 方法逐行调试 + 块作用域 + JSON 数组**。补齐 v0.4.6 逐行调试的覆盖盲区：类方法/lambda 现在注册独立 DISubprogram（define 行附 `!dbg`、`self`/参数/捕获变量声明为调试局部变量），v0.4.8 的泛型类方法可逐行单步 + LLDB 检视 receiver/捕获值。新增 DILexicalBlock——块内 `var` 声明的变量归属正确的嵌套作用域（不再全归函数级 subprogram），LLDB 报告正确的块层级。jsonutil `JsonGetArray` 从返回 null 的 stub 升级为真实解析器：把 JSON 数组解析为字符串数组 slice `{ptr items, i64 len, i64 cap}`（标量存文本、嵌套对象/数组存 raw 子串），新增 `JsonArrayLen`/`JsonArrayGetString` 访问器。顺手修复 `skip_nested` 丢失闭合 `]`/`}` 的 off-by-one（length `end-start` → `endAfter-start`），此前嵌套对象数组丢失闭合括号、`parse_array` 无限循环。LLVM 测试 250→**255**，教程通过率 **49/49 (100%)** 无回归。
 
 ### 类方法/lambda DISubprogram（OOP 方法逐行调试）
 
-**问题**：v4.6.0 只给用户函数和 main 注册 DISubprogram，类方法（`emitMethod`）和 lambda（`emitLambdaFunc`）完全没有调试元数据——OOP 方法体内不可逐行单步、`frame variable` 不显示 `self`/参数/捕获变量。v4.8.0 打通泛型类方法 codegen 后，这一盲区更明显。
+**问题**：v0.4.6 只给用户函数和 main 注册 DISubprogram，类方法（`emitMethod`）和 lambda（`emitLambdaFunc`）完全没有调试元数据——OOP 方法体内不可逐行单步、`frame variable` 不显示 `self`/参数/捕获变量。v0.4.8 打通泛型类方法 codegen 后，这一盲区更明显。
 
 **修复**（`class.go` `emitMethod` + `lambda.go` `emitLambdaFunc`，复用 `emitFunctionDecl` 模式）：
 - `registerSubprogram`（方法名 `ClassName_Method`、lambda `__lambda_N`）+ `defineLineWithDbg` 给 define 行附 `!dbg !N`
@@ -735,7 +743,7 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 
 ### DILexicalBlock（块级作用域调试）
 
-**问题**：v4.6.0–v4.8.0 所有局部变量（含块内 `begin var y; ... end` 声明的）都归函数级 subprogram scope——LLDB 无法区分变量的声明块，块作用域语义在调试信息中丢失。
+**问题**：v0.4.6–v0.4.8 所有局部变量（含块内 `begin var y; ... end` 声明的）都归函数级 subprogram scope——LLDB 无法区分变量的声明块，块作用域语义在调试信息中丢失。
 
 **修复**（`debug.go` + `stmt.go` `emitBlockScoped`）：
 - `dbgMeta` 新增 `lexBlocks []dbgLexicalBlock` + `registerLexicalBlock()`：在当前 scope（subprogram 或外层 lexical block）下分配 DILexicalBlock ID，切 `curScope` 到块，返回原 scope 供退出恢复
@@ -743,11 +751,11 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 - `emitDbgMetadata` 末尾发射 `!DILexicalBlock(scope: !parent, file, line, column)`；块内变量/`DILocation` 自动归入块（`curScope` 已是块 ID）
 - `retainedNodes` 只收集 scope 为 subprogram 的局部变量（块作用域变量经 lexical block scope 链可达，DWARF 不要求进 subprogram 列表）
 
-**已知限制**：块作用域变量的 `alloca` 跟随 `VarDecl` 在块的基本块发射（非 entry block），LLVM location-list 生成器据此把变量可用范围限制在块内指令区间——LLDB 在块外（如 `WriteLn(y)` 调用点）可能报 `<variable not available>`。这是 v4.6.0 起 alloca-in-block 设计的固有行为（v4.8.0 同样存在，非 v4.9.0 回归）；DILexicalBlock 仍正确反映 scope 树。完整修复需要把块内 `alloca` 提升到 entry block（结构重构，留 v5.0）。
+**已知限制**：块作用域变量的 `alloca` 跟随 `VarDecl` 在块的基本块发射（非 entry block），LLVM location-list 生成器据此把变量可用范围限制在块内指令区间——LLDB 在块外（如 `WriteLn(y)` 调用点）可能报 `<variable not available>`。这是 v0.4.6 起 alloca-in-block 设计的固有行为（v0.4.8 同样存在，非 v0.4.9 回归）；DILexicalBlock 仍正确反映 scope 树。完整修复需要把块内 `alloca` 提升到 entry block（结构重构，留 v5.0）。
 
 ### jsonutil JsonGetArray 嵌套数组 + skip_nested off-by-one
 
-**问题**：`JsonGetArray` 此前是 `ret ptr null` stub。v4.7.0 实现了 `JsonGetMap`（嵌套对象）但数组未做。同时发现 `skip_nested` 的 raw 子串丢失闭合 `]`/`}`（`length = end - start`，`end` 指向 close char 但 memcpy 不含它）——嵌套对象因 `parse_flat` 容忍而未暴露，数组因 `parse_array` 遇缺 `]` 无限循环 → OOM/SIGKILL。
+**问题**：`JsonGetArray` 此前是 `ret ptr null` stub。v0.4.7 实现了 `JsonGetMap`（嵌套对象）但数组未做。同时发现 `skip_nested` 的 raw 子串丢失闭合 `]`/`}`（`length = end - start`，`end` 指向 close char 但 memcpy 不含它）——嵌套对象因 `parse_flat` 容忍而未暴露，数组因 `parse_array` 遇缺 `]` 无限循环 → OOM/SIGKILL。
 
 **修复**（`stdlib_jsonutil.go` + `stdlib_jsonutil_parser.go`）：
 - `skip_nested`：`length = endAfter - start`（`endAfter = end + 1`，含闭合 char）。此前嵌套对象也丢 `}`，`parse_flat` 容忍故未暴露；数组丢 `]` 致 `parse_array` 无限循环
@@ -757,7 +765,7 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 - `sliceArgPtr`：`JsonArrayLen`/`GetString` 参数若是 Identifier 直接取其 alloca（运行时经 GEP 读 len/items，需结构地址而非 load 的值）
 - `stdlib.go` `stdlibModuleFuncs["jsonutil"]` 加 `JsonArrayLen`/`JsonArrayGetString`（bare-call 路由）
 
-**务实范围**：完整 Variant 运行时（类型标签 + union + dispatch，`array of Variant` 的 `arr[0] = 1.0` 数值比较）是 v5.0 级工作（全新基础设施、教程零用例）。v4.9.0 的字符串数组版覆盖字符串/数字数组读取的 80% 用例，不引入 Variant。
+**务实范围**：完整 Variant 运行时（类型标签 + union + dispatch，`array of Variant` 的 `arr[0] = 1.0` 数值比较）是 v5.0 级工作（全新基础设施、教程零用例）。v0.4.9 的字符串数组版覆盖字符串/数字数组读取的 80% 用例，不引入 Variant。
 
 **验证**：`{"items":["apple","banana","cherry"]}` → `JsonArrayLen=3` + 三个字符串；`{"nums":[10,20,30]}` → 数字数组；`{"users":[{...},{...}]}` → 嵌套对象数组（raw 子串）；缺失键 → 0 长度
 
@@ -787,7 +795,7 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 
 ---
 
-## v4.8.0 (2026-07-14) — 泛型类方法 codegen + DIBasicType 多类型
+## v0.4.8 (2026-07-14) — 泛型类方法 codegen + DIBasicType 多类型
 
 > 🎯 **OOP 泛型 + 调试类型精度**。修复 example21 泛型类方法 stub（`TStack<Integer>.Push/Pop` 从输出 `Pop: 0` → 与 Go 后端一致 `Pop: 30`），打通泛型类 `var x := TStack<T>.Create()` → `x.Method()` 的完整 codegen 链路：单态化 walk VarDecl.Value + constructor inference 处理 GenericType/CallExpression + 类字段数组 `self.Items[i]` GEP。DWARF 调试信息从单一 int64 类型升级为按 llvmType 发射独立 DIBasicType（double→DW_ATE_float、ptr→DW_ATE_address、i1→DW_ATE_boolean），LLDB `frame variable` 显示正确类型。LLVM 测试 249→**250**，教程通过率 **48/48 (100%)** 无回归，example21 从 stub → 输出正确。
 
@@ -810,7 +818,7 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 
 ### DIBasicType 多类型
 
-**升级**：v4.6.0 用单一 `DIBasicType(int64, DW_ATE_signed)` 覆盖所有局部变量，double/ptr/string 在 LLDB 中类型显示错误（变量名 + scope 正确，但值格式化不精确）。
+**升级**：v0.4.6 用单一 `DIBasicType(int64, DW_ATE_signed)` 覆盖所有局部变量，double/ptr/string 在 LLDB 中类型显示错误（变量名 + scope 正确，但值格式化不精确）。
 
 **修复**（`debug.go` `emitDbgMetadata`）：
 - 按 `llvmType` 收集需要的类型集合（i64/double/ptr/i1），sort 后分配独立 metadata ID（确定性）
@@ -845,13 +853,13 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
   - DIBasicType 多类型：LLDB `frame variable` 显示正确类型 ✅
   - `-g` 模式与 example21/example23 修复兼容 ✅
 
-### 已知限制（v4.8.0）
+### 已知限制（v0.4.8）
 
 - JsonGetArray 仍返回 null（array of Variant 需 Variant 运行时）
 - DILexicalBlock 未实现（块级作用域变量归函数级 scope）
 - 类方法/lambda 无 DISubprogram（OOP 方法体内不可逐行单步——example21 方法体在 -g 下仍无逐行 DILocation）
 
-### 下一步（v4.9.0 规划）
+### 下一步（v0.4.9 规划）
 
 - JsonGetArray + array of Variant 运行时
 - DILexicalBlock 块级作用域调试信息
@@ -859,9 +867,9 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 - httpclient THttpResponse 响应对象
 - JetBrains 插件
 
-## v4.7.0 (2026-07-10) — 静态数组下界修复 + jsonutil 嵌套对象解析
+## v0.4.7 (2026-07-10) — 静态数组下界修复 + jsonutil 嵌套对象解析
 
-> 🎯 **正确性修复 + stdlib 能力扩展**。修复 v4.5.0 起静态数组 `array[0..N]` 下界硬编码为 1 导致 example23 段错误、example21 输出错误的 bug（`0 - 1` 无符号下溢 → GEP 越界）。AST `ArrayType` 新增 `LowerBound` 字段，parser 记录真实下界，LLVM 后端按真实下界调整索引。jsonutil `JsonGetMap` 从返回 null 升级为递归解析 raw JSON 子串为 nested htab，支持任意深度嵌套对象。LLVM 测试 247→**249**，教程通过率 **48/48 (100%)** 无回归，example23 从段错误 → 输出正确。
+> 🎯 **正确性修复 + stdlib 能力扩展**。修复 v0.4.5 起静态数组 `array[0..N]` 下界硬编码为 1 导致 example23 段错误、example21 输出错误的 bug（`0 - 1` 无符号下溢 → GEP 越界）。AST `ArrayType` 新增 `LowerBound` 字段，parser 记录真实下界，LLVM 后端按真实下界调整索引。jsonutil `JsonGetMap` 从返回 null 升级为递归解析 raw JSON 子串为 nested htab，支持任意深度嵌套对象。LLVM 测试 247→**249**，教程通过率 **48/48 (100%)** 无回归，example23 从段错误 → 输出正确。
 
 ### 静态数组下界修复（核心 bug）
 
@@ -890,7 +898,7 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 - **验证**：
   - `{"user":{"name":"Alice","age":30},"version":3}` → `JsonGetMap(json,'user')` + `JsonGetString(inner,'name')` = `Alice` + `JsonGetInt(json,'version')` = 3（之前 version=0）
   - 3 层嵌套 `{"user":{"name":"Alice","address":{"city":"NYC","zip":"10001"}}}` → `JsonGetMap(JsonGetMap(root,'user'),'address')` + `JsonGetString(addr,'city')` = `NYC` ✅
-- **限制**：`JsonGetArray` 仍返回 null（array of Variant 需 Variant 运行时，超 v4.7.0 范围）
+- **限制**：`JsonGetArray` 仍返回 null（array of Variant 需 Variant 运行时，超 v0.4.7 范围）
 
 ### 文件清单
 
@@ -915,13 +923,13 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
   - jsonutil 嵌套对象 2-3 层深度解析正确 ✅
   - `-g` 模式与修复兼容 ✅
 
-### 已知限制（v4.7.0）
+### 已知限制（v0.4.7）
 
 - **example21 泛型类 stub**：`TStack<Integer>.Push/Pop` 仍是 `unsupported receiver` stub（输出 `Pop: 0`），这是泛型类方法未实现的独立问题，非下界 bug
 - **JsonGetArray 仍 stub**：array of Variant 需 Variant 运行时
 - **jsonutil 嵌套递归深度**：超深 JSON 可能栈溢出（教程用例 2-3 层，可接受）
 
-### 下一步（v4.8.0 规划）
+### 下一步（v0.4.8 规划）
 
 - `JsonGetArray` + array of Variant 运行时
 - DILexicalBlock 块级作用域调试信息
@@ -930,7 +938,7 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 - httpclient THttpResponse 响应对象
 - JetBrains 插件
 
-## v4.6.0 (2026-07-10) — DWARF 逐行调试（per-instruction DILocation + DILocalVariable）
+## v0.4.6 (2026-07-10) — DWARF 逐行调试（per-instruction DILocation + DILocalVariable）
 
 > 🎯 **调试体验升级**。LLVM 后端 `-g` flag 从函数级调试升级为逐行调试 + 变量检视。每条 IR 指令附 `!dbg !N` DILocation（源行号 + 列号 + scope），每个局部变量/参数/`result` 附 DILocalVariable + `#dbg_declare` 记录。LLDB 支持：按源文件行号设断点、`step`/`next` 逐行单步、`frame variable` 检视局部变量值、backtrace 显示函数+行号+源文件。LLVM 测试 240→**247**，教程通过率 **48/48 (100%)** 无回归。
 
@@ -979,16 +987,16 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
   - `dbg_test2.klx`（用户函数）：`break Add` + `frame variable` 显示 `a=3, b=4, result=...` ✅
   - `dbg_loop.klx`（循环）：循环内逐行单步 + `i`/`sum` 变量检视 ✅
   - example01/37/17/48/33：-g 编译运行输出正确 ✅
-- **已知限制**：example23_arrays（静态数组）段错误是 v4.5.0 预先存在的 bug（不带 -g 也复现，IR 完全一致），非 v4.6.0 引入
+- **已知限制**：example23_arrays（静态数组）段错误是 v0.4.5 预先存在的 bug（不带 -g 也复现，IR 完全一致），非 v0.4.6 引入
 
-### 已知限制（v4.6.0）
+### 已知限制（v0.4.6）
 
 - **DIBasicType 单一化**：MVP 用单个 int64 类型节点；double/ptr/string 局部变量在 LLDB 中值格式化可能不精确（变量名 + scope 正确）
 - **无栈结构**：未发射 DILexicalBlock，块级作用域（`begin var x; end`）变量在 LLDB 中归到函数级 scope
 - **stdlib 预生成 IR 无调试信息**：stdlib 函数体（手写 IR）无源码行号，不附 DILocation（避免 stale 位置误导）——用户代码逐行单步正常，进入 stdlib 函数时无可单步源码
 - **lambda/类方法**：本版本聚焦 main + 用户函数；lambda 闭包和类方法的 DISubprogram 留作后续
 
-### 下一步（v4.7.0 规划）
+### 下一步（v0.4.7 规划）
 
 - **stdlib Phase 4**：jsonutil 嵌套解析（tagged JsonValue 树）+ httpclient 真实响应对象 + db MySQL/PostgreSQL
 - **DILexicalBlock**：块级作用域调试信息
@@ -996,7 +1004,7 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 - **类方法 DISubprogram**：OOP 方法的逐行调试
 - **JetBrains 插件**：IntelliJ/GoLand 支持
 
-## v4.5.0 (2026-07-08) — LLVM stdlib Phase 3 + DWARF 调试符号 + 优化 pass 管线 + 增量缓存
+## v0.4.5 (2026-07-08) — LLVM stdlib Phase 3 + DWARF 调试符号 + 优化 pass 管线 + 增量缓存
 
 > 🎯 **stdlib 真实化 + 工具链成熟化**。三个 stdlib stub 升级为真实实现（jsonutil 递归下降解析器 / crypto AES-256-CBC+PBKDF2 / httpclient libcurl 集成）+ 进程内 IR 优化 pass 管线（DCE）+ 增量编译缓存（llc 跳过，32x 加速）+ DWARF 调试符号（`-g` flag，LLDB/GDB 函数级调试）+ 文件拆分（expr.go/stmt.go 回到 1000 行约束内）。LLVM 测试 198→**240**，教程通过率 **48/48 (100%)**。
 
@@ -1029,7 +1037,7 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 - **文件**：`pkg/llvmgen/stdlib_httpclient.go`（485 行，重写）+ `expr.go` BaseURL 字段访问（stub → 真实 GEP+load）
 - **验证**：example54 `BaseURL: https://httpbin.org` 正确显示，`-lcurl` 链接自动触发
 
-### 进程内 IR 优化 pass 管线（v4.5.0 Phase C）
+### 进程内 IR 优化 pass 管线（v0.4.5 Phase C）
 
 - **PassPipeline**：`pkg/llvmgen/passes.go`（126 行）—— IR 文本后处理 pass 框架
 - **DeadCodeElim (DCE)**：删除从未被引用的 `%tN` 临时寄存器定义（纯指令：add/sub/mul/icmp/load/getelementptr/...），单次出现判定 + 词边界检查（`%t1` 不误匹配 `%t10`），**绝不删除 call/store**（副作用）
@@ -1037,14 +1045,14 @@ v5.3 仅让自举编译器能正确编译**自举源码自身用到的特性子�
 - **默认运行**：-O0 时自动跑（无需 flag），`--llvm-opt` 时跳过（外部 opt 跑更强 pass）
 - **字符串常量去重**：`addString` 按内容去重（两个 `"hello"` 共享一个 `@.str.N`），减少 IR/binary 体积
 
-### 增量编译缓存（v4.5.0 Phase C）
+### 增量编译缓存（v0.4.5 Phase C）
 
 - **CacheStore**：`pkg/llvmgen/cache.go`（149 行）—— 按 IR 内容 + opts 的 SHA256 缓存 `.o`
 - **命中跳过 llc**：缓存命中时直接复用 `.o`，仅跑 clang 链接
 - **实测**：example01 二次构建 **0.939s → 0.029s（32x 加速）**
 - **best-effort**：缓存失败非致命（静默降级到全量编译）
 
-### DWARF 调试符号（v4.5.0 Phase C）
+### DWARF 调试符号（v0.4.5 Phase C）
 
 - **`-g` flag**：`kylix build --backend=llvm -g` 发出 DWARF 调试信息
 - **metadata**：`!llvm.dbg.cu` + `DICompileUnit` + `DIFile` + `DISubprogram`（每个用户函数 + main），函数名 + 源行号映射
@@ -1089,7 +1097,7 @@ expr.go(1207行) / stmt.go(1081行) 超过 CLAUDE.md 硬约束，按功能拆分
 | `cmd/kylix/cmd_build.go` | - | `-g` flag + DebugInfo 传递 |
 | **合计** | ~5000 行 | stdlib Phase 3 + 优化/调试/缓存 + 拆分 |
 
-### 已知限制（v4.5.0）
+### 已知限制（v0.4.5）
 
 - **jsonutil 嵌套**：嵌套对象/数组作为 raw 子串存储，`JsonGetMap`/`JsonGetArray` 返回 null（扁平对象已覆盖教程用例）
 - **crypto BCrypt 命名**：实际算法为 PBKDF2-SHA256（OpenSSL 无原生 BCrypt），命名保留 BCryptHash，跨系统互操作需注意
@@ -1097,14 +1105,14 @@ expr.go(1207行) / stmt.go(1081行) 超过 CLAUDE.md 硬约束，按功能拆分
 - **DWARF 逐行单步**：仅函数级调试信息，逐行 DILocation 留作后续
 - **DCE ConstantFold**：MVP 仅 DCE，常量折叠为结构钩子
 
-### 下一步（v4.6.0 规划）
+### 下一步（v0.4.6 规划）
 
 - **stdlib Phase 4**：jsonutil 嵌套解析（tagged JsonValue 树）+ httpclient 真实响应对象 + db MySQL/PostgreSQL
 - **DWARF 逐行**：per-instruction DILocation + llvm.dbg.value 局部变量
 - **优化 pass 扩展**：ConstantFold 真实实现 + mem2reg（进程内）+ 内联
 - **JetBrains 插件**：IntelliJ/GoLand 支持
 
-## v4.4.0 (2026-07-07) — LLVM stdlib Phase 2 完成 + KylixBoot 注解支持
+## v0.4.4 (2026-07-07) — LLVM stdlib Phase 2 完成 + KylixBoot 注解支持
 
 > 🎯 **标准库完善 + 注解框架支持**。LLVM 后端完成 8 个 stdlib 模块（encoding/net/crypto/db/cache/jsonutil/boot/jwt/httpclient）+ KylixBoot 注解方法 stub 生成 + 链式方法调用修复。教程通过率：**48/48 (100%，含 example33 多文件模块)**。
 
@@ -1252,7 +1260,7 @@ expr.go(1207行) / stmt.go(1081行) 超过 CLAUDE.md 硬约束，按功能拆分
 - **方法调用**：`emitMethodCall` 按类型名 dispatch 到专用 emitter（`emitCacheMethodCall` 等）
 - **构造**：`NewCache()` 返回 `ptr`，`llvmType="TCache"`（字符串类型名用于 dispatch，非 LLVM struct type）
 
-### 已知限制（v4.4.0）
+### 已知限制（v0.4.4）
 
 - **jsonutil 为 stub 实现** — 返回默认值（验证通过、字段访问返回空/0），真实 JSON 解析需集成第三方库（待 Phase 3）
 - **AES/BCrypt 为 stub** — 返回空字符串/false，OpenSSL AES/bcrypt API 调用较复杂（待 Phase 3）
@@ -1261,7 +1269,7 @@ expr.go(1207行) / stmt.go(1081行) 超过 CLAUDE.md 硬约束，按功能拆分
 - **httpclient 为 stub** — THttpClient 不发起真实 HTTP 请求（需集成 libcurl，待 Phase 3）
 - **example33 多文件模块编译失败** — `MergePrograms` 符号合并已修复，但教程本身的多文件引用路径需调整
 
-### 下一步（v4.5.0 规划）
+### 下一步（v0.4.5 规划）
 
 - **stdlib Phase 3** — jsonutil 真实 JSON 解析（集成 cJSON 或手写递归下降解析器）+ AES/BCrypt 完整实现
 - **LLVM 优化深化** — 死代码消除（DCE）+ 内联优化 + 循环展开
@@ -1299,11 +1307,11 @@ expr.go(1207行) / stmt.go(1081行) 超过 CLAUDE.md 硬约束，按功能拆分
 
 ### 文档更新
 
-- **CHANGELOG.md** — 新增 v4.4.0 条目（本文档）
-- **ROADMAP.md** — 更新 v4.4.0 状态为"✅ 完成"，教程通过率 48/48（100%）
-- **CLAUDE.md** — 更新"当前状态"章节（v4.4.0 发布日期 2026-07-07）
+- **CHANGELOG.md** — 新增 v0.4.4 条目（本文档）
+- **ROADMAP.md** — 更新 v0.4.4 状态为"✅ 完成"，教程通过率 48/48（100%）
+- **CLAUDE.md** — 更新"当前状态"章节（v0.4.4 发布日期 2026-07-07）
 - **docs/llvm-backend.md**（待更新）— stdlib 模块完成度表格 + 注解支持说明
-## v4.3.0 (2026-07-03) — stdlib Phase 1 完成 + Arena Allocator
+## v0.4.3 (2026-07-03) — stdlib Phase 1 完成 + Arena Allocator
 
 > 🎯 **标准库扩展 + 内存优化**。LLVM 后端完成 `datetime` 模块 Phase 1 剩余功能（13 个函数/方法，完整日期时间操作）+ Arena Allocator 内存池（1MB 零复制分配器，消除 malloc 开销）。教程通过率：**31/50 (62%)**。
 
@@ -1348,7 +1356,7 @@ expr.go(1207行) / stmt.go(1081行) 超过 CLAUDE.md 硬约束，按功能拆分
 - Arena 容量固定（1MB），无动态扩展
 - TDateTime 实例在 FreeArena 前无法单独释放
 
-## v4.2.0 (2026-07-03) — stdlib Phase 1 完成 (sysutil)
+## v0.4.2 (2026-07-03) — stdlib Phase 1 完成 (sysutil)
 
 > 🎯 **标准库扩展**。LLVM 后端完成 `sysutil` 模块 Phase 1 实现（8 个函数，基于 libc/POSIX API）。
 
@@ -1358,7 +1366,7 @@ expr.go(1207行) / stmt.go(1081行) 超过 CLAUDE.md 硬约束，按功能拆分
 - **新文件** — `pkg/llvmgen/stdlib_sysutil.go`（250 行，8 个函数 body emitter）
 - **测试覆盖** — `pkg/llvmgen/stdlib_sysutil_test.go`（8/8 单元测试通过），`example36_sysutil.klx` 真机验证通过
 
-## v4.1.0 (2026-07-02) — LLVM M4 高级特性
+## v0.4.1 (2026-07-02) — LLVM M4 高级特性
 
 > 🎉 **正式发布**。LLVM 后端 M4 里程碑：Lambda/闭包、`inherited` 关键字、完整多返回值元组解构、OOP 字段/方法访问系统性修复（vtable 继承）、优化通道（`opt` + `llc -O<N>`）。
 
@@ -1387,13 +1395,13 @@ expr.go(1207行) / stmt.go(1081行) 超过 CLAUDE.md 硬约束，按功能拆分
 - [docs/llvm-backend.md](docs/llvm-backend.md) — 更新"Not Supported"/"Known Limitations"/"Roadmap"章节，移除已修复限制（Lambda/多返回值/inherited），补充优化通道说明。
 - [docs/llvm-performance.md](docs/llvm-performance.md)（新增）— 基准测试方法论与实测数据。
 
-### 已知限制（v4.1.0）
+### 已知限制（v0.4.1）
 
 - 表达式体 lambda（`function(x): T -> expr`）— parser 不识别返回类型后的 `->`，需用 block-bodied lambda 替代。
 - `inherited` 作表达式（`result := inherited F(x)`）— parser 仅支持语句形式。
-- stdlib 重度教程（08、13-20 章节）与注解框架（12 章节）仍需 Go 工具链 — LLVM stdlib 支持规划在 v4.2.0。
+- stdlib 重度教程（08、13-20 章节）与注解框架（12 章节）仍需 Go 工具链 — LLVM stdlib 支持规划在 v0.4.2。
 
-## v4.0.0 (2026-07-01) — LLVM M3 + stdlib Phase 7 + IDE 插件
+## v0.4.0 (2026-07-01) — LLVM M3 + stdlib Phase 7 + IDE 插件
 
 > 🎉 **正式发布**。LLVM 后端 M3 里程碑：完整异常处理 + 控制流覆盖 + 表达式补全。stdlib Phase 7（db/cache/http/websocket）+ VS Code 代码片段。
 
@@ -1430,7 +1438,7 @@ expr.go(1207行) / stmt.go(1081行) 超过 CLAUDE.md 硬约束，按功能拆分
 
 ---
 
-## v3.3.0 (2026-06-29) — KylixBoot Framework: Body Binding + JWT + OpenAPI
+## v0.3.3 (2026-06-29) — KylixBoot Framework: Body Binding + JWT + OpenAPI
 
 ### Highlights
 
@@ -1486,15 +1494,15 @@ Pure Go stdlib implementation — no external dependencies.
 ### OpenAPI 3.1 Generation
 
 ```bash
-kylix doc --openapi --title "My API" --api-version 1.0.0 api.klx
+kylix doc --openapi --title "My API" --api-version 0.1.0 api.klx
 ```
 
 Output `docs/api/openapi.yaml`:
 ```yaml
-openapi: "3.1.0"
+openapi: "0.3.1"
 info:
   title: My API
-  version: 1.0.0
+  version: 0.1.0
 paths:
   /api/v1/users:
     post:
@@ -1529,7 +1537,7 @@ components:
 
 ---
 
-## v3.2.0 (2026-06-29) — KylixBoot Annotation Stack + LLVM M2 Complete + stdlib Phase 6
+## v0.3.2 (2026-06-29) — KylixBoot Annotation Stack + LLVM M2 Complete + stdlib Phase 6
 
 > 🎉 **Major release.** Pre-built binaries for Linux/macOS/Windows are attached to this GitHub release.
 
@@ -1537,11 +1545,11 @@ components:
 
 - **KylixBoot annotation stack** — compile-time auto-wiring for routes (`[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]`), DI (`[Service]`/`[Component]`/`[Inject]`), procedure-style handlers, field validation (`[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]`), per-route security (`[Authenticated]`/`[Role]`), and declarative ORM (`[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]`).
 - **Annotation diagnostics** `KLX207`–`KLX213` — duplicate routes, unsupported handler signatures, missing inject targets, invalid validation/security/ORM usage all fail at compile time with clear errors.
-- **LLVM Backend Milestone 2 complete** — Phase 1 (arrays + optimization, v3.1.0), Phase 2 (interface fat pointer + member access + method dispatch + `is`/`as`), Phase 3 (generic class monomorphization).
+- **LLVM Backend Milestone 2 complete** — Phase 1 (arrays + optimization, v0.3.1), Phase 2 (interface fat pointer + member access + method dispatch + `is`/`as`), Phase 3 (generic class monomorphization).
 - **stdlib Phase 6** — `net` (TCP/UDP/DNS), `crypto` (SHA-256/512, MD5, HMAC, AES-256-GCM, BCrypt, secure random), `encoding` (Base64/Hex/URL/CSV/JSON Lines).
 - **Registry deployment scaffold** — Dockerfile, docker-compose, nginx TLS reverse proxy, GitHub Actions image builder. One `make up` away from a private registry.
 - **Tutorial 42/42 passing** with 6 new annotation examples + Phase 6 demo.
-- **v3.1.1 hotfix included** — unit `interface`/`implementation` codegen fix (KLX-M01) and generic class method receivers (KLX-G01).
+- **v0.3.1 hotfix included** — unit `interface`/`implementation` codegen fix (KLX-M01) and generic class method receivers (KLX-G01).
 
 ### LLVM Backend Milestone 2 Phase 3 — Generic Monomorphization
 
@@ -1869,7 +1877,7 @@ Unlocks 40+ stdlib functions in program files.
 
 ---
 
-## v3.0.0-alpha (2026-06-21) — LLVM 原生后端 + WASI + 包注册中心 + stdlib Phase 4
+## v0.3.0-alpha (2026-06-21) — LLVM 原生后端 + WASI + 包注册中心 + stdlib Phase 4
 
 ### LLVM 原生后端（Milestone 1：最小可用子集）
 
@@ -1961,11 +1969,11 @@ CLI: `kylix publish [--version=X] [--registry=URL] [--token=T]`，支持 `KYLIX_
 
 ---
 
-## v2.6.0 (2026-06-20)
+## v0.2.6 (2026-06-20)
 
 ### 🎉 Performance & Optimization
 
-v2.6.0 brings parallel compilation, dead code elimination, and LSP performance benchmarks.
+v0.2.6 brings parallel compilation, dead code elimination, and LSP performance benchmarks.
 
 ---
 
@@ -2013,7 +2021,7 @@ Verifies incremental edit latency on large files:
 | Incremental edit | 500 functions | 1.0ms | < 200ms ✅ |
 | Symbol collection | 200 functions | < 1ms | complete ✅ |
 
-v2.3.0's incremental sync investment pays off — even 500-function files edit in < 2ms.
+v0.2.3's incremental sync investment pays off — even 500-function files edit in < 2ms.
 
 **Tests**: `pkg/lsp/perf_test.go` (3 tests)
 
@@ -2026,15 +2034,15 @@ v2.3.0's incremental sync investment pays off — even 500-function files edit i
 | Parallel compilation | – (race detector) | Performance |
 | Dead code elimination | 5 | Optimization |
 | LSP perf benchmark | 3 | Performance guard |
-| **Total v2.6.0** | **8** | |
+| **Total v0.2.6** | **8** | |
 
 ---
 
-## v2.5.0 (2026-06-20)
+## v0.2.5 (2026-06-20)
 
 ### 🎉 Toolchain Deepening
 
-v2.5.0 completes the "infrastructure ready but not fully wired" items from v2.3-v2.4: LSP refactoring, doc code examples, bench memory, iter module, and the long-standing class method external definition bug.
+v0.2.5 completes the "infrastructure ready but not fully wired" items from v2.3-v2.4: LSP refactoring, doc code examples, bench memory, iter module, and the long-standing class method external definition bug.
 
 ---
 
@@ -2128,7 +2136,7 @@ begin result := 42; end;
 | bench --mem | – | Benchmarking |
 | iter module | 9 (Kylix) | Standard library |
 | External method fix | 4 | Compiler |
-| **Total v2.5.0** | **22** | |
+| **Total v0.2.5** | **22** | |
 
 ### stdlib Cumulative (7 modules, 54 functions, 48 tests)
 
@@ -2144,11 +2152,11 @@ begin result := 42; end;
 
 ---
 
-## v2.4.0 (2026-06-20)
+## v0.2.4 (2026-06-20)
 
 ### 🎉 Polish & Ecosystem
 
-v2.4.0 completes the v2.3 infrastructure: i18n fully wired, REPL `:type` uses
+v0.2.4 completes the v2.3 infrastructure: i18n fully wired, REPL `:type` uses
 real inference, SetLength fixed, package manager gains nested deps + lockfile,
 and stdlib Phase 3 adds `stringbuilder` + `resulttype`.
 
@@ -2214,14 +2222,14 @@ SetLength(arr, 0);  // zero-length works
 ### Task 5: Package Manager — Nested Deps + Lockfile
 
 ```bash
-$ kylix add mylib github.com/user/mylib@v1.0.0
-  installing mylib (github.com/user/mylib@v1.0.0)…
+$ kylix add mylib github.com/user/mylib@v0.1.0
+  installing mylib (github.com/user/mylib@v0.1.0)…
   resolving 2 nested dependenc(ies) for mylib…
 ✓ Added mylib
 
 $ cat kylix.lock
 [dependency "mylib"]
-ref = "github.com/user/mylib@v1.0.0"
+ref = "github.com/user/mylib@v0.1.0"
 sha = "abc123def456..."
 ```
 
@@ -2289,7 +2297,7 @@ Two new pure-Kylix modules:
 | SetLength fix | – | Correctness |
 | Package manager nested deps + lockfile | – | Ecosystem |
 | stdlib Phase 3 | 8 (Kylix) | Standard library |
-| **Total v2.4.0** | **18** | |
+| **Total v0.2.4** | **18** | |
 
 ### Known Limitations
 - `iter` module deferred to v2.5 (needs generator-level iterator protocol)
@@ -2298,11 +2306,11 @@ Two new pure-Kylix modules:
 
 ---
 
-## v2.3.0 (2026-06-19)
+## v0.2.3 (2026-06-19)
 
 ### 🎉 Developer Experience: Editor, REPL, Test, Debug, WASM
 
-v2.3.0 polishes the developer-facing surface — IDE responsiveness, interactive
+v0.2.3 polishes the developer-facing surface — IDE responsiveness, interactive
 REPL, test runner ergonomics, language localization, debugger integration,
 and a WebAssembly target.
 
@@ -2466,7 +2474,7 @@ for browser deployment.
 | i18n framework | 9 | Internationalization |
 | Delve debug command | – | Tooling |
 | WASM target | – | Deployment |
-| **Total v2.3.0** | **28** | |
+| **Total v0.2.3** | **28** | |
 
 ### Breaking Changes
 - `DocumentStore.Update` signature: now `(uri, text, version int)` — callers must add `0` for legacy version
@@ -2480,11 +2488,11 @@ for browser deployment.
 
 ---
 
-## v2.2.0 (2026-06-19)
+## v0.2.2 (2026-06-19)
 
 ### 🎉 Engineering Quality & stdlib Phase 2
 
-v2.2.0 focuses on production-readiness: continuous integration, deeper type
+v0.2.2 focuses on production-readiness: continuous integration, deeper type
 checking, project-level diagnostics, and incremental builds. Plus two new
 pure-Kylix stdlib modules.
 
@@ -2508,7 +2516,7 @@ pure-Kylix stdlib modules.
 
 ### Task 2: Generic Constraint Method Signature Verification
 
-Previously v2.1.2 only checked method **names** existed. Now signatures match.
+Previously v0.2.1 only checked method **names** existed. Now signatures match.
 
 ```pascal
 type
@@ -2560,7 +2568,7 @@ error[KLX201]: call to undeclared function 'Cube'
 
 ### Task 4: Incremental Compilation Activated
 
-`BuildCache` infrastructure existed since v1.4.0 but was never wired into the
+`BuildCache` infrastructure existed since v0.1.4 but was never wired into the
 project-mode build path.
 
 **Fix**: `cmd/kylix/cmd_build.go` project mode now calls `CompileProject`
@@ -2593,7 +2601,7 @@ $ kylix build -v          # partial rebuild
 
 ### Task 5: stdlib Kylix-ification Phase 2
 
-Two new pure-Kylix modules joining v2.1.0's `strutil`/`mathutil`.
+Two new pure-Kylix modules joining v0.2.1's `strutil`/`mathutil`.
 
 #### `stdlib/src/arrayutil.klx` (8 functions)
 
@@ -2632,10 +2640,10 @@ Methods: `Count()`, `Get(i)`, `Add(v)`, `Clear()`, `IsEmpty()`, `Sum()`.
 
 | Module | Functions | Tests |
 |--------|-----------|-------|
-| `strutil` (v2.1.0) | 8 | 8 |
-| `mathutil` (v2.1.0) | 12 | 10 |
-| `arrayutil` (v2.2.0) | 8 | 8 |
-| `collections` (v2.2.0) | 6 (methods) | 5 |
+| `strutil` (v0.2.1) | 8 | 8 |
+| `mathutil` (v0.2.1) | 12 | 10 |
+| `arrayutil` (v0.2.2) | 8 | 8 |
+| `collections` (v0.2.2) | 6 (methods) | 5 |
 | **Total** | **34** | **31** |
 
 ---
@@ -2649,7 +2657,7 @@ Methods: `Count()`, `Get(i)`, `Add(v)`, `Clear()`, `IsEmpty()`, `Sum()`.
 | Project-level checking | 6 | Type system |
 | Incremental compilation | 4 | Performance |
 | stdlib Phase 2 | 13 | Standard library |
-| **Total v2.2.0** | **29** | |
+| **Total v0.2.2** | **29** | |
 
 ### Breaking Changes
 - `kylix check` now performs full type checking by default (use `--syntax` for
@@ -2664,11 +2672,11 @@ Methods: `Count()`, `Get(i)`, `Add(v)`, `Clear()`, `IsEmpty()`, `Sum()`.
 
 ---
 
-## v2.1.0 (2026-06-19)
+## v0.2.1 (2026-06-19)
 
 ### 🎉 Enhanced Type System & stdlib Kylix-ification
 
-v2.1.0 strengthens the type system with multi-parameter generic constraints,
+v0.2.1 strengthens the type system with multi-parameter generic constraints,
 real interface implementation verification, expanded type inference, and
 introduces the first pure-Kylix stdlib modules.
 
@@ -2817,7 +2825,7 @@ core utilities can be self-hosted without performance loss.
 | Class→Interface mapping | 5 | ~120 |
 | Enhanced type inference | 6 | ~50 |
 | strutil + mathutil + tests | 18 | ~300 |
-| **Total v2.1.0 additions** | **33** | **~550** |
+| **Total v0.2.1 additions** | **33** | **~550** |
 
 ### Breaking Changes
 - `function Abs(x)` user definition now correctly takes precedence over `math.Abs`
@@ -2830,11 +2838,11 @@ core utilities can be self-hosted without performance loss.
 
 ---
 
-## v2.0.0 (2026-06-17)
+## v0.2.0 (2026-06-17)
 
 ### 🎉 Production-Ready Release
 
-Kylix v2.0.0 completes the compiler toolchain with enhanced type checking, testing, documentation generation, and performance benchmarking capabilities.
+Kylix v0.2.0 completes the compiler toolchain with enhanced type checking, testing, documentation generation, and performance benchmarking capabilities.
 
 ---
 
@@ -2880,7 +2888,7 @@ var box: TBox<Integer>;  // error[KLX104]: Integer does not satisfy IComparable
 - Built-in types (Integer, String, Boolean) don't implement user interfaces
 - **Tests:** `pkg/compiler/generics_test.go` (3 tests)
 
-**M2.3: Type Alias Enhancement** (v1.4.0 foundation)
+**M2.3: Type Alias Enhancement** (v0.1.4 foundation)
 - Circular dependency detection
 - Alias chain resolution with cycle guards
 
@@ -2980,7 +2988,7 @@ None — all additions are backward compatible.
 
 ---
 
-## v1.5.0 (2026-06-14)
+## v0.1.5 (2026-06-14)
 
 ### P3: stdlib Kylix化 + 包管理器
 
@@ -3005,7 +3013,7 @@ etc., adding both qualified (`sysutil.ReadFile`) and unqualified symbols.
 Minimal but complete package manager for Kylix projects.
 
 ```
-kylix add utils github.com/alice/utils@v1.0.0  # add + install
+kylix add utils github.com/alice/utils@v0.1.0  # add + install
 kylix install                                   # install all deps
 kylix remove utils                              # remove
 ```
@@ -3023,7 +3031,7 @@ Package commands listed in usage output.
 ---
 
 
-## v1.4.0 (2026-06-13)
+## v0.1.4 (2026-06-13)
 
 ### P2: Incremental compilation
 
@@ -3050,7 +3058,7 @@ across processes.
 ---
 
 
-## v1.3.2 (2026-06-13)
+## v0.1.3 (2026-06-13)
 
 ### LSP real-time diagnostics
 
@@ -3070,7 +3078,7 @@ and `didChange` event, so editors show squiggly lines without running a build.
 
 ---
 
-## v1.3.1 (2026-06-13)
+## v0.1.3 (2026-06-13)
 
 ### Multi-return value full scenario coverage
 
@@ -3089,7 +3097,7 @@ Fixed three parser bugs that blocked multi-return value patterns:
 
 ---
 
-## v1.3.0 (2026-06-13)
+## v0.1.3 (2026-06-13)
 
 ### v2.0 Phase 1 — Interface validation, Kylix-layer errors, Real generics
 
@@ -3165,11 +3173,11 @@ func BoxInt(n int64) *TBox[int64] {
 
 | Component | Old | New |
 |-----------|-----|-----|
-| Compiler, REPL, LSP | 1.2.3 | **1.3.0** |
+| Compiler, REPL, LSP | 1.2.3 | **0.1.3** |
 
 ---
 
-## v1.2.3 (2026-06-12)
+## v0.1.2 (2026-06-12)
 
 ### Code refactoring — all source files under 1000 lines
 
@@ -3224,7 +3232,7 @@ pkg/formatter/
 
 ---
 
-## v1.2.2 (2026-06-12)
+## v0.1.2 (2026-06-12)
 
 ### Tests + inherited keyword fix — 15/15 examples pass on both compilers
 
@@ -3258,7 +3266,7 @@ booleans, arithmetic, nil, package header, string interpolation, inherited calls
 
 #### Example file coverage
 
-| Compiler | v1.2.1 | v1.2.2 |
+| Compiler | v0.1.2 | v0.1.2 |
 |----------|--------|--------|
 | Go reference | 15/15 | 15/15 |
 | Kylix self-hosted | 14/15 | **15/15** ✅ |
@@ -3267,11 +3275,11 @@ booleans, arithmetic, nil, package header, string interpolation, inherited calls
 
 | Component | Old | New |
 |-----------|-----|-----|
-| Compiler, REPL, LSP, Project | 1.2.0 | **1.2.2** |
+| Compiler, REPL, LSP, Project | 0.1.2 | **1.2.2** |
 
 ---
 
-## v1.2.0 (2026-06-08)
+## v0.1.2 (2026-06-08)
 
 ### Phase 9 Complete: Diff Verification Passes — Self-Hosting Achieved!
 
@@ -3309,7 +3317,7 @@ Kylix source (.klx) → Binary A → Go code → go build → Binary B
 
 | Component | Old | New |
 |-----------|-----|-----|
-| Compiler, REPL, LSP, Project | 1.1.5 | **1.2.0** |
+| Compiler, REPL, LSP, Project | 1.1.5 | **0.1.2** |
 
 ---
 
@@ -3852,7 +3860,7 @@ self-hosting bootstrap works.
 
 ---
 
-## v1.0.3 (2026-06-05)
+## v0.1.0 (2026-06-05)
 
 ### New Features — Phase 7: Language Capabilities
 
@@ -3910,7 +3918,7 @@ self-hosting bootstrap works.
 
 ---
 
-## v1.0.2 (2026-06-04)
+## v0.1.0 (2026-06-04)
 
 ### Bug Fixes
 
@@ -3975,7 +3983,7 @@ self-hosting bootstrap works.
 
 ---
 
-## v1.0.1 (2026-06-03)
+## v0.1.0 (2026-06-03)
 
 ### Bug Fixes
 
@@ -4019,9 +4027,9 @@ self-hosting bootstrap works.
 
 | Component | Old | New |
 |-----------|-----|-----|
-| Compiler, REPL, LSP, Project, VSCode | 1.0.0 | **1.0.1** |
+| Compiler, REPL, LSP, Project, VSCode | 0.1.0 | **1.0.1** |
 
-### Known Issues (v1.0.2+)
+### Known Issues (v0.1.0+)
 
 | Priority | Issue |
 |----------|-------|
@@ -4038,7 +4046,7 @@ self-hosting bootstrap works.
 
 ---
 
-## v1.0.0 (2026-06-01)
+## v0.1.0 (2026-06-01)
 
 **🎉 First stable release**
 
@@ -4103,11 +4111,11 @@ This release marks the completion of all 5 planned phases. Kylix is now a full-f
 
 | Component | Old | New |
 |-----------|-----|-----|
-| Compiler (`cmd/kylix/main.go`) | 0.2.0 | **1.0.0** |
-| REPL (`pkg/repl/repl.go`) | 0.3.0 | **1.0.0** |
-| LSP Server (`pkg/lsp/server.go`) | 0.3.0 | **1.0.0** |
-| Project Config (`pkg/project/project.go`) | 0.1.0 | **1.0.0** |
-| VS Code Extension (`vscode-ext/package.json`) | 0.2.0 | **1.0.0** |
+| Compiler (`cmd/kylix/main.go`) | 0.2.0 | **0.1.0** |
+| REPL (`pkg/repl/repl.go`) | 0.3.0 | **0.1.0** |
+| LSP Server (`pkg/lsp/server.go`) | 0.3.0 | **0.1.0** |
+| Project Config (`pkg/project/project.go`) | 0.1.0 | **0.1.0** |
+| VS Code Extension (`vscode-ext/package.json`) | 0.2.0 | **0.1.0** |
 
 ### Files Added
 
@@ -4126,7 +4134,7 @@ This release marks the completion of all 5 planned phases. Kylix is now a full-f
 
 ---
 
-## v0.3.0 (2026-05-31)
+## v0.0.3 (2026-05-31)
 
 ### Phase 4: Language Enhancements
 
@@ -4151,7 +4159,7 @@ This release marks the completion of all 5 planned phases. Kylix is now a full-f
 
 ---
 
-## v0.2.0 (2026-05-30)
+## v0.0.2 (2026-05-30)
 
 ### Phase 2: IDE Toolchain
 
@@ -4164,7 +4172,7 @@ This release marks the completion of all 5 planned phases. Kylix is now a full-f
 
 ---
 
-## v0.1.0 (2026-05-29)
+## v0.0.1 (2026-05-29)
 
 ### Phase 1: Compiler Core
 

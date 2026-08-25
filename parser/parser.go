@@ -63,13 +63,13 @@ type Parser struct {
 
 	// usesPolymorphism is true if any `is`/`as` expression was parsed. Copied
 	// into Program.UsesPolymorphism at the end of ParseProgram so the Go
-	// generator can opt into interface-based base class codegen. See v5.2.0.
+	// generator can opt into interface-based base class codegen. See v0.5.2.
 	usesPolymorphism bool
 
 	// castBoundary is set by parseIsExpression/parseAsExpression when the
 	// right-hand type parse stops on a closing token (e.g. `)` in
 	// `(x as T).Field`). The Pratt loop checks it and stops, so the closing
-	// token is not skipped. See v5.9.0.
+	// token is not skipped. See v0.5.9.
 	castBoundary bool
 }
 

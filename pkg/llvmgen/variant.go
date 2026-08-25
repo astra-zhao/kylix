@@ -31,7 +31,7 @@ const (
 	varTagFloat = 2
 	varTagStr   = 3
 	varTagBool  = 4
-	// v6.4.0: a Variant may hold a map[String]Variant (htab handle in payload).
+	// v0.6.4: a Variant may hold a map[String]Variant (htab handle in payload).
 	// Enables `var row := DbQueryRows(...)[0]; row['col']` lowering.
 	varTagMap = 5
 )
@@ -63,7 +63,7 @@ func (g *Generator) emitVariantBox(v, llvmT string) string {
 		return v // already a box ptr
 	}
 	if llvmT == "ptr" {
-		// v5.9.0: Kylix nil (a null ptr) boxes to the shared nil Variant
+		// v0.5.9: Kylix nil (a null ptr) boxes to the shared nil Variant
 		// (tag 0), not a null-payload string box — matches Go's nil → JSON
 		// "null" and avoids later strlen(null) crashes in encoders.
 		isNull := g.tmp()
@@ -145,7 +145,7 @@ func (g *Generator) emitVariantAsDouble(v string) string {
 }
 
 // isArithOp reports whether the operator is a supported Variant arithmetic op.
-// v6.6.0: `div` (Pascal integer-division keyword, distinct from `/`) and
+// v0.6.6: `div` (Pascal integer-division keyword, distinct from `/`) and
 // `mod` were added alongside +,-,*,/.
 func isArithOp(op string) bool {
 	switch op {
@@ -245,7 +245,7 @@ func (g *Generator) emitVariantRuntimeBodies() {
 	g.emitVariantBoxFloat()
 	g.emitVariantBoxStr()
 	g.emitVariantBoxBool()
-	g.emitVariantBoxMap() // v6.4.0: map-Variant (payload = htab handle)
+	g.emitVariantBoxMap() // v0.6.4: map-Variant (payload = htab handle)
 	g.emitVariantMapGet()
 	g.emitVariantAsDoubleBody()
 	g.emitVariantAsStrBody()
@@ -256,8 +256,8 @@ func (g *Generator) emitVariantRuntimeBodies() {
 	g.emitVariantArithBody("-")
 	g.emitVariantArithBody("*")
 	g.emitVariantArithBody("/")
-	g.emitVariantArithBody("div") // v6.6.0: Pascal integer-division keyword
-	g.emitVariantArithBody("mod") // v6.6.0: integer remainder
+	g.emitVariantArithBody("div") // v0.6.6: Pascal integer-division keyword
+	g.emitVariantArithBody("mod") // v0.6.6: integer remainder
 	g.emitVariantPrintBody(false) // print
 	g.emitVariantPrintBody(true)  // println
 }
@@ -341,7 +341,7 @@ func (g *Generator) emitVariantBoxBool() {
 }
 
 // emitVariantBoxMap boxes a map[String]Variant handle (htab ptr) into a
-// Variant box with tag=map. The payload stores the htab pointer. v6.4.0.
+// Variant box with tag=map. The payload stores the htab pointer. v0.6.4.
 func (g *Generator) emitVariantBoxMap() {
 	g.line("define ptr @__kylix_variant_box_map(ptr %v) {")
 	g.line("entry:")
@@ -360,7 +360,7 @@ func (g *Generator) emitVariantBoxMap() {
 
 // emitVariantMapGet returns the value box for `key` in a map-Variant box, or
 // the nil-box if the box isn't a map-Variant / the key is missing. The key is
-// a String ptr; the value slot holds a Variant box (htab_get_variant). v6.4.0.
+// a String ptr; the value slot holds a Variant box (htab_get_variant). v0.6.4.
 func (g *Generator) emitVariantMapGet() {
 	g.line("define ptr @__kylix_variant_map_get(ptr %box, ptr %key) {")
 	g.line("entry:")
@@ -696,7 +696,7 @@ func (g *Generator) emitVariantPrintBody(newline bool) {
 	boolLbl := g.label()
 	endLbl := g.label()
 	defLbl := g.label()
-	mapLbl := g.label() // v6.4.0: map-Variant → placeholder
+	mapLbl := g.label() // v0.6.4: map-Variant → placeholder
 	g.line(fmt.Sprintf("  switch i32 %s, label %%%s [", tag, defLbl))
 	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagInt, intLbl))
 	g.line(fmt.Sprintf("    i32 %d, label %%%s", varTagFloat, floatLbl))
@@ -969,7 +969,7 @@ func (g *Generator) emitVariantArithBody(op string) {
 		g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %%a)", sa))
 		sb := g.tmp()
 		g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_as_str(ptr %%b)", sb))
-		// v5.6.0: sized concat (was fixed malloc(512) → overflow on long
+		// v0.5.6: sized concat (was fixed malloc(512) → overflow on long
 		// variant-string concatenations).
 		buf := g.emitStringConcat(sa, sb)
 		sbox := g.tmp()

@@ -1,5 +1,5 @@
 #!/bin/bash
-# bundle_llvm.sh — 捆绑 LLVM 工具链到 kylix 二进制旁（分发形态 B，v6.3.0）。
+# bundle_llvm.sh — 捆绑 LLVM 工具链到 kylix 二进制旁（分发形态 B，v0.6.3）。
 #
 # 产出: <dest>/llvm/bin/{llc,clang,opt} + <dest>/llvm/lib/*.dylib|*.so
 # 之后 kylix 的 FindLLVM 会优先使用可执行文件旁的 llvm/bin（自带编译器，

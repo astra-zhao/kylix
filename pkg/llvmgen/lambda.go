@@ -314,7 +314,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 	}
 
 	defineLine := fmt.Sprintf("define %s %s(%s) {", pl.retType, lambdaName(pl.id), strings.Join(params, ", "))
-	// v4.9.0: register a DISubprogram for the lambda so closures get per-line
+	// v0.4.9: register a DISubprogram for the lambda so closures get per-line
 	// stepping + variable inspection. The lambda's source position isn't
 	// tracked on pendingLambda (it's emitted at module end, after the call
 	// site); we anchor it at line 0 → registerSubprogram falls back to the
@@ -332,7 +332,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 	savedTypes := g.localTypes
 	savedVarSeq := g.varNameSeq
 	savedFuncName := g.funcName
-	savedFuncExit := g.funcExitLabel // v5.6.0
+	savedFuncExit := g.funcExitLabel // v0.5.6
 	savedDbgScope := 0
 	if g.debugInfo {
 		savedDbgScope = g.dbg.curScope
@@ -341,9 +341,9 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 	g.locals = make(map[string]string)
 	g.localTypes = make(map[string]string)
 	g.varNameSeq = make(map[string]int)
-	g.registerGlobalsInScope() // v5.4.0: make globals visible in this lambda
+	g.registerGlobalsInScope() // v0.5.4: make globals visible in this lambda
 	g.funcName = fmt.Sprintf("__lambda_%d", pl.id)
-	g.funcExitLabel = g.label() // v5.6.0: exit block for `Exit`/`return`
+	g.funcExitLabel = g.label() // v0.5.6: exit block for `Exit`/`return`
 
 	envT := envTypeLiteral(pl.captures)
 
@@ -369,7 +369,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 		g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, c.llvmType))
 		g.line(fmt.Sprintf("  store %s %s, ptr %s", c.llvmType, val, allocaReg))
 		g.locals[c.name] = allocaReg
-		// v4.9.0: declare the captured variable as a debug local so LLDB
+		// v0.4.9: declare the captured variable as a debug local so LLDB
 		// shows it while stepping the closure body.
 		if g.debugInfo {
 			g.emitDbgDeclare(c.name, 0, c.llvmType, allocaReg)
@@ -400,7 +400,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 		if kylixType != "" {
 			g.localTypes[p.Name] = kylixType
 		}
-		// v4.9.0: declare the parameter as a debug local.
+		// v0.4.9: declare the parameter as a debug local.
 		if g.debugInfo {
 			declLine := 0
 			if p.Token.Line > 0 {
@@ -453,7 +453,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 					g.localTypes = savedTypes
 					g.varNameSeq = savedVarSeq
 					g.funcName = savedFuncName
-					g.funcExitLabel = savedFuncExit // v5.6.0
+					g.funcExitLabel = savedFuncExit // v0.5.6
 					if g.debugInfo {
 						g.setDbgScope(savedDbgScope)
 						g.clearDbgPos()
@@ -462,7 +462,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 				}
 			}
 		}
-		// v5.6.0: return via the shared exit block so `Exit`/`return` in the
+		// v0.5.6: return via the shared exit block so `Exit`/`return` in the
 		// lambda body branch to it and actually return this value.
 		g.emitFuncEpilogue(pl.retType)
 	}
@@ -475,7 +475,7 @@ func (g *Generator) emitLambdaFunc(pl pendingLambda) error {
 	g.localTypes = savedTypes
 	g.varNameSeq = savedVarSeq
 	g.funcName = savedFuncName
-	g.funcExitLabel = savedFuncExit // v5.6.0
+	g.funcExitLabel = savedFuncExit // v0.5.6
 	if g.debugInfo {
 		g.setDbgScope(savedDbgScope)
 		g.clearDbgPos()

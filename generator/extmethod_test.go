@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Class method external definition tests (v2.5.0 task 5).
+// Class method external definition tests (v0.2.5 task 5).
 
 func TestExternalMethodDef_NoDuplicate(t *testing.T) {
 	src := `program Test;

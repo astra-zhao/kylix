@@ -1,7 +1,7 @@
 # stdlib.datetime — 日期时间处理模块
 
 **状态**: ✅ Phase 1 完成 (LLVM 后端)  
-**版本**: v4.3.0  
+**版本**: v0.4.3  
 **测试覆盖**: 9/9 单元测试通过，example38 真机验证通过
 
 ## 概述
@@ -277,11 +277,11 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 
 ## 限制
 
-### 当前版本 (v4.5.0 — Phase 1–3 已完成)
+### 当前版本 (v0.4.5 — Phase 1–3 已完成)
 1. **静态缓冲区**: FormatDate 使用 64 字节栈缓冲区（非线程安全）
 2. **无内存管理**: TDateTime 实例通过 malloc 分配，无 GC（datetime 用 1MB 静态 arena 部分缓解）
 3. **简化 tm 结构**: 假设 `struct tm` 布局为标准 POSIX（56 字节）
-4. **已补齐（v4.4.0 / v4.5.0 Phase 2–3）**：
+4. **已补齐（v0.4.4 / v0.4.5 Phase 2–3）**：
    - `MakeTime(h, m, s)` / `Today()` / `ParseDate(s)` / `ParseDateTime(s)`
    - 方法：`Hour()` `Minute()` `Second()` `DayOfWeek()` `DayOfYear()` `Format(pattern)` `AddDays/AddHours/AddMinutes/AddSeconds` `Before/After` 等
    - `ArenaAlloc` / `FreeArena`（arena 分配器，缓解无 GC 的泄漏）
@@ -353,7 +353,7 @@ One week before: 2024-12-18
 
 ## 版本历史
 
-### v4.3.0 (2026-07-03)
+### v0.4.3 (2026-07-03)
 - ✅ Phase 1 完成
 - 实现 Now/MakeDate/Year/Month/Day/FormatDate/AddDays
 - 支持链式调用
@@ -361,5 +361,5 @@ One week before: 2024-12-18
 - example38 真机验证通过
 
 ### 未来计划
-- v4.4.0: Phase 2 (MakeTime/Hour/Minute/Second/Format)
-- v4.5.0: Phase 3 (解析/时区/差值计算)
+- v0.4.4: Phase 2 (MakeTime/Hour/Minute/Second/Format)
+- v0.4.5: Phase 3 (解析/时区/差值计算)

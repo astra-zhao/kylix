@@ -10,7 +10,7 @@ import (
 	"kylix/pkg/llvmgen"
 )
 
-// debug tests — verify the v4.5.0 DWARF debug-info emission (kylix -g).
+// debug tests — verify the v0.4.5 DWARF debug-info emission (kylix -g).
 
 func generateIRWithDebug(t *testing.T, src string) string {
 	t.Helper()
@@ -106,7 +106,7 @@ end.`)
 	assertIRContains(t, ir, "DICompileUnit")
 }
 
-// ===== v4.6.0: per-instruction DILocation + DILocalVariable tests =====
+// ===== v0.4.6: per-instruction DILocation + DILocalVariable tests =====
 
 // TestDebug_InstructionsCarryDILocation verifies that instruction-level IR
 // lines (alloca/store/load/call/br/...) carry a trailing ", !dbg !N" when -g
@@ -252,7 +252,7 @@ end.`)
 	}
 }
 
-// TestDebug_DIBasicTypePerLLVMType verifies v4.8.0 emits distinct DIBasicType
+// TestDebug_DIBasicTypePerLLVMType verifies v0.4.8 emits distinct DIBasicType
 // nodes per LLVM type so LLDB formats values correctly: int64 → DW_ATE_signed,
 // double → DW_ATE_float, ptr → DW_ATE_address, i1 → DW_ATE_boolean.
 func TestDebug_DIBasicTypePerLLVMType(t *testing.T) {
@@ -280,7 +280,7 @@ end.`)
 	}
 }
 
-// TestDebug_MethodGetsSubprogram verifies v4.9.0: class methods register a
+// TestDebug_MethodGetsSubprogram verifies v0.4.9: class methods register a
 // DISubprogram (define line carries !dbg) and declare `self` + params as
 // debug locals, so OOP methods are step-able and LLDB shows the receiver.
 func TestDebug_MethodGetsSubprogram(t *testing.T) {
@@ -323,7 +323,7 @@ end.`)
 	}
 }
 
-// TestDebug_LambdaGetsSubprogram verifies v4.9.0: lambdas/closures register a
+// TestDebug_LambdaGetsSubprogram verifies v0.4.9: lambdas/closures register a
 // DISubprogram and declare captured variables as debug locals, so stepping
 // into a closure body shows the captured bindings.
 func TestDebug_LambdaGetsSubprogram(t *testing.T) {
@@ -360,7 +360,7 @@ end.`)
 	}
 }
 
-// TestDebug_LexicalBlockForNestedScope verifies v4.9.0: a variable declared
+// TestDebug_LexicalBlockForNestedScope verifies v0.4.9: a variable declared
 // inside a nested block (e.g. an if-then body) is scoped to a DILexicalBlock
 // — not the whole function subprogram — so LLDB reports correct block nesting.
 func TestDebug_LexicalBlockForNestedScope(t *testing.T) {

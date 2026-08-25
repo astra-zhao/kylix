@@ -9,7 +9,7 @@ import (
 	"kylix/pkg/i18n"
 )
 
-// i18n integration tests (v2.4.0 task 1): verify error messages are localized
+// i18n integration tests (v0.2.4 task 1): verify error messages are localized
 // when KYLIX_LANG / i18n.SetLang is set.
 
 func i18nCompile(t *testing.T, src string) *compiler.Result {

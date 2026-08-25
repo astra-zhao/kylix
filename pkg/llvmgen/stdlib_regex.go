@@ -31,7 +31,7 @@ func (g *Generator) emitRegexCall(funcName string, args []ast.Expression) (reg, 
 	// Coerce to ptr if needed (best-effort; type mismatches caught by llc)
 	_ = argType
 
-	// v6.2.0: Windows UCRT has no POSIX regcomp/regexec. The Is* helpers return
+	// v0.6.2: Windows UCRT has no POSIX regcomp/regexec. The Is* helpers return
 	// false (the argument is still evaluated for side effects); real regex
 	// support on Windows would require linking pcre2. Recorded as a limitation.
 	if g.targetOS == "windows" {

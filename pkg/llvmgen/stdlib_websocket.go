@@ -25,7 +25,7 @@ func (g *Generator) emitWebsocketCall(funcName string, args []ast.Expression) (s
 	switch funcName {
 	case "WsDial":
 		g.enqueueStdlib("net", "TcpDial", "TcpDial", 0)
-		// WsDial composes the two-phase handshake (v6.5.0).
+		// WsDial composes the two-phase handshake (v0.6.5).
 		g.enqueueStdlib("websocket", "WsDialConnect", "WsDialConnect", 0)
 		g.enqueueStdlib("websocket", "WsDialFinish", "WsDialFinish", 0)
 	case "WsDialConnect":

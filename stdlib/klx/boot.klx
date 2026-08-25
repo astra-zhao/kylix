@@ -1,8 +1,8 @@
 // boot.klx — KylixBoot framework declarations for LSP completion.
 //
 // Spring Boot-style web framework. Provides declarative routing, dependency
-// injection, configuration, and middleware. Use programmatically in v3.1.0;
-// annotation-driven auto-registration arrives in v3.2.0.
+// injection, configuration, and middleware. Use programmatically in v0.3.1;
+// annotation-driven auto-registration arrives in v0.3.2.
 unit boot;
 
 // Boot* functions are exposed as stdlib bridge wrappers around the

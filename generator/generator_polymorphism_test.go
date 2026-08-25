@@ -6,7 +6,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// v5.2.0: polymorphic base classes → Go interfaces (opt-in via is/as)
+// v0.5.2: polymorphic base classes → Go interfaces (opt-in via is/as)
 // ---------------------------------------------------------------------------
 
 // TestPolymorphism_BaseClassBecomesInterface: a program that uses `is`/`as`
@@ -57,7 +57,7 @@ end.`
 }
 
 // TestPolymorphism_NoIsAs_KeepsStructInheritance: programs WITHOUT `is`/`as`
-// must keep the v3.1.0 behavior — base classes as structs with embedded parent
+// must keep the v0.3.1 behavior — base classes as structs with embedded parent
 // (field inheritance). Regression guard for example19/example40.
 func TestPolymorphism_NoIsAs_KeepsStructInheritance(t *testing.T) {
 	input := `

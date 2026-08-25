@@ -1,6 +1,6 @@
 // stringbuilder — Efficient string concatenation, implemented in pure Kylix.
 //
-// Part of v2.4.0 stdlib Phase 3.
+// Part of v0.2.4 stdlib Phase 3.
 // Provides TStringBuilder for building strings incrementally without
 // the O(n²) cost of repeated string concatenation.
 unit stringbuilder;

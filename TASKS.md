@@ -1,12 +1,12 @@
 # Kylix 开发任务清单
 
 > 最后更新: 2026-06-26  
-> 当前版本: v3.2.0-dev  
+> 当前版本: v0.3.2-dev  
 > 关联文档: [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
-## ✅ v3.1.0 已完成 (2026-06-23)
+## ✅ v0.3.1 已完成 (2026-06-23)
 
 ### KylixBoot 框架核心运行时
 - [x] `pkg/boot/types.go` — Request / Response / Handler / Middleware
@@ -63,7 +63,7 @@
 
 ---
 
-## ✅ v3.0.0-alpha 已完成 (2026-06-21)
+## ✅ v0.3.0-alpha 已完成 (2026-06-21)
 
 ### stdlib Phase 4 — 纯 Kylix 化
 - [x] `stdlib/src/jsonutil.klx` — 完整 JSON 解析器（嵌套支持），29 测试
@@ -116,7 +116,7 @@
 
 ---
 
-### ✅ v3.1.1 Hotfix 已完成 (2026-06-25)
+### ✅ v0.3.1 Hotfix 已完成 (2026-06-25)
 
 - [x] **KLX-M01** — Unit `interface` / `implementation` parsing修复
   - `token/token.go` 新增 `IMPLEMENTATION` token 与关键字映射
@@ -136,7 +136,7 @@
 
 ---
 
-## ✅ v3.2.0-dev 已完成 (2026-06-26) — KylixBoot 注解栈
+## ✅ v0.3.2-dev 已完成 (2026-06-26) — KylixBoot 注解栈
 
 KylixBoot 在 v3.1 完成了运行时 + 注解 AST，v3.2-dev 把它们全部连接起来并加上编译期诊断。
 
@@ -177,7 +177,7 @@ KylixBoot 在 v3.1 完成了运行时 + 注解 AST，v3.2-dev 把它们全部连
 
 ---
 
-## 📋 v3.2.0 剩余任务
+## 📋 v0.3.2 剩余任务
 
 ### 优先级 P1 — LLVM Milestone 2 Phase 2 (接口) ✅ 已完成 (2026-06-27)
 
@@ -220,14 +220,14 @@ KylixBoot 在 v3.1 完成了运行时 + 注解 AST，v3.2-dev 把它们全部连
 
 ### 优先级 P3 — 残留 Bug（v3.1 未覆盖）
 
-- [x] **KLX-G01** — `example21_generic_class` 运行时异常 → ✅ v3.1.1 修复（泛型 receiver + 显式 self 字段访问）
-- [x] **KLX-M01** — `example33_use_module` 多文件 unit 编译路径问题 → ✅ v3.1.1 修复（unit section marker 解析 + forward declaration 跳过）
+- [x] **KLX-G01** — `example21_generic_class` 运行时异常 → ✅ v0.3.1 修复（泛型 receiver + 显式 self 字段访问）
+- [x] **KLX-M01** — `example33_use_module` 多文件 unit 编译路径问题 → ✅ v0.3.1 修复（unit section marker 解析 + forward declaration 跳过）
 
 ---
 
-## 📋 v4.0.0 长期任务
+## 📋 v0.4.0 长期任务
 
-详见 ROADMAP.md v4.0.0 章节。核心：
+详见 ROADMAP.md v0.4.0 章节。核心：
 - [ ] 自研运行时 KylixRT（GC + 字符串 + 动态数组）
 - [ ] LLVM 后端 Milestone 3（完整 Kylix 语言）
 - [ ] 自举编译器 v2.0（用 Kylix 写 LLVM 后端）
