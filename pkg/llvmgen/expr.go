@@ -1089,9 +1089,15 @@ func (g *Generator) emitWrite(arg ast.Expression) (string, string, error) {
 
 // emitIntToStr converts i64 to ptr via snprintf.
 func (g *Generator) emitIntToStr(arg ast.Expression) (string, string, error) {
-	v, _, err := g.emitExpr(arg)
+	v, vt, err := g.emitExpr(arg)
 	if err != nil {
 		return "", "", err
+	}
+	// v0.6.9: `IntToStr(m['user']['age'])` — a Variant box must be unboxed to
+	// i64 (as_int) before snprintf %lld, otherwise the box ptr is passed as the
+	// i64 argument → llc type error.
+	if vt == variantT {
+		v, _ = g.coerceValue(v, vt, "i64")
 	}
 	// Allocate 24 bytes on stack for the number string
 	buf := g.tmp()
@@ -1109,9 +1115,13 @@ func (g *Generator) emitIntToStr(arg ast.Expression) (string, string, error) {
 // emitFloatToStr converts double to ptr via snprintf("%.17g") — round-trip
 // precision, the closest LLVM analogue to Go's fmt.Sprintf("%v"). v0.6.1.
 func (g *Generator) emitFloatToStr(arg ast.Expression) (string, string, error) {
-	v, _, err := g.emitExpr(arg)
+	v, vt, err := g.emitExpr(arg)
 	if err != nil {
 		return "", "", err
+	}
+	// v0.6.9: unbox a Variant arg (as_double) for the %g snprintf.
+	if vt == variantT {
+		v, _ = g.coerceValue(v, vt, "double")
 	}
 	buf := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [40 x i8], align 1", buf))

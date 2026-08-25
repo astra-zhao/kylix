@@ -1,0 +1,1745 @@
+unit llvmgen;
+uses token, lexer, ast, error;
+
+// ============================================================================
+// LLVM IR emitter (v0.6.9 — bootstrap no-Go closed loop).
+// Converts the AST to LLVM IR text, so a Kylix-compiled compiler can emit a
+// native binary without the Go toolchain (via llc + clang).
+//
+// P1 scope (this file): module skeleton + expressions + statements + functions
+// — hello-class programs. P2 (llvmgen_class.klx) adds classes/methods/vtables
+// + is/as; P3 (llvmgen_stdlib.klx) adds arrays/maps/ReadFile/Args. The whole
+// emitter is one unit split across files that all append methods to
+// TLLVMGenerator (Kylix units can reopen the same class in later files of the
+// same program via separate `unit llvmgen_class;` — actually Kylix units are
+// self-contained; we keep the class fully in llvmgen.klx and add the rest as
+// standalone procedures + fields as we grow).
+//
+// Determinism: every register/label is a counter; arrays are iterated by
+// index — output is byte-stable, so the self-reproduction fixpoint
+// (IR_A ≡ IR_B) is well-defined.
+//
+// Internal state avoids Kylix maps entirely (the bootstrap parser handles
+// maps only for user programs; the emitter's own bookkeeping uses parallel
+// arrays + linear scans, exactly like generator.klx's comma-string strategy).
+// ============================================================================
+
+type
+  TLLVMStringConst = class
+    Reg: String;    // "@.str.N"
+    Val: String;    // decoded bytes
+    Size: Integer;  // len(Val)+1
+  end;
+
+  TLLVMGenerator = class
+    Output: String;         // IR text accumulator
+    StrCount: Integer;
+    StrDedup: array of TLLVMStringConst;
+    TmpSeq: Integer;
+    LblSeq: Integer;
+    // locals: parallel arrays (name / llvm type / alloca reg / kylix type)
+    LNames: array of String;
+    LTypes: array of String;
+    LRegs: array of String;
+    LKylix: array of String;
+    // constants: parallel name/value
+    CNames: array of String;
+    CVals: array of Integer;
+    // functions: name → return LLVM type ('' = void)
+    FNames: array of String;
+    FRet: array of String;
+    // current function context
+    InFunc: Boolean;
+    InReturnFunc: Boolean;
+    ResultLLVMType: String;
+    FuncExitLabel: String;
+    CurClassName: String;
+    // flags
+    NeedHashtab: Boolean;
+    NeedArgs: Boolean;
+    NeedMemcpy: Boolean;
+    NeedClassRTTI: Boolean;
+    NeedReadFile: Boolean;
+    // loop labels (single-level stack, like the host's emitWhile/emitFor)
+    LoopHead: String;
+    LoopBreak: String;
+    // Args builtin global always declared
+    ArgsDeclared: Boolean;
+
+    // NOTE: Write/WriteLine are declared AND inlined in the type block (like
+    // generator.klx) because `Write` is the reserved word tkWrite — an external
+    // implementation `procedure TLLVMGenerator.Write` parses as an expression
+    // ("no prefix parse function for write"). Inline bodies disambiguate.
+    procedure Write(s: String);
+    begin
+      self.Output := self.Output + s;
+    end;
+
+    procedure WriteLine(s: String);
+    begin
+      self.Output := self.Output + s + '\n';
+    end;
+
+  end;
+
+// ============================================================================
+// Constructor — TLLVMGenerator.Create is a plain void method (bootstrap
+// constructors emit as `func (self *TLLVMGenerator) Create()`), NOT a special
+// "constructor" declaration. The `constructor` keyword is handled by the
+// parser like a procedure (method), so we don't redeclare it here — the
+// per-instance initialization lives in a plain `procedure Init;` we call from
+// main. Declaring a `constructor Create;` would collide with the parser's
+// method naming. Instead we rely on Create being callable as
+// `TLLVMGenerator.Create()` via the normal member path (P2). For P1, the
+// fields are zero-initialized by the alloca defaults; main.klx explicitly
+// calls Reset after Create.
+// ============================================================================
+
+
+function TLLVMGenerator.Tmp: String;
+begin
+  result := '%t' + self.IntToStrS(self.TmpSeq);
+  self.TmpSeq := self.TmpSeq + 1;
+end;
+
+function TLLVMGenerator.Label: String;
+begin
+  result := 'lbl' + self.IntToStrS(self.LblSeq);
+  self.LblSeq := self.LblSeq + 1;
+end;
+
+// ============================================================================
+// String pool
+// ============================================================================
+
+// AddString pools a source string literal by its RAW value (the lexer keeps
+// source escapes like \n as 2 chars: backslash, n). Dedup is on the raw bytes.
+// The value is consumed only by EscapeString, which maps source escapes
+// directly to IR escapes — so no runtime byte decoding (and no chr()) is ever
+// needed, matching host llvmEscapeString output byte-for-byte.
+function TLLVMGenerator.AddString(val: String): String;
+var
+  i: Integer;
+  c: TLLVMStringConst;
+begin
+  for i := 0 to Length(self.StrDedup) - 1 do
+    if self.StrDedup[i].Val = val then
+    begin
+      result := self.StrDedup[i].Reg;
+      Exit;
+    end;
+  c := TLLVMStringConst.Create;
+  c.Reg := '@.str.' + self.IntToStrS(self.StrCount);
+  c.Val := val;
+  c.Size := Length(val) + 1;
+  append(self.StrDedup, c);
+  self.StrCount := self.StrCount + 1;
+  result := c.Reg;
+end;
+
+function TLLVMGenerator.PtrTo(strReg: String; size: Integer): String;
+var t: String;
+begin
+  t := self.Tmp();
+  self.WriteLine('  ' + t + ' = getelementptr inbounds [' + self.IntToStrS(size) + ' x i8], ptr ' + strReg + ', i64 0, i64 0');
+  result := t;
+end;
+
+// ============================================================================
+// Kylix-side helpers
+// ============================================================================
+
+function TLLVMGenerator.IndexOfStr(arr: array of String; needle: String): Integer;
+var i: Integer;
+begin
+  for i := 0 to Length(arr) - 1 do
+    if arr[i] = needle then
+    begin
+      result := i;
+      Exit;
+    end;
+  result := -1;
+end;
+
+function TLLVMGenerator.IntToStrS(i: Integer): String;
+begin
+  // v0.6.9: force a heap copy. The host's IntToStr builtin returns a stack
+  // alloca address; returning that from a function (double-stack-return)
+  // dangles once the caller makes another call (strlen/strcat clobber it).
+  // Concatenating with '' triggers emitStringConcat (malloc+strcpy) → heap.
+  result := '' + IntToStr(i);
+end;
+
+function TLLVMGenerator.StrContains(haystack, needle: String): Boolean;
+var i: Integer;
+begin
+  result := false;
+  if Length(needle) = 0 then
+  begin
+    result := true;
+    Exit;
+  end;
+  for i := 0 to Length(haystack) - Length(needle) do
+    if haystack[i:i+Length(needle)] = needle then
+    begin
+      result := true;
+      Exit;
+    end;
+end;
+
+function TLLVMGenerator.StrStarts(haystack, prefix: String): Boolean;
+begin
+  if Length(prefix) > Length(haystack) then
+    result := false
+  else
+    result := haystack[0:Length(prefix)] = prefix;
+end;
+
+// IntToHex2 — 2-digit uppercase hex of a byte (LLVM \XX escapes). No IntToHex
+// builtin in the bootstrap's LLVM surface, so compute it from nibbles.
+function TLLVMGenerator.IntToHex2(b: Integer): String;
+const
+  HexDigits = '0123456789ABCDEF';
+var
+  hi, lo: Integer;
+begin
+  hi := b div 16;
+  lo := b mod 16;
+  result := HexDigits[hi:hi+1] + HexDigits[lo:lo+1];
+end;
+
+// CharByte — 1-char string from a byte value (replaces chr(n), which the
+// bootstrap's LLVM backend does not lower).
+
+
+// ============================================================================
+// Locals / constants
+// ============================================================================
+
+function TLLVMGenerator.HasLocal(name: String): Boolean;
+begin
+  result := self.IndexOfStr(self.LNames, name) >= 0;
+end;
+
+function TLLVMGenerator.LocalReg(name: String): String;
+var i: Integer;
+begin
+  i := self.IndexOfStr(self.LNames, name);
+  if i < 0 then
+    result := ''
+  else
+    result := self.LRegs[i];
+end;
+
+function TLLVMGenerator.LocalType(name: String): String;
+var i: Integer;
+begin
+  i := self.IndexOfStr(self.LNames, name);
+  if i < 0 then
+    result := 'i64'
+  else
+    result := self.LTypes[i];
+end;
+
+function TLLVMGenerator.LocalKylix(name: String): String;
+var i: Integer;
+begin
+  i := self.IndexOfStr(self.LNames, name);
+  if i < 0 then
+    result := ''
+  else
+    result := self.LKylix[i];
+end;
+
+function TLLVMGenerator.ActualType(name: String): String;
+begin
+  result := self.LocalType(name);
+  if result = 'variant' then result := 'ptr';
+end;
+
+function TLLVMGenerator.RegisterLocal(name, llvmT, kylixT: String): String;
+var
+  reg, suffix: String;
+begin
+  if self.HasLocal(name) then
+  begin
+    result := self.LocalReg(name);
+    Exit;
+  end;
+  suffix := self.SuffixFor(llvmT);
+  reg := '%v_' + name + suffix;
+  if llvmT = 'variant' then llvmT := 'ptr';
+  self.WriteLine('  ' + reg + ' = alloca ' + llvmT + ', align 8');
+  if llvmT = 'ptr' then self.WriteLine('  store ptr null, ptr ' + reg)
+  else if llvmT = 'i1' then self.WriteLine('  store i1 0, ptr ' + reg)
+  else if llvmT = 'double' then self.WriteLine('  store double 0.0, ptr ' + reg)
+  else if llvmT = '{ ptr, i64, i64 }' then self.WriteLine('  store { ptr, i64, i64 } zeroinitializer, ptr ' + reg)
+  else self.WriteLine('  store i64 0, ptr ' + reg);
+  append(self.LNames, name);
+  append(self.LTypes, llvmT);
+  append(self.LRegs, reg);
+  append(self.LKylix, kylixT);
+  result := reg;
+end;
+
+function TLLVMGenerator.ConstValue(name: String): Integer;
+var i: Integer;
+begin
+  i := self.IndexOfStr(self.CNames, name);
+  if i < 0 then
+    result := 0
+  else
+    result := self.CVals[i];
+end;
+
+function TLLVMGenerator.HasConst(name: String): Boolean;
+begin
+  result := self.IndexOfStr(self.CNames, name) >= 0;
+end;
+
+function TLLVMGenerator.IsClass(tname: String): Boolean;
+begin
+  // P1: no classes yet. Overridden by llvmgen_class.klx in P2.
+  result := false;
+end;
+
+function TLLVMGenerator.IsRecord(tname: String): Boolean;
+begin
+  result := false;
+end;
+
+function TLLVMGenerator.IsNilNode(e: TExpression): Boolean;
+begin
+  if e is TNilLiteral then
+    result := true
+  else
+    result := false;
+end;
+
+// ============================================================================
+// LLVM type mapping
+// ============================================================================
+
+function TLLVMGenerator.LlvmTypeFor(tname: String): String;
+var lo: String;
+begin
+  lo := LowerCase(tname);
+  if (lo = 'integer') or (lo = 'int64') or (lo = 'int') or (lo = 'longint') then result := 'i64'
+  else if (lo = 'boolean') or (lo = 'bool') then result := 'i1'
+  else if (lo = 'real') or (lo = 'double') or (lo = 'float') or (lo = 'single') then result := 'double'
+  else if (lo = 'string') or (lo = 'ansistring') then result := 'ptr'
+  else if (lo = 'char') then result := 'i8'
+  else if (lo = 'variant') then result := 'ptr'
+  else result := 'i64';
+end;
+
+function TLLVMGenerator.TypeExprName(e: TExpression): String;
+begin
+  if e = nil then result := ''
+  else if e is TIdentifier then result := (e as TIdentifier).Value
+  else result := '';
+end;
+
+function TLLVMGenerator.LlvmTypeOfExpr(e: TExpression): String;
+var
+  at: TArrayType;
+  size: Integer;
+begin
+  if e = nil then
+  begin
+    result := 'i64';
+    Exit;
+  end;
+  if e is TArrayType then
+  begin
+    at := e as TArrayType;
+    if at.Dynamic then result := '{ ptr, i64, i64 }'
+    else
+    begin
+      size := 1;
+      if at.Size <> nil then size := self.EvalConstInt(at.Size);
+      result := '[' + self.IntToStrS(size) + ' x ' + self.LlvmTypeOfExpr(at.ElementType) + ']';
+    end;
+    Exit;
+  end;
+  if e is TMapType then
+  begin
+    result := 'ptr';
+    self.NeedHashtab := true;
+    Exit;
+  end;
+  result := self.LlvmTypeFor(self.TypeExprName(e));
+end;
+
+function TLLVMGenerator.SuffixFor(llvmT: String): String;
+begin
+  if llvmT = 'i1' then result := '_bool'
+  else if llvmT = 'double' then result := '_real'
+  else if llvmT = 'ptr' then result := '_str'
+  else if llvmT = '{ ptr, i64, i64 }' then result := '_dyn'
+  else if llvmT = 'variant' then result := '_var'
+  else result := '_int';
+end;
+
+// EvalConstInt — constant integer literal evaluation (used for array sizes).
+function TLLVMGenerator.EvalConstInt(e: TExpression): Integer;
+begin
+  if e is TIntegerLiteral then
+    result := (e as TIntegerLiteral).Value
+  else
+    result := 1;
+end;
+
+// ============================================================================
+// Module emission
+// ============================================================================
+
+procedure TLLVMGenerator.EmitProgram(prog: TProgram);
+var
+  i: Integer;
+  decl: TNode;
+  td: TTypeDecl;
+  cd: TClassDecl;
+begin
+  self.EmitHeader();
+  self.EmitRuntimeDecls();
+
+  // Pass 1: register function signatures (forward references) + enum consts.
+  for i := 0 to Length(prog.Declarations) - 1 do
+  begin
+    decl := prog.Declarations[i];
+    if decl is TFunctionDecl then
+    begin
+      append(self.FNames, (decl as TFunctionDecl).Name);
+      if (decl as TFunctionDecl).ReturnType = nil then
+        append(self.FRet, '')
+      else
+        append(self.FRet, self.LlvmTypeOfExpr((decl as TFunctionDecl).ReturnType));
+    end
+    else if decl is TTypeDecl then
+    begin
+      td := decl as TTypeDecl;
+      if td.DeclType is TEnumType then
+      begin
+        for i := 0 to Length((td.DeclType as TEnumType).Names) - 1 do
+        begin
+          append(self.CNames, (td.DeclType as TEnumType).Names[i]);
+          append(self.CVals, i);
+        end;
+      end;
+    end;
+  end;
+
+  // Pass 2: emit declarations.
+  for i := 0 to Length(prog.Declarations) - 1 do
+    self.EmitDecl(prog.Declarations[i]);
+
+  // Pass 3: main function.
+  if Length(prog.Statements) > 0 then
+    self.EmitMain(prog.Statements);
+
+  self.EmitStringConsts();
+end;
+
+procedure TLLVMGenerator.EmitHeader;
+begin
+  self.WriteLine('; Kylix LLVM IR');
+  self.WriteLine('source_filename = "kylix.klx"');
+  self.WriteLine('target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"');
+  self.WriteLine('target triple = "arm64-apple-macosx15.0.0"');
+  self.WriteLine('');
+end;
+
+procedure TLLVMGenerator.EmitRuntimeDecls;
+begin
+  self.WriteLine('; ===== Runtime declarations (libc) =====');
+  self.WriteLine('@__kylix_emptystr = global [1 x i8] c"\00"');
+  self.WriteLine('declare i32 @printf(ptr noundef, ...)');
+  self.WriteLine('declare i32 @puts(ptr noundef)');
+  self.WriteLine('declare ptr @malloc(i64 noundef)');
+  self.WriteLine('declare void @free(ptr noundef)');
+  self.WriteLine('declare i64 @strlen(ptr noundef)');
+  self.WriteLine('declare ptr @strcpy(ptr noundef, ptr noundef)');
+  self.WriteLine('declare ptr @strcat(ptr noundef, ptr noundef)');
+  self.WriteLine('declare i32 @strcmp(ptr noundef, ptr noundef)');
+  self.WriteLine('declare ptr @memcpy(ptr noundef, ptr noundef, i64 noundef)');
+  self.WriteLine('declare ptr @memmove(ptr noundef, ptr noundef, i64 noundef)');
+  self.WriteLine('declare i64 @atoll(ptr noundef)');
+  self.WriteLine('declare i32 @snprintf(ptr noundef, i64 noundef, ptr noundef, ...)');
+  self.WriteLine('declare double @strtod(ptr noundef, ptr noundef)');
+  self.WriteLine('declare double @fabs(double)');
+  self.WriteLine('declare ptr @strchr(ptr noundef, i32)');
+  self.WriteLine('declare ptr @strstr(ptr noundef, ptr noundef)');
+  self.WriteLine('declare i32 @strncmp(ptr noundef, ptr noundef, i64 noundef)');
+  self.WriteLine('declare i32 @gettimeofday(ptr, ptr)');
+  self.WriteLine('declare i32 @setjmp(ptr)');
+  self.WriteLine('declare i32 @_setjmp(ptr)');
+  self.WriteLine('declare void @_longjmp(ptr, i32)');
+  self.WriteLine('declare void @longjmp(ptr, i32)');
+  self.WriteLine('declare void @exit(i32)');
+  self.WriteLine('declare ptr @fopen(ptr noundef, ptr noundef)');
+  self.WriteLine('declare i32 @fclose(ptr noundef)');
+  self.WriteLine('declare i64 @fread(ptr noundef, i64 noundef, i64 noundef, ptr noundef)');
+  self.WriteLine('declare i64 @fwrite(ptr noundef, i64 noundef, i64 noundef, ptr noundef)');
+  self.WriteLine('declare i32 @fputs(ptr noundef, ptr noundef)');
+  self.WriteLine('declare i32 @fseek(ptr noundef, i64 noundef, i32 noundef)');
+  self.WriteLine('declare i64 @ftell(ptr noundef)');
+  self.WriteLine('declare i32 @access(ptr noundef, i32 noundef)');
+  self.WriteLine('declare i32 @mkdir(ptr noundef, i32 noundef)');
+  self.WriteLine('declare i32 @remove(ptr noundef)');
+  self.WriteLine('declare ptr @getcwd(ptr noundef, i64 noundef)');
+  self.WriteLine('declare i32 @chdir(ptr noundef)');
+  self.WriteLine('declare ptr @getenv(ptr noundef)');
+  self.WriteLine('declare ptr @opendir(ptr noundef)');
+  self.WriteLine('declare i32 @closedir(ptr noundef)');
+  self.WriteLine('@__kylix_args = global { ptr, i64, i64 } zeroinitializer');
+  self.WriteLine('');
+end;
+
+procedure TLLVMGenerator.EmitMain(stmts: array of TStatement);
+var
+  i: Integer;
+  stmt: TStatement;
+begin
+  self.WriteLine('; ===== Entry point =====');
+  self.InFunc := true;
+  self.InReturnFunc := false;
+  self.ResultLLVMType := '';
+  self.FuncExitLabel := self.Label();
+  if self.NeedArgs then
+    self.WriteLine('define i32 @main(i32 %argc, ptr %argv) {')
+  else
+    self.WriteLine('define i32 @main() {');
+  self.WriteLine('entry:');
+  if self.NeedArgs then
+    self.EmitArgsSetup();
+  for i := 0 to Length(stmts) - 1 do
+  begin
+    stmt := stmts[i];
+    self.EmitStatement(stmt);
+  end;
+  self.WriteLine('  br label %' + self.FuncExitLabel);
+  self.WriteLine(self.FuncExitLabel + ':');
+  self.WriteLine('  ret i32 0');
+  self.WriteLine('}');
+  self.WriteLine('');
+  self.InFunc := false;
+end;
+
+procedure TLLVMGenerator.EmitArgsSetup;
+var
+  n, nneg, count, count64, dataPtr, slot: String;
+begin
+  n := self.Tmp();
+  self.WriteLine('  ' + n + ' = sub i32 %argc, 1');
+  nneg := self.Tmp();
+  self.WriteLine('  ' + nneg + ' = icmp sgt i32 ' + n + ', 0');
+  count := self.Tmp();
+  self.WriteLine('  ' + count + ' = select i1 ' + nneg + ', i32 ' + n + ', i32 0');
+  count64 := self.Tmp();
+  self.WriteLine('  ' + count64 + ' = zext i32 ' + count + ' to i64');
+  dataPtr := self.Tmp();
+  self.WriteLine('  ' + dataPtr + ' = getelementptr ptr, ptr %argv, i64 1');
+  slot := self.Tmp();
+  self.WriteLine('  ' + slot + ' = getelementptr inbounds { ptr, i64, i64 }, ptr @__kylix_args, i32 0, i32 0');
+  self.WriteLine('  store ptr ' + dataPtr + ', ptr ' + slot);
+  slot := self.Tmp();
+  self.WriteLine('  ' + slot + ' = getelementptr inbounds { ptr, i64, i64 }, ptr @__kylix_args, i32 0, i32 1');
+  self.WriteLine('  store i64 ' + count64 + ', ptr ' + slot);
+  slot := self.Tmp();
+  self.WriteLine('  ' + slot + ' = getelementptr inbounds { ptr, i64, i64 }, ptr @__kylix_args, i32 0, i32 2');
+  self.WriteLine('  store i64 ' + count64 + ', ptr ' + slot);
+end;
+
+procedure TLLVMGenerator.EmitStringConsts;
+var
+  i: Integer;
+  c: TLLVMStringConst;
+begin
+  if Length(self.StrDedup) = 0 then Exit;
+  self.WriteLine('; ===== String constants =====');
+  for i := 0 to Length(self.StrDedup) - 1 do
+  begin
+    c := self.StrDedup[i];
+    self.WriteLine(c.Reg + ' = private unnamed_addr constant [' + self.IntToStrS(c.Size) + ' x i8] c"' + self.EscapeString(c.Val) + '\00", align 1');
+  end;
+end;
+
+// EscapeString maps a source string literal's RAW bytes to LLVM IR constant
+// escapes — host llvmEscapeString byte-for-byte. Each byte is escaped
+// individually: printable ASCII passes through, control/quote/backslash
+// become \XX. Because the pool stores raw source bytes (with their source
+// escapes), the output matches the host's constant strings exactly.
+function TLLVMGenerator.EscapeString(s: String): String;
+var
+  i, n, b: Integer;
+  hex: String;
+begin
+  result := '';
+  n := Length(s);
+  i := 0;
+  while i < n do
+  begin
+    b := Ord(s[i:i+1]);
+    if b = 10 then result := result + '\0A'
+    else if b = 13 then result := result + '\0D'
+    else if b = 9 then result := result + '\09'
+    else if b = 34 then result := result + '\22'
+    else if b = 92 then result := result + '\5C'
+    else if (b < 32) or (b > 126) then
+    begin
+      hex := self.IntToHex2(b);
+      result := result + '\' + hex;
+    end
+    else
+      result := result + s[i:i+1];
+    i := i + 1;
+  end;
+end;
+
+// ============================================================================
+// Declarations
+// ============================================================================
+
+procedure TLLVMGenerator.EmitDecl(decl: TNode);
+var
+  cd: TClassDecl;
+  fd: TFunctionDecl;
+  vd: TVarDecl;
+  td: TTypeDecl;
+begin
+  if decl is TClassDecl then
+  begin
+    cd := decl as TClassDecl;
+    self.EmitClassDecl(cd);
+  end
+  else if decl is TFunctionDecl then
+  begin
+    fd := decl as TFunctionDecl;
+    self.EmitFunctionDecl(fd);
+  end
+  else if decl is TConstDecl then
+  begin
+    // consts pre-registered; nothing else to emit.
+  end
+  else if decl is TVarDecl then
+  begin
+    vd := decl as TVarDecl;
+    self.EmitGlobalVarDecl(vd);
+  end
+  else if decl is TTypeDecl then
+  begin
+    td := decl as TTypeDecl;
+    if td.DeclType is TClassDecl then
+    begin
+      cd := td.DeclType as TClassDecl;
+      self.EmitClassDecl(cd);
+    end;
+  end;
+end;
+
+procedure TLLVMGenerator.EmitGlobalVarDecl(vd: TVarDecl);
+var
+  i: Integer;
+  llvmT: String;
+begin
+  for i := 0 to Length(vd.Names) - 1 do
+  begin
+    llvmT := 'i64';
+    if vd.VarType <> nil then llvmT := self.LlvmTypeOfExpr(vd.VarType);
+    if llvmT = 'variant' then llvmT := 'ptr';
+    self.WriteLine('@__kylix_g_' + vd.Names[i] + ' = global ' + llvmT + ' zeroinitializer');
+    if vd.VarType is TMapType then self.NeedHashtab := true;
+  end;
+end;
+
+procedure TLLVMGenerator.EmitFunctionDecl(fd: TFunctionDecl);
+var
+  i: Integer;
+  retType, llvmT, allocaReg: String;
+  params: array of String;
+  lvd: TVarDecl;
+  blk: TBlockStatement;
+begin
+  retType := 'void';
+  if fd.ReturnType <> nil then retType := self.LlvmTypeOfExpr(fd.ReturnType);
+  params := [];
+  for i := 0 to Length(fd.Parameters) - 1 do
+  begin
+    llvmT := 'i64';
+    if fd.Parameters[i].ParamType <> nil then llvmT := self.LlvmTypeOfExpr(fd.Parameters[i].ParamType);
+    append(params, llvmT + ' %' + fd.Parameters[i].Name);
+  end;
+  self.WriteLine('define ' + retType + ' @' + fd.Name + '(' + self.JoinStr(params, ', ') + ') {');
+  self.WriteLine('entry:');
+  self.InFunc := true;
+  self.InReturnFunc := retType <> 'void';
+  self.ResultLLVMType := '';
+  self.FuncExitLabel := self.Label();
+  self.CurClassName := '';
+  // fresh local scope
+  self.LNames := [];
+  self.LTypes := [];
+  self.LRegs := [];
+  self.LKylix := [];
+  for i := 0 to Length(fd.Parameters) - 1 do
+  begin
+    llvmT := 'i64';
+    if fd.Parameters[i].ParamType <> nil then llvmT := self.LlvmTypeOfExpr(fd.Parameters[i].ParamType);
+    allocaReg := self.RegisterLocal(fd.Parameters[i].Name, llvmT, self.TypeExprName(fd.Parameters[i].ParamType));
+    self.WriteLine('  store ' + llvmT + ' %' + fd.Parameters[i].Name + ', ptr ' + allocaReg);
+  end;
+  if retType <> 'void' then
+  begin
+    self.WriteLine('  %result = alloca ' + retType + ', align 8');
+    self.ResultLLVMType := retType;
+    append(self.LNames, 'result');
+    append(self.LTypes, retType);
+    append(self.LRegs, '%result');
+    append(self.LKylix, '');
+  end;
+  for i := 0 to Length(fd.LocalDecls) - 1 do
+  begin
+    if fd.LocalDecls[i] is TVarDecl then
+    begin
+      lvd := fd.LocalDecls[i] as TVarDecl;
+      self.EmitVarDecl(lvd);
+    end;
+  end;
+  if fd.Body <> nil then
+  begin
+    blk := fd.Body as TBlockStatement;
+    self.EmitStatements(blk.Statements);
+  end;
+  self.EmitFuncEpilogue();
+  self.WriteLine('}');
+  self.WriteLine('');
+  self.InFunc := false;
+end;
+
+procedure TLLVMGenerator.EmitFuncEpilogue;
+begin
+  if self.ResultLLVMType = '' then
+    self.WriteLine('  br label %' + self.FuncExitLabel)
+  else
+  begin
+    self.WriteLine('  %' + self.FuncExitLabel + '_res = load ' + self.ResultLLVMType + ', ptr %result');
+    self.WriteLine('  br label %' + self.FuncExitLabel);
+  end;
+  self.WriteLine(self.FuncExitLabel + ':');
+  if self.ResultLLVMType = '' then
+    self.WriteLine('  ret void')
+  else
+    self.WriteLine('  ret ' + self.ResultLLVMType + ' %' + self.FuncExitLabel + '_res');
+end;
+
+procedure TLLVMGenerator.EmitEarlyReturn;
+begin
+  self.WriteLine('  br label %' + self.FuncExitLabel);
+end;
+
+// ============================================================================
+// Statements
+// ============================================================================
+
+procedure TLLVMGenerator.EmitStatements(stmts: array of TStatement);
+var i: Integer;
+begin
+  for i := 0 to Length(stmts) - 1 do
+    self.EmitStatement(stmts[i]);
+end;
+
+procedure TLLVMGenerator.EmitStatement(stmt: TStatement);
+var
+  vd: TVarDecl;
+  asgn: TAssignmentStatement;
+  es: TExpressionStatement;
+  ifSt: TIfStatement;
+  wh: TWhileStatement;
+  fo: TForStatement;
+  fe: TForEachStatement;
+  ret: TReturnStatement;
+  blk: TBlockStatement;
+begin
+  if stmt is TVarDecl then
+  begin
+    vd := stmt as TVarDecl;
+    self.EmitVarDecl(vd);
+  end
+  else if stmt is TAssignmentStatement then
+  begin
+    asgn := stmt as TAssignmentStatement;
+    self.EmitAssign(asgn);
+  end
+  else if stmt is TExpressionStatement then
+  begin
+    es := stmt as TExpressionStatement;
+    self.EmitExprStatement(es);
+  end
+  else if stmt is TIfStatement then
+  begin
+    ifSt := stmt as TIfStatement;
+    self.EmitIf(ifSt);
+  end
+  else if stmt is TWhileStatement then
+  begin
+    wh := stmt as TWhileStatement;
+    self.EmitWhile(wh);
+  end
+  else if stmt is TForStatement then
+  begin
+    fo := stmt as TForStatement;
+    self.EmitFor(fo);
+  end
+  else if stmt is TForEachStatement then
+  begin
+    fe := stmt as TForEachStatement;
+    self.EmitForEach(fe);
+  end
+  else if stmt is TReturnStatement then
+  begin
+    ret := stmt as TReturnStatement;
+    self.EmitReturn(ret);
+  end
+  else if stmt is TBlockStatement then
+  begin
+    blk := stmt as TBlockStatement;
+    self.EmitStatements(blk.Statements);
+  end
+  else if stmt is TBreakStatement then self.WriteLine('  br label %' + self.LoopBreak)
+  else if stmt is TContinueStatement then self.WriteLine('  br label %' + self.LoopHead)
+  else self.WriteLine('  ; unhandled statement');
+end;
+
+procedure TLLVMGenerator.EmitExprStatement(es: TExpressionStatement);
+var
+  ident: TIdentifier;
+  member: TMemberExpression;
+  call: TCallExpression;
+  t: String;
+begin
+  if es.Expression is TIdentifier then
+  begin
+    ident := es.Expression as TIdentifier;
+    if (ident.Value = 'Exit') or (ident.Value = 'exit') then
+    begin
+      self.EmitEarlyReturn();
+      Exit;
+    end;
+  end;
+  if es.Expression is TCallExpression then
+  begin
+    call := es.Expression as TCallExpression;
+    if call.Func is TIdentifier then
+    begin
+      ident := call.Func as TIdentifier;
+      if ident.Value = 'append' then
+      begin
+        self.EmitAppendStmt(call.Arguments[0], call.Arguments[1]);
+        Exit;
+      end;
+    end;
+  end;
+  self.EmitExpr(es.Expression);
+end;
+
+procedure TLLVMGenerator.EmitVarDecl(vd: TVarDecl);
+var
+  i: Integer;
+  valReg, llvmT, kylixT, allocaReg: String;
+begin
+  if Length(vd.Names) = 0 then Exit;
+  if (vd.VarType = nil) and (vd.Value <> nil) and vd.Inferred then
+  begin
+    valReg := self.EmitExprTyped(vd.Value, llvmT);
+    kylixT := '';
+    for i := 0 to Length(vd.Names) - 1 do
+    begin
+      allocaReg := self.RegisterLocal(vd.Names[i], llvmT, kylixT);
+      if llvmT = 'variant' then
+        self.WriteLine('  store ptr ' + valReg + ', ptr ' + allocaReg)
+      else if llvmT = 'i1' then
+        self.WriteLine('  store i1 ' + valReg + ', ptr ' + allocaReg)
+      else
+        self.WriteLine('  store ' + llvmT + ' ' + valReg + ', ptr ' + allocaReg);
+    end;
+    Exit;
+  end;
+  for i := 0 to Length(vd.Names) - 1 do
+    self.EmitVarDeclSingle(vd.Names[i], vd.VarType);
+  if (vd.Value <> nil) and (not vd.Inferred) then
+    for i := 0 to Length(vd.Names) - 1 do
+      self.AssignToName(vd.Names[i], vd.Value);
+end;
+
+procedure TLLVMGenerator.EmitVarDeclSingle(name: String; varType: TExpression);
+var llvmT: String;
+begin
+  if varType is TArrayType then
+  begin
+    if (varType as TArrayType).Dynamic then
+      llvmT := '{ ptr, i64, i64 }'
+    else
+      llvmT := '[1 x i64]';
+    self.RegisterLocal(name, llvmT, '');
+    Exit;
+  end;
+  if varType is TMapType then
+  begin
+    self.NeedHashtab := true;
+    self.RegisterLocal(name, 'ptr', '');
+    Exit;
+  end;
+  if varType = nil then
+  begin
+    self.RegisterLocal(name, 'i64', '');
+    Exit;
+  end;
+  llvmT := self.LlvmTypeOfExpr(varType);
+  self.RegisterLocal(name, llvmT, self.TypeExprName(varType));
+end;
+
+procedure TLLVMGenerator.AssignToName(name: String; value: TExpression);
+var
+  valReg, t, actualType, allocaReg: String;
+begin
+  valReg := self.EmitExprTyped(value, t);
+  actualType := self.ActualType(name);
+  if t = 'variant' then t := 'ptr';
+  if actualType = 'variant' then actualType := 'ptr';
+  if t <> actualType then valReg := self.CoerceValue(valReg, t, actualType);
+  allocaReg := self.LocalReg(name);
+  self.WriteLine('  store ' + actualType + ' ' + valReg + ', ptr ' + allocaReg);
+end;
+
+procedure TLLVMGenerator.EmitAssign(asgn: TAssignmentStatement);
+var
+  ident: TIdentifier;
+  idx: TIndexExpression;
+begin
+  if asgn.Name is TIdentifier then
+  begin
+    ident := asgn.Name as TIdentifier;
+    if not self.HasLocal(ident.Value) then
+      self.RegisterLocal(ident.Value, 'i64', '');
+    self.AssignToName(ident.Value, asgn.Value);
+    Exit;
+  end;
+  if asgn.Name is TIndexExpression then
+  begin
+    idx := asgn.Name as TIndexExpression;
+    self.EmitArrayIndexStore(idx, asgn.Value);
+    Exit;
+  end;
+  self.WriteLine('  ; unhandled LHS');
+end;
+
+procedure TLLVMGenerator.EmitArrayIndexStore(idx: TIndexExpression; value: TExpression);
+var
+  valReg, t: String;
+begin
+  // P1: arrays not fully supported — evaluate value, emit a comment.
+  valReg := self.EmitExprTyped(value, t);
+  self.WriteLine('  ; array store (P1 stub)');
+end;
+
+procedure TLLVMGenerator.EmitIf(stmt: TIfStatement);
+var
+  cond, thenLbl, elseLbl, endLbl: String;
+begin
+  cond := self.EmitExpr(stmt.Condition);
+  thenLbl := self.Label();
+  elseLbl := self.Label();
+  endLbl := self.Label();
+  self.WriteLine('  br i1 ' + cond + ', label %' + thenLbl + ', label %' + elseLbl);
+  self.WriteLine(thenLbl + ':');
+  if stmt.Consequence <> nil then self.EmitStatements(stmt.Consequence.Statements);
+  self.WriteLine('  br label %' + endLbl);
+  self.WriteLine(elseLbl + ':');
+  if stmt.Alternative <> nil then self.EmitStatements(stmt.Alternative.Statements);
+  self.WriteLine('  br label %' + endLbl);
+  self.WriteLine(endLbl + ':');
+end;
+
+procedure TLLVMGenerator.EmitWhile(stmt: TWhileStatement);
+var
+  headLbl, bodyLbl, endLbl, cond: String;
+begin
+  headLbl := self.Label();
+  bodyLbl := self.Label();
+  endLbl := self.Label();
+  self.LoopHead := headLbl;
+  self.LoopBreak := endLbl;
+  self.WriteLine('  br label %' + headLbl);
+  self.WriteLine(headLbl + ':');
+  cond := self.EmitExpr(stmt.Condition);
+  self.WriteLine('  br i1 ' + cond + ', label %' + bodyLbl + ', label %' + endLbl);
+  self.WriteLine(bodyLbl + ':');
+  self.EmitStatements(stmt.Body.Statements);
+  self.WriteLine('  br label %' + headLbl);
+  self.WriteLine(endLbl + ':');
+  self.LoopHead := '';
+  self.LoopBreak := '';
+end;
+
+procedure TLLVMGenerator.EmitFor(stmt: TForStatement);
+var
+  varReg, initVal, condVal, incReg, cmp: String;
+  headLbl, bodyLbl, incLbl, endLbl: String;
+begin
+  varReg := self.RegisterLocal(stmt.Variable, 'i64', '');
+  initVal := self.EmitExpr(stmt.From);
+  self.WriteLine('  store i64 ' + initVal + ', ptr ' + varReg);
+  headLbl := self.Label();
+  bodyLbl := self.Label();
+  incLbl := self.Label();
+  endLbl := self.Label();
+  self.LoopHead := incLbl;
+  self.LoopBreak := endLbl;
+  self.WriteLine('  br label %' + headLbl);
+  self.WriteLine(headLbl + ':');
+  condVal := self.EmitIdentLoad(stmt.Variable);
+  cmp := self.Tmp();
+  if stmt.DownTo then
+  begin
+    self.WriteLine('  ' + cmp + ' = icmp sge i64 ' + condVal + ', ' + self.EmitExpr(stmt.To));
+    self.WriteLine('  br i1 ' + cmp + ', label %' + bodyLbl + ', label %' + endLbl);
+  end
+  else
+  begin
+    self.WriteLine('  ' + cmp + ' = icmp sle i64 ' + condVal + ', ' + self.EmitExpr(stmt.To));
+    self.WriteLine('  br i1 ' + cmp + ', label %' + bodyLbl + ', label %' + endLbl);
+  end;
+  self.WriteLine(bodyLbl + ':');
+  self.EmitStatements(stmt.Body.Statements);
+  self.WriteLine('  br label %' + incLbl);
+  self.WriteLine(incLbl + ':');
+  incReg := self.Tmp();
+  if stmt.DownTo then
+    self.WriteLine('  ' + incReg + ' = add i64 ' + self.EmitIdentLoad(stmt.Variable) + ', -1')
+  else
+    self.WriteLine('  ' + incReg + ' = add i64 ' + self.EmitIdentLoad(stmt.Variable) + ', 1');
+  self.WriteLine('  store i64 ' + incReg + ', ptr ' + varReg);
+  self.WriteLine('  br label %' + headLbl);
+  self.WriteLine(endLbl + ':');
+  self.LoopHead := '';
+  self.LoopBreak := '';
+end;
+
+procedure TLLVMGenerator.EmitForEach(stmt: TForEachStatement);
+begin
+  self.WriteLine('  ; foreach (P1 stub)');
+end;
+
+procedure TLLVMGenerator.EmitReturn(stmt: TReturnStatement);
+var
+  valReg, llvmT: String;
+begin
+  if stmt.ReturnValue <> nil then
+  begin
+    if self.InReturnFunc then
+    begin
+      valReg := self.EmitExprTyped(stmt.ReturnValue, llvmT);
+      if llvmT <> self.ResultLLVMType then valReg := self.CoerceValue(valReg, llvmT, self.ResultLLVMType);
+      self.WriteLine('  store ' + self.ResultLLVMType + ' ' + valReg + ', ptr %result');
+    end;
+  end;
+  self.EmitEarlyReturn();
+end;
+
+// ============================================================================
+// Expressions
+// ============================================================================
+
+function TLLVMGenerator.EmitExprTyped(node: TExpression; var t: String): String;
+var
+  r, strReg, lit: String;
+  ilit: TIntegerLiteral;
+  blit: TBooleanLiteral;
+  slit: TStringLiteral;
+  id: TIdentifier;
+  inf: TInfixExpression;
+  call: TCallExpression;
+  mem: TMemberExpression;
+  idx: TIndexExpression;
+  ise: TIsExpression;
+  tc: TTypeCastExpression;
+  r: String;
+begin
+  if node is TIntegerLiteral then
+  begin
+    ilit := node as TIntegerLiteral;
+    t := 'i64';
+    result := self.EmitIntConst(ilit.Value);
+  end
+  else if node is TBooleanLiteral then
+  begin
+    blit := node as TBooleanLiteral;
+    t := 'i1';
+    result := self.EmitBoolConst(blit.Value);
+  end
+  else if node is TStringLiteral then
+  begin
+    slit := node as TStringLiteral;
+    t := 'ptr';
+    strReg := self.AddString(slit.Value);
+    result := self.PtrTo(strReg, Length(slit.Value) + 1);
+  end
+  else if node is TNilLiteral then
+  begin
+    t := 'ptr';
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = inttoptr i64 0 to ptr');
+    result := r;
+  end
+  else if node is TIdentifier then
+  begin
+    id := node as TIdentifier;
+    t := self.ActualType(id.Value);
+    result := self.EmitIdentLoad(id.Value);
+  end
+  else if node is TInfixExpression then
+  begin
+    inf := node as TInfixExpression;
+    result := self.EmitInfix(inf, t);
+  end
+  else if node is TCallExpression then
+  begin
+    call := node as TCallExpression;
+    result := self.EmitCall(call, t);
+  end
+  else if node is TMemberExpression then
+  begin
+    mem := node as TMemberExpression;
+    result := self.EmitMember(mem, t);
+  end
+  else if node is TIndexExpression then
+  begin
+    idx := node as TIndexExpression;
+    result := self.EmitArrayIndex(idx, t);
+  end
+  else if node is TIsExpression then
+  begin
+    ise := node as TIsExpression;
+    result := self.EmitIsExpr(ise, t);
+  end
+  else if node is TTypeCastExpression then
+  begin
+    tc := node as TTypeCastExpression;
+    result := self.EmitAsExpr(tc, t);
+  end
+  else
+  begin
+    t := 'i64';
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = add i64 0, 0 ; unhandled expr');
+    result := r;
+  end;
+end;
+
+function TLLVMGenerator.EmitExpr(node: TExpression): String;
+var t: String;
+begin
+  result := self.EmitExprTyped(node, t);
+end;
+
+function TLLVMGenerator.EmitIntConst(v: Integer): String;
+var r: String;
+begin
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = add i64 0, ' + self.IntToStrS(v));
+  result := r;
+end;
+
+function TLLVMGenerator.EmitBoolConst(b: Boolean): String;
+var r: String;
+begin
+  r := self.Tmp();
+  if b then self.WriteLine('  ' + r + ' = add i1 0, 1')
+  else self.WriteLine('  ' + r + ' = add i1 0, 0');
+  result := r;
+end;
+
+// ============================================================================
+// Infix
+// ============================================================================
+
+function TLLVMGenerator.EmitInfix(e: TInfixExpression; var t: String): String;
+var
+  lv, rv, lt, rt, r, cmp: String;
+begin
+  lv := self.EmitExprTyped(e.Left, lt);
+  rv := self.EmitExprTyped(e.Right, rt);
+  // string concat: `+` on two ptr
+  if (e.Operator = '+') and (lt = 'ptr') and (rt = 'ptr') then
+  begin
+    t := 'ptr';
+    result := self.EmitStringConcat(lv, rv);
+    Exit;
+  end;
+  // coerce mixed int/double
+  if lt <> rt then
+  begin
+    if (lt = 'double') and (rt = 'i64') then begin rv := self.CoerceValue(rv, 'i64', 'double'); rt := 'double'; end
+    else if (lt = 'i64') and (rt = 'double') then begin lv := self.CoerceValue(lv, 'i64', 'double'); lt := 'double'; end;
+  end;
+  // string comparison (only when both are strings, not nil)
+  if (e.Operator = '=') or (e.Operator = '<>') or (e.Operator = '<') or (e.Operator = '<=') or (e.Operator = '>') or (e.Operator = '>=') then
+  begin
+    if (lt = 'ptr') and (rt = 'ptr') then
+    begin
+      if (self.IsNilNode(e.Left) = false) and (self.IsNilNode(e.Right) = false) then
+      begin
+        t := 'i1';
+        result := self.EmitStringCompare(e.Operator, lv, rv);
+        Exit;
+      end;
+    end;
+  end;
+  r := self.Tmp();
+  if e.Operator = '+' then
+  begin
+    if lt = 'double' then self.WriteLine('  ' + r + ' = fadd double ' + lv + ', ' + rv)
+    else self.WriteLine('  ' + r + ' = add i64 ' + lv + ', ' + rv);
+    t := lt;
+  end
+  else if e.Operator = '-' then
+  begin
+    if lt = 'double' then self.WriteLine('  ' + r + ' = fsub double ' + lv + ', ' + rv)
+    else self.WriteLine('  ' + r + ' = sub i64 ' + lv + ', ' + rv);
+    t := lt;
+  end
+  else if e.Operator = '*' then
+  begin
+    if lt = 'double' then self.WriteLine('  ' + r + ' = fmul double ' + lv + ', ' + rv)
+    else self.WriteLine('  ' + r + ' = mul i64 ' + lv + ', ' + rv);
+    t := lt;
+  end
+  else if (e.Operator = '/') or (e.Operator = 'div') then
+  begin
+    if lt = 'double' then self.WriteLine('  ' + r + ' = fdiv double ' + lv + ', ' + rv)
+    else self.WriteLine('  ' + r + ' = sdiv i64 ' + lv + ', ' + rv);
+    t := lt;
+  end
+  else if e.Operator = 'mod' then
+  begin
+    self.WriteLine('  ' + r + ' = srem i64 ' + lv + ', ' + rv);
+    t := 'i64';
+  end
+  else if e.Operator = '=' then
+  begin
+    if lt = 'double' then self.WriteLine('  ' + r + ' = fcmp oeq double ' + lv + ', ' + rv)
+    else if (lt = 'i1') or (rt = 'i1') then self.WriteLine('  ' + r + ' = icmp eq i1 ' + lv + ', ' + rv)
+    else if (lt = 'ptr') and (rt = 'ptr') then self.WriteLine('  ' + r + ' = icmp eq ptr ' + lv + ', ' + rv)
+    else self.WriteLine('  ' + r + ' = icmp eq i64 ' + lv + ', ' + rv);
+    t := 'i1';
+  end
+  else if e.Operator = '<>' then
+  begin
+    if lt = 'double' then self.WriteLine('  ' + r + ' = fcmp one double ' + lv + ', ' + rv)
+    else if (lt = 'i1') or (rt = 'i1') then self.WriteLine('  ' + r + ' = icmp ne i1 ' + lv + ', ' + rv)
+    else if (lt = 'ptr') and (rt = 'ptr') then self.WriteLine('  ' + r + ' = icmp ne ptr ' + lv + ', ' + rv)
+    else self.WriteLine('  ' + r + ' = icmp ne i64 ' + lv + ', ' + rv);
+    t := 'i1';
+  end
+  else if e.Operator = '<' then
+  begin
+    if lt = 'double' then self.WriteLine('  ' + r + ' = fcmp olt double ' + lv + ', ' + rv)
+    else self.WriteLine('  ' + r + ' = icmp slt i64 ' + lv + ', ' + rv);
+    t := 'i1';
+  end
+  else if e.Operator = '<=' then
+  begin
+    if lt = 'double' then self.WriteLine('  ' + r + ' = fcmp ole double ' + lv + ', ' + rv)
+    else self.WriteLine('  ' + r + ' = icmp sle i64 ' + lv + ', ' + rv);
+    t := 'i1';
+  end
+  else if e.Operator = '>' then
+  begin
+    if lt = 'double' then self.WriteLine('  ' + r + ' = fcmp ogt double ' + lv + ', ' + rv)
+    else self.WriteLine('  ' + r + ' = icmp sgt i64 ' + lv + ', ' + rv);
+    t := 'i1';
+  end
+  else if e.Operator = '>=' then
+  begin
+    if lt = 'double' then self.WriteLine('  ' + r + ' = fcmp oge double ' + lv + ', ' + rv)
+    else self.WriteLine('  ' + r + ' = icmp sge i64 ' + lv + ', ' + rv);
+    t := 'i1';
+  end
+  else if e.Operator = 'and' then
+  begin
+    self.WriteLine('  ' + r + ' = and i1 ' + lv + ', ' + rv);
+    t := 'i1';
+  end
+  else if e.Operator = 'or' then
+  begin
+    self.WriteLine('  ' + r + ' = or i1 ' + lv + ', ' + rv);
+    t := 'i1';
+  end
+  else
+  begin
+    self.WriteLine('  ' + r + ' = add i64 ' + lv + ', 0 ; unhandled op ' + e.Operator);
+    t := lt;
+  end;
+  result := r;
+end;
+
+function TLLVMGenerator.EmitStringConcat(lv, rv: String): String;
+var
+  lenL, lenR, size, size1, buf: String;
+begin
+  lv := self.NullGuardString(lv);
+  rv := self.NullGuardString(rv);
+  lenL := self.Tmp();
+  self.WriteLine('  ' + lenL + ' = call i64 @strlen(ptr noundef ' + lv + ')');
+  lenR := self.Tmp();
+  self.WriteLine('  ' + lenR + ' = call i64 @strlen(ptr noundef ' + rv + ')');
+  size := self.Tmp();
+  self.WriteLine('  ' + size + ' = add i64 ' + lenL + ', ' + lenR);
+  size1 := self.Tmp();
+  self.WriteLine('  ' + size1 + ' = add i64 ' + size + ', 1');
+  buf := self.Tmp();
+  self.WriteLine('  ' + buf + ' = call ptr @malloc(i64 ' + size1 + ')');
+  self.WriteLine('  call ptr @strcpy(ptr ' + buf + ', ptr ' + lv + ')');
+  self.WriteLine('  call ptr @strcat(ptr ' + buf + ', ptr ' + rv + ')');
+  result := buf;
+end;
+
+function TLLVMGenerator.EmitStringCompare(op, lv, rv: String): String;
+var
+  cmp, r: String;
+begin
+  lv := self.NullGuardString(lv);
+  rv := self.NullGuardString(rv);
+  cmp := self.Tmp();
+  self.WriteLine('  ' + cmp + ' = call i32 @strcmp(ptr ' + lv + ', ptr ' + rv + ')');
+  r := self.Tmp();
+  if op = '=' then self.WriteLine('  ' + r + ' = icmp eq i32 ' + cmp + ', 0')
+  else if op = '<>' then self.WriteLine('  ' + r + ' = icmp ne i32 ' + cmp + ', 0')
+  else if op = '<' then self.WriteLine('  ' + r + ' = icmp slt i32 ' + cmp + ', 0')
+  else if op = '<=' then self.WriteLine('  ' + r + ' = icmp sle i32 ' + cmp + ', 0')
+  else if op = '>' then self.WriteLine('  ' + r + ' = icmp sgt i32 ' + cmp + ', 0')
+  else self.WriteLine('  ' + r + ' = icmp sge i32 ' + cmp + ', 0');
+  result := r;
+end;
+
+function TLLVMGenerator.NullGuardString(v: String): String;
+var
+  isNull, r: String;
+begin
+  isNull := self.Tmp();
+  self.WriteLine('  ' + isNull + ' = icmp eq ptr ' + v + ', null');
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = select i1 ' + isNull + ', ptr @__kylix_emptystr, ptr ' + v);
+  result := r;
+end;
+
+function TLLVMGenerator.CoerceValue(v, fromT, toT: String): String;
+var r: String;
+begin
+  if fromT = toT then
+  begin
+    result := v;
+    Exit;
+  end;
+  r := self.Tmp();
+  if (fromT = 'i64') and (toT = 'double') then
+    self.WriteLine('  ' + r + ' = sitofp i64 ' + v + ' to double')
+  else if (fromT = 'double') and (toT = 'i64') then
+    self.WriteLine('  ' + r + ' = fptosi double ' + v + ' to i64')
+  else if (fromT = 'i1') and (toT = 'i64') then
+    self.WriteLine('  ' + r + ' = zext i1 ' + v + ' to i64')
+  else if (fromT = 'i64') and (toT = 'i1') then
+    self.WriteLine('  ' + r + ' = icmp ne i64 ' + v + ', 0')
+  else if (fromT = 'ptr') and (toT = 'i64') then
+    self.WriteLine('  ' + r + ' = ptrtoint ptr ' + v + ' to i64')
+  else if (fromT = 'i64') and (toT = 'ptr') then
+    self.WriteLine('  ' + r + ' = inttoptr i64 ' + v + ' to ptr')
+  else
+    self.WriteLine('  ' + r + ' = add i64 0, 0 ; unhandled coerce ' + fromT + '->' + toT);
+  result := r;
+end;
+
+// ============================================================================
+// Calls
+// ============================================================================
+
+function TLLVMGenerator.EmitCall(e: TCallExpression; var t: String): String;
+var
+  fname: String;
+  args: array of String;
+  i: Integer;
+  mem: TMemberExpression;
+  r: String;
+begin
+  if e.Func is TIdentifier then
+  begin
+    fname := (e.Func as TIdentifier).Value;
+    if fname = 'Length' then
+    begin
+      t := 'i64';
+      result := self.EmitLength(e.Arguments[0]);
+      Exit;
+    end;
+    if fname = 'Ord' then
+    begin
+      t := 'i64';
+      result := self.EmitOrd(e.Arguments[0]);
+      Exit;
+    end;
+    if fname = 'IntToStr' then
+    begin
+      t := 'ptr';
+      result := self.EmitIntToStr(e.Arguments[0]);
+      Exit;
+    end;
+    if fname = 'StrToInt' then
+    begin
+      t := 'i64';
+      result := self.EmitStrToInt(e.Arguments[0]);
+      Exit;
+    end;
+    if fname = 'WriteLn' then
+    begin
+      t := 'ptr';
+      result := self.EmitWriteLn(e.Arguments);
+      Exit;
+    end;
+    if fname = 'Write' then
+    begin
+      t := 'ptr';
+      result := self.EmitWrite(e.Arguments);
+      Exit;
+    end;
+    if fname = 'ReadFile' then
+    begin
+      t := 'ptr';
+      result := self.EmitReadFile(e.Arguments[0]);
+      Exit;
+    end;
+    args := [];
+    for i := 0 to Length(e.Arguments) - 1 do
+      append(args, self.EmitExpr(e.Arguments[i]));
+    result := self.EmitPlainCall(fname, args, t);
+    Exit;
+  end;
+  if e.Func is TMemberExpression then
+  begin
+    mem := e.Func as TMemberExpression;
+    result := self.EmitMethodCall(mem, t);
+    Exit;
+  end;
+  t := 'i64';
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = add i64 0, 0 ; unhandled call');
+  result := r;
+end;
+
+function TLLVMGenerator.EmitPlainCall(fname: String; args: array of String; var t: String): String;
+var
+  retType, r, argList: String;
+  i: Integer;
+begin
+  retType := '';
+  i := self.IndexOfStr(self.FNames, fname);
+  if i >= 0 then retType := self.FRet[i];
+  if retType = '' then retType := 'i64';
+  argList := self.JoinStr(args, ', ');
+  if retType = 'void' then
+  begin
+    self.WriteLine('  call void @' + fname + '(' + argList + ')');
+    t := 'void';
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = add i64 0, 0 ; void call');
+    result := r;
+    Exit;
+  end;
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = call ' + retType + ' @' + fname + '(' + argList + ')');
+  t := retType;
+  result := r;
+end;
+
+function TLLVMGenerator.EmitIdentLoad(name: String): String;
+var
+  r: String;
+begin
+  if self.HasConst(name) then
+  begin
+    result := self.EmitIntConst(self.ConstValue(name));
+    Exit;
+  end;
+  if name = 'Args' then
+  begin
+    self.NeedArgs := true;
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = load { ptr, i64, i64 }, ptr @__kylix_args');
+    result := r;
+    Exit;
+  end;
+  if not self.HasLocal(name) then
+  begin
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = add i64 0, 0 ; undefined var ' + name);
+    result := r;
+    Exit;
+  end;
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = load ' + self.ActualType(name) + ', ptr ' + self.LocalReg(name));
+  result := r;
+end;
+
+function TLLVMGenerator.EmitLength(arg: TExpression): String;
+var
+  v, t, r: String;
+begin
+  v := self.EmitExprTyped(arg, t);
+  if t = '{ ptr, i64, i64 }' then
+  begin
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = extractvalue { ptr, i64, i64 } ' + v + ', 1');
+    result := r;
+  end
+  else
+  begin
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = call i64 @strlen(ptr noundef ' + self.NullGuardString(v) + ')');
+    result := r;
+  end;
+end;
+
+function TLLVMGenerator.EmitOrd(arg: TExpression): String;
+var
+  v, ch, r: String;
+begin
+  v := self.EmitExpr(arg);
+  ch := self.Tmp();
+  self.WriteLine('  ' + ch + ' = load i8, ptr ' + v);
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = zext i8 ' + ch + ' to i64');
+  result := r;
+end;
+
+function TLLVMGenerator.EmitIntToStr(arg: TExpression): String;
+var
+  v, buf, fmtPtr, count: String;
+begin
+  v := self.EmitExpr(arg);
+  buf := self.Tmp();
+  self.WriteLine('  ' + buf + ' = call ptr @malloc(i64 64)');
+  fmtPtr := self.PtrTo(self.AddString('%ld'), 4);
+  count := self.Tmp();
+  self.WriteLine('  ' + count + ' = call i32 (ptr, i64, ptr, ...) @snprintf(ptr ' + buf + ', i64 64, ptr ' + fmtPtr + ', i64 ' + v + ')');
+  result := buf;
+end;
+
+function TLLVMGenerator.EmitStrToInt(arg: TExpression): String;
+var
+  v, r: String;
+begin
+  v := self.EmitExpr(arg);
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = call i64 @atoll(ptr ' + v + ')');
+  result := r;
+end;
+
+// EmitReadFile — ReadFile(path) → fopen/fseek/ftell/malloc/fread → heap string.
+function TLLVMGenerator.EmitReadFile(arg: TExpression): String;
+var
+  v, modePtr, fp, retSlot, emptyPtr, nullCk, okLbl, exitLbl: String;
+  sizeReg, allocSize, buf, got, term: String;
+begin
+  v := self.EmitExpr(arg);
+  self.NeedReadFile := true;
+  modePtr := self.PtrTo(self.AddString('r'), 2);
+  fp := self.Tmp();
+  self.WriteLine('  ' + fp + ' = call ptr @fopen(ptr ' + v + ', ptr ' + modePtr + ')');
+  retSlot := self.Tmp();
+  self.WriteLine('  ' + retSlot + ' = alloca ptr, align 8');
+  emptyPtr := self.PtrTo(self.AddString(''), 1);
+  self.WriteLine('  store ptr ' + emptyPtr + ', ptr ' + retSlot);
+  nullCk := self.Tmp();
+  self.WriteLine('  ' + nullCk + ' = icmp eq ptr ' + fp + ', null');
+  okLbl := self.Label();
+  exitLbl := self.Label();
+  self.WriteLine('  br i1 ' + nullCk + ', label %' + exitLbl + ', label %' + okLbl);
+  self.WriteLine(okLbl + ':');
+  self.WriteLine('  call i32 @fseek(ptr ' + fp + ', i64 0, i32 2)');
+  sizeReg := self.Tmp();
+  self.WriteLine('  ' + sizeReg + ' = call i64 @ftell(ptr ' + fp + ')');
+  self.WriteLine('  call i32 @fseek(ptr ' + fp + ', i64 0, i32 0)');
+  allocSize := self.Tmp();
+  self.WriteLine('  ' + allocSize + ' = add i64 ' + sizeReg + ', 1');
+  buf := self.Tmp();
+  self.WriteLine('  ' + buf + ' = call ptr @malloc(i64 ' + allocSize + ')');
+  got := self.Tmp();
+  self.WriteLine('  ' + got + ' = call i64 @fread(ptr ' + buf + ', i64 1, i64 ' + sizeReg + ', ptr ' + fp + ')');
+  term := self.Tmp();
+  self.WriteLine('  ' + term + ' = getelementptr inbounds i8, ptr ' + buf + ', i64 ' + got);
+  self.WriteLine('  store i8 0, ptr ' + term);
+  self.WriteLine('  call i32 @fclose(ptr ' + fp + ')');
+  self.WriteLine('  store ptr ' + buf + ', ptr ' + retSlot);
+  self.WriteLine('  br label %' + exitLbl);
+  self.WriteLine(exitLbl + ':');
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = load ptr, ptr ' + retSlot);
+  result := r;
+end;
+
+// ============================================================================
+// WriteLn / Write
+// ============================================================================
+
+function TLLVMGenerator.EmitWriteLn(args: array of TExpression): String;
+var
+  i: Integer;
+  v, t, guarded, cat, boollit: String;
+  buf, pos, dst, rest, fmtPtr: String;
+begin
+  buf := self.Tmp();
+  self.WriteLine('  ' + buf + ' = call ptr @malloc(i64 4096)');
+  self.WriteLine('  store i8 0, ptr ' + buf);
+  for i := 0 to Length(args) - 1 do
+  begin
+    if i > 0 then
+    begin
+      cat := self.Tmp();
+      self.WriteLine('  ' + cat + ' = call ptr @strcat(ptr ' + buf + ', ptr ' + self.PtrTo(self.AddString(' '), 2) + ')');
+    end;
+    v := self.EmitExprTyped(args[i], t);
+    if t = 'i64' then
+    begin
+      fmtPtr := self.PtrTo(self.AddString('%ld'), 4);
+      pos := self.Tmp();
+      self.WriteLine('  ' + pos + ' = call i64 @strlen(ptr ' + buf + ')');
+      dst := self.Tmp();
+      self.WriteLine('  ' + dst + ' = getelementptr inbounds i8, ptr ' + buf + ', i64 ' + pos);
+      rest := self.Tmp();
+      self.WriteLine('  ' + rest + ' = sub i64 4096, ' + pos);
+      cat := self.Tmp();
+      self.WriteLine('  ' + cat + ' = call i32 (ptr, i64, ptr, ...) @snprintf(ptr ' + dst + ', i64 ' + rest + ', ptr ' + fmtPtr + ', i64 ' + v + ')');
+    end
+    else if t = 'i1' then
+    begin
+      boollit := self.EmitBoolStr(v);
+      cat := self.Tmp();
+      self.WriteLine('  ' + cat + ' = call ptr @strcat(ptr ' + buf + ', ptr ' + boollit + ')');
+    end
+    else
+    begin
+      guarded := self.NullGuardString(v);
+      cat := self.Tmp();
+      self.WriteLine('  ' + cat + ' = call ptr @strcat(ptr ' + buf + ', ptr ' + guarded + ')');
+    end;
+  end;
+  self.WriteLine('  call i32 @puts(ptr ' + buf + ')');
+  result := buf;
+end;
+
+function TLLVMGenerator.EmitWrite(args: array of TExpression): String;
+begin
+  result := self.EmitWriteLn(args);
+end;
+
+function TLLVMGenerator.EmitBoolStr(v: String): String;
+var
+  r: String;
+begin
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = select i1 ' + v + ', ptr ' + self.PtrTo(self.AddString('true'), 5) + ', ptr ' + self.PtrTo(self.AddString('false'), 6));
+  result := r;
+end;
+
+// ============================================================================
+// Class / member / array / is-as (P2 — stubs for now)
+// ============================================================================
+
+procedure TLLVMGenerator.EmitClassDecl(cd: TClassDecl);
+begin
+  self.WriteLine('  ; class ' + cd.Name + ' (P2 stub)');
+end;
+
+procedure TLLVMGenerator.EmitMethod(className: String; method: TFunctionDecl);
+begin
+  self.WriteLine('  ; method ' + className + '.' + method.Name + ' (P2 stub)');
+end;
+
+function TLLVMGenerator.EmitMember(member: TMemberExpression; var t: String): String;
+var r: String;
+var
+  r: String;
+begin
+  t := 'ptr';
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = inttoptr i64 0 to ptr ; member ' + member.Member + ' (P2 stub)');
+  result := r;
+end;
+
+function TLLVMGenerator.EmitMethodCall(member: TMemberExpression; var t: String): String;
+var r: String;
+var
+  r: String;
+begin
+  t := 'i64';
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = add i64 0, 0 ; method call (P2 stub)');
+  result := r;
+end;
+
+function TLLVMGenerator.EmitIsExpr(e: TIsExpression; var t: String): String;
+var r: String;
+var
+  r: String;
+begin
+  t := 'i1';
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = add i1 0, 0 ; is (P2 stub)');
+  result := r;
+end;
+
+function TLLVMGenerator.EmitAsExpr(e: TTypeCastExpression; var t: String): String;
+begin
+  t := 'ptr';
+  result := self.EmitExpr(e.Expression);
+end;
+
+function TLLVMGenerator.EmitArrayIndex(idx: TIndexExpression; var t: String): String;
+var r: String;
+var
+  r: String;
+begin
+  t := 'i64';
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = add i64 0, 0 ; array index (P2 stub)');
+  result := r;
+end;
+
+function TLLVMGenerator.EmitAppend(sliceArg, elemArg: TExpression): String;
+var r: String;
+begin
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = add i64 0, 0 ; append (P2 stub)');
+  result := r;
+end;
+
+procedure TLLVMGenerator.EmitAppendStmt(sliceArg, elemArg: TExpression);
+begin
+  self.EmitAppend(sliceArg, elemArg);
+end;
+
+// JoinStr joins a string array with a delimiter.
+function TLLVMGenerator.JoinStr(arr: array of String; sep: String): String;
+var
+  i: Integer;
+  s: String;
+begin
+  s := '';
+  for i := 0 to Length(arr) - 1 do
+  begin
+    if i > 0 then s := s + sep;
+    s := s + arr[i];
+  end;
+  result := s;
+end;
+
+end.

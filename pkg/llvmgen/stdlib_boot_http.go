@@ -73,15 +73,19 @@ func (g *Generator) emitBootRunBody() {
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_net_TcpAccept(ptr %s)", conn, listener))
 	headers := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_read_headers(ptr %s)", headers, conn))
-	// method/path buffers
+	// method/path buffers — from the per-request arena (v0.6.9), so a long
+	// running server never leaks per-request framework buffers.
 	methodBuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 32)", methodBuf))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 32)", methodBuf))
+	g.needArena = true
 	pathBuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 512)", pathBuf))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 512)", pathBuf))
+	g.needArena = true
 	g.line(fmt.Sprintf("  call void @__kylix_boot_parse_request(ptr %s, ptr %s, ptr %s)", headers, methodBuf, pathBuf))
 	// req handle + route lookup
 	req := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", req, bootRequestSize))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 %d)", req, bootRequestSize))
+	g.needArena = true
 	handler := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_route_lookup(ptr %s, ptr %s, ptr %s)", handler, methodBuf, pathBuf, req))
 	handlerNull := g.tmp()
@@ -107,7 +111,8 @@ func (g *Generator) emitBootRunBody() {
 	body := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", body, bodyField))
 	respBuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 2048)", respBuf))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 2048)", respBuf))
+	g.needArena = true
 	g.line(fmt.Sprintf("  store i8 0, ptr %s", respBuf))
 	g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", respBuf, g.ptrTo(g.addString("HTTP/1.1 "), 10)))
 	g.bootStrcat(respBuf, g.bootIntToStr(status))
@@ -131,6 +136,10 @@ func (g *Generator) emitBootRunBody() {
 	// ---- close + loop
 	g.line(fmt.Sprintf("%s:", closeLbl))
 	g.line(fmt.Sprintf("  call void @__kylix_net_TcpClose(ptr %s)", conn))
+	// v0.6.9: reset the per-request arena — every framework buffer allocated for
+	// this request (headers, method/path slots, req handle, response buffer,
+	// body) is reclaimed so a long-running server never leaks.
+	g.arenaResetCall()
 	g.line(fmt.Sprintf("  br label %%%s", loopLbl))
 	g.line("}")
 	g.line("")
@@ -182,7 +191,9 @@ func (g *Generator) emitBootReadHeadersBody() {
 	g.line("entry:")
 	fd := g.bootConnFd("%conn")
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 4096)", buf))
+	// v0.6.9: read from the per-request arena — reclaimed at the request end.
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 4096)", buf))
+	g.needArena = true
 	posSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", posSlot))
 	g.line(fmt.Sprintf("  store i64 0, ptr %s", posSlot))
@@ -345,7 +356,9 @@ func (g *Generator) emitBootReadBodyBody() {
 	lenBuf := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", lenBuf, bodyLen))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, lenBuf))
+	// v0.6.9: body buffer from the per-request arena (reclaimed at request end).
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 %s)", buf, lenBuf))
+	g.needArena = true
 	g.line(fmt.Sprintf("  call i64 @recv(i32 %s, ptr %s, i64 %s, i32 0)", fd, buf, bodyLen))
 	termPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", termPtr, buf, bodyLen))

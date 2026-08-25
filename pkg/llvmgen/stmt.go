@@ -1111,7 +1111,17 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 	// as_str the box, turning a map/nil Variant into an empty string. v0.6.6.
 	if isVariantSlot {
 		if t != variantT {
-			v = g.emitVariantBox(v, t)
+			// v0.6.9: `data := JsonDecodeMap(...)` — the RHS is a map[String]Variant
+			// htab (ptr). Box it as a map Variant (box_map) so `data['key']` works,
+			// instead of emitVariantBox(ptr) which as_strs it into an empty string.
+			if t == "ptr" && g.rhsReturnsMap(s.Value) {
+				box := g.tmp()
+				g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_map(ptr %s)", box, v))
+				g.needVariantRuntime = true
+				v = box
+			} else {
+				v = g.emitVariantBox(v, t)
+			}
 		}
 		t = "ptr" // box pointer; skip the type coercion below.
 	}
@@ -1126,6 +1136,30 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 
 	g.line(fmt.Sprintf("  store %s %s, ptr %s", actualType, v, allocaReg))
 	return nil
+}
+
+// rhsReturnsMap reports whether expr is a call that returns a map[String]Variant
+// htab (JsonDecodeMap / JsonGetMap). Used by emitAssign to box such RHS values
+// as map Variants (`data := JsonDecodeMap(...)`). v0.6.9.
+func (g *Generator) rhsReturnsMap(expr ast.Expression) bool {
+	call, ok := expr.(*ast.CallExpression)
+	if !ok {
+		return false
+	}
+	name := ""
+	switch fn := call.Function.(type) {
+	case *ast.Identifier:
+		name = fn.Value
+	case *ast.MemberExpression:
+		if id, ok := fn.Object.(*ast.Identifier); ok {
+			name = id.Value + "." + fn.Member
+		}
+	}
+	switch name {
+	case "JsonDecodeMap", "jsonutil.JsonDecodeMap", "JsonGetMap", "jsonutil.JsonGetMap":
+		return true
+	}
+	return false
 }
 
 // fieldKylixType returns the Kylix type name of a class field, or "" if not

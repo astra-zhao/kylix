@@ -179,6 +179,13 @@ type Generator struct {
 	// needMemcpy is set when append copies data. v0.5.4.
 	needMemcpy bool
 
+	// needArena is set when a long-running request loop (boot HTTP server,
+	// v0.6.9) wants a per-iteration bump arena: allocations inside the loop go
+	// through @__kylix_arena_alloc and the loop resets @__kylix_arena_reset
+	// each iteration, so framework-scoped buffers never leak. User objects
+	// (Variant boxes, classes) still use plain malloc.
+	needArena bool
+
 	// needClassRTTI is set when is/as class checks are used; emitClassRuntime
 	// emits the edge table + __kylix_class_is_a helper. v0.5.4.
 	needClassRTTI bool
@@ -532,6 +539,13 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	// value was used. Idempotent.
 	if g.needVariantRuntime {
 		g.emitVariantRuntimeBodies()
+	}
+
+	// v0.6.9: per-iteration bump arena for long-running loops (boot HTTP
+	// server). Allocations inside the loop come from this pool and the loop
+	// resets it each iteration — framework buffers never leak.
+	if g.needArena {
+		g.emitArenaBodies()
 	}
 
 	// v0.6.4: WebSocket handshake/frame helpers (SHA-1, base64, randomness,

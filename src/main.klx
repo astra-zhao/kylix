@@ -1,6 +1,6 @@
 program KylixCompiler;
 
-uses token, lexer, parser, generator, error;
+uses token, lexer, parser, generator, llvmgen, error;
 
 var
   SourceFile: String;
@@ -8,22 +8,39 @@ var
   Lex: TLexer;
   Par: TParser;
   Gen: TGenerator;
+  IRGen: TLLVMGenerator;
   Prog: TProgram;
   GoCode: String;
+  IRText: String;
   ErrList: TErrorList;
   i: Integer;
   AllOk: Boolean;
+  EmitLLVM: Boolean;
+  ArgStart: Integer;
   Files: array of String;
   Programs: array of TProgram;
 
 begin
   ErrList := TErrorList.Create;
+  EmitLLVM := false;
+
+  // v0.6.9: --emit-llvm switches the bootstrap compiler from Go codegen to the
+  // in-Kylix LLVM IR emitter (llvmgen.klx). With this flag, `kylix_self
+  // --emit-llvm src/token.klx ...` prints LLVM IR instead of Go — the first
+  // step of the no-Go closed loop (IR → llc/clang → native binary next).
+  if Length(Args) > 0 then
+    if Args[0] = '--emit-llvm' then
+      EmitLLVM := true;
 
   // Use command-line arguments if provided, otherwise fall back to default bootstrap files
   Files := [];
   if Length(Args) > 0 then
   begin
-    for i := 0 to Length(Args) - 1 do
+    // v0.6.9: skip the leading --emit-llvm flag (no SetLength in LLVM backend;
+    // a start index is the portable way to drop it).
+    ArgStart := 0;
+    if EmitLLVM then ArgStart := 1;
+    for i := ArgStart to Length(Args) - 1 do
       append(Files, Args[i]);
   end
   else
@@ -34,6 +51,7 @@ begin
     append(Files, 'lexer.klx');
     append(Files, 'parser.klx');
     append(Files, 'generator.klx');
+    append(Files, 'llvmgen.klx');
   end;
 
   Programs := [];
@@ -70,9 +88,25 @@ begin
 
   if AllOk then
   begin
-    Gen := TGenerator.Create;
-    GoCode := Gen.GenerateMulti(Programs);
-    WriteLn(GoCode);
+    if EmitLLVM then
+    begin
+      // v0.6.9: LLVM IR emitter (in-Kylix). Emit each program's IR in file
+      // order and concatenate (P1: single-program IR; multi-program merge is
+      // P2). For now emit the first program — the bootstrap emitter P1 handles
+      // one program (hello-class) end to end.
+      IRGen := TLLVMGenerator.Create;
+      if Length(Programs) > 0 then
+      begin
+        IRGen.EmitProgram(Programs[0]);
+        WriteLn(IRGen.Output);
+      end;
+    end
+    else
+    begin
+      Gen := TGenerator.Create;
+      GoCode := Gen.GenerateMulti(Programs);
+      WriteLn(GoCode);
+    end;
   end
   else
     WriteLn(ErrList.ToString());
