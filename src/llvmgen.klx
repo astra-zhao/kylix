@@ -60,11 +60,35 @@ type
     NeedMemcpy: Boolean;
     NeedClassRTTI: Boolean;
     NeedReadFile: Boolean;
+    NeedToLower: Boolean;
+    NeedStrtod: Boolean;
+    NeedAtoll: Boolean;
+    // P2: top-level globals (name/type/reg, parallel arrays like locals)
+    GNames: array of String;
+    GTypes: array of String;
     // loop labels (single-level stack, like the host's emitWhile/emitFor)
     LoopHead: String;
     LoopBreak: String;
     // Args builtin global always declared
     ArgsDeclared: Boolean;
+    // P2: class layout tables (mirrors host ClassInfo/FieldInfo/MethodInfo)
+    ClassNames: array of String;
+    ClassParents: array of String;
+    ClassFieldNames: array of String;   // per-class field names (comma-string)
+    ClassFieldTypes: array of String;   // per-class field LLVM types (comma-string)
+    ClassFieldKylix: array of String;   // per-class field Kylix types (comma-string)
+    ClassFieldMaps: array of String;    // per-class field map flags (comma "1"/"0")
+    ClassMethodNames: array of String;  // per-class method names (vtable order)
+    ClassMethodRet: array of String;    // per-class method LLVM return types
+    ClassMethodDef: array of String;    // per-class method defining class
+    ClassMethodIdx: array of String;    // per-class method vtable idx (comma str)
+    // P2: array-of-T metadata (mirrors host arrayInfo)
+    ArrNames: array of String;
+    ArrDynamic: array of Boolean;
+    ArrElem: array of String;
+    ArrElemKylix: array of String;
+    ArrSize: array of Integer;
+    ArrLower: array of Integer;
 
     // NOTE: Write/WriteLine are declared AND inlined in the type block (like
     // generator.klx) because `Write` is the reserved word tkWrite — an external
@@ -297,12 +321,6 @@ begin
   result := self.IndexOfStr(self.CNames, name) >= 0;
 end;
 
-function TLLVMGenerator.IsClass(tname: String): Boolean;
-begin
-  // P1: no classes yet. Overridden by llvmgen_class.klx in P2.
-  result := false;
-end;
-
 function TLLVMGenerator.IsRecord(tname: String): Boolean;
 begin
   result := false;
@@ -337,6 +355,8 @@ function TLLVMGenerator.TypeExprName(e: TExpression): String;
 begin
   if e = nil then result := ''
   else if e is TIdentifier then result := (e as TIdentifier).Value
+  else if e is TArrayType then result := 'array'
+  else if e is TMapType then result := 'map'
   else result := '';
 end;
 
@@ -367,6 +387,14 @@ begin
     result := 'ptr';
     self.NeedHashtab := true;
     Exit;
+  end;
+  if e is TIdentifier then
+  begin
+    if self.IsClass((e as TIdentifier).Value) then
+    begin
+      result := 'ptr';
+      Exit;
+    end;
   end;
   result := self.LlvmTypeFor(self.TypeExprName(e));
 end;
@@ -633,8 +661,47 @@ begin
     if td.DeclType is TClassDecl then
     begin
       cd := td.DeclType as TClassDecl;
+      cd.Name := td.Name;
       self.EmitClassDecl(cd);
     end;
+  end;
+end;
+
+// EmitClassDecl — register class layout + emit struct type + vtable +
+// method defines.
+procedure TLLVMGenerator.EmitClassDecl(cd: TClassDecl);
+var
+  i, ci: Integer;
+  fieldTypes: array of String;
+  slots: array of String;
+  m: TFunctionDecl;
+  cflds: array of String;
+begin
+  if self.ClassIndex(cd.Name) >= 0 then Exit; // already built
+  self.MakeClassInfo(cd.Name, cd);
+  // struct type: vtable ptr + fields
+  ci := self.ClassIndex(cd.Name);
+  // cflds: {ptr,len,cap} slice of the field-type string array — materialize
+  // via append (the bootstrap emitter's only array-copy primitive) instead of
+  // the host's array-slice expression.
+  cflds := [];
+  for i := 0 to Length(self.ClassFieldTypes[ci]) - 1 do
+    append(cflds, self.FieldTypeAt(ci,i));
+  append(fieldTypes, 'ptr');
+  for i := 0 to Length(cflds) - 1 do
+    append(fieldTypes, cflds[i]);
+  self.WriteLine('%' + cd.Name + ' = type { ' + self.JoinStr(fieldTypes, ', ') + ' }');
+  // vtable constant (vtable-index order)
+  for i := 0 to self.MethodCount(ci) - 1 do
+  begin
+    slots[self.MethodIndexAt(ci, i)] := 'ptr @' + self.DefClassAt(ci, i) + '_' + self.MethodNameAt(ci, i);
+  end;
+  self.WriteLine('@' + cd.Name + '_vtable = constant [' + self.IntToStrS(self.MethodCount(ci)) + ' x ptr] [ ' + self.JoinStr(slots, ', ') + ' ]');
+  // method defines (with bodies)
+  for i := 0 to Length(cd.Methods) - 1 do
+  begin
+    m := cd.Methods[i];
+    self.EmitMethod(cd.Name, m);
   end;
 end;
 
@@ -650,6 +717,8 @@ begin
     if llvmT = 'variant' then llvmT := 'ptr';
     self.WriteLine('@__kylix_g_' + vd.Names[i] + ' = global ' + llvmT + ' zeroinitializer');
     if vd.VarType is TMapType then self.NeedHashtab := true;
+    append(self.GNames, vd.Names[i]);
+    append(self.GTypes, llvmT);
   end;
 end;
 
@@ -882,6 +951,7 @@ begin
     else
       llvmT := '[1 x i64]';
     self.RegisterLocal(name, llvmT, '');
+    self.RegisterArrayFromType(name, varType);
     Exit;
   end;
   if varType is TMapType then
@@ -896,6 +966,7 @@ begin
     Exit;
   end;
   llvmT := self.LlvmTypeOfExpr(varType);
+  if self.IsClass(self.TypeExprName(varType)) then llvmT := 'ptr';
   self.RegisterLocal(name, llvmT, self.TypeExprName(varType));
 end;
 
@@ -1051,6 +1122,35 @@ end;
 // Expressions
 // ============================================================================
 
+function TLLVMGenerator.EmitStringSliceExpr(e: TSliceExpression; var t: String): String;
+var
+  base, baseT, low, high, length, allocSize, buf, src, termPtr: String;
+begin
+  t := 'ptr';
+  base := self.EmitExprTyped(e.Left, baseT);
+  if baseT <> 'ptr' then
+  begin
+    result := base;
+    Exit;
+  end;
+  low := self.EmitExprTyped(e.Low, baseT);
+  high := self.EmitExprTyped(e.High, baseT);
+  length := self.Tmp();
+  self.WriteLine('  ' + length + ' = sub i64 ' + high + ', ' + low);
+  allocSize := self.Tmp();
+  self.WriteLine('  ' + allocSize + ' = add i64 ' + length + ', 1');
+  buf := self.Tmp();
+  self.WriteLine('  ' + buf + ' = call ptr @malloc(i64 ' + allocSize + ')');
+  src := self.Tmp();
+  self.WriteLine('  ' + src + ' = getelementptr inbounds i8, ptr ' + base + ', i64 ' + low);
+  self.NeedMemcpy := true;
+  self.WriteLine('  call ptr @memcpy(ptr ' + buf + ', ptr ' + src + ', i64 ' + length + ')');
+  termPtr := self.Tmp();
+  self.WriteLine('  ' + termPtr + ' = getelementptr inbounds i8, ptr ' + buf + ', i64 ' + length);
+  self.WriteLine('  store i8 0, ptr ' + termPtr);
+  result := buf;
+end;
+
 function TLLVMGenerator.EmitExprTyped(node: TExpression; var t: String): String;
 var
   r, strReg, lit: String;
@@ -1064,6 +1164,7 @@ var
   idx: TIndexExpression;
   ise: TIsExpression;
   tc: TTypeCastExpression;
+  slic: TSliceExpression;
   r: String;
 begin
   if node is TIntegerLiteral then
@@ -1096,6 +1197,7 @@ begin
   begin
     id := node as TIdentifier;
     t := self.ActualType(id.Value);
+    if (t = '') and (self.IsArrayVar(id.Value)) then t := '{ ptr, i64, i64 }';
     result := self.EmitIdentLoad(id.Value);
   end
   else if node is TInfixExpression then
@@ -1117,6 +1219,12 @@ begin
   begin
     idx := node as TIndexExpression;
     result := self.EmitArrayIndex(idx, t);
+  end
+  else if node is TSliceExpression then
+  begin
+    slic := node as TSliceExpression;
+    r := self.EmitStringSliceExpr(slic, t);
+    result := r;
   end
   else if node is TIsExpression then
   begin
@@ -1462,7 +1570,7 @@ end;
 
 function TLLVMGenerator.EmitIdentLoad(name: String): String;
 var
-  r: String;
+  r, gname: String;
 begin
   if self.HasConst(name) then
   begin
@@ -1474,6 +1582,14 @@ begin
     self.NeedArgs := true;
     r := self.Tmp();
     self.WriteLine('  ' + r + ' = load { ptr, i64, i64 }, ptr @__kylix_args');
+    result := r;
+    Exit;
+  end;
+  if self.IndexOfStr(self.GNames, name) >= 0 then
+  begin
+    gname := self.GReg(name);
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = load ' + self.GType(name) + ', ptr ' + gname);
     result := r;
     Exit;
   end;
@@ -1489,10 +1605,45 @@ begin
   result := r;
 end;
 
+// ===== global variable bookkeeping (P2) =====
+function TLLVMGenerator.GReg(name: String): String;
+begin
+  result := '@__kylix_g_' + name;
+end;
+
+function TLLVMGenerator.GType(name: String): String;
+var i: Integer;
+begin
+  result := 'i64';
+  for i := 0 to Length(self.GTypes) - 1 do
+    if self.GNames[i] = name then
+      result := self.GTypes[i];
+end;
+
 function TLLVMGenerator.EmitLength(arg: TExpression): String;
 var
-  v, t, r: String;
+  v, t, r, arrReg: String;
+  ai: Integer;
 begin
+  ai := -1;
+  if arg is TIdentifier then
+    ai := self.IndexOfStr(self.ArrNames, (arg as TIdentifier).Value);
+  if ai >= 0 then
+  begin
+    if self.ArrDynamic[ai] then
+    begin
+      arrReg := self.LocalReg((arg as TIdentifier).Value);
+      r := self.Tmp();
+      self.WriteLine('  ' + r + ' = getelementptr inbounds { ptr, i64, i64 }, ptr ' + arrReg + ', i32 0, i32 1');
+      self.WriteLine('  ' + r + ' = load i64, ptr ' + r);
+      result := r;
+      Exit;
+    end;
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = add i64 0, ' + self.IntToStrS(self.ArrSize[ai]) + ' ; static array length');
+    result := r;
+    Exit;
+  end;
   v := self.EmitExprTyped(arg, t);
   if t = '{ ptr, i64, i64 }' then
   begin
@@ -1547,7 +1698,7 @@ end;
 function TLLVMGenerator.EmitReadFile(arg: TExpression): String;
 var
   v, modePtr, fp, retSlot, emptyPtr, nullCk, okLbl, exitLbl: String;
-  sizeReg, allocSize, buf, got, term: String;
+  sizeReg, allocSize, buf, got, term, r: String;
 begin
   v := self.EmitExpr(arg);
   self.NeedReadFile := true;
@@ -1651,49 +1802,995 @@ begin
 end;
 
 // ============================================================================
-// Class / member / array / is-as (P2 — stubs for now)
+// Class / member / array / is-as (P2)
 // ============================================================================
 
-procedure TLLVMGenerator.EmitClassDecl(cd: TClassDecl);
+// ---- class layout bookkeeping (mirrors host ClassInfo/FieldInfo/MethodInfo) --
+
+function TLLVMGenerator.ClassIndex(cname: String): Integer;
+var i: Integer;
 begin
-  self.WriteLine('  ; class ' + cd.Name + ' (P2 stub)');
+  result := -1;
+  for i := 0 to Length(self.ClassNames) - 1 do
+    if self.ClassNames[i] = cname then result := i;
 end;
 
-procedure TLLVMGenerator.EmitMethod(className: String; method: TFunctionDecl);
+function TLLVMGenerator.IsClass(tname: String): Boolean;
 begin
-  self.WriteLine('  ; method ' + className + '.' + method.Name + ' (P2 stub)');
+  result := self.ClassIndex(tname) >= 0;
+end;
+
+function TLLVMGenerator.ClassParent(cname: String): String;
+var i: Integer;
+begin
+  result := '';
+  i := self.ClassIndex(cname);
+  if i >= 0 then result := self.ClassParents[i];
+end;
+
+function TLLVMGenerator.ClassHasMethod(cname, mname: String): Boolean;
+var i: Integer;
+begin
+  result := false;
+  i := self.ClassIndex(cname);
+  if i < 0 then Exit;
+  if self.StrContains(self.ClassMethodNames[i], ',' + mname + ',') then result := true;
+end;
+
+function TLLVMGenerator.ClassFieldCount(cname: String): Integer;
+var i: Integer;
+begin
+  result := 0;
+  i := self.ClassIndex(cname);
+  if i < 0 then Exit;
+  result := Length(self.ClassFieldNames[i]);
+end;
+
+// Build a class's flattened field/metadata from a (possibly nested type TTypeDecl)
+// ClassDecl. Runs during Pass 2. Inherited fields/methods from the parent are
+// copied first (so subclass instances include the parent's layout), then own
+// fields/methods; overrides reuse the parent's vtable slot. Mirrors host
+// buildClassInfo.
+procedure TLLVMGenerator.MakeClassInfo(cname: String; cd: TClassDecl);
+var
+  p, j, idx, m, mi: Integer;
+  parentIdx: Integer;
+  llvmT, kt: String;
+  isM: Boolean;
+  pfnames, pftypes, pfkylix: array of String;
+  pfmaps: array of Boolean;
+  fld: TVarDecl;
+  meth: TFunctionDecl;
+begin
+  // fresh entry — field tables are comma-strings: "Name1,Name2," per class
+  // (same pattern as the method tables; Kylix has no nested arrays).
+  append(self.ClassNames, cname);
+  append(self.ClassParents, cd.Parent);
+  append(self.ClassFieldNames, '');
+  append(self.ClassFieldTypes, '');
+  append(self.ClassFieldKylix, '');
+  append(self.ClassFieldMaps, '');
+  append(self.ClassMethodNames, ',');
+  append(self.ClassMethodRet, ',');
+  append(self.ClassMethodDef, ',');
+  append(self.ClassMethodIdx, ',');
+  parentIdx := -1;
+  if cd.Parent <> '' then parentIdx := self.ClassIndex(cd.Parent);
+  // copy inherited fields (index 0 = vtable ptr; fields start at 1)
+  idx := 1;
+  if parentIdx >= 0 then
+  begin
+    self.ClassFieldNames[self.ClassIndex(cname)] := self.ClassFieldNames[parentIdx];
+    self.ClassFieldTypes[self.ClassIndex(cname)] := self.ClassFieldTypes[parentIdx];
+    self.ClassFieldKylix[self.ClassIndex(cname)] := self.ClassFieldKylix[parentIdx];
+    self.ClassFieldMaps[self.ClassIndex(cname)] := self.ClassFieldMaps[parentIdx];
+    idx := self.ClassFieldCountAt(parentIdx) + 1;
+  end;
+  // own fields
+  for j := 0 to Length(cd.Fields) - 1 do
+  begin
+    fld := cd.Fields[j];
+    llvmT := 'i64';
+    kt := self.TypeExprName(fld.VarType);
+    if fld.VarType is TArrayType then
+    begin
+      if (fld.VarType as TArrayType).Dynamic then llvmT := '{ ptr, i64, i64 }'
+      else llvmT := self.LlvmTypeOfExpr(fld.VarType);
+    end
+    else if fld.VarType is TMapType then llvmT := 'ptr'
+    else if fld.VarType <> nil then llvmT := self.LlvmTypeOfExpr(fld.VarType);
+    if llvmT = 'variant' then llvmT := 'ptr';
+    for m := 0 to Length(fld.Names) - 1 do
+    begin
+      self.ClassFieldNames[self.ClassIndex(cname)] := self.ClassFieldNames[self.ClassIndex(cname)] + fld.Names[m] + ',';
+      self.ClassFieldTypes[self.ClassIndex(cname)] := self.ClassFieldTypes[self.ClassIndex(cname)] + llvmT + ',';
+      self.ClassFieldKylix[self.ClassIndex(cname)] := self.ClassFieldKylix[self.ClassIndex(cname)] + kt + ',';
+      if fld.VarType is TMapType then
+        self.ClassFieldMaps[self.ClassIndex(cname)] := self.ClassFieldMaps[self.ClassIndex(cname)] + '1,'
+      else
+        self.ClassFieldMaps[self.ClassIndex(cname)] := self.ClassFieldMaps[self.ClassIndex(cname)] + '0,';
+    end;
+  end;
+  // methods: inherited first (vtable superset), then own; override reuses slot
+  if parentIdx >= 0 then
+  begin
+    self.ClassMethodNames[self.ClassIndex(cname)] := self.ClassMethodNames[parentIdx];
+    self.ClassMethodRet[self.ClassIndex(cname)] := self.ClassMethodRet[parentIdx];
+    self.ClassMethodDef[self.ClassIndex(cname)] := self.ClassMethodDef[parentIdx];
+    self.ClassMethodIdx[self.ClassIndex(cname)] := self.ClassMethodIdx[parentIdx];
+  end;
+  for j := 0 to Length(cd.Methods) - 1 do
+  begin
+    meth := cd.Methods[j];
+    if self.StrContains(self.ClassMethodNames[self.ClassIndex(cname)], ',' + meth.Name + ',') then
+    begin
+      // override: update ret type + defining class at this slot
+      mi := self.MethodIndex(self.ClassIndex(cname), meth.Name);
+      self.ClassMethodRet[self.ClassIndex(cname)] := self.ReplaceSlot(self.ClassMethodRet[self.ClassIndex(cname)], mi, self.ClassRetType(meth));
+      self.ClassMethodDef[self.ClassIndex(cname)] := self.ReplaceSlot(self.ClassMethodDef[self.ClassIndex(cname)], mi, cname);
+    end
+    else
+    begin
+      // append: vtable idx = current method count
+      mi := self.MethodCount(self.ClassIndex(cname));
+      self.ClassMethodNames[self.ClassIndex(cname)] := self.ClassMethodNames[self.ClassIndex(cname)] + meth.Name + ',';
+      self.ClassMethodRet[self.ClassIndex(cname)] := self.ClassMethodRet[self.ClassIndex(cname)] + self.ClassRetType(meth) + ',';
+      self.ClassMethodDef[self.ClassIndex(cname)] := self.ClassMethodDef[self.ClassIndex(cname)] + cname + ',';
+      self.ClassMethodIdx[self.ClassIndex(cname)] := self.ClassMethodIdx[self.ClassIndex(cname)] + self.IntToStrS(mi) + ',';
+    end;
+  end;
+end;
+
+function TLLVMGenerator.ClassRetType(meth: TFunctionDecl): String;
+begin
+  result := 'void';
+  if meth.ReturnType <> nil then result := self.LlvmTypeOfExpr(meth.ReturnType);
+end;
+
+// comma-str slot helpers — the vtable-related comma strings use a leading and
+// trailing comma (e.g. ",Create,Get,"); these helpers split by index.
+function TLLVMGenerator.MethodCount(ci: Integer): Integer;
+var s: String;
+begin
+  s := self.ClassMethodNames[ci];
+  result := 0;
+  while Length(s) > 0 do
+  begin
+    if s[0:1] = ',' then result := result + 1;
+    s := s[1:Length(s)];
+  end;
+  result := result - 1; // leading comma counts extra
+end;
+
+function TLLVMGenerator.MethodIndex(ci: Integer; mname: String): Integer;
+var s, tok: String;
+begin
+  result := -1;
+  s := self.ClassMethodNames[ci];
+  while Length(s) > 0 do
+  begin
+    if s[0:1] = ',' then
+    begin
+      s := s[1:Length(s)];
+      if s = '' then break;
+      // extract name up to next comma
+      tok := '';
+      while (Length(s) > 0) and (s[0:1] <> ',') do
+      begin
+        tok := tok + s[0:1];
+        s := s[1:Length(s)];
+      end;
+      result := result + 1;
+      if tok = mname then Exit;
+    end
+    else
+      s := s[1:Length(s)];
+  end;
+  result := -1;
+end;
+
+function TLLVMGenerator.ReplaceSlot(list: String; idx: Integer; newVal: String): String;
+var i, k: Integer;
+  s, out: String;
+begin
+  // split by comma (list has no leading comma — the ret/def strings don't)
+  out := '';
+  k := 0;
+  s := list;
+  while Length(s) > 0 do
+  begin
+    if s[0:1] = ',' then
+    begin
+      out := out + ',';
+      s := s[1:Length(s)];
+      k := k + 1;
+    end
+    else
+    begin
+      if k = idx then
+      begin
+        out := out + newVal;
+        while (Length(s) > 0) and (s[0:1] <> ',') do s := s[1:Length(s)];
+      end
+      else
+      begin
+        out := out + s[0:1];
+        s := s[1:Length(s)];
+      end;
+    end;
+  end;
+  result := out;
+end;
+
+// ---- array metadata (mirrors host arrayInfo) ----
+
+function TLLVMGenerator.IsArrayVar(name: String): Boolean;
+begin
+  result := self.IndexOfStr(self.ArrNames, name) >= 0;
+end;
+
+function TLLVMGenerator.ArrInfoOf(name: String): Integer;
+begin
+  result := self.IndexOfStr(self.ArrNames, name);
+end;
+
+procedure TLLVMGenerator.RegisterArray(name: String; dyn: Boolean; elemT, elemK: String; size, lb: Integer);
+begin
+  append(self.ArrNames, name);
+  append(self.ArrDynamic, dyn);
+  append(self.ArrElem, elemT);
+  append(self.ArrElemKylix, elemK);
+  append(self.ArrSize, size);
+  append(self.ArrLower, lb);
+end;
+
+// RegisterArrayFromType — register a dynamic/static array variable from its
+// declared type expression.
+procedure TLLVMGenerator.RegisterArrayFromType(name: String; vt: TExpression);
+var
+  at: TArrayType;
+  size, lb: Integer;
+  elemT, elemK: String;
+begin
+  if vt is TArrayType then
+  begin
+    at := vt as TArrayType;
+    size := 1;
+    lb := 0;
+    if at.Size <> nil then size := self.EvalConstInt(at.Size);
+    elemT := self.LlvmTypeOfExpr(at.ElementType);
+    elemK := self.TypeExprName(at.ElementType);
+    self.RegisterArray(name, at.Dynamic, elemT, elemK, size, lb);
+  end;
+end;
+
+// EmitArrayIndex — arr[i] for a local/param dynamic or static array var.
+// Mirrors host emitArrayIndex's local path.
+function TLLVMGenerator.EmitArrayIndexLocal(name: String; idxExpr: TExpression; var t: String): String;
+var
+  ai: Integer;
+  idxReg, zeroIdx, dataPtrLoc, dataPtr, ptr, loaded: String;
+begin
+  ai := self.ArrInfoOf(name);
+  idxReg := self.EmitExpr(idxExpr);
+  zeroIdx := self.Tmp();
+  if (self.ArrDynamic[ai] = false) and (self.ArrLower[ai] <> 0) then
+    self.WriteLine('  ' + zeroIdx + ' = sub i64 ' + idxReg + ', ' + self.IntToStrS(self.ArrLower[ai]))
+  else
+    self.WriteLine('  ' + zeroIdx + ' = add i64 ' + idxReg + ', 0');
+  if self.ArrDynamic[ai] then
+  begin
+    dataPtrLoc := self.Tmp();
+    self.WriteLine('  ' + dataPtrLoc + ' = getelementptr inbounds { ptr, i64, i64 }, ptr ' + self.LocalReg(name) + ', i32 0, i32 0');
+    dataPtr := self.Tmp();
+    self.WriteLine('  ' + dataPtr + ' = load ptr, ptr ' + dataPtrLoc);
+    ptr := self.Tmp();
+    self.WriteLine('  ' + ptr + ' = getelementptr inbounds ' + self.ArrElem[ai] + ', ptr ' + dataPtr + ', i64 ' + zeroIdx);
+  end
+  else
+  begin
+    ptr := self.Tmp();
+    self.WriteLine('  ' + ptr + ' = getelementptr inbounds [' + self.IntToStrS(self.ArrSize[ai]) + ' x ' + self.ArrElem[ai] + '], ptr ' + self.LocalReg(name) + ', i64 0, i64 ' + zeroIdx);
+  end;
+  t := self.ArrElem[ai];
+  loaded := self.Tmp();
+  self.WriteLine('  ' + loaded + ' = load ' + self.ArrElem[ai] + ', ptr ' + ptr);
+  result := loaded;
+end;
+
+// EmitArrayIndexStore — arr[i] := v (local array var).
+procedure TLLVMGenerator.EmitArrayIndexStoreLocal(name: String; idxExpr, valExpr: TExpression);
+var
+  ai: Integer;
+  idxReg, zeroIdx, dataPtrLoc, dataPtr, ptr, valReg: String;
+begin
+  ai := self.ArrInfoOf(name);
+  idxReg := self.EmitExpr(idxExpr);
+  zeroIdx := self.Tmp();
+  if (self.ArrDynamic[ai] = false) and (self.ArrLower[ai] <> 0) then
+    self.WriteLine('  ' + zeroIdx + ' = sub i64 ' + idxReg + ', ' + self.IntToStrS(self.ArrLower[ai]))
+  else
+    self.WriteLine('  ' + zeroIdx + ' = add i64 ' + idxReg + ', 0');
+  if self.ArrDynamic[ai] then
+  begin
+    dataPtrLoc := self.Tmp();
+    self.WriteLine('  ' + dataPtrLoc + ' = getelementptr inbounds { ptr, i64, i64 }, ptr ' + self.LocalReg(name) + ', i32 0, i32 0');
+    dataPtr := self.Tmp();
+    self.WriteLine('  ' + dataPtr + ' = load ptr, ptr ' + dataPtrLoc);
+    ptr := self.Tmp();
+    self.WriteLine('  ' + ptr + ' = getelementptr inbounds ' + self.ArrElem[ai] + ', ptr ' + dataPtr + ', i64 ' + zeroIdx);
+  end
+  else
+  begin
+    ptr := self.Tmp();
+    self.WriteLine('  ' + ptr + ' = getelementptr inbounds [' + self.IntToStrS(self.ArrSize[ai]) + ' x ' + self.ArrElem[ai] + '], ptr ' + self.LocalReg(name) + ', i64 0, i64 ' + zeroIdx);
+  end;
+  valReg := self.EmitExprTyped(valExpr, self.ArrElem[ai]);
+  self.WriteLine('  store ' + self.ArrElem[ai] + ' ' + valReg + ', ptr ' + ptr);
+end;
+
+// EmitAppend — append(slice, elem) → new {ptr,len,cap} slice (SSA value).
+// Mirrors host emitAppend byte-for-byte (extractvalue + malloc + memcpy).
+function TLLVMGenerator.EmitAppend(sliceArg, elemArg: TExpression): String;
+var
+  sliceVal, sliceT, elemReg, elemT, dataPtr, oldLen, newLen, newSize, newData: String;
+  oldBytes, elemSlot, s1, s2, s3: String;
+begin
+  sliceVal := self.EmitExprTyped(sliceArg, sliceT);
+  elemReg := self.EmitExprTyped(elemArg, elemT);
+  if self.IsClass(elemT) then elemT := 'ptr';
+  dataPtr := self.Tmp();
+  self.WriteLine('  ' + dataPtr + ' = extractvalue { ptr, i64, i64 } ' + sliceVal + ', 0');
+  oldLen := self.Tmp();
+  self.WriteLine('  ' + oldLen + ' = extractvalue { ptr, i64, i64 } ' + sliceVal + ', 1');
+  newLen := self.Tmp();
+  self.WriteLine('  ' + newLen + ' = add i64 ' + oldLen + ', 1');
+  newSize := self.Tmp();
+  self.WriteLine('  ' + newSize + ' = mul i64 ' + newLen + ', 8');
+  newData := self.Tmp();
+  self.WriteLine('  ' + newData + ' = call ptr @malloc(i64 ' + newSize + ')');
+  oldBytes := self.Tmp();
+  self.WriteLine('  ' + oldBytes + ' = mul i64 ' + oldLen + ', 8');
+  self.NeedMemcpy := true;
+  self.WriteLine('  call ptr @memcpy(ptr ' + newData + ', ptr ' + dataPtr + ', i64 ' + oldBytes + ')');
+  elemSlot := self.Tmp();
+  self.WriteLine('  ' + elemSlot + ' = getelementptr inbounds ' + elemT + ', ptr ' + newData + ', i64 ' + oldLen);
+  self.WriteLine('  store ' + elemT + ' ' + elemReg + ', ptr ' + elemSlot);
+  s1 := self.Tmp();
+  self.WriteLine('  ' + s1 + ' = insertvalue { ptr, i64, i64 } undef, ptr ' + newData + ', 0');
+  s2 := self.Tmp();
+  self.WriteLine('  ' + s2 + ' = insertvalue { ptr, i64, i64 } ' + s1 + ', i64 ' + newLen + ', 1');
+  s3 := self.Tmp();
+  self.WriteLine('  ' + s3 + ' = insertvalue { ptr, i64, i64 } ' + s2 + ', i64 ' + newLen + ', 2');
+  result := s3;
+end;
+
+procedure TLLVMGenerator.EmitAppendStmt(sliceArg, elemArg: TExpression);
+begin
+  self.EmitAppend(sliceArg, elemArg);
+end;
+
+// ---- field/method lookup helpers (comma-string based, mirror host) ----
+
+function TLLVMGenerator.ClassFieldCountAt(ci: Integer): Integer;
+var s: String;
+begin
+  s := self.ClassFieldNames[ci];
+  result := 0;
+  while Length(s) > 0 do
+  begin
+    if s[0:1] = ',' then result := result + 1;
+    s := s[1:Length(s)];
+  end;
+  result := result - 1; // trailing comma counts extra
+end;
+
+function TLLVMGenerator.FieldIndex(cname, fname: String): Integer;
+var ci, i, k: Integer;
+  s, tok: String;
+begin
+  result := -1;
+  ci := self.ClassIndex(cname);
+  if ci < 0 then Exit;
+  k := 0;
+  s := self.ClassFieldNames[ci];
+  while Length(s) > 0 do
+  begin
+    tok := '';
+    while (Length(s) > 0) and (s[0:1] <> ',') do
+    begin
+      tok := tok + s[0:1];
+      s := s[1:Length(s)];
+    end;
+    if tok = fname then
+    begin
+      result := k;
+      Exit;
+    end;
+    k := k + 1;
+    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
+  end;
+end;
+
+function TLLVMGenerator.FieldIdxOf(cname, fname: String): Integer;
+begin
+  result := self.FieldIndex(cname, fname) + 1; // offset 0 = vtable ptr
+end;
+
+function TLLVMGenerator.FieldLLVM(cname, fname: String): String;
+var i, ci: Integer;
+  s, tok: String;
+begin
+  result := 'i64';
+  ci := self.ClassIndex(cname);
+  if ci < 0 then Exit;
+  s := self.ClassFieldTypes[ci];
+  i := 0;
+  while Length(s) > 0 do
+  begin
+    tok := '';
+    while (Length(s) > 0) and (s[0:1] <> ',') do
+    begin
+      tok := tok + s[0:1];
+      s := s[1:Length(s)];
+    end;
+    if self.FieldNameAt(ci, i) = fname then
+    begin
+      result := tok;
+      Exit;
+    end;
+    i := i + 1;
+    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
+  end;
+end;
+
+function TLLVMGenerator.FieldNameAt(ci, fi: Integer): String;
+var s, tok: String;
+  k: Integer;
+begin
+  result := '';
+  s := self.ClassFieldNames[ci];
+  k := 0;
+  while Length(s) > 0 do
+  begin
+    tok := '';
+    while (Length(s) > 0) and (s[0:1] <> ',') do
+    begin
+      tok := tok + s[0:1];
+      s := s[1:Length(s)];
+    end;
+    if k = fi then
+    begin
+      result := tok;
+      Exit;
+    end;
+    k := k + 1;
+    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
+  end;
+end;
+
+function TLLVMGenerator.FieldTypeAt(ci, fi: Integer): String;
+var s, tok: String;
+  k: Integer;
+begin
+  result := '';
+  s := self.ClassFieldTypes[ci];
+  k := 0;
+  while Length(s) > 0 do
+  begin
+    tok := '';
+    while (Length(s) > 0) and (s[0:1] <> ',') do
+    begin
+      tok := tok + s[0:1];
+      s := s[1:Length(s)];
+    end;
+    if k = fi then
+    begin
+      result := tok;
+      Exit;
+    end;
+    k := k + 1;
+    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
+  end;
+end;
+
+function TLLVMGenerator.FieldMapAt(ci, fi: Integer): Boolean;
+var s, tok: String;
+  k: Integer;
+begin
+  result := false;
+  s := self.ClassFieldMaps[ci];
+  k := 0;
+  while Length(s) > 0 do
+  begin
+    tok := '';
+    while (Length(s) > 0) and (s[0:1] <> ',') do
+    begin
+      tok := tok + s[0:1];
+      s := s[1:Length(s)];
+    end;
+    if k = fi then
+    begin
+      if tok = '1' then result := true;
+      Exit;
+    end;
+    k := k + 1;
+    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
+  end;
+end;
+
+function TLLVMGenerator.GKylix(name: String): String;
+var i: Integer;
+begin
+  result := '';
+  i := self.IndexOfStr(self.GNames, name);
+  if i >= 0 then
+  begin
+    // GKylix not stored separately; infer from the LLVM type is ambiguous for
+    // String/class (both ptr). The bootstrap stores only the LLVM type in
+    // GTypes; for class-typed globals we need the Kylix type. Fallback:
+    // 'Integer' for i64, 'String' for ptr — good enough for IsClass checks
+    // (classes are ptr). Callers use IsClass(GKylix(...)); a String global
+    // won't be a class.
+    if self.GTypes[i] = 'i64' then result := 'Integer'
+    else if self.GTypes[i] = 'i1' then result := 'Boolean'
+    else if self.GTypes[i] = 'double' then result := 'Double'
+    else result := 'String';
+  end;
+end;
+
+function TLLVMGenerator.MethodRetAt(ci, mi: Integer): String;
+var s, tok: String;
+  k: Integer;
+begin
+  // parse ClassMethodRet[ci] (comma-separated, no leading comma) at slot mi
+  result := 'void';
+  s := self.ClassMethodRet[ci];
+  k := 0;
+  while Length(s) > 0 do
+  begin
+    if s[0:1] = ',' then
+    begin
+      k := k + 1;
+      s := s[1:Length(s)];
+    end
+    else
+    begin
+      tok := '';
+      while (Length(s) > 0) and (s[0:1] <> ',') do
+      begin
+        tok := tok + s[0:1];
+        s := s[1:Length(s)];
+      end;
+      if k = mi then
+      begin
+        result := tok;
+        Exit;
+      end;
+    end;
+  end;
+end;
+
+function TLLVMGenerator.MethodNameAt(ci, mi: Integer): String;
+var s, tok: String;
+  k: Integer;
+begin
+  result := '';
+  s := self.ClassMethodNames[ci];
+  k := 0;
+  while Length(s) > 0 do
+  begin
+    if s[0:1] = ',' then
+    begin
+      if s = ',' then begin s := ''; break; end;
+      k := k + 1;
+      s := s[1:Length(s)];
+      if s = '' then break;
+      tok := '';
+      while (Length(s) > 0) and (s[0:1] <> ',') do
+      begin
+        tok := tok + s[0:1];
+        s := s[1:Length(s)];
+      end;
+      if k - 1 = mi then
+      begin
+        result := tok;
+        Exit;
+      end;
+    end
+    else
+      s := s[1:Length(s)];
+  end;
+end;
+
+function TLLVMGenerator.DefClassAt(ci, mi: Integer): String;
+var s, tok: String;
+  k: Integer;
+begin
+  result := '';
+  s := self.ClassMethodDef[ci];
+  k := 0;
+  while Length(s) > 0 do
+  begin
+    if s[0:1] = ',' then
+    begin
+      k := k + 1;
+      s := s[1:Length(s)];
+    end
+    else
+    begin
+      tok := '';
+      while (Length(s) > 0) and (s[0:1] <> ',') do
+      begin
+        tok := tok + s[0:1];
+        s := s[1:Length(s)];
+      end;
+      if k = mi then
+      begin
+        result := tok;
+        Exit;
+      end;
+    end;
+  end;
+end;
+
+function TLLVMGenerator.MethodIndexAt(ci, mi: Integer): Integer;
+var s, tok: String;
+  k: Integer;
+begin
+  result := -1;
+  s := self.ClassMethodIdx[ci];
+  k := 0;
+  while Length(s) > 0 do
+  begin
+    if s[0:1] = ',' then
+    begin
+      k := k + 1;
+      s := s[1:Length(s)];
+    end
+    else
+    begin
+      tok := '';
+      while (Length(s) > 0) and (s[0:1] <> ',') do
+      begin
+        tok := tok + s[0:1];
+        s := s[1:Length(s)];
+      end;
+      if k = mi then
+      begin
+        result := self.EvalDec(tok);
+        Exit;
+      end;
+    end;
+  end;
+end;
+
+// EvalDec parses a decimal string to an Integer (the only int parsing helper
+// that does not depend on StrToInt — the emitter avoids needing it at emit
+// time since vtable indices are small constants).
+function TLLVMGenerator.EvalDec(s: String): Integer;
+var
+  v, i, d: Integer;
+begin
+  v := 0;
+  for i := 0 to Length(s) - 1 do
+  begin
+    if (s[i:i+1] >= '0') and (s[i:i+1] <= '9') then
+    begin
+      d := Ord(s[i:i+1]) - 48;
+      v := v * 10 + d;
+    end;
+  end;
+  result := v;
+end;
+
+// EmitConstructor — allocate a class instance: malloc(8 + Σfield sizes),
+// store the vtable ptr at [0], zero-init map/slice fields, call Create if
+// present. Mirrors host emitConstructor.
+function TLLVMGenerator.EmitConstructor(cname: String): String;
+var
+  ci, i, size, fi, mi: Integer;
+  allocReg, vtablePtr, slot, tbl, r: String;
+  hasCreate: Boolean;
+  ctypes: array of String;
+  cfmaps: array of Boolean;
+begin
+  ci := self.ClassIndex(cname);
+  if ci < 0 then
+  begin
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = inttoptr i64 0 to ptr ; unknown class ' + cname);
+    result := r;
+    Exit;
+  end;
+  size := 8;
+  ctypes := [];
+  for i := 0 to Length(self.ClassFieldTypes[ci]) - 1 do
+    append(ctypes, self.FieldTypeAt(ci,i));
+  for i := 0 to Length(ctypes) - 1 do
+  begin
+    if ctypes[i] = '{ ptr, i64, i64 }' then size := size + 24
+    else if ctypes[i] = 'double' then size := size + 8
+    else size := size + 8;
+  end;
+  allocReg := self.Tmp();
+  self.WriteLine('  ' + allocReg + ' = call ptr @malloc(i64 ' + self.IntToStrS(size) + ')');
+  vtablePtr := self.Tmp();
+  self.WriteLine('  ' + vtablePtr + ' = getelementptr inbounds %' + cname + ', ptr ' + allocReg + ', i32 0, i32 0');
+  self.WriteLine('  store ptr @' + cname + '_vtable, ptr ' + vtablePtr);
+  // map fields → htab_new; dynamic slice fields → zero
+  cfmaps := [];
+  for i := 0 to Length(self.ClassFieldMaps[ci]) - 1 do
+    append(cfmaps, self.FieldMapAt(ci,i));
+  ctypes := [];
+  for i := 0 to Length(self.ClassFieldTypes[ci]) - 1 do
+    append(ctypes, self.FieldTypeAt(ci,i));
+  for i := 0 to Length(ctypes) - 1 do
+  begin
+    if cfmaps[i] then
+    begin
+      self.NeedHashtab := true;
+      slot := self.Tmp();
+      self.WriteLine('  ' + slot + ' = getelementptr inbounds %' + cname + ', ptr ' + allocReg + ', i32 0, i32 ' + self.IntToStrS(i + 1));
+      tbl := self.Tmp();
+      self.WriteLine('  ' + tbl + ' = call ptr @__kylix_htab_new()');
+      self.WriteLine('  store ptr ' + tbl + ', ptr ' + slot);
+    end
+    else if ctypes[i] = '{ ptr, i64, i64 }' then
+    begin
+      slot := self.Tmp();
+      self.WriteLine('  ' + slot + ' = getelementptr inbounds %' + cname + ', ptr ' + allocReg + ', i32 0, i32 ' + self.IntToStrS(i + 1));
+      self.WriteLine('  store { ptr, i64, i64 } zeroinitializer, ptr ' + slot);
+    end;
+  end;
+  // call Create if the class (or an ancestor) declares it
+  hasCreate := self.ClassHasMethod(cname, 'Create');
+  if hasCreate then
+    self.WriteLine('  call void @' + cname + '_Create(ptr ' + allocReg + ')');
+  result := allocReg;
 end;
 
 function TLLVMGenerator.EmitMember(member: TMemberExpression; var t: String): String;
-var r: String;
 var
-  r: String;
+  r, selfReg, objReg, classT, loaded: String;
+  idx, fi: Integer;
 begin
+  // Constructor pattern: TFoo.Create — fresh heap-allocated instance.
+  if member.Member = 'Create' then
+  begin
+    if member.Object is TIdentifier then
+    begin
+      idx := self.ClassIndex((member.Object as TIdentifier).Value);
+      if idx >= 0 then
+      begin
+        t := 'ptr';
+        result := self.EmitConstructor((member.Object as TIdentifier).Value);
+        Exit;
+      end;
+    end;
+  end;
+  // resolve receiver's class (self / local / global class-typed variable)
+  classT := '';
+  if member.Object is TIdentifier then
+  begin
+    if (member.Object as TIdentifier).Value = 'self' then
+      classT := self.CurClassName
+    else
+      classT := self.LocalKylix((member.Object as TIdentifier).Value);
+    if classT = '' then classT := self.GKylix((member.Object as TIdentifier).Value);
+  end;
+  if self.IsClass(classT) then
+  begin
+    if member.Object is TIdentifier then
+    begin
+      if (member.Object as TIdentifier).Value = 'self' then
+        selfReg := '%self'
+      else
+      begin
+        if self.HasLocal((member.Object as TIdentifier).Value) then
+        begin
+          objReg := self.LocalReg((member.Object as TIdentifier).Value);
+          selfReg := self.Tmp();
+          self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
+        end
+        else
+        begin
+          objReg := self.GReg((member.Object as TIdentifier).Value);
+          selfReg := self.Tmp();
+          self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
+        end;
+      end;
+    end
+    else
+    begin
+      // e.g. member chain a.b.C
+      selfReg := self.EmitExpr(member.Object);
+    end;
+    fi := self.FieldIndex(classT, member.Member);
+    if fi >= 0 then
+    begin
+      r := self.Tmp();
+      self.WriteLine('  ' + r + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 ' + self.IntToStrS(self.FieldIdxOf(classT, member.Member)));
+      t := self.FieldLLVM(classT, member.Member);
+      if t = 'variant' then t := 'ptr';
+      loaded := self.Tmp();
+      self.WriteLine('  ' + loaded + ' = load ' + t + ', ptr ' + r);
+      result := loaded;
+      Exit;
+    end;
+  end;
+  // not a class field — P3 stub (unsupported member)
   t := 'ptr';
   r := self.Tmp();
-  self.WriteLine('  ' + r + ' = inttoptr i64 0 to ptr ; member ' + member.Member + ' (P2 stub)');
+  self.WriteLine('  ' + r + ' = inttoptr i64 0 to ptr ; member ' + member.Member + ' (unhandled)');
   result := r;
 end;
 
 function TLLVMGenerator.EmitMethodCall(member: TMemberExpression; var t: String): String;
-var r: String;
 var
-  r: String;
+  r, objReg, selfReg, classT, methT, fnPtr: String;
+  ci, fi: Integer;
+  vtablePtr, fnPtrLoc: String;
 begin
-  t := 'i64';
+  // Constructor with args: TFoo.Create(...) — allocate + (P2: init).
+  if member.Member = 'Create' then
+  begin
+    if member.Object is TIdentifier then
+    begin
+      ci := self.ClassIndex((member.Object as TIdentifier).Value);
+      if ci >= 0 then
+      begin
+        t := 'ptr';
+        result := self.EmitConstructor((member.Object as TIdentifier).Value);
+        Exit;
+      end;
+    end;
+  end;
+  classT := '';
+  if member.Object is TIdentifier then
+  begin
+    if (member.Object as TIdentifier).Value = 'self' then
+      classT := self.CurClassName
+    else
+      classT := self.LocalKylix((member.Object as TIdentifier).Value);
+    if classT = '' then classT := self.GKylix((member.Object as TIdentifier).Value);
+  end;
+  if not self.IsClass(classT) then
+  begin
+    // receiver expression's type unknown here (e.g. chained) — P3 stub
+    t := 'i64';
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = add i64 0, 0 ; method call (unhandled receiver)');
+    result := r;
+    Exit;
+  end;
+  if member.Object is TIdentifier then
+  begin
+    if (member.Object as TIdentifier).Value = 'self' then
+        selfReg := '%self'
+    else
+    begin
+      if self.HasLocal((member.Object as TIdentifier).Value) then
+      begin
+        objReg := self.LocalReg((member.Object as TIdentifier).Value);
+        selfReg := self.Tmp();
+        self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
+      end
+      else
+      begin
+        objReg := self.GReg((member.Object as TIdentifier).Value);
+        selfReg := self.Tmp();
+        self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
+      end;
+    end;
+  end
+  else
+    selfReg := self.EmitExpr(member.Object);
+  // method metadata
+  ci := self.ClassIndex(classT);
+  fi := self.MethodIndex(ci, member.Member);
+  methT := self.MethodRetAt(ci, fi);
+  if methT = 'variant' then methT := 'ptr';
+  // load vtable ptr from struct[0]
+  vtablePtr := self.Tmp();
+  self.WriteLine('  ' + vtablePtr + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 0');
+  vtablePtr := self.Tmp();
+  self.WriteLine('  ' + vtablePtr + ' = load ptr, ptr ' + vtablePtr);
+  fnPtrLoc := self.Tmp();
+  self.WriteLine('  ' + fnPtrLoc + ' = getelementptr inbounds [0 x ptr], ptr ' + vtablePtr + ', i32 0, i32 ' + self.IntToStrS(fi));
+  fnPtr := self.Tmp();
+  self.WriteLine('  ' + fnPtr + ' = load ptr, ptr ' + fnPtrLoc);
+  // call via function pointer (self + args)
   r := self.Tmp();
-  self.WriteLine('  ' + r + ' = add i64 0, 0 ; method call (P2 stub)');
-  result := r;
+  if methT = 'void' then
+    self.WriteLine('  call void ' + fnPtr + '(ptr ' + selfReg + ')')
+  else
+    self.WriteLine('  ' + r + ' = call ' + methT + ' ' + fnPtr + '(ptr ' + selfReg + ')');
+  if methT = 'void' then
+  begin
+    t := 'void';
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = add i64 0, 0 ; void call');
+    result := r;
+  end
+  else
+  begin
+    t := methT;
+    result := r;
+  end;
 end;
 
 function TLLVMGenerator.EmitIsExpr(e: TIsExpression; var t: String): String;
-var r: String;
 var
-  r: String;
+  r, selfReg, objReg, classT, target, vtablePtr: String;
+  nullCk, trueLbl, falseLbl, exitLbl, objVT, trueR, falseR: String;
 begin
   t := 'i1';
+  target := self.TypeExprName(e.TargetType);
+  // class target → runtime subtype check via vtable edge table
+  if self.IsClass(target) then
+  begin
+    classT := '';
+    if e.Expression is TIdentifier then
+    begin
+      if (e.Expression as TIdentifier).Value = 'self' then
+        classT := self.CurClassName
+      else
+        classT := self.LocalKylix((e.Expression as TIdentifier).Value);
+      if classT = '' then classT := self.GKylix((e.Expression as TIdentifier).Value);
+    end;
+    // resolve the object pointer (self / local / global class-typed variable)
+    if e.Expression is TIdentifier then
+    begin
+      if (e.Expression as TIdentifier).Value = 'self' then
+        selfReg := '%self'
+      else
+      begin
+        if self.HasLocal((e.Expression as TIdentifier).Value) then
+        begin
+          objReg := self.LocalReg((e.Expression as TIdentifier).Value);
+          selfReg := self.Tmp();
+          self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
+        end
+        else if self.IndexOfStr(self.GNames, (e.Expression as TIdentifier).Value) >= 0 then
+        begin
+          objReg := self.GReg((e.Expression as TIdentifier).Value);
+          selfReg := self.Tmp();
+          self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
+        end
+        else
+          selfReg := self.EmitExpr(e.Expression);
+      end;
+    end
+    else
+      selfReg := self.EmitExpr(e.Expression);
+    // null guard → false
+    nullCk := self.Tmp();
+    self.WriteLine('  ' + nullCk + ' = icmp eq ptr ' + selfReg + ', null');
+    trueLbl := self.Label();
+    falseLbl := self.Label();
+    exitLbl := self.Label();
+    self.WriteLine('  br i1 ' + nullCk + ', label %' + falseLbl + ', label %' + trueLbl);
+    self.WriteLine(trueLbl + ':');
+    objVT := self.Tmp();
+    self.WriteLine('  ' + objVT + ' = load ptr, ptr ' + selfReg);
+    trueR := self.Tmp();
+    self.WriteLine('  ' + trueR + ' = call i1 @__kylix_class_is_a(ptr ' + objVT + ', ptr @' + target + '_vtable)');
+    self.NeedClassRTTI := true;
+    self.WriteLine('  br label %' + exitLbl);
+    self.WriteLine(falseLbl + ':');
+    falseR := self.Tmp();
+    self.WriteLine('  ' + falseR + ' = add i1 0, 0 ; null is ' + target + ' = false');
+    self.WriteLine('  br label %' + exitLbl);
+    self.WriteLine(exitLbl + ':');
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = phi i1 [ ' + trueR + ', %' + trueLbl + ' ], [ ' + falseR + ', %' + falseLbl + ' ]');
+    result := r;
+    Exit;
+  end;
+  // unsupported is target
   r := self.Tmp();
-  self.WriteLine('  ' + r + ' = add i1 0, 0 ; is (P2 stub)');
+  self.WriteLine('  ' + r + ' = add i1 0, 0 ; is (unsupported)');
   result := r;
 end;
 
@@ -1704,27 +2801,101 @@ begin
 end;
 
 function TLLVMGenerator.EmitArrayIndex(idx: TIndexExpression; var t: String): String;
-var r: String;
 var
-  r: String;
+  leftName, r: String;
 begin
+  // local/param array var: arr[i]
+  if idx.Left is TIdentifier then
+  begin
+    leftName := (idx.Left as TIdentifier).Value;
+    if self.IsArrayVar(leftName) then
+    begin
+      result := self.EmitArrayIndexLocal(leftName, idx.Index, t);
+      Exit;
+    end;
+  end;
+  // class-field dynamic array: obj.Field[i] — load the slice struct from the
+  // field slot (GEP), then extract data ptr + GEP element.
+  if idx.Left is TMemberExpression then
+  begin
+    if self.TryClassFieldArrayIndex(idx, t) then Exit;
+  end;
+  // unsupported index target (map / variant — P3)
   t := 'i64';
   r := self.Tmp();
-  self.WriteLine('  ' + r + ' = add i64 0, 0 ; array index (P2 stub)');
+  self.WriteLine('  ' + r + ' = add i64 0, 0 ; array index (unhandled)');
   result := r;
 end;
 
-function TLLVMGenerator.EmitAppend(sliceArg, elemArg: TExpression): String;
-var r: String;
+// TryClassFieldArrayIndex — obj.Field[i] where Field is a class field of type
+// array of T (dynamic slice). Returns true and sets t/result on success.
+function TLLVMGenerator.TryClassFieldArrayIndex(idx: TIndexExpression; var t: String): Boolean;
+var
+  mem: TMemberExpression;
+  classT, selfReg, objReg, fieldT: String;
+  ci, fi, ai, i: Integer;
+  idxReg, zeroIdx, dataPtrLoc, dataPtr, dataPtr2, ptr, loaded: String;
+  ctypes: array of String;
 begin
-  r := self.Tmp();
-  self.WriteLine('  ' + r + ' = add i64 0, 0 ; append (P2 stub)');
-  result := r;
-end;
-
-procedure TLLVMGenerator.EmitAppendStmt(sliceArg, elemArg: TExpression);
-begin
-  self.EmitAppend(sliceArg, elemArg);
+  result := false;
+  mem := idx.Left as TMemberExpression;
+  classT := '';
+  if mem.Object is TIdentifier then
+  begin
+    if (mem.Object as TIdentifier).Value = 'self' then
+      classT := self.CurClassName
+    else
+      classT := self.LocalKylix((mem.Object as TIdentifier).Value);
+    if classT = '' then classT := self.GKylix((mem.Object as TIdentifier).Value);
+  end;
+  if not self.IsClass(classT) then Exit;
+  ci := self.ClassIndex(classT);
+  fi := self.FieldIndex(classT, mem.Member);
+  if fi < 0 then Exit;
+  ctypes := [];
+  for i := 0 to Length(self.ClassFieldTypes[ci]) - 1 do
+    append(ctypes, self.FieldTypeAt(ci,i));
+  fieldT := ctypes[fi];
+  if fieldT <> '{ ptr, i64, i64 }' then Exit;
+  // resolve self/obj ptr
+  if mem.Object is TIdentifier then
+  begin
+    if (mem.Object as TIdentifier).Value = 'self' then
+        selfReg := '%self'
+    else
+    begin
+      if self.HasLocal((mem.Object as TIdentifier).Value) then
+      begin
+        objReg := self.LocalReg((mem.Object as TIdentifier).Value);
+        selfReg := self.Tmp();
+        self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
+      end
+      else
+      begin
+        objReg := self.GReg((mem.Object as TIdentifier).Value);
+        selfReg := self.Tmp();
+        self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
+      end;
+    end;
+  end
+  else
+    selfReg := self.EmitExpr(mem.Object);
+  // data ptr = GEP field slot (index fi+1) → load {ptr,len,cap} → extract 0
+  dataPtrLoc := self.Tmp();
+  self.WriteLine('  ' + dataPtrLoc + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 ' + self.IntToStrS(fi + 1));
+  dataPtr := self.Tmp();
+  self.WriteLine('  ' + dataPtr + ' = load { ptr, i64, i64 }, ptr ' + dataPtrLoc);
+  dataPtr2 := self.Tmp();
+  self.WriteLine('  ' + dataPtr2 + ' = extractvalue { ptr, i64, i64 } ' + dataPtr + ', 0');
+  idxReg := self.EmitExpr(idx.Index);
+  zeroIdx := self.Tmp();
+  self.WriteLine('  ' + zeroIdx + ' = add i64 ' + idxReg + ', 0');
+  ptr := self.Tmp();
+  self.WriteLine('  ' + ptr + ' = getelementptr inbounds i64, ptr ' + dataPtr2 + ', i64 ' + zeroIdx);
+  t := 'i64';
+  loaded := self.Tmp();
+  self.WriteLine('  ' + loaded + ' = load i64, ptr ' + ptr);
+  result := true;
 end;
 
 // JoinStr joins a string array with a delimiter.
