@@ -33,6 +33,8 @@ type Generator struct {
 	localTypes       map[string]string            // var name → Kylix type name (class/interface)
 	arrayInfo        map[string]*arrayInfo        // var name → array metadata
 	varNameSeq       map[string]int               // Kylix var name → count of allocas emitted so far
+	varParams        map[string]bool              // v0.6.10: `var` output params of the current function — the alloca holds a POINTER to the caller's slot; reads/writes go through it (mirrors generator.go varParams)
+	varParamTypes    map[string]string            // v0.6.10: var param name → LLVM value type (for deref load/store type)
 	// v0.5.4: top-level (unit/program) VarDecls are emitted as LLVM globals so
 	// they're accessible from every function (e.g. token.Kewords is set in
 	// InitKeywords and read in the lexer). globals maps name→"@__kylix_g_<name>";

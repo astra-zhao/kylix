@@ -278,6 +278,19 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 	// global i (stale value from an outer scope) instead of the local loop
 	// counter → wrong index → null element → all `is` checks fail → empty output.
 	if allocaReg, ok := g.locals[name]; ok {
+		// v0.6.10: var output param — the alloca holds a POINTER to the
+		// caller's slot; a read loads the pointer then dereferences it.
+		if g.varParams[name] {
+			ptr := g.tmp()
+			g.line(fmt.Sprintf("  %s = load ptr, ptr %s", ptr, allocaReg))
+			vt := "i64"
+			if t, ok := g.varParamTypes[name]; ok {
+				vt = t
+			}
+			r := g.tmp()
+			g.line(fmt.Sprintf("  %s = load %s, ptr %s", r, llvmLoadType(vt), ptr))
+			return r, vt, nil
+		}
 		// v0.5.4: the `result` variable is the function's return slot.
 		if name == "result" && g.resultLLVMType != "" {
 			llvmT := g.resultLLVMType
@@ -902,6 +915,19 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 
 	// Generic function call
 	sig := g.funcSigs[funcName]
+	// v0.6.10: for `var` output params, the argument must be passed by address.
+	// If the arg is a plain local (alloca), use its alloca directly; otherwise
+	// allocate a temp slot and store the value so we can pass &temp.
+	var argAllocas = map[int]string{}
+	for i, a := range e.Arguments {
+		if sig != nil && i < len(sig.Parameters) && sig.Parameters[i].IsVar {
+			if id, ok := a.(*ast.Identifier); ok {
+				if reg, ok := g.locals[id.Value]; ok && !g.varParams[id.Value] {
+					argAllocas[i] = reg
+				}
+			}
+		}
+	}
 
 	var argRegs []string
 	var argTypes []string
@@ -953,6 +979,22 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 			// `Has(m['key'])` emit `call i64 @Has(ptr %x)` instead of the
 			// invalid `call i64 @Has(variant %x)`.
 			t = "ptr"
+		}
+		// v0.6.10: var output param — pass the argument's ADDRESS (alloca
+		// pointer), not its value. The callee's var param dereferences it.
+		if sig != nil && i < len(sig.Parameters) && sig.Parameters[i].IsVar {
+			var addr string
+			if ai, ok := argAllocas[i]; ok {
+				addr = ai
+			} else {
+				// no pre-reserved alloca: allocate a slot, store the value, pass its address
+				slot := g.tmp()
+				g.line(fmt.Sprintf("  %s = alloca %s, align 8", slot, t))
+				g.line(fmt.Sprintf("  store %s %s, ptr %s", t, r, slot))
+				addr = slot
+			}
+			argList = append(argList, "ptr "+addr)
+			continue
 		}
 		argList = append(argList, t+" "+r)
 	}

@@ -49,6 +49,9 @@ type
     FNames: array of String;
     FRet: array of String;
     // current function context
+    MemberType: String;   // P2: EmitMember/EmitMethodCall return type via field
+                           // (host LLVM backend miscompiles var-param writes: `t := x`
+                           // stores into the pointer slot instead of through it)
     InFunc: Boolean;
     InReturnFunc: Boolean;
     ResultLLVMType: String;
@@ -66,6 +69,7 @@ type
     // P2: top-level globals (name/type/reg, parallel arrays like locals)
     GNames: array of String;
     GTypes: array of String;
+    GKylixs: array of String;
     // loop labels (single-level stack, like the host's emitWhile/emitFor)
     LoopHead: String;
     LoopBreak: String;
@@ -279,6 +283,10 @@ function TLLVMGenerator.ActualType(name: String): String;
 begin
   result := self.LocalType(name);
   if result = 'variant' then result := 'ptr';
+  if self.IndexOfStr(self.LNames, name) < 0 then
+  begin
+    if self.IndexOfStr(self.GNames, name) >= 0 then result := self.GType(name);
+  end;
 end;
 
 function TLLVMGenerator.RegisterLocal(name, llvmT, kylixT: String): String;
@@ -681,21 +689,18 @@ begin
   self.MakeClassInfo(cd.Name, cd);
   // struct type: vtable ptr + fields
   ci := self.ClassIndex(cd.Name);
-  // cflds: {ptr,len,cap} slice of the field-type string array — materialize
-  // via append (the bootstrap emitter's only array-copy primitive) instead of
-  // the host's array-slice expression.
+  // cflds: field types via ClassFieldCountAt (comma-string count, not Length).
   cflds := [];
-  for i := 0 to Length(self.ClassFieldTypes[ci]) - 1 do
+  for i := 0 to self.ClassFieldCountAt(ci) - 1 do
     append(cflds, self.FieldTypeAt(ci,i));
   append(fieldTypes, 'ptr');
   for i := 0 to Length(cflds) - 1 do
     append(fieldTypes, cflds[i]);
   self.WriteLine('%' + cd.Name + ' = type { ' + self.JoinStr(fieldTypes, ', ') + ' }');
   // vtable constant (vtable-index order)
+  slots := [];
   for i := 0 to self.MethodCount(ci) - 1 do
-  begin
-    slots[self.MethodIndexAt(ci, i)] := 'ptr @' + self.DefClassAt(ci, i) + '_' + self.MethodNameAt(ci, i);
-  end;
+    append(slots, 'ptr @' + self.DefClassAt(ci, i) + '_' + self.MethodNameAt(ci, i));
   self.WriteLine('@' + cd.Name + '_vtable = constant [' + self.IntToStrS(self.MethodCount(ci)) + ' x ptr] [ ' + self.JoinStr(slots, ', ') + ' ]');
   // method defines (with bodies)
   for i := 0 to Length(cd.Methods) - 1 do
@@ -719,6 +724,7 @@ begin
     if vd.VarType is TMapType then self.NeedHashtab := true;
     append(self.GNames, vd.Names[i]);
     append(self.GTypes, llvmT);
+    append(self.GKylixs, self.TypeExprName(vd.VarType));
   end;
 end;
 
@@ -972,13 +978,20 @@ end;
 
 procedure TLLVMGenerator.AssignToName(name: String; value: TExpression);
 var
-  valReg, t, actualType, allocaReg: String;
+  valReg, t, actualType, allocaReg, gname: String;
 begin
   valReg := self.EmitExprTyped(value, t);
   actualType := self.ActualType(name);
   if t = 'variant' then t := 'ptr';
   if actualType = 'variant' then actualType := 'ptr';
   if t <> actualType then valReg := self.CoerceValue(valReg, t, actualType);
+  // global assignment: store to @__kylix_g_<name>
+  if self.IndexOfStr(self.GNames, name) >= 0 then
+  begin
+    gname := self.GReg(name);
+    self.WriteLine('  store ' + self.GType(name) + ' ' + valReg + ', ptr ' + gname);
+    Exit;
+  end;
   allocaReg := self.LocalReg(name);
   self.WriteLine('  store ' + actualType + ' ' + valReg + ', ptr ' + allocaReg);
 end;
@@ -991,7 +1004,7 @@ begin
   if asgn.Name is TIdentifier then
   begin
     ident := asgn.Name as TIdentifier;
-    if not self.HasLocal(ident.Value) then
+    if (not self.HasLocal(ident.Value)) and (self.IndexOfStr(self.GNames, ident.Value) < 0) then
       self.RegisterLocal(ident.Value, 'i64', '');
     self.AssignToName(ident.Value, asgn.Value);
     Exit;
@@ -1214,6 +1227,7 @@ begin
   begin
     mem := node as TMemberExpression;
     result := self.EmitMember(mem, t);
+    t := self.MemberType;
   end
   else if node is TIndexExpression then
   begin
@@ -1535,6 +1549,7 @@ begin
   begin
     mem := e.Func as TMemberExpression;
     result := self.EmitMethodCall(mem, t);
+    t := self.MemberType;
     Exit;
   end;
   t := 'i64';
@@ -1792,6 +1807,12 @@ begin
   result := self.EmitWriteLn(args);
 end;
 
+function TLLVMGenerator.BoolStr1(b: Boolean): String;
+begin
+  if b then result := '1'
+  else result := '0';
+end;
+
 function TLLVMGenerator.EmitBoolStr(v: String): String;
 var
   r: String;
@@ -1843,7 +1864,7 @@ begin
   result := 0;
   i := self.ClassIndex(cname);
   if i < 0 then Exit;
-  result := Length(self.ClassFieldNames[i]);
+  result := self.ClassFieldCountAt(i);
 end;
 
 // Build a class's flattened field/metadata from a (possibly nested type TTypeDecl)
@@ -2182,7 +2203,7 @@ begin
     if s[0:1] = ',' then result := result + 1;
     s := s[1:Length(s)];
   end;
-  result := result - 1; // trailing comma counts extra
+  // field comma-strings are trailing-comma ("f1,f2,") → comma count = field count
 end;
 
 function TLLVMGenerator.FieldIndex(cname, fname: String): Integer;
@@ -2324,19 +2345,7 @@ var i: Integer;
 begin
   result := '';
   i := self.IndexOfStr(self.GNames, name);
-  if i >= 0 then
-  begin
-    // GKylix not stored separately; infer from the LLVM type is ambiguous for
-    // String/class (both ptr). The bootstrap stores only the LLVM type in
-    // GTypes; for class-typed globals we need the Kylix type. Fallback:
-    // 'Integer' for i64, 'String' for ptr — good enough for IsClass checks
-    // (classes are ptr). Callers use IsClass(GKylix(...)); a String global
-    // won't be a class.
-    if self.GTypes[i] = 'i64' then result := 'Integer'
-    else if self.GTypes[i] = 'i1' then result := 'Boolean'
-    else if self.GTypes[i] = 'double' then result := 'Double'
-    else result := 'String';
-  end;
+  if i >= 0 then result := self.GKylixs[i];
 end;
 
 function TLLVMGenerator.MethodRetAt(ci, mi: Integer): String;
@@ -2362,7 +2371,7 @@ begin
         tok := tok + s[0:1];
         s := s[1:Length(s)];
       end;
-      if k = mi then
+      if k - 1 = mi then
       begin
         result := tok;
         Exit;
@@ -2425,7 +2434,7 @@ begin
         tok := tok + s[0:1];
         s := s[1:Length(s)];
       end;
-      if k = mi then
+      if k - 1 = mi then
       begin
         result := tok;
         Exit;
@@ -2456,7 +2465,7 @@ begin
         tok := tok + s[0:1];
         s := s[1:Length(s)];
       end;
-      if k = mi then
+      if k - 1 = mi then
       begin
         result := self.EvalDec(tok);
         Exit;
@@ -2505,7 +2514,7 @@ begin
   end;
   size := 8;
   ctypes := [];
-  for i := 0 to Length(self.ClassFieldTypes[ci]) - 1 do
+  for i := 0 to self.ClassFieldCountAt(ci) - 1 do
     append(ctypes, self.FieldTypeAt(ci,i));
   for i := 0 to Length(ctypes) - 1 do
   begin
@@ -2520,10 +2529,10 @@ begin
   self.WriteLine('  store ptr @' + cname + '_vtable, ptr ' + vtablePtr);
   // map fields → htab_new; dynamic slice fields → zero
   cfmaps := [];
-  for i := 0 to Length(self.ClassFieldMaps[ci]) - 1 do
+  for i := 0 to self.ClassFieldCountAt(ci) - 1 do
     append(cfmaps, self.FieldMapAt(ci,i));
   ctypes := [];
-  for i := 0 to Length(self.ClassFieldTypes[ci]) - 1 do
+  for i := 0 to self.ClassFieldCountAt(ci) - 1 do
     append(ctypes, self.FieldTypeAt(ci,i));
   for i := 0 to Length(ctypes) - 1 do
   begin
@@ -2558,44 +2567,44 @@ begin
   // Constructor pattern: TFoo.Create — fresh heap-allocated instance.
   if member.Member = 'Create' then
   begin
-    if member.Object is TIdentifier then
+    if member.Obj is TIdentifier then
     begin
-      idx := self.ClassIndex((member.Object as TIdentifier).Value);
+      idx := self.ClassIndex((member.Obj as TIdentifier).Value);
       if idx >= 0 then
       begin
-        t := 'ptr';
-        result := self.EmitConstructor((member.Object as TIdentifier).Value);
+        self.MemberType := 'ptr';
+        result := self.EmitConstructor((member.Obj as TIdentifier).Value);
         Exit;
       end;
     end;
   end;
   // resolve receiver's class (self / local / global class-typed variable)
   classT := '';
-  if member.Object is TIdentifier then
+  if member.Obj is TIdentifier then
   begin
-    if (member.Object as TIdentifier).Value = 'self' then
+    if (member.Obj as TIdentifier).Value = 'self' then
       classT := self.CurClassName
     else
-      classT := self.LocalKylix((member.Object as TIdentifier).Value);
-    if classT = '' then classT := self.GKylix((member.Object as TIdentifier).Value);
+      classT := self.LocalKylix((member.Obj as TIdentifier).Value);
+    if classT = '' then classT := self.GKylix((member.Obj as TIdentifier).Value);
   end;
   if self.IsClass(classT) then
   begin
-    if member.Object is TIdentifier then
+    if member.Obj is TIdentifier then
     begin
-      if (member.Object as TIdentifier).Value = 'self' then
+      if (member.Obj as TIdentifier).Value = 'self' then
         selfReg := '%self'
       else
       begin
-        if self.HasLocal((member.Object as TIdentifier).Value) then
+        if self.HasLocal((member.Obj as TIdentifier).Value) then
         begin
-          objReg := self.LocalReg((member.Object as TIdentifier).Value);
+          objReg := self.LocalReg((member.Obj as TIdentifier).Value);
           selfReg := self.Tmp();
           self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
         end
         else
         begin
-          objReg := self.GReg((member.Object as TIdentifier).Value);
+          objReg := self.GReg((member.Obj as TIdentifier).Value);
           selfReg := self.Tmp();
           self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
         end;
@@ -2604,23 +2613,23 @@ begin
     else
     begin
       // e.g. member chain a.b.C
-      selfReg := self.EmitExpr(member.Object);
+      selfReg := self.EmitExpr(member.Obj);
     end;
     fi := self.FieldIndex(classT, member.Member);
     if fi >= 0 then
     begin
       r := self.Tmp();
       self.WriteLine('  ' + r + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 ' + self.IntToStrS(self.FieldIdxOf(classT, member.Member)));
-      t := self.FieldLLVM(classT, member.Member);
-      if t = 'variant' then t := 'ptr';
+      self.MemberType := self.FieldLLVM(classT, member.Member);
+      if self.MemberType = 'variant' then self.MemberType := 'ptr';
       loaded := self.Tmp();
-      self.WriteLine('  ' + loaded + ' = load ' + t + ', ptr ' + r);
+      self.WriteLine('  ' + loaded + ' = load ' + self.MemberType + ', ptr ' + r);
       result := loaded;
       Exit;
     end;
   end;
   // not a class field — P3 stub (unsupported member)
-  t := 'ptr';
+  self.MemberType := 'ptr';
   r := self.Tmp();
   self.WriteLine('  ' + r + ' = inttoptr i64 0 to ptr ; member ' + member.Member + ' (unhandled)');
   result := r;
@@ -2635,57 +2644,57 @@ begin
   // Constructor with args: TFoo.Create(...) — allocate + (P2: init).
   if member.Member = 'Create' then
   begin
-    if member.Object is TIdentifier then
+    if member.Obj is TIdentifier then
     begin
-      ci := self.ClassIndex((member.Object as TIdentifier).Value);
+      ci := self.ClassIndex((member.Obj as TIdentifier).Value);
       if ci >= 0 then
       begin
-        t := 'ptr';
-        result := self.EmitConstructor((member.Object as TIdentifier).Value);
+        self.MemberType := 'ptr';
+        result := self.EmitConstructor((member.Obj as TIdentifier).Value);
         Exit;
       end;
     end;
   end;
   classT := '';
-  if member.Object is TIdentifier then
+  if member.Obj is TIdentifier then
   begin
-    if (member.Object as TIdentifier).Value = 'self' then
+    if (member.Obj as TIdentifier).Value = 'self' then
       classT := self.CurClassName
     else
-      classT := self.LocalKylix((member.Object as TIdentifier).Value);
-    if classT = '' then classT := self.GKylix((member.Object as TIdentifier).Value);
+      classT := self.LocalKylix((member.Obj as TIdentifier).Value);
+    if classT = '' then classT := self.GKylix((member.Obj as TIdentifier).Value);
   end;
   if not self.IsClass(classT) then
   begin
     // receiver expression's type unknown here (e.g. chained) — P3 stub
-    t := 'i64';
+    self.MemberType := 'i64';
     r := self.Tmp();
     self.WriteLine('  ' + r + ' = add i64 0, 0 ; method call (unhandled receiver)');
     result := r;
     Exit;
   end;
-  if member.Object is TIdentifier then
+  if member.Obj is TIdentifier then
   begin
-    if (member.Object as TIdentifier).Value = 'self' then
+    if (member.Obj as TIdentifier).Value = 'self' then
         selfReg := '%self'
     else
     begin
-      if self.HasLocal((member.Object as TIdentifier).Value) then
+      if self.HasLocal((member.Obj as TIdentifier).Value) then
       begin
-        objReg := self.LocalReg((member.Object as TIdentifier).Value);
+        objReg := self.LocalReg((member.Obj as TIdentifier).Value);
         selfReg := self.Tmp();
         self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
       end
       else
       begin
-        objReg := self.GReg((member.Object as TIdentifier).Value);
+        objReg := self.GReg((member.Obj as TIdentifier).Value);
         selfReg := self.Tmp();
         self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
       end;
     end;
   end
   else
-    selfReg := self.EmitExpr(member.Object);
+    selfReg := self.EmitExpr(member.Obj);
   // method metadata
   ci := self.ClassIndex(classT);
   fi := self.MethodIndex(ci, member.Member);
@@ -2708,14 +2717,14 @@ begin
     self.WriteLine('  ' + r + ' = call ' + methT + ' ' + fnPtr + '(ptr ' + selfReg + ')');
   if methT = 'void' then
   begin
-    t := 'void';
+    self.MemberType := 'void';
     r := self.Tmp();
     self.WriteLine('  ' + r + ' = add i64 0, 0 ; void call');
     result := r;
   end
   else
   begin
-    t := methT;
+    self.MemberType := methT;
     result := r;
   end;
 end;
@@ -2853,7 +2862,7 @@ begin
   fi := self.FieldIndex(classT, mem.Member);
   if fi < 0 then Exit;
   ctypes := [];
-  for i := 0 to Length(self.ClassFieldTypes[ci]) - 1 do
+  for i := 0 to self.ClassFieldCountAt(ci) - 1 do
     append(ctypes, self.FieldTypeAt(ci,i));
   fieldT := ctypes[fi];
   if fieldT <> '{ ptr, i64, i64 }' then Exit;

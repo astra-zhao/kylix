@@ -279,7 +279,13 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 		if p.Type != nil {
 			llvmT = g.llvmTypeOfExpr(p.Type)
 		}
-		params = append(params, fmt.Sprintf("%s %%%s", llvmT, p.Name))
+		if p.IsVar {
+			// v0.6.10: var output param — the parameter is a pointer to the
+			// caller's slot, so its LLVM type is always `ptr` in the signature.
+			params = append(params, "ptr %"+p.Name)
+		} else {
+			params = append(params, fmt.Sprintf("%s %%%s", llvmT, p.Name))
+		}
 	}
 
 	defineLine := fmt.Sprintf("define %s @%s(%s) {", retType, funcSymbol, strings.Join(params, ", "))
@@ -369,6 +375,24 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 				elemT = g.llvmTypeOfExpr(at.ElementType)
 			}
 		}
+		// v0.6.10: var output param — the incoming arg is a ptr to the
+		// caller's slot. Set up the var-param pointer alloca and skip the
+		// value-type alloca/store (the value alloca is not used for var params).
+		if p.IsVar {
+			varPtrReg := fmt.Sprintf("%%v_%s_var", p.Name)
+			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", varPtrReg))
+			g.line(fmt.Sprintf("  store ptr %%%s, ptr %s", p.Name, varPtrReg))
+			g.locals[p.Name] = varPtrReg
+			if g.varParams == nil {
+				g.varParams = make(map[string]bool)
+			}
+			g.varParams[p.Name] = true
+			if g.varParamTypes == nil {
+				g.varParamTypes = make(map[string]string)
+			}
+			g.varParamTypes[p.Name] = llvmT
+			continue
+		}
 		// Use suffix convention so emitIdentLoad can infer type from alloca name.
 		suffix := "_int"
 		switch llvmT {
@@ -434,6 +458,8 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	g.locals = savedLocals
 	g.localTypes = savedTypes
 	g.varNameSeq = savedVarSeq
+	g.varParams = nil    // v0.6.10
+	g.varParamTypes = nil // v0.6.10
 	g.funcExitLabel = savedFuncExit // v0.5.6
 	// Leaving this function: clear the debug scope + position so subsequent
 	// module-level code (other functions, stdlib defines, metadata) doesn't
@@ -1079,7 +1105,11 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 
 	// Infer actual type from alloca name
 	actualType := "i64"
-	isVariantSlot := strings.HasSuffix(allocaReg, "_var")
+	// v0.6.10: var output param — the slot stores a POINTER, but the store
+	// type is the value type (dereferenced below). Skip the _var→variant
+	// interpretation for var params.
+	isVarParam := g.varParams[varName]
+	isVariantSlot := !isVarParam && strings.HasSuffix(allocaReg, "_var")
 	if strings.HasSuffix(allocaReg, "_bool") {
 		actualType = "i1"
 	} else if strings.HasSuffix(allocaReg, "_real") {
@@ -1132,6 +1162,19 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 	// legacy i1↔i64 / i64↔double casts.
 	if t != actualType {
 		v, t = g.coerceValue(v, t, actualType)
+	}
+
+	// v0.6.10: var output param — store through the pointer (the alloca holds
+	// a pointer to the caller's slot).
+	if g.varParams[varName] {
+		ptr := g.tmp()
+		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", ptr, allocaReg))
+		vt := actualType
+		if t, ok := g.varParamTypes[varName]; ok {
+			vt = t
+		}
+		g.line(fmt.Sprintf("  store %s %s, ptr %s", vt, v, ptr))
+		return nil
 	}
 
 	g.line(fmt.Sprintf("  store %s %s, ptr %s", actualType, v, allocaReg))

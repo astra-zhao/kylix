@@ -410,7 +410,12 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 		if p.Type != nil {
 			llvmT = g.llvmTypeOfExpr(p.Type)
 		}
-		params = append(params, fmt.Sprintf("%s %%%s", llvmT, p.Name))
+		if p.IsVar {
+			// v0.6.10: var output param — passed by pointer.
+			params = append(params, "ptr %"+p.Name)
+		} else {
+			params = append(params, fmt.Sprintf("%s %%%s", llvmT, p.Name))
+		}
 	}
 
 	defineLine := fmt.Sprintf("define %s @%s_%s(%s) {", retType, className, method.Name, strings.Join(params, ", "))
@@ -470,6 +475,22 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 				elemKylixT = typeExprName(at.ElementType)
 				elemT = g.llvmTypeOfExpr(at.ElementType)
 			}
+		}
+		// v0.6.10: var output param — ptr to the caller's slot.
+		if p.IsVar {
+			varPtrReg := fmt.Sprintf("%%v_%s_var", p.Name)
+			g.line(fmt.Sprintf("  %s = alloca ptr, align 8", varPtrReg))
+			g.line(fmt.Sprintf("  store ptr %%%s, ptr %s", p.Name, varPtrReg))
+			g.locals[p.Name] = varPtrReg
+			if g.varParams == nil {
+				g.varParams = make(map[string]bool)
+			}
+			g.varParams[p.Name] = true
+			if g.varParamTypes == nil {
+				g.varParamTypes = make(map[string]string)
+			}
+			g.varParamTypes[p.Name] = llvmT
+			continue
 		}
 		// Suffix by type so emitIdentLoad infers the load type correctly.
 		suffix := "_int"
@@ -545,6 +566,8 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	g.locals = savedLocals
 	g.localTypes = savedTypes
 	g.varNameSeq = savedVarSeq
+	g.varParams = nil    // v0.6.10
+	g.varParamTypes = nil // v0.6.10
 	g.funcName = savedFunc
 	g.curClassName = savedClass
 	g.curMethodName = savedMethod
