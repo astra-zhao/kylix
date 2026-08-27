@@ -90,16 +90,12 @@ begin
   begin
     if EmitLLVM then
     begin
-      // v0.6.9: LLVM IR emitter (in-Kylix). Emit each program's IR in file
-      // order and concatenate (P1: single-program IR; multi-program merge is
-      // P2). For now emit the first program — the bootstrap emitter P1 handles
-      // one program (hello-class) end to end.
+      // v0.6.9/P3: LLVM IR emitter (in-Kylix). Multi-file merge: pass all
+      // parsed programs so every file's classes/functions are registered and
+      // emitted (the main non-unit program's statements become the entry).
       IRGen := TLLVMGenerator.Create;
-      if Length(Programs) > 0 then
-      begin
-        IRGen.EmitProgram(Programs[0]);
-        WriteLn(IRGen.Output);
-      end;
+      IRGen.EmitPrograms(Programs);
+      WriteLn(IRGen.Output);
     end
     else
     begin

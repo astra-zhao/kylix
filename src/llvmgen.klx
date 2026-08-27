@@ -32,7 +32,9 @@ type
   end;
 
   TLLVMGenerator = class
-    Output: String;         // IR text accumulator
+    Output: String;         // IR text accumulator (compat)
+    OutputBuf: String;      // P3: chunked output buffer (avoids O(n²) strcpy)
+    OutputChunks: array of String; // P3: completed 4KB chunks, joined at the end
     StrCount: Integer;
     StrDedup: array of TLLVMStringConst;
     TmpSeq: Integer;
@@ -50,6 +52,8 @@ type
     FRet: array of String;
     // current function context
     MemberType: String;   // P2: EmitMember/EmitMethodCall return type via field
+    LastType: String;     // P2: EmitExprTyped's effective return type (var t is
+                           // passed by value in the bootstrap AST — no IsVar)
                            // (host LLVM backend miscompiles var-param writes: `t := x`
                            // stores into the pointer slot instead of through it)
     InFunc: Boolean;
@@ -77,6 +81,7 @@ type
     ArgsDeclared: Boolean;
     // P2: class layout tables (mirrors host ClassInfo/FieldInfo/MethodInfo)
     ClassNames: array of String;
+    ClassEmittedFlags: array of Boolean;
     ClassParents: array of String;
     ClassFieldNames: array of String;   // per-class field names (comma-string)
     ClassFieldTypes: array of String;   // per-class field LLVM types (comma-string)
@@ -100,12 +105,22 @@ type
     // ("no prefix parse function for write"). Inline bodies disambiguate.
     procedure Write(s: String);
     begin
-      self.Output := self.Output + s;
+      self.OutputBuf := self.OutputBuf + s;
+      if Length(self.OutputBuf) > 4096 then
+      begin
+        append(self.OutputChunks, self.OutputBuf);
+        self.OutputBuf := '';
+      end;
     end;
 
     procedure WriteLine(s: String);
     begin
-      self.Output := self.Output + s + '\n';
+      self.OutputBuf := self.OutputBuf + s + '\n';
+      if Length(self.OutputBuf) > 4096 then
+      begin
+        append(self.OutputChunks, self.OutputBuf);
+        self.OutputBuf := '';
+      end;
     end;
 
   end;
@@ -430,6 +445,93 @@ end;
 // Module emission
 // ============================================================================
 
+// EmitPrograms — multi-file bootstrap compilation (P3). Registers all
+// programs' classes/functions/consts, emits every declaration, then emits the
+// non-unit main program's statements. Mirrors host MergePrograms: exactly one
+// non-unit program provides the entry point.
+procedure TLLVMGenerator.EmitPrograms(progs: array of TProgram);
+var
+  pi, i: Integer;
+  p: TProgram;
+  decl: TNode;
+  td: TTypeDecl;
+  cd: TClassDecl;
+  mainIdx: Integer;
+begin
+  self.EmitHeader();
+  self.EmitRuntimeDecls();
+  self.WriteLine('  ; dbg programs=' + self.IntToStrS(Length(progs)));
+  // Pass 0: pre-register every class name so IsClass resolves across files
+  // (field access / receiver dispatch need it before emission).
+  for pi := 0 to Length(progs) - 1 do
+  begin
+    for i := 0 to Length(progs[pi].Declarations) - 1 do
+    begin
+      decl := progs[pi].Declarations[i];
+      if decl is TTypeDecl then
+      begin
+        td := decl as TTypeDecl;
+        if td.DeclType is TClassDecl then
+        begin
+          cd := td.DeclType as TClassDecl;
+          cd.Name := td.Name;
+          if self.ClassIndex(cd.Name) < 0 then self.MakeClassInfo(cd.Name, cd);
+        end;
+      end
+      else if decl is TClassDecl then
+      begin
+        cd := decl as TClassDecl;
+        if self.ClassIndex(cd.Name) < 0 then self.MakeClassInfo(cd.Name, cd);
+      end;
+    end;
+  end;
+  // Pass 1: register function signatures + enum consts (all files).
+  for pi := 0 to Length(progs) - 1 do
+  begin
+    for i := 0 to Length(progs[pi].Declarations) - 1 do
+    begin
+      decl := progs[pi].Declarations[i];
+      if decl is TFunctionDecl then
+      begin
+        append(self.FNames, (decl as TFunctionDecl).Name);
+        if (decl as TFunctionDecl).ReturnType = nil then
+          append(self.FRet, '')
+        else
+          append(self.FRet, self.LlvmTypeOfExpr((decl as TFunctionDecl).ReturnType));
+      end
+      else if decl is TTypeDecl then
+      begin
+        td := decl as TTypeDecl;
+        if td.DeclType is TEnumType then
+        begin
+          for i := 0 to Length((td.DeclType as TEnumType).Names) - 1 do
+          begin
+            append(self.CNames, (td.DeclType as TEnumType).Names[i]);
+            append(self.CVals, i);
+          end;
+        end;
+      end;
+    end;
+  end;
+  // Pass 2: emit declarations (all files).
+  for pi := 0 to Length(progs) - 1 do
+    for i := 0 to Length(progs[pi].Declarations) - 1 do
+      self.EmitDecl(progs[pi].Declarations[i]);
+  // Pass 3: main statements — the first non-unit program with statements.
+  mainIdx := -1;
+  for pi := 0 to Length(progs) - 1 do
+  begin
+    if (not progs[pi].IsUnit) and (Length(progs[pi].Statements) > 0) then
+    begin
+      mainIdx := pi;
+      break;
+    end;
+  end;
+  if mainIdx >= 0 then self.EmitMain(progs[mainIdx].Statements);
+  self.EmitStringConsts();
+  self.FinalizeOutput();
+end;
+
 procedure TLLVMGenerator.EmitProgram(prog: TProgram);
 var
   i: Integer;
@@ -475,6 +577,23 @@ begin
     self.EmitMain(prog.Statements);
 
   self.EmitStringConsts();
+  self.FinalizeOutput();
+end;
+
+// FinalizeOutput — flush OutputBuf into Output (join all chunks once, at the
+// end, instead of O(n²) re-copying per WriteLine). P3.
+procedure TLLVMGenerator.FinalizeOutput;
+var
+  i: Integer;
+  all: String;
+begin
+  all := '';
+  for i := 0 to Length(self.OutputChunks) - 1 do
+    all := all + self.OutputChunks[i];
+  all := all + self.OutputBuf;
+  self.Output := all;
+  self.OutputBuf := '';
+  self.OutputChunks := [];
 end;
 
 procedure TLLVMGenerator.EmitHeader;
@@ -643,6 +762,7 @@ var
   fd: TFunctionDecl;
   vd: TVarDecl;
   td: TTypeDecl;
+  rtDecl: TRecordType;
 begin
   if decl is TClassDecl then
   begin
@@ -666,7 +786,12 @@ begin
   else if decl is TTypeDecl then
   begin
     td := decl as TTypeDecl;
-    if td.DeclType is TClassDecl then
+    if td.DeclType is TRecordType then
+    begin
+      rtDecl := td.DeclType as TRecordType;
+      self.EmitRecordDecl(td.Name, rtDecl);
+    end
+    else if td.DeclType is TClassDecl then
     begin
       cd := td.DeclType as TClassDecl;
       cd.Name := td.Name;
@@ -685,8 +810,9 @@ var
   m: TFunctionDecl;
   cflds: array of String;
 begin
-  if self.ClassIndex(cd.Name) >= 0 then Exit; // already built
-  self.MakeClassInfo(cd.Name, cd);
+  if self.ClassEmitted(cd.Name) then Exit; // already emitted (multi-file dup)
+  if self.ClassIndex(cd.Name) < 0 then self.MakeClassInfo(cd.Name, cd);
+  self.MarkClassEmitted(cd.Name);
   // struct type: vtable ptr + fields
   ci := self.ClassIndex(cd.Name);
   // cflds: field types via ClassFieldCountAt (comma-string count, not Length).
@@ -708,6 +834,68 @@ begin
     m := cd.Methods[i];
     self.EmitMethod(cd.Name, m);
   end;
+end;
+
+
+// EmitRecordDecl — register a record type as a class with no methods (mirrors
+// host emitRecordDecl). Records are heap-allocated like classes but have an
+// empty vtable. EmitMember's GEP path then handles rec.Field.
+procedure TLLVMGenerator.EmitRecordDecl(rname: String; rec: TRecordType);
+var
+  ci, i: Integer;
+  fieldTypes: array of String;
+  cflds: array of String;
+  fld: TVarDecl;
+  j, m: Integer;
+  llvmT, kt: String;
+begin
+  if self.ClassEmitted(rname) then Exit;
+  if self.ClassIndex(rname) < 0 then
+  begin
+    append(self.ClassNames, rname);
+    append(self.ClassEmittedFlags, false);
+    append(self.ClassParents, '');
+    append(self.ClassFieldNames, '');
+    append(self.ClassFieldTypes, '');
+    append(self.ClassFieldKylix, '');
+    append(self.ClassFieldMaps, '');
+    append(self.ClassMethodNames, ',');
+    append(self.ClassMethodRet, ',');
+    append(self.ClassMethodDef, ',');
+    append(self.ClassMethodIdx, ',');
+    for j := 0 to Length(rec.Fields) - 1 do
+    begin
+      fld := rec.Fields[j];
+      llvmT := 'i64';
+      kt := self.TypeExprName(fld.VarType);
+      if fld.VarType is TArrayType then
+      begin
+        if (fld.VarType as TArrayType).Dynamic then llvmT := '{ ptr, i64, i64 }'
+        else llvmT := self.LlvmTypeOfExpr(fld.VarType);
+      end
+      else if fld.VarType is TMapType then llvmT := 'ptr'
+      else if fld.VarType <> nil then llvmT := self.LlvmTypeOfExpr(fld.VarType);
+      if llvmT = 'variant' then llvmT := 'ptr';
+      for m := 0 to Length(fld.Names) - 1 do
+      begin
+        self.ClassFieldNames[self.ClassIndex(rname)] := self.ClassFieldNames[self.ClassIndex(rname)] + fld.Names[m] + ',';
+        self.ClassFieldTypes[self.ClassIndex(rname)] := self.ClassFieldTypes[self.ClassIndex(rname)] + llvmT + ';';
+        self.ClassFieldKylix[self.ClassIndex(rname)] := self.ClassFieldKylix[self.ClassIndex(rname)] + kt + ',';
+        self.ClassFieldMaps[self.ClassIndex(rname)] := self.ClassFieldMaps[self.ClassIndex(rname)] + '0,';
+      end;
+    end;
+  end;
+  self.MarkClassEmitted(rname);
+  ci := self.ClassIndex(rname);
+  cflds := [];
+  for i := 0 to self.ClassFieldCountAt(ci) - 1 do
+    append(cflds, self.FieldTypeAt(ci, i));
+  fieldTypes := [];
+  append(fieldTypes, 'ptr');
+  for i := 0 to Length(cflds) - 1 do
+    append(fieldTypes, cflds[i]);
+  self.WriteLine('%' + rname + ' = type { ' + self.JoinStr(fieldTypes, ', ') + ' }');
+  self.WriteLine('@' + rname + '_vtable = constant [0 x ptr] []');
 end;
 
 procedure TLLVMGenerator.EmitGlobalVarDecl(vd: TVarDecl);
@@ -771,7 +959,7 @@ begin
     append(self.LNames, 'result');
     append(self.LTypes, retType);
     append(self.LRegs, '%result');
-    append(self.LKylix, '');
+    append(self.LKylix, self.TypeExprName(fd.ReturnType));
   end;
   for i := 0 to Length(fd.LocalDecls) - 1 do
   begin
@@ -784,6 +972,79 @@ begin
   if fd.Body <> nil then
   begin
     blk := fd.Body as TBlockStatement;
+    self.EmitStatements(blk.Statements);
+  end;
+  self.EmitFuncEpilogue();
+  self.WriteLine('}');
+  self.WriteLine('');
+  self.InFunc := false;
+end;
+
+
+// EmitMethod — define @ClassName_Method(ptr %self, ...params) { body }.
+// Mirrors EmitFunctionDecl but prepends the self receiver and records
+// CurClassName so self.Field / self.Method() resolve.
+procedure TLLVMGenerator.EmitMethod(className: String; method: TFunctionDecl);
+var
+  i: Integer;
+  retType, llvmT, allocaReg: String;
+  params: array of String;
+  lvd: TVarDecl;
+  blk: TBlockStatement;
+begin
+  retType := 'void';
+  if method.ReturnType <> nil then retType := self.LlvmTypeOfExpr(method.ReturnType);
+  params := [];
+  append(params, 'ptr %self');
+  for i := 0 to Length(method.Parameters) - 1 do
+  begin
+    llvmT := 'i64';
+    if method.Parameters[i].ParamType <> nil then llvmT := self.LlvmTypeOfExpr(method.Parameters[i].ParamType);
+    append(params, llvmT + ' %' + method.Parameters[i].Name);
+  end;
+  self.WriteLine('define ' + retType + ' @' + className + '_' + method.Name + '(' + self.JoinStr(params, ', ') + ') {');
+  self.WriteLine('entry:');
+  self.InFunc := true;
+  self.InReturnFunc := retType <> 'void';
+  self.ResultLLVMType := '';
+  self.FuncExitLabel := self.Label();
+  self.CurClassName := className;
+  // fresh local scope + self receiver
+  self.LNames := [];
+  self.LTypes := [];
+  self.LRegs := [];
+  self.LKylix := [];
+  append(self.LNames, 'self');
+  append(self.LTypes, 'ptr');
+  append(self.LRegs, '%self');
+  append(self.LKylix, className);
+  for i := 0 to Length(method.Parameters) - 1 do
+  begin
+    llvmT := 'i64';
+    if method.Parameters[i].ParamType <> nil then llvmT := self.LlvmTypeOfExpr(method.Parameters[i].ParamType);
+    allocaReg := self.RegisterLocal(method.Parameters[i].Name, llvmT, self.TypeExprName(method.Parameters[i].ParamType));
+    self.WriteLine('  store ' + llvmT + ' %' + method.Parameters[i].Name + ', ptr ' + allocaReg);
+  end;
+  if retType <> 'void' then
+  begin
+    self.WriteLine('  %result = alloca ' + retType + ', align 8');
+    self.ResultLLVMType := retType;
+    append(self.LNames, 'result');
+    append(self.LTypes, retType);
+    append(self.LRegs, '%result');
+    append(self.LKylix, self.TypeExprName(fd.ReturnType));
+  end;
+  for i := 0 to Length(method.LocalDecls) - 1 do
+  begin
+    if method.LocalDecls[i] is TVarDecl then
+    begin
+      lvd := method.LocalDecls[i] as TVarDecl;
+      self.EmitVarDecl(lvd);
+    end;
+  end;
+  if method.Body <> nil then
+  begin
+    blk := method.Body as TBlockStatement;
     self.EmitStatements(blk.Statements);
   end;
   self.EmitFuncEpilogue();
@@ -923,11 +1184,32 @@ var
   i: Integer;
   valReg, llvmT, kylixT, allocaReg: String;
 begin
+  self.WriteLine('  ; dbg varDecl names=' + self.IntToStrS(Length(vd.Names)) + ' inferred=' + self.BoolStr1(vd.Inferred));
   if Length(vd.Names) = 0 then Exit;
   if (vd.VarType = nil) and (vd.Value <> nil) and vd.Inferred then
   begin
-    valReg := self.EmitExprTyped(vd.Value, llvmT);
+    valReg := self.EmitExprTyped(vd.Value);
+    llvmT := self.LastType;
     kylixT := '';
+    if vd.Value is TMemberExpression then
+    begin
+      if (vd.Value as TMemberExpression).Member = 'Create' then
+      begin
+        if (vd.Value as TMemberExpression).Obj is TIdentifier then
+          kylixT := ((vd.Value as TMemberExpression).Obj as TIdentifier).Value;
+      end;
+    end
+    else if vd.Value is TCallExpression then
+    begin
+      if (vd.Value as TCallExpression).Func is TMemberExpression then
+      begin
+        if ((vd.Value as TCallExpression).Func as TMemberExpression).Member = 'Create' then
+        begin
+          if ((vd.Value as TCallExpression).Func as TMemberExpression).Obj is TIdentifier then
+            kylixT := (((vd.Value as TCallExpression).Func as TMemberExpression).Obj as TIdentifier).Value;
+        end;
+      end;
+    end;
     for i := 0 to Length(vd.Names) - 1 do
     begin
       allocaReg := self.RegisterLocal(vd.Names[i], llvmT, kylixT);
@@ -980,9 +1262,11 @@ procedure TLLVMGenerator.AssignToName(name: String; value: TExpression);
 var
   valReg, t, actualType, allocaReg, gname: String;
 begin
-  valReg := self.EmitExprTyped(value, t);
+  valReg := self.EmitExprTyped(value);
+  t := self.LastType;
   actualType := self.ActualType(name);
   if t = 'variant' then t := 'ptr';
+  if self.LastType = 'variant' then self.LastType := 'ptr';
   if actualType = 'variant' then actualType := 'ptr';
   if t <> actualType then valReg := self.CoerceValue(valReg, t, actualType);
   // global assignment: store to @__kylix_g_<name>
@@ -1000,6 +1284,7 @@ procedure TLLVMGenerator.EmitAssign(asgn: TAssignmentStatement);
 var
   ident: TIdentifier;
   idx: TIndexExpression;
+  fldMem: TMemberExpression;
 begin
   if asgn.Name is TIdentifier then
   begin
@@ -1015,7 +1300,76 @@ begin
     self.EmitArrayIndexStore(idx, asgn.Value);
     Exit;
   end;
+  // object field assignment: self.Value := v / obj.Field := v
+  if asgn.Name is TMemberExpression then
+  begin
+    fldMem := asgn.Name as TMemberExpression;
+    self.EmitFieldAssign(fldMem, asgn.Value);
+    Exit;
+  end;
   self.WriteLine('  ; unhandled LHS');
+end;
+
+// EmitFieldAssign — obj.Field := value → GEP the field slot + store.
+procedure TLLVMGenerator.EmitFieldAssign(member: TMemberExpression; value: TExpression);
+var
+  classT, selfReg, objReg, fieldT, valReg: String;
+  ci, fi, i: Integer;
+  gep, loaded: String;
+  ctypes: array of String;
+begin
+  classT := '';
+  if member.Obj is TIdentifier then
+  begin
+    if (member.Obj as TIdentifier).Value = 'self' then
+      classT := self.CurClassName
+    else
+      classT := self.LocalKylix((member.Obj as TIdentifier).Value);
+    if classT = '' then classT := self.GKylix((member.Obj as TIdentifier).Value);
+  end;
+  if not self.IsClass(classT) then
+  begin
+    self.WriteLine('  ; unhandled member assignment ' + member.Member);
+    Exit;
+  end;
+  // resolve obj ptr
+  if member.Obj is TIdentifier then
+  begin
+    if (member.Obj as TIdentifier).Value = 'self' then
+      selfReg := '%self'
+    else
+    begin
+      if self.HasLocal((member.Obj as TIdentifier).Value) then
+      begin
+        objReg := self.LocalReg((member.Obj as TIdentifier).Value);
+        selfReg := self.Tmp();
+        self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
+      end
+      else
+      begin
+        objReg := self.GReg((member.Obj as TIdentifier).Value);
+        selfReg := self.Tmp();
+        self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
+      end;
+    end;
+  end
+  else
+    selfReg := self.EmitExpr(member.Obj);
+  ci := self.ClassIndex(classT);
+  fi := self.FieldIndex(classT, member.Member);
+  if fi < 0 then
+  begin
+    self.WriteLine('  ; field ' + member.Member + ' not found in ' + classT);
+    Exit;
+  end;
+  fieldT := self.FieldTypeAt(ci, fi);
+  valReg := self.EmitExprTyped(value);
+  if fieldT = 'variant' then fieldT := 'ptr';
+  if self.LastType = 'variant' then self.LastType := 'ptr';
+  if self.LastType <> fieldT then valReg := self.CoerceValue(valReg, self.LastType, fieldT);
+  gep := self.Tmp();
+  self.WriteLine('  ' + gep + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 ' + self.IntToStrS(fi + 1));
+  self.WriteLine('  store ' + fieldT + ' ' + valReg + ', ptr ' + gep);
 end;
 
 procedure TLLVMGenerator.EmitArrayIndexStore(idx: TIndexExpression; value: TExpression);
@@ -1023,7 +1377,8 @@ var
   valReg, t: String;
 begin
   // P1: arrays not fully supported — evaluate value, emit a comment.
-  valReg := self.EmitExprTyped(value, t);
+  valReg := self.EmitExprTyped(value);
+  t := self.LastType;
   self.WriteLine('  ; array store (P1 stub)');
 end;
 
@@ -1123,7 +1478,8 @@ begin
   begin
     if self.InReturnFunc then
     begin
-      valReg := self.EmitExprTyped(stmt.ReturnValue, llvmT);
+      valReg := self.EmitExprTyped(stmt.ReturnValue);
+      llvmT := self.LastType;
       if llvmT <> self.ResultLLVMType then valReg := self.CoerceValue(valReg, llvmT, self.ResultLLVMType);
       self.WriteLine('  store ' + self.ResultLLVMType + ' ' + valReg + ', ptr %result');
     end;
@@ -1135,19 +1491,22 @@ end;
 // Expressions
 // ============================================================================
 
-function TLLVMGenerator.EmitStringSliceExpr(e: TSliceExpression; var t: String): String;
+function TLLVMGenerator.EmitStringSliceExpr(e: TSliceExpression; t: String): String;
 var
   base, baseT, low, high, length, allocSize, buf, src, termPtr: String;
 begin
-  t := 'ptr';
+  self.LastType := 'ptr';
   base := self.EmitExprTyped(e.Left, baseT);
+  baseT := self.LastType;
   if baseT <> 'ptr' then
   begin
     result := base;
     Exit;
   end;
   low := self.EmitExprTyped(e.Low, baseT);
+  baseT := self.LastType;
   high := self.EmitExprTyped(e.High, baseT);
+  baseT := self.LastType;
   length := self.Tmp();
   self.WriteLine('  ' + length + ' = sub i64 ' + high + ', ' + low);
   allocSize := self.Tmp();
@@ -1161,10 +1520,11 @@ begin
   termPtr := self.Tmp();
   self.WriteLine('  ' + termPtr + ' = getelementptr inbounds i8, ptr ' + buf + ', i64 ' + length);
   self.WriteLine('  store i8 0, ptr ' + termPtr);
+  self.LastType := 'ptr';
   result := buf;
 end;
 
-function TLLVMGenerator.EmitExprTyped(node: TExpression; var t: String): String;
+function TLLVMGenerator.EmitExprTyped(node: TExpression): String;
 var
   r, strReg, lit: String;
   ilit: TIntegerLiteral;
@@ -1183,25 +1543,25 @@ begin
   if node is TIntegerLiteral then
   begin
     ilit := node as TIntegerLiteral;
-    t := 'i64';
+    self.LastType := 'i64';
     result := self.EmitIntConst(ilit.Value);
   end
   else if node is TBooleanLiteral then
   begin
     blit := node as TBooleanLiteral;
-    t := 'i1';
+    self.LastType := 'i1';
     result := self.EmitBoolConst(blit.Value);
   end
   else if node is TStringLiteral then
   begin
     slit := node as TStringLiteral;
-    t := 'ptr';
+    self.LastType := 'ptr';
     strReg := self.AddString(slit.Value);
     result := self.PtrTo(strReg, Length(slit.Value) + 1);
   end
   else if node is TNilLiteral then
   begin
-    t := 'ptr';
+    self.LastType := 'ptr';
     r := self.Tmp();
     self.WriteLine('  ' + r + ' = inttoptr i64 0 to ptr');
     result := r;
@@ -1209,8 +1569,8 @@ begin
   else if node is TIdentifier then
   begin
     id := node as TIdentifier;
-    t := self.ActualType(id.Value);
-    if (t = '') and (self.IsArrayVar(id.Value)) then t := '{ ptr, i64, i64 }';
+    self.LastType := self.ActualType(id.Value);
+    if (self.LastType = '') and (self.IsArrayVar(id.Value)) then self.LastType := '{ ptr, i64, i64 }';
     result := self.EmitIdentLoad(id.Value);
   end
   else if node is TInfixExpression then
@@ -1222,12 +1582,13 @@ begin
   begin
     call := node as TCallExpression;
     result := self.EmitCall(call, t);
+    self.LastType := self.LastType;
   end
   else if node is TMemberExpression then
   begin
     mem := node as TMemberExpression;
     result := self.EmitMember(mem, t);
-    t := self.MemberType;
+    self.LastType := self.MemberType;
   end
   else if node is TIndexExpression then
   begin
@@ -1252,7 +1613,7 @@ begin
   end
   else
   begin
-    t := 'i64';
+    self.LastType := 'i64';
     r := self.Tmp();
     self.WriteLine('  ' + r + ' = add i64 0, 0 ; unhandled expr');
     result := r;
@@ -1262,7 +1623,7 @@ end;
 function TLLVMGenerator.EmitExpr(node: TExpression): String;
 var t: String;
 begin
-  result := self.EmitExprTyped(node, t);
+  result := self.EmitExprTyped(node);
 end;
 
 function TLLVMGenerator.EmitIntConst(v: Integer): String;
@@ -1286,16 +1647,19 @@ end;
 // Infix
 // ============================================================================
 
-function TLLVMGenerator.EmitInfix(e: TInfixExpression; var t: String): String;
+function TLLVMGenerator.EmitInfix(e: TInfixExpression; t: String): String;
 var
   lv, rv, lt, rt, r, cmp: String;
 begin
-  lv := self.EmitExprTyped(e.Left, lt);
-  rv := self.EmitExprTyped(e.Right, rt);
+  lv := self.EmitExprTyped(e.Left);
+  lt := self.LastType;
+  rv := self.EmitExprTyped(e.Right);
+  rt := self.LastType;
+  self.WriteLine('  ; dbg infix op=' + e.Operator + ' lt=' + lt + ' rt=' + rt);
   // string concat: `+` on two ptr
   if (e.Operator = '+') and (lt = 'ptr') and (rt = 'ptr') then
   begin
-    t := 'ptr';
+    self.LastType := 'ptr';
     result := self.EmitStringConcat(lv, rv);
     Exit;
   end;
@@ -1312,7 +1676,7 @@ begin
     begin
       if (self.IsNilNode(e.Left) = false) and (self.IsNilNode(e.Right) = false) then
       begin
-        t := 'i1';
+        self.LastType := 'i1';
         result := self.EmitStringCompare(e.Operator, lv, rv);
         Exit;
       end;
@@ -1323,30 +1687,30 @@ begin
   begin
     if lt = 'double' then self.WriteLine('  ' + r + ' = fadd double ' + lv + ', ' + rv)
     else self.WriteLine('  ' + r + ' = add i64 ' + lv + ', ' + rv);
-    t := lt;
+    self.LastType := lt;
   end
   else if e.Operator = '-' then
   begin
     if lt = 'double' then self.WriteLine('  ' + r + ' = fsub double ' + lv + ', ' + rv)
     else self.WriteLine('  ' + r + ' = sub i64 ' + lv + ', ' + rv);
-    t := lt;
+    self.LastType := lt;
   end
   else if e.Operator = '*' then
   begin
     if lt = 'double' then self.WriteLine('  ' + r + ' = fmul double ' + lv + ', ' + rv)
     else self.WriteLine('  ' + r + ' = mul i64 ' + lv + ', ' + rv);
-    t := lt;
+    self.LastType := lt;
   end
   else if (e.Operator = '/') or (e.Operator = 'div') then
   begin
     if lt = 'double' then self.WriteLine('  ' + r + ' = fdiv double ' + lv + ', ' + rv)
     else self.WriteLine('  ' + r + ' = sdiv i64 ' + lv + ', ' + rv);
-    t := lt;
+    self.LastType := lt;
   end
   else if e.Operator = 'mod' then
   begin
     self.WriteLine('  ' + r + ' = srem i64 ' + lv + ', ' + rv);
-    t := 'i64';
+    self.LastType := 'i64';
   end
   else if e.Operator = '=' then
   begin
@@ -1354,7 +1718,7 @@ begin
     else if (lt = 'i1') or (rt = 'i1') then self.WriteLine('  ' + r + ' = icmp eq i1 ' + lv + ', ' + rv)
     else if (lt = 'ptr') and (rt = 'ptr') then self.WriteLine('  ' + r + ' = icmp eq ptr ' + lv + ', ' + rv)
     else self.WriteLine('  ' + r + ' = icmp eq i64 ' + lv + ', ' + rv);
-    t := 'i1';
+    self.LastType := 'i1';
   end
   else if e.Operator = '<>' then
   begin
@@ -1362,46 +1726,46 @@ begin
     else if (lt = 'i1') or (rt = 'i1') then self.WriteLine('  ' + r + ' = icmp ne i1 ' + lv + ', ' + rv)
     else if (lt = 'ptr') and (rt = 'ptr') then self.WriteLine('  ' + r + ' = icmp ne ptr ' + lv + ', ' + rv)
     else self.WriteLine('  ' + r + ' = icmp ne i64 ' + lv + ', ' + rv);
-    t := 'i1';
+    self.LastType := 'i1';
   end
   else if e.Operator = '<' then
   begin
     if lt = 'double' then self.WriteLine('  ' + r + ' = fcmp olt double ' + lv + ', ' + rv)
     else self.WriteLine('  ' + r + ' = icmp slt i64 ' + lv + ', ' + rv);
-    t := 'i1';
+    self.LastType := 'i1';
   end
   else if e.Operator = '<=' then
   begin
     if lt = 'double' then self.WriteLine('  ' + r + ' = fcmp ole double ' + lv + ', ' + rv)
     else self.WriteLine('  ' + r + ' = icmp sle i64 ' + lv + ', ' + rv);
-    t := 'i1';
+    self.LastType := 'i1';
   end
   else if e.Operator = '>' then
   begin
     if lt = 'double' then self.WriteLine('  ' + r + ' = fcmp ogt double ' + lv + ', ' + rv)
     else self.WriteLine('  ' + r + ' = icmp sgt i64 ' + lv + ', ' + rv);
-    t := 'i1';
+    self.LastType := 'i1';
   end
   else if e.Operator = '>=' then
   begin
     if lt = 'double' then self.WriteLine('  ' + r + ' = fcmp oge double ' + lv + ', ' + rv)
     else self.WriteLine('  ' + r + ' = icmp sge i64 ' + lv + ', ' + rv);
-    t := 'i1';
+    self.LastType := 'i1';
   end
   else if e.Operator = 'and' then
   begin
     self.WriteLine('  ' + r + ' = and i1 ' + lv + ', ' + rv);
-    t := 'i1';
+    self.LastType := 'i1';
   end
   else if e.Operator = 'or' then
   begin
     self.WriteLine('  ' + r + ' = or i1 ' + lv + ', ' + rv);
-    t := 'i1';
+    self.LastType := 'i1';
   end
   else
   begin
     self.WriteLine('  ' + r + ' = add i64 ' + lv + ', 0 ; unhandled op ' + e.Operator);
-    t := lt;
+    self.LastType := lt;
   end;
   result := r;
 end;
@@ -1486,7 +1850,7 @@ end;
 // Calls
 // ============================================================================
 
-function TLLVMGenerator.EmitCall(e: TCallExpression; var t: String): String;
+function TLLVMGenerator.EmitCall(e: TCallExpression; t: String): String;
 var
   fname: String;
   args: array of String;
@@ -1499,66 +1863,79 @@ begin
     fname := (e.Func as TIdentifier).Value;
     if fname = 'Length' then
     begin
-      t := 'i64';
       result := self.EmitLength(e.Arguments[0]);
+      self.LastType := 'i64';
       Exit;
     end;
     if fname = 'Ord' then
     begin
-      t := 'i64';
       result := self.EmitOrd(e.Arguments[0]);
+      self.LastType := 'i64';
       Exit;
     end;
     if fname = 'IntToStr' then
     begin
-      t := 'ptr';
       result := self.EmitIntToStr(e.Arguments[0]);
+      self.LastType := 'ptr';
       Exit;
     end;
     if fname = 'StrToInt' then
     begin
-      t := 'i64';
       result := self.EmitStrToInt(e.Arguments[0]);
+      self.LastType := 'i64';
       Exit;
     end;
     if fname = 'WriteLn' then
     begin
-      t := 'ptr';
       result := self.EmitWriteLn(e.Arguments);
+      self.LastType := 'ptr';
       Exit;
     end;
     if fname = 'Write' then
     begin
-      t := 'ptr';
+      self.LastType := 'ptr';
       result := self.EmitWrite(e.Arguments);
       Exit;
     end;
     if fname = 'ReadFile' then
     begin
-      t := 'ptr';
       result := self.EmitReadFile(e.Arguments[0]);
+      self.LastType := 'ptr';
+      Exit;
+    end;
+    if (fname = 'LowerCase') or (fname = 'UpperCase') then
+    begin
+      result := self.EmitCaseConv(fname, e.Arguments[0]);
+      self.LastType := 'ptr';
+      Exit;
+    end;
+    if fname = 'append' then
+    begin
+      result := self.EmitAppend(e.Arguments[0], e.Arguments[1]);
+      self.LastType := '{ ptr, i64, i64 }';
       Exit;
     end;
     args := [];
     for i := 0 to Length(e.Arguments) - 1 do
       append(args, self.EmitExpr(e.Arguments[i]));
     result := self.EmitPlainCall(fname, args, t);
+    t := self.LastType;
     Exit;
   end;
   if e.Func is TMemberExpression then
   begin
     mem := e.Func as TMemberExpression;
-    result := self.EmitMethodCall(mem, t);
-    t := self.MemberType;
+    result := self.EmitMethodCallWithArgs(mem, e.Arguments, t);
+    self.LastType := self.MemberType;
     Exit;
   end;
-  t := 'i64';
+  self.LastType := 'i64';
   r := self.Tmp();
   self.WriteLine('  ' + r + ' = add i64 0, 0 ; unhandled call');
   result := r;
 end;
 
-function TLLVMGenerator.EmitPlainCall(fname: String; args: array of String; var t: String): String;
+function TLLVMGenerator.EmitPlainCall(fname: String; args: array of String; t: String): String;
 var
   retType, r, argList: String;
   i: Integer;
@@ -1571,7 +1948,7 @@ begin
   if retType = 'void' then
   begin
     self.WriteLine('  call void @' + fname + '(' + argList + ')');
-    t := 'void';
+    self.LastType := 'void';
     r := self.Tmp();
     self.WriteLine('  ' + r + ' = add i64 0, 0 ; void call');
     result := r;
@@ -1579,7 +1956,7 @@ begin
   end;
   r := self.Tmp();
   self.WriteLine('  ' + r + ' = call ' + retType + ' @' + fname + '(' + argList + ')');
-  t := retType;
+  self.LastType := retType;
   result := r;
 end;
 
@@ -1659,7 +2036,8 @@ begin
     result := r;
     Exit;
   end;
-  v := self.EmitExprTyped(arg, t);
+  v := self.EmitExprTyped(arg);
+  t := self.LastType;
   if t = '{ ptr, i64, i64 }' then
   begin
     r := self.Tmp();
@@ -1752,6 +2130,60 @@ begin
   result := r;
 end;
 
+
+// EmitCaseConv — LowerCase(s)/UpperCase(s) → heap copy with tolower/toupper
+// per char. Mirrors host emitCall's builtin.
+function TLLVMGenerator.EmitCaseConv(which, arg: TExpression): String;
+var
+  src, n, sizeReg, buf, fn, headerLbl: String;
+  i, icur, cond, srcp, ch, chext, res, resc, dstp, inext, term: String;
+begin
+  src := self.EmitExpr(arg);
+  self.NeedToLower := true;
+  n := self.Tmp();
+  self.WriteLine('  ' + n + ' = call i64 @strlen(ptr noundef ' + self.NullGuardString(src) + ')');
+  sizeReg := self.Tmp();
+  self.WriteLine('  ' + sizeReg + ' = add i64 ' + n + ', 1');
+  buf := self.Tmp();
+  self.WriteLine('  ' + buf + ' = call ptr @malloc(i64 ' + sizeReg + ')');
+  if which = 'UpperCase' then fn := 'toupper'
+  else fn := 'tolower';
+  i := self.Tmp();
+  self.WriteLine('  ' + i + ' = alloca i64, align 8');
+  self.WriteLine('  store i64 0, ptr ' + i);
+  headerLbl := self.Label();
+  self.WriteLine('  br label %' + headerLbl);
+  self.WriteLine(headerLbl + ':');
+  icur := self.Tmp();
+  self.WriteLine('  ' + icur + ' = load i64, ptr ' + i);
+  cond := self.Tmp();
+  self.WriteLine('  ' + cond + ' = icmp slt i64 ' + icur + ', ' + n);
+  self.WriteLine('  br i1 ' + cond + ', label %lbl_body, label %lbl_exit');
+  self.WriteLine('lbl_body:');
+  srcp := self.Tmp();
+  self.WriteLine('  ' + srcp + ' = getelementptr inbounds i8, ptr ' + src + ', i64 ' + icur);
+  ch := self.Tmp();
+  self.WriteLine('  ' + ch + ' = load i8, ptr ' + srcp);
+  chext := self.Tmp();
+  self.WriteLine('  ' + chext + ' = zext i8 ' + ch + ' to i32');
+  res := self.Tmp();
+  self.WriteLine('  ' + res + ' = call i32 @' + fn + '(i32 ' + chext + ')');
+  resc := self.Tmp();
+  self.WriteLine('  ' + resc + ' = trunc i32 ' + res + ' to i8');
+  dstp := self.Tmp();
+  self.WriteLine('  ' + dstp + ' = getelementptr inbounds i8, ptr ' + buf + ', i64 ' + icur);
+  self.WriteLine('  store i8 ' + resc + ', ptr ' + dstp);
+  inext := self.Tmp();
+  self.WriteLine('  ' + inext + ' = add i64 ' + icur + ', 1');
+  self.WriteLine('  store i64 ' + inext + ', ptr ' + i);
+  self.WriteLine('  br label %' + headerLbl);
+  self.WriteLine('lbl_exit:');
+  term := self.Tmp();
+  self.WriteLine('  ' + term + ' = getelementptr inbounds i8, ptr ' + buf + ', i64 ' + n);
+  self.WriteLine('  store i8 0, ptr ' + term);
+  result := buf;
+end;
+
 // ============================================================================
 // WriteLn / Write
 // ============================================================================
@@ -1772,7 +2204,8 @@ begin
       cat := self.Tmp();
       self.WriteLine('  ' + cat + ' = call ptr @strcat(ptr ' + buf + ', ptr ' + self.PtrTo(self.AddString(' '), 2) + ')');
     end;
-    v := self.EmitExprTyped(args[i], t);
+    v := self.EmitExprTyped(args[i]);
+    t := self.LastType;
     if t = 'i64' then
     begin
       fmtPtr := self.PtrTo(self.AddString('%ld'), 4);
@@ -1827,6 +2260,24 @@ end;
 // ============================================================================
 
 // ---- class layout bookkeeping (mirrors host ClassInfo/FieldInfo/MethodInfo) --
+
+function TLLVMGenerator.ClassEmitted(cname: String): Boolean;
+var i: Integer;
+begin
+  result := false;
+  i := self.ClassIndex(cname);
+  if (i >= 0) and (Length(self.ClassEmittedFlags) > i) then result := self.ClassEmittedFlags[i];
+end;
+
+procedure TLLVMGenerator.MarkClassEmitted(cname: String);
+var i: Integer;
+begin
+  i := self.ClassIndex(cname);
+  if i < 0 then Exit;
+  while Length(self.ClassEmittedFlags) <= i do
+    append(self.ClassEmittedFlags, false);
+  self.ClassEmittedFlags[i] := true;
+end;
 
 function TLLVMGenerator.ClassIndex(cname: String): Integer;
 var i: Integer;
@@ -1886,6 +2337,7 @@ begin
   // fresh entry — field tables are comma-strings: "Name1,Name2," per class
   // (same pattern as the method tables; Kylix has no nested arrays).
   append(self.ClassNames, cname);
+  append(self.ClassEmittedFlags, false);
   append(self.ClassParents, cd.Parent);
   append(self.ClassFieldNames, '');
   append(self.ClassFieldTypes, '');
@@ -1924,7 +2376,7 @@ begin
     for m := 0 to Length(fld.Names) - 1 do
     begin
       self.ClassFieldNames[self.ClassIndex(cname)] := self.ClassFieldNames[self.ClassIndex(cname)] + fld.Names[m] + ',';
-      self.ClassFieldTypes[self.ClassIndex(cname)] := self.ClassFieldTypes[self.ClassIndex(cname)] + llvmT + ',';
+      self.ClassFieldTypes[self.ClassIndex(cname)] := self.ClassFieldTypes[self.ClassIndex(cname)] + llvmT + ';';
       self.ClassFieldKylix[self.ClassIndex(cname)] := self.ClassFieldKylix[self.ClassIndex(cname)] + kt + ',';
       if fld.VarType is TMapType then
         self.ClassFieldMaps[self.ClassIndex(cname)] := self.ClassFieldMaps[self.ClassIndex(cname)] + '1,'
@@ -2087,7 +2539,7 @@ end;
 
 // EmitArrayIndex — arr[i] for a local/param dynamic or static array var.
 // Mirrors host emitArrayIndex's local path.
-function TLLVMGenerator.EmitArrayIndexLocal(name: String; idxExpr: TExpression; var t: String): String;
+function TLLVMGenerator.EmitArrayIndexLocal(name: String; idxExpr: TExpression; t: String): String;
 var
   ai: Integer;
   idxReg, zeroIdx, dataPtrLoc, dataPtr, ptr, loaded: String;
@@ -2113,7 +2565,7 @@ begin
     ptr := self.Tmp();
     self.WriteLine('  ' + ptr + ' = getelementptr inbounds [' + self.IntToStrS(self.ArrSize[ai]) + ' x ' + self.ArrElem[ai] + '], ptr ' + self.LocalReg(name) + ', i64 0, i64 ' + zeroIdx);
   end;
-  t := self.ArrElem[ai];
+  self.LastType := self.ArrElem[ai];
   loaded := self.Tmp();
   self.WriteLine('  ' + loaded + ' = load ' + self.ArrElem[ai] + ', ptr ' + ptr);
   result := loaded;
@@ -2146,7 +2598,8 @@ begin
     ptr := self.Tmp();
     self.WriteLine('  ' + ptr + ' = getelementptr inbounds [' + self.IntToStrS(self.ArrSize[ai]) + ' x ' + self.ArrElem[ai] + '], ptr ' + self.LocalReg(name) + ', i64 0, i64 ' + zeroIdx);
   end;
-  valReg := self.EmitExprTyped(valExpr, self.ArrElem[ai]);
+  valReg := self.EmitExprTyped(valExpr);
+  self.ArrElem[ai] := self.LastType;
   self.WriteLine('  store ' + self.ArrElem[ai] + ' ' + valReg + ', ptr ' + ptr);
 end;
 
@@ -2157,8 +2610,10 @@ var
   sliceVal, sliceT, elemReg, elemT, dataPtr, oldLen, newLen, newSize, newData: String;
   oldBytes, elemSlot, s1, s2, s3: String;
 begin
-  sliceVal := self.EmitExprTyped(sliceArg, sliceT);
-  elemReg := self.EmitExprTyped(elemArg, elemT);
+  sliceVal := self.EmitExprTyped(sliceArg);
+  sliceT := self.LastType;
+  elemReg := self.EmitExprTyped(elemArg);
+  elemT := self.LastType;
   if self.IsClass(elemT) then elemT := 'ptr';
   dataPtr := self.Tmp();
   self.WriteLine('  ' + dataPtr + ' = extractvalue { ptr, i64, i64 } ' + sliceVal + ', 0');
@@ -2250,7 +2705,7 @@ begin
   while Length(s) > 0 do
   begin
     tok := '';
-    while (Length(s) > 0) and (s[0:1] <> ',') do
+    while (Length(s) > 0) and (s[0:1] <> ';') do
     begin
       tok := tok + s[0:1];
       s := s[1:Length(s)];
@@ -2261,7 +2716,7 @@ begin
       Exit;
     end;
     i := i + 1;
-    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
+    if (Length(s) > 0) and (s[0:1] = ';') then s := s[1:Length(s)];
   end;
 end;
 
@@ -2271,6 +2726,32 @@ var s, tok: String;
 begin
   result := '';
   s := self.ClassFieldNames[ci];
+  k := 0;
+  while Length(s) > 0 do
+  begin
+    tok := '';
+    while (Length(s) > 0) and (s[0:1] <> ',') do
+    begin
+      tok := tok + s[0:1];
+      s := s[1:Length(s)];
+    end;
+    if k = fi then
+    begin
+      result := tok;
+      Exit;
+    end;
+    k := k + 1;
+    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
+  end;
+end;
+
+
+function TLLVMGenerator.FieldKylixAt(ci, fi: Integer): String;
+var s, tok: String;
+  k: Integer;
+begin
+  result := '';
+  s := self.ClassFieldKylix[ci];
   k := 0;
   while Length(s) > 0 do
   begin
@@ -2300,7 +2781,7 @@ begin
   while Length(s) > 0 do
   begin
     tok := '';
-    while (Length(s) > 0) and (s[0:1] <> ',') do
+    while (Length(s) > 0) and (s[0:1] <> ';') do
     begin
       tok := tok + s[0:1];
       s := s[1:Length(s)];
@@ -2311,7 +2792,7 @@ begin
       Exit;
     end;
     k := k + 1;
-    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
+    if (Length(s) > 0) and (s[0:1] = ';') then s := s[1:Length(s)];
   end;
 end;
 
@@ -2559,7 +3040,7 @@ begin
   result := allocReg;
 end;
 
-function TLLVMGenerator.EmitMember(member: TMemberExpression; var t: String): String;
+function TLLVMGenerator.EmitMember(member: TMemberExpression; t: String): String;
 var
   r, selfReg, objReg, classT, loaded: String;
   idx, fi: Integer;
@@ -2624,6 +3105,12 @@ begin
       if self.MemberType = 'variant' then self.MemberType := 'ptr';
       loaded := self.Tmp();
       self.WriteLine('  ' + loaded + ' = load ' + self.MemberType + ', ptr ' + r);
+      // chained member: if the field's Kylix type is a class/record, report it
+      // as LastType so a subsequent .Field / .Method resolves the receiver.
+      if self.IsClass(self.FieldKylixAt(ci, fi)) then
+        self.LastType := self.FieldKylixAt(ci, fi)
+      else
+        self.LastType := self.MemberType;
       result := loaded;
       Exit;
     end;
@@ -2635,11 +3122,11 @@ begin
   result := r;
 end;
 
-function TLLVMGenerator.EmitMethodCall(member: TMemberExpression; var t: String): String;
+function TLLVMGenerator.EmitMethodCallWithArgs(member: TMemberExpression; margs: array of TExpression; t: String): String;
 var
   r, objReg, selfReg, classT, methT, fnPtr: String;
   ci, fi: Integer;
-  vtablePtr, fnPtrLoc: String;
+  vtablePtr, fnPtrLoc, vtableGEP, argList, argReg: String;
 begin
   // Constructor with args: TFoo.Create(...) — allocate + (P2: init).
   if member.Member = 'Create' then
@@ -2701,20 +3188,28 @@ begin
   methT := self.MethodRetAt(ci, fi);
   if methT = 'variant' then methT := 'ptr';
   // load vtable ptr from struct[0]
+  vtableGEP := self.Tmp();
+  self.WriteLine('  ' + vtableGEP + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 0');
   vtablePtr := self.Tmp();
-  self.WriteLine('  ' + vtablePtr + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 0');
-  vtablePtr := self.Tmp();
-  self.WriteLine('  ' + vtablePtr + ' = load ptr, ptr ' + vtablePtr);
+  self.WriteLine('  ' + vtablePtr + ' = load ptr, ptr ' + vtableGEP);
   fnPtrLoc := self.Tmp();
-  self.WriteLine('  ' + fnPtrLoc + ' = getelementptr inbounds [0 x ptr], ptr ' + vtablePtr + ', i32 0, i32 ' + self.IntToStrS(fi));
+  self.WriteLine('  ' + fnPtrLoc + ' = getelementptr inbounds [' + self.IntToStrS(self.MethodCount(ci)) + ' x ptr], ptr ' + vtablePtr + ', i32 0, i32 ' + self.IntToStrS(fi));
   fnPtr := self.Tmp();
   self.WriteLine('  ' + fnPtr + ' = load ptr, ptr ' + fnPtrLoc);
   // call via function pointer (self + args)
   r := self.Tmp();
+  argList := 'ptr ' + selfReg;
+  for i := 0 to Length(margs) - 1 do
+  begin
+    argReg := self.EmitExprTyped(margs[i]);
+    if self.LastType = 'ptr' then argList := argList + ', ptr ' + argReg
+    else if self.LastType = 'i1' then argList := argList + ', i1 ' + argReg
+    else argList := argList + ', i64 ' + argReg;
+  end;
   if methT = 'void' then
-    self.WriteLine('  call void ' + fnPtr + '(ptr ' + selfReg + ')')
+    self.WriteLine('  call void ' + fnPtr + '(' + argList + ')')
   else
-    self.WriteLine('  ' + r + ' = call ' + methT + ' ' + fnPtr + '(ptr ' + selfReg + ')');
+    self.WriteLine('  ' + r + ' = call ' + methT + ' ' + fnPtr + '(' + argList + ')');
   if methT = 'void' then
   begin
     self.MemberType := 'void';
@@ -2729,12 +3224,12 @@ begin
   end;
 end;
 
-function TLLVMGenerator.EmitIsExpr(e: TIsExpression; var t: String): String;
+function TLLVMGenerator.EmitIsExpr(e: TIsExpression; t: String): String;
 var
   r, selfReg, objReg, classT, target, vtablePtr: String;
   nullCk, trueLbl, falseLbl, exitLbl, objVT, trueR, falseR: String;
 begin
-  t := 'i1';
+  self.LastType := 'i1';
   target := self.TypeExprName(e.TargetType);
   // class target → runtime subtype check via vtable edge table
   if self.IsClass(target) then
@@ -2803,13 +3298,13 @@ begin
   result := r;
 end;
 
-function TLLVMGenerator.EmitAsExpr(e: TTypeCastExpression; var t: String): String;
+function TLLVMGenerator.EmitAsExpr(e: TTypeCastExpression; t: String): String;
 begin
-  t := 'ptr';
+  self.LastType := 'ptr';
   result := self.EmitExpr(e.Expression);
 end;
 
-function TLLVMGenerator.EmitArrayIndex(idx: TIndexExpression; var t: String): String;
+function TLLVMGenerator.EmitArrayIndex(idx: TIndexExpression; t: String): String;
 var
   leftName, r: String;
 begin
@@ -2830,7 +3325,7 @@ begin
     if self.TryClassFieldArrayIndex(idx, t) then Exit;
   end;
   // unsupported index target (map / variant — P3)
-  t := 'i64';
+  self.LastType := 'i64';
   r := self.Tmp();
   self.WriteLine('  ' + r + ' = add i64 0, 0 ; array index (unhandled)');
   result := r;
@@ -2838,7 +3333,7 @@ end;
 
 // TryClassFieldArrayIndex — obj.Field[i] where Field is a class field of type
 // array of T (dynamic slice). Returns true and sets t/result on success.
-function TLLVMGenerator.TryClassFieldArrayIndex(idx: TIndexExpression; var t: String): Boolean;
+function TLLVMGenerator.TryClassFieldArrayIndex(idx: TIndexExpression; t: String): Boolean;
 var
   mem: TMemberExpression;
   classT, selfReg, objReg, fieldT: String;
@@ -2904,6 +3399,7 @@ begin
   t := 'i64';
   loaded := self.Tmp();
   self.WriteLine('  ' + loaded + ' = load i64, ptr ' + ptr);
+  self.LastType := 'i64';
   result := true;
 end;
 
