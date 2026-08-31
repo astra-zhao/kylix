@@ -1,10 +1,41 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-07-30
-> 当前版本: v0.5.8 已发布（51/51 runtime 正确）
+> 最后更新: 2026-08-31
+> 当前版本: v0.6.9 进行中（bootstrap 无 Go 闭环 P3+P4）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v0.3.1 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
+
+---
+
+## 🚧 v0.6.9 已知问题（2026-08-31）
+
+### gen2 闭环收尾（bootstrap 无 Go 编译器的剩余工作）
+
+**状态**：gen2（LLVM 编译的 bootstrap，814KB）已能启动/解析 args/ReadFile/进入 parser。**教程 sweep 48/51 PASS**（bootstrap-vs-host 逐字 diff）。剩余：
+
+- [ ] **gen2 lexer NextToken 内崩溃**（栈槽 garbage，`str x8,[x9,#0x18]` 附近）——crash→修→重编循环约 5-15 轮，每轮 ~5-10 分钟（host rebuild 2min + 自举 emit 30s + llc/clang）
+- [ ] **`llvmgen.klx` 自举 emit 性能**：>10 分钟（FieldIndex/MethodIndex 逗号串逐字符切片 O(n²)，每次成员/方法查询全表扫描 + O(remaining) 拷贝）——重写为索引式扫描（1 字符切片）可提速 ~50×
+- [ ] **8 文件自举 IR 不含 llvmgen.klx**（性能原因）——gen2 闭环需含（gen2 编译含自身 emitter 的完整编译器）
+
+### bootstrap emitter 已知失败（教程 sweep KNOWN_FAILS）
+
+- [ ] **example15_lambda**：匿名 procedure/function 字面量（lambda 值）不可 lower——`var greet := procedure(name: String)...` 的 lambda 变量调用走未定义符号（lambda 字面量 + 变量调用是完整特性移植，host v0.4.1 有）
+- [ ] **example50_jwt_auth**：jwt claims 路径一处 alloca 的使用逃逸其块（domination 错误，IR verify 失败）——需定位 fp1.ll 中 `%t1641 = alloca i1` 所在函数的 var 提升
+
+### bootstrap 编译器/语言 bug（自举开发绕行清单）
+
+- [ ] **`or`/`and` 不短路**：副作用 + `s[i:i+1]` 在 i=Length 时越界切片 → memmove 段错误——所有 `for i := 0 to Length(s)` 模式需显式守卫
+- [ ] **for 循环变量不遮蔽**：内层 `for i` 重用外层 `i`（已修 Pass 0/1 的枚举分支，其它嵌套 for 需审计）
+- [ ] **`(x is T) and ((x as T).F <> nil)` 复合条件**编译出 `call @(i1)` 空符号
+- [ ] **`(函数参数数组[i] as T)`、`(self.字段 as T).Value` 不可 lower**——只有 `(成员链 as T).Value` 形态可靠
+- [ ] **array-of-String 方法参数**的实参链式传递不可 lower（`self.CollectUses(prog.Uses)`）——用独立顶层过程 + 局部变量中转
+- [ ] **`llvmgen.klx` 5.4k 行**超 1000 行约束（bootstrap emitter 巨型工程的既有豁免）
+
+### Windows / 跨平台（v0.7.0+，沿 v0.6.2）
+
+- [ ] net Winsock / regex pcre2 真实现（需 Windows 真机验证）
+- [ ] Linux/ARM64 CI 稳定化
 
 ---
 

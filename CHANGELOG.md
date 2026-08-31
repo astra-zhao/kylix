@@ -12,6 +12,62 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
+## v0.6.9 (2026-08-31) — bootstrap 无 Go 闭环（stdlib IR 烘焙 + gen2 编译器诞生）
+
+> 分两阶段：**P3**（stdlib IR 烘焙 + bootstrap emitter 大规模补缺）与 **P4**（llc 错误驱动的自举闭环冲刺）。全程以 `scripts/test_bootstrap_all.sh` 的 51 教程 bootstrap-vs-host 输出 diff 为回归基线。
+
+### stdlib IR 烘焙（P3，免手写 15.5k 行 Go 移植）
+
+- **`scripts/extract_stdlib_ir.py`**：用 host 编译器生成 stdlib 教程 + 覆盖程序（`/tmp/stdir_cover/cover.klx` 调用全部 stdlib 函数）的最终 IR，按 13 个段（runtime/sysutil/regex/datetime/encoding/net/cache/crypto/db/json/jwt/httpclient/websocket）把 `define @__kylix_*` body + 字符串常量（段内 `@kstr.<seg>.N`，按内容+段去重）+ declare（去重 bootstrap 已有）烘焙进 **`src/stdlib_ir.klx`**（~6.9k 行 Kylix 字符串数据 + 139 个函数签名表）。
+- **bootstrap dispatch**（`src/llvmgen.klx`）：`TryStdlibModuleCall`/`TryStdlibBareCall`/`EmitStdlibCall` + 段依赖闭包（jwt→crypto,json；websocket→net）+ 未用段不发射（sqlite3/curl 外部依赖不进链接器）+ boot/httpclient stub 与 host parity。
+- **wrapper 类方法**：TCache（Put/PutWithTTL/Get/GetString/Has/Delete/Size）、THttpClient（SetHeader/Get/Post）、TDateTime（Year/Month/Day/AddDays/FormatDate）+ NewCache/Now/Today 内联（镜像 host emitCacheNewCacheCall/emitDateTimeNow）+ JsonEncode `_htab` 包装 define（box_map 转换，免 bootstrap 侧 AST 类型检查）。
+- **main-program var 全局化**：`var` 声明发为 `@__kylix_g_*` 全局 + `RegisterArrayFromType` 数组元数据（`arr[i]`/`append`/`Length` 对全局数组可用）。
+- **`--emit-llvm` 直接输出纯 IR**：移除 `__BEFORE_EMIT__/__AFTER_EMIT__` 标记（不再需要 `tail -n +3`）。
+- **链接自动化**：`scripts/test_bootstrap_all.sh` 按 IR 扫描自动加 `-lcrypto`（Homebrew openssl@3）`-lsqlite3` `-lcurl`。
+
+### bootstrap emitter 大规模补缺（P3+P4，20+ 项）
+
+- **数组写路径**：`EmitArrayIndexStore` 从 P1 stub 接通 `EmitArrayIndexStoreLocal`（动态/静态/非零下界全通）。
+- **一元运算**：`not X` / 一元负号（TPrefixExpression 此前完全缺失——`if not IsEmail(...)` 塌成 unhandled stub）。
+- **float 字面量**：TFloatLiteral → `fadd double`（用 Token.Literal 规范化 `3` → `3.0`，镜像 host llvmFloatLit）。
+- **Variant 比较/算术**：`v = 10.0`、`m['pi'] = 3.14` → box_scalar + `variant_compare`/`variant_arith` 派发（镜像 host emitVariantCompare）。
+- **函数调用参数类型化**：FParamTypes 平行表（Pass 1 注册）+ EmitPlainCall 逐参数 coerce（`Average(3,4,5)` 的 i64→double sitofp、`greet('x')` ptr 形参）。
+- **`str + int` 拼接**：`'user count: ' + count` 的 i64 侧 snprintf `%lld` 后 concat。
+- **dot-name 外部方法**：`procedure TLexer.ReadChar` → `@TLexer_ReadChar` + `ptr %self` 首参（**host v0.5.4 的移植缺口**，自举源码的 TParser/TLexer/TGenerator 方法全靠它）；FNames 存下划线名（`DotToUnderscore`，StrContains 守卫避开切片 bug）；EmitMethodCallWithArgs/EmitMember 的方法 fallback。
+- **链式成员/链式 receiver**：`self.PeekToken.TokenType`、`self.Lex.NextToken()`（EmitMember/EmitMethodCallWithArgs 加 TMemberExpression receiver 分支）；**修复**：EmitExprTyped 不再用 MemberType 覆盖 LastType（擦掉链式所需的类名）、主字段分支补 `ci := ClassIndex(classT)`。
+- **record 类型系统**：Pass 0 预注册 record 名进 ClassNames（`TToken = record` 的字段链全靠它）；EmitRecordDecl 字段表填充移出 ClassIndex 守卫（预注册后原守卫让表永远为空）；LlvmTypeOfExpr 对 record → ptr。
+- **ClassName↔ptr 恒等 coerce**（IsBoxTypeName）+ EmitInfix 类名类型归一化为 ptr（`self.CurToken = before`）。
+- **函数 epilogue 重排**：result load 挪进 exit 块——`exit` 直接 br 到出口块，fall-through 的 load 不支配出口路径的 ret（LLVM verifier domination 错误）。
+- **嵌套循环 LoopHead/LoopBreak 保存恢复**：原清空式让嵌套循环的外层 `break` 发 `br label %`（空标签）——`while true` 内层循环后 `else break` 崩溃。
+- **alloca hoisting**（PreEmitAllocas）：显式类型 var + for 循环变量提到 entry 块递归 hoist——块内 alloca 不支配块外使用。
+- **构造函数 calloc**（malloc 垃圾 ptr 字段被解引用）、**Args 数组化**（`Args[0]` 走 EmitArrayIndexLocal + LastType）+ ArraySlot 特判、**nil→slice coerce**（`result := nil` → 零 slice）、**vtable 调用 slice/类名参数类型**、**FloatToStr/StrToFloat/StrToInt64 内置**（%.17g/strtod）、tolower/toupper declare、**main 无条件 argc/argv**（NeedArgs 循环依赖导致 gen2 读不到命令行文件）、**方法表元组返回类型转义**（`{ ptr, i64 }` 的逗号以 `|` 存储绕开逗号串拆分）。
+- **parser 侧**：uses 子句记录模块名（原只跳过！）；`Uses` 作成员/字段名（tkUses 进 IsIdentOrSoftKeyword，lexer 大小写不敏感）；块迭代上限 1000→20000（stdlib_ir.klx 的 StdIrInit 有 6400 条 append）；host parser 同步（token.USES soft keyword + 上限）。
+
+### 🎉 gen2 编译器诞生（P4 里程碑）
+
+- **8 文件自举 IR 通过 llc 并链接出 `gen2`**（LLVM 编译的 bootstrap 编译器，814KB，无 Go 依赖）——gen2 能启动、解析参数、ReadFile、进入 parser 阶段。
+- 自举 emit 147k 行 IR / ~6s（8 文件，不含 llvmgen.klx）。
+- **gen2 完全闭环进行中**：lexer NextToken 内崩溃待修（每轮 crash→修→重编循环 5-10 分钟）；`llvmgen.klx` 自举 emit 性能（逗号串扫描 O(n²)，>10min）待优化。
+
+### 教程验证（scripts/test_bootstrap_all.sh）
+
+- **48/51 PASS**（bootstrap `--emit-llvm` → llc → clang → 运行，输出与 host 二进制 **diff 逐字一致**）+ example33 多文件 PASS。
+- 覆盖全部硬核教程：36-39（sysutil/jsonutil/datetime/regex）、48（net/crypto/encoding）、53（cache）、54（httpclient，-lcurl）、55（websocket 自回环）、41-46/49/51（boot 注解系列）、56/57（Variant）。
+- 已知失败 2 个（详见 TECHNICAL_DEBT.md）：example15（lambda 字面量未支持）、example50（jwt claims 路径 alloca domination）。
+
+### bootstrap 编译器坑清单（调试结晶，自举开发必读）
+
+1. **`or`/`and` 不短路**：`for i := 0 to Length(s)` 循环里 `s[i:i+1]` 在 i=Length 时越界切片 → memmove 段错误（间歇性崩溃根因）。
+2. **`(x is T) and ((x as T).F <> nil)` 复合条件**编译出 `call @(i1)` 空符号——拆成中间布尔变量。
+3. **for 循环变量不遮蔽**：内层 `for i` 重用外层 `i` → 外层循环被击穿（type 段后声明全跳过的根因）。
+4. **host rebuild 的 `| tail -1` 吞失败**：管道 exit code 掩盖 llc 错误，bootstrap 二进制静默陈旧——验证 rebuild 输出必须含 `✓ Built`。
+5. **`(参数数组[i] as T)`、`(self.字段 as T).Value` 不可 lower**——只有 `(成员链 as T).Value` 形态可靠；纯 ident 的 as 需成员链中转。
+
+### 其它
+
+- `scripts/extract_stdlib_ir.py` / `scripts/test_bootstrap_all.sh` 新增（设计文档见各文件头注释）。
+- host 16 包测试全绿；t_y2/t_prog/t_w/t_s/t_s2/t_y1_main/t_std/t_json/t_chain2 手工回归全绿。
+
 ## v0.6.8 (2026-08-23) — boot server 补强 + stdlib 补全 + JetBrains 插件完善
 
 ### boot HTTP server 补强（LLVM 端，KylixBoot 无 Go 更完整）

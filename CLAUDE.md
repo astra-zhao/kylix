@@ -4,9 +4,10 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 
 **重要：始终用中文回答用户，不论用户用什么语言提问，回复一律使用中文。**
 
-## 当前状态：v0.6.8（2026-08-23）
+## 当前状态：v0.6.9（2026-08-31）
 
-- v0.6.8 已发布：**boot server 补强 + stdlib 补全 + JetBrains 插件完善**——(1) **boot server 补强**：POST body 读取（`read_body` 解析 Content-Length → recv → `req[24]`，`req.Body()` 返回真实 POST 数据）+ `req.JSON()` 绑定（`JsonDecodeMap`→`box_map`→`map[String]Variant`，`data['name']` 链式）+ **`BootRegisterJwtAuth` 真校验**（secret 存模块全局，`BootEnforceAuth` 读 `Authorization: Bearer` → `JwtVerify` → 401/放行）+ BootText 参数 Variant coerce + reason phrase 401。(2) **stdlib 补全**：encoding **Base64URL**（RFC 4648 §5 无 padding，decode 认 `-_`，与 Go RawURLEncoding 对齐）+ httpclient JSON **嵌套对象**（`value_to_variant` 的 `{` 递归 `parse_flat`→`box_map`，`m['user']['name']` 链式；`JsonGetMap` map-box 直通）。(3) **JetBrains 插件完善**：`.klx` 文件图标（`KylixIconProvider` + `icons/kylix.svg`）+ **Run 配置**（`KylixConfigurationType` + `KylixRunConfiguration` + `kylix run <file>` + 右键运行）+ **错误高亮彩色方案**（LSP undefined-identifier warning 黄色波浪线，SymbolTable 补 TypeDecl 递归/循环变量/枚举/泛型/lambda，全教程 0 误报）。**剩余（归入 v6.9+/v7.0+）**：内存管理（arena/GC）、bootstrap 无 Go 闭环（v6.9）、net Winsock / regex pcre2（Windows，v7.0+）。详见 CHANGELOG.md
+- v0.6.9 进行中：**bootstrap 无 Go 闭环 P3+P4**——(1) **stdlib IR 烘焙**：`scripts/extract_stdlib_ir.py` 把 host 生成的 stdlib IR 按 13 段烘焙进 `src/stdlib_ir.klx`（6.9k 行数据 + 139 签名），bootstrap 只做 call-site dispatch + wrapper 类方法（TCache/THttpClient/TDateTime）+ NewCache/Now/Today 内联——免手写 15.5k 行 Go 移植。(2) **emitter 大规模补缺 20+ 项**：数组写路径、not/负号、float 字面量、Variant 比较、调用参数类型化、dot-name 外部方法（host v0.5.4 缺口）、链式成员/receiver、record 类型系统、ClassName↔ptr coerce、epilogue 重排、嵌套循环 LoopBreak 保存恢复、alloca hoisting、构造函数 calloc、FloatToStr/StrToFloat 内置等。(3) **🎉 gen2 编译器诞生**：8 文件自举 IR（147k 行）通过 llc 并链接出 gen2（814KB，无 Go 依赖），已能启动/读文件/进入 parser。(4) **教程 sweep 48/51 PASS**（`scripts/test_bootstrap_all.sh`，bootstrap-vs-host 输出逐字 diff），仅 example15（lambda 字面量）/50（jwt domination）为已知失败。(5) **bootstrap 编译器坑清单**（自举开发必读，详见 CHANGELOG）：`or/and` 不短路、for 循环变量不遮蔽、`(x as T).F <> nil` 复合条件编译出 `call @(i1)`、`| tail -1` 吞 rebuild 失败。**剩余（v0.6.9 收尾）**：gen2 lexer 阶段崩溃待修、llvmgen.klx 自举 emit 性能 O(n²)、教程 15/50。详见 CHANGELOG.md
+- v0.6.8 已发布（2026-08-23）：**boot server 补强 + stdlib 补全 + JetBrains 插件完善**——POST body 读取 + req.JSON 绑定 + BootRegisterJwtAuth 真校验；encoding Base64URL + httpclient JSON 嵌套；`.klx` 图标 + Run 配置 + LSP 错误高亮。详见 CHANGELOG.md
 - v0.6.7 已发布：**#9 JetBrains 插件 + 安装使用手册**——(1) **`jetbrains-plugin/` 模块**（完整 Gradle Kotlin 项目，IC 2024.3 SDK）：TextMate 语法高亮（复用 vscode-ext tmLanguage，`com.intellij.textmate.bundleProvider` 扩展点）+ **LSP4IJ 桥接 `kylix lsp`**（补全/跳转/重命名/格式化全通）+ 25 个 Live Templates（prog/func/class/controller 等）。(2) **安装使用手册** `jetbrains-plugin/README.md`（环境要求 / 构建安装 / 使用 / 配置 / 故障排查）。(3) **构建验证**：`./gradlew buildPlugin` BUILD SUCCESSFUL，产出可安装 zip（1.6MB）。**ROADMAP #9 ✅**。**剩余（归入 v6.8+）**：boot server 补强（POST body / req.JSON / BootRegisterJwtAuth 真校验）、stdlib 补全（encoding Base64URL / httpclient JSON 嵌套）、net Winsock / regex pcre2（Windows）、内存管理（arena/GC）、bootstrap 无 Go 闭环。详见 CHANGELOG.md
 - v0.6.6 已发布：**boot HTTP server + stdlib 补全 5 项**——(1) **boot HTTP server**（KylixBoot 应用无 Go 环境真正可用）：`Boot<M>` 写路由表（`@__kylix_boot_routes`）、`BootRun` 真体（`TcpListen/Accept` + `read_headers` + `parse_request` + `route_lookup/path_match` + TRequest handle + HTTP/1.1 响应 + 404）、`req.Param/Query/Header/Body` 内联降级（`stdlib_boot_http.go`）。(2) **stdlib 补全**：jwt claims（Verify 返回 claims map + exp 过期检查 + `JwtSubject/GetString/GetInt` + Sign extraClaims + **b64url rem==1 潜伏 bug**）、cache TTL（`PutWithTTL/Get/Sweep` + `htab_keys` + `now_ms`）、httpclient JSON（`HttpGetJSON` 返回 Variant map）、UrlEncode/UrlDecode、Variant div/mod。(3) **顺带修复**：Variant 赋值 as_str 误 coerce、emitCall 参数 variant→ptr、hashtab 门控、httpclient Request 漏 enqueue DoRequest。16 包 + 51 教程（Go+LLVM）+ self-repro 不动点全绿。**剩余（归入 v6.7+）**：#9 JetBrains 插件、net Winsock / regex pcre2（Windows）、内存管理（arena/GC）、bootstrap 无 Go 闭环。详见 CHANGELOG.md
 - v0.6.5 已发布：**WS 自回环 + SHA-1 修复 + KylixRT 完善 + 性能优化**——(1) **手写 SHA-1 修复**（hs 初始常量错位/错值 + padLen 边界，websocket 不再依赖 OpenSSL）。(2) **WS 自回环分阶段 API**（WsDialConnect/WsDialFinish，LLVM+Go 双端，单进程自回环教程 example55）。(3) **KylixRT**：字符串插值 256B 溢出修复 + test/bench auto 回退 + run 错误消息 + doctor bundle 检查。(4) **性能**：DCE 单遍 + 缓存提前 + IR 确定性 + disable-verify + mem2reg——**bootstrap -O0 11.5s→0.381s（30×）**。**剩余（归入 v6.6+）**：#9 JetBrains 插件、boot HTTP server、net Winsock / regex pcre2（Windows）、内存管理（arena/GC）、stdlib 补全。详见 CHANGELOG.md
@@ -90,6 +91,9 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
   - `debug.go` — DWARF 调试符号生成（`-g` flag）：per-instruction DILocation + DILocalVariable + `#dbg_declare`（v0.4.6 逐行调试）+ per-llvmType DIBasicType（v0.4.8 类型精度）
   - `passes.go` — IR 优化 pass 管线（DCE + ConstantFold）
   - `cache.go` — 增量编译缓存（SHA256 键控 .o 复用）
+- `src/stdlib_ir.klx` — **v0.6.9**：host 生成的 stdlib IR 烘焙数据（13 段 + 139 签名，**AUTO-GENERATED，勿手改**；再生：`python3 scripts/extract_stdlib_ir.py > src/stdlib_ir.klx`，依赖 /tmp/stdir_cover/cover.ll + 教程 .ll）
+- `scripts/extract_stdlib_ir.py` — stdlib IR 烘焙提取器（设计文档见文件头）
+- `scripts/test_bootstrap_all.sh` — **v0.6.9**：51 教程 bootstrap-vs-host 全量回归（`--emit-llvm` → llc → clang → 运行 → 输出 diff；按 IR 扫描自动加 -lcrypto/-lsqlite3/-lcurl）
 
 ## 已完成阶段
 
@@ -147,6 +151,8 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - **每个源文件不超过 1000 行**：大文件按功能拆分
 - build=`go build -o /tmp/kylix_bin ./cmd/kylix/ && KYLIX=/tmp/kylix_bin bash examples/complete-tutorial/test_all.sh 2>&1 | tail -8`
 - test=`go test $(go list ./... | grep -v '/examples') 2>&1 | grep -E "^ok|FAIL"`
+- bootstrap（v0.6.9）= `go build -o /tmp/kylix_bin ./cmd/kylix/ && /tmp/kylix_bin build --backend=llvm -o /tmp/main_self_p2_dbg src/token.klx src/error.klx src/ast.klx src/lexer.klx src/parser.klx src/generator.klx src/stdlib_ir.klx src/llvmgen.klx src/main.klx`（**验证输出必须含 `✓ Built`**——管道 tail 会吞 llc 失败）
+- bootstrap sweep（v0.6.9）= `bash scripts/test_bootstrap_all.sh 2>&1 | grep -E "^(FAIL|DIFF|SKIP|KNOWN)|==="`（期望 48 PASS + 2 KNOWN）
 
 ## 已知问题（v0.3.3）
 
@@ -188,7 +194,7 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - **v0.6.6 — boot HTTP server + stdlib 补全 5 项** ✅（2026-08-21 发布）：boot server（`Boot<M>` 路由表 + `BootRun` 真体 + `req.Param/Query/Header/Body` 降级，KylixBoot 无 Go 真正可用）；stdlib 补全（jwt claims / cache TTL / httpclient JSON / UrlEncode / Variant div-mod）；顺带修复（Variant 赋值 as_str 误 coerce、b64url rem==1、hashtab 门控、Request enqueue DoRequest）。16 包 + 51 教程（Go+LLVM）+ self-repro 全绿。详见 CHANGELOG。
 - **v0.6.7 — #9 JetBrains 插件 + 安装使用手册** ✅（2026-08-22 发布）：`jetbrains-plugin/` Gradle Kotlin 模块（IC 2024.3 SDK）：TextMate 语法高亮（复用 vscode-ext tmLanguage）+ LSP4IJ 桥 `kylix lsp`（补全/跳转/重命名/格式化）+ 25 个 Live Templates + `README.md` 安装使用手册；`./gradlew buildPlugin` 产出可安装 zip。**ROADMAP #9 ✅**。详见 CHANGELOG。
 - **v0.6.8 — boot server 补强 + stdlib 补全 + JetBrains 插件完善** ✅（2026-08-23 发布）：boot server（POST body 读取 + `req.JSON` 绑定 + `BootRegisterJwtAuth` 真校验 + BootText Variant coerce + 401 reason）；stdlib（encoding Base64URL + httpclient JSON 嵌套对象 + JsonGetMap map-box 直通）；JetBrains 插件（`.klx` 图标 + Run 配置 + LSP undefined warning / SymbolTable 补全）。16 包 + 51 教程（Go+LLVM）+ boot 端到端 + buildPlugin 全绿。详见 CHANGELOG。
-- **v0.6.9**：内存管理（arena 推广 / 集成 GC，消除长跑泄漏）、bootstrap 无 Go 闭环（generator.klx 实现 LLVM IR emitter——巨型工程）、LLVM 端 Variant 嵌套链式索引 `m['user']['name']` coerce 收尾（`data := JsonDecodeMap(...)` 赋 Variant 自动 box_map）。
+- **v0.6.9（进行中，P3+P4 大部分完成）**：内存管理（arena 推广 ✅）、LLVM 端 Variant 嵌套链式索引 coerce 收尾 ✅、**bootstrap 无 Go 闭环 🚧**——stdlib IR 烘焙（`scripts/extract_stdlib_ir.py` → `src/stdlib_ir.klx`）+ emitter 补缺 20+ 项 + **gen2 诞生**（自举 IR 过 llc 链接成编译器）+ 教程 sweep 48/51；剩余：gen2 lexer 崩溃修复 → 编译教程 → IR 不动点、llvmgen.klx 自举 emit 性能 O(n²)。
 - **v0.7.0 — web 页面开发 + web 框架**：新增 **HTML 页面开发能力**（模板引擎 + 页面渲染 + 静态资源 + 表单/Cookie）+ 一套 **Kylix web 框架**（在 KylixBoot REST API 基础上补页面侧）+ **net Winsock / regex pcre2 真实现**（需 Windows 真机验证）。web 框架具体方案见文档（模板语法、res.HTML/Render、req.Form、static/ 约定、页面教程）。
 - **1.0.0**：v0.6.9 + v0.7.0 全部完成后发布正式版 1.0.0。
 - **后续**：跨平台（Linux/Windows/ARM64 CI 稳定）、自举 stdlib（.klx 编写→bootstrap 编译→自包含）。

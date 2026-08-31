@@ -1,11 +1,11 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-08-08  
-> 当前版本: v0.5.9（进行中，#2/#3/#4 已完成）  
+> 最后更新: 2026-08-31  
+> 当前版本: v0.6.9（进行中——bootstrap 无 Go 闭环 P3+P4）  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**🚧 v0.5.9 进行中！** 多态 gate + KylixBoot 注解自动装配 + validation 注解完整化。已完成：#2 validation（GenerateValidationMethods 移植）、#3 多态 gate（宿主与 self_bin 编译 src/*.klx 都产出 `type TNode interface`）、#4 KylixBoot autowire（ScanBootAnnotations + EmitBootAutoWiring）、#5 ORM（ScanORMAnnotations + GenerateORM*Methods 移植，example47 双端一致）。本轮另修：self-host 多态 gate 缺口（3 处根因）+ regexp import 误判 + validation 触发条件对齐 + forward 声明跳过 + klx `var` 参数值传递限制规避。self-reproduction 不动点保持（self_gen2 ≡ self_gen3，7388 行）。详见 [CHANGELOG.md](CHANGELOG.md)。
+**🚧 v0.6.9 进行中！** bootstrap 无 Go 闭环两大突破：(1) **stdlib IR 烘焙**——host 生成的 stdlib IR 按 13 段烘焙进 `src/stdlib_ir.klx`（免手写 15.5k 行 Go 移植），bootstrap 只做 call-site dispatch + wrapper 类方法；(2) **gen2 编译器诞生**——8 文件自举 IR（147k 行）通过 llc 并链接出 gen2（814KB，无 Go 依赖），能启动/读文件/进入 parser。**bootstrap emitter 补缺 20+ 项**（dot-name 方法/链式成员/record 类型系统/epilogue 重排/嵌套循环/alloca hoisting/构造函数 calloc 等，详见 CHANGELOG）。**教程 sweep 48/51 PASS**（bootstrap-vs-host 逐字 diff，`scripts/test_bootstrap_all.sh`）。**收尾**：gen2 lexer 崩溃待修（crash→修循环约 5-15 轮）、llvmgen.klx 自举 emit 性能 O(n²)、教程 15/50 两个已知失败。**完成后发布 v0.6.9 → 进入 v0.7.0 web 框架**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 **✅ v0.5.8 已发布！** Runtime 正确性达成 51/51（全部 go-build + 运行正确）。修复泛型类静态数组 `array[0..99] of T` 误发为 `[]T`（动态切片）→ `Items` len=0 → `self.Items[self.Count] = item` panic。改 `GenerateTypeExpression` 按 `arrType.Dynamic` 区分静态 `[Size]T` 与动态 `[]T`。example21 runtime 正确（Stack count: 3, Pop: 30/20, count: 1, Pop: World）。self-reproduction 不动点保持。详见 [CHANGELOG.md](CHANGELOG.md)。
 

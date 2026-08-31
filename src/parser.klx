@@ -224,7 +224,11 @@ begin
     or self.CurTokenIs(tkIs)
     or self.CurTokenIs(tkExcept)
     or self.CurTokenIs(tkOn)
-    or self.CurTokenIs(tkWhen);
+    or self.CurTokenIs(tkWhen)
+    or self.CurTokenIs(tkObject)
+    // v0.6.9 P3: `Uses` as a field/member name (TProgram.Uses) — the lexer
+    // matches keywords case-insensitively, so `Uses` arrives as tkUses.
+    or self.CurTokenIs(tkUses);
 end;
 
 function ReadInt64(s: String): Integer;
@@ -283,7 +287,9 @@ begin
     self.NextToken();
     while self.CurTokenIs(tkIdent) do
     begin
-      // Uses is pre-allocated by TProgram.Create
+      // v0.6.9 P3: record the module name — the stdlib IR dispatch needs to
+      // know which modules the program imports (previously just skipped).
+      append(prog.Uses, self.CurToken.Literal);
       self.NextToken();
       if self.CurTokenIs(tkComma) then
         self.NextToken()
@@ -2059,7 +2065,10 @@ var dotToken: TToken;
 begin
   dotToken := self.CurToken;
   self.NextToken();
-  if self.CurTokenIs(tkIdent) or self.IsIdentOrSoftKeyword() then
+  // v0.6.9 P3: accept tkUses too — `prog.Uses` in the bootstrap's own
+  // self-inspection code must parse, and the lexer matches keywords
+  // case-insensitively (`Uses` → tkUses).
+  if self.CurTokenIs(tkIdent) or self.CurTokenIs(tkUses) or self.IsIdentOrSoftKeyword() then
   begin
     var mem: TMemberExpression;
     mem := TMemberExpression.Create();
@@ -2302,7 +2311,9 @@ begin
     while (self.CurTokenIs(tkEnd) = false) and (self.CurTokenIs(tkEOF) = false) do
     begin
       iter := iter + 1;
-      if iter > 1000 then break;
+      // v0.6.9 P3: stdlib_ir.klx's StdIrInit has ~6400 append statements —
+      // the old 1000 cap aborted its block.
+      if iter > 20000 then break;
       var s: TStatement;
       s := self.ParseStatement();
       if s <> nil then

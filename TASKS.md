@@ -1,8 +1,30 @@
 # Kylix 开发任务清单
 
-> 最后更新: 2026-06-26  
-> 当前版本: v0.3.2-dev  
-> 关联文档: [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md)
+> 最后更新: 2026-08-31  
+> 当前版本: v0.6.9-dev（bootstrap 无 Go 闭环 P3+P4）  
+> 关联文档: [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) · [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)
+
+---
+
+## 🚧 v0.6.9 bootstrap 无 Go 闭环（进行中）
+
+### ✅ 已完成（P3+P4，2026-08-31）
+- [x] `scripts/extract_stdlib_ir.py` — stdlib IR 烘焙提取器（13 段 / 139 签名 / @kstr 去重 / declare 差集）
+- [x] `src/stdlib_ir.klx` — 烘焙数据单元（AUTO-GENERATED）
+- [x] bootstrap stdlib dispatch — TryStdlibModuleCall / TryStdlibBareCall / EmitStdlibCall / MarkStdSeg / EmitStdlibSegments + 段依赖闭包
+- [x] wrapper 类方法 — TCache / THttpClient / TDateTime + NewCache/Now/Today 内联
+- [x] main-program var 全局化 + 数组元数据注册（arr[i] / append / Length 对全局数组可用）
+- [x] emitter 补缺 20+ 项 — 数组写路径 / not/负号 / float 字面量 / Variant 比较 / 调用参数类型化 / dot-name 方法 / 链式成员+receiver / record 类型系统 / ClassName↔ptr coerce / epilogue 重排 / 嵌套循环 LoopBreak / alloca hoisting / calloc 构造 / FloatToStr·StrToFloat·StrToInt64 / 元组返回类型转义 / main argc+argv
+- [x] parser — uses 记录 / tkUses 软关键字 / 块迭代上限 20000（host+bootstrap 同步）
+- [x] **gen2 诞生** — 8 文件自举 IR（147k 行）过 llc → 链接 gen2（814KB）→ 启动/读文件/进 parser
+- [x] `scripts/test_bootstrap_all.sh` — 51 教程 bootstrap-vs-host 全量回归（**48 PASS** + example33 多文件）
+
+### 🚧 剩余（v0.6.9 发布门槛）
+- [ ] gen2 lexer NextToken 崩溃修复（crash→修循环，见 TECHNICAL_DEBT.md）
+- [ ] gen2 完整跑通：编译一个教程程序 → 输出正确 → 编译自身（IR 不动点）
+- [ ] llvmgen.klx 自举 emit 性能（O(n²) 逗号串扫描 → 索引式）
+- [ ] 教程 15（lambda 字面量）/50（jwt domination）——可延后记 limitation
+- [ ] CHANGELOG/CLAUDE/ROADMAP/TECHNICAL_DEBT/TASKS 文档定稿（本次一并提交）
 
 ---
 
