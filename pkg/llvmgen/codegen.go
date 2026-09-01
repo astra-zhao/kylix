@@ -605,6 +605,11 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare i32 @printf(ptr noundef, ...)")
 	g.line("declare i32 @puts(ptr noundef)")
 	g.line("declare ptr @malloc(i64 noundef)")
+	// v0.6.9 P4: EProg(s) stderr probe — a bootstrap self-emit leaves a live
+	// progress trail even if the process is OOM-killed mid-emit.
+	g.line("declare i64 @write(i32 noundef, ptr noundef, i64 noundef)")
+	// v0.6.9 P4: zero-initialized allocations (class instances, record locals)
+	g.line("declare ptr @calloc(i64 noundef, i64 noundef)")
 	g.line("declare void @free(ptr noundef)")
 	g.line("declare i64 @strlen(ptr noundef)")
 	g.line("declare ptr @strcpy(ptr noundef, ptr noundef)")

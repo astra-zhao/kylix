@@ -659,8 +659,16 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 	for _, f := range info.Fields {
 		size += llvmTypeSize(f.LLVMType)
 	}
+	// v0.6.9 P4: MUST be calloc. Plain malloc left scalar fields (String /
+	// record / class-ptr) as heap garbage — e.g. TParser.CurToken/PeekToken
+	// (records) and TParser.Lex (ptr) were 0xbe-pattern junk until first
+	// assignment, and NextToken's `self.CurToken := self.PeekToken` memcpy
+	// propagated the garbage (ASAN SEGV in TParser_NextToken, intermittent
+	// memmove crashes, giant strlen runs on unterminated strings → the
+	// self-emit OOM). Map/slice fields are still explicitly initialized below
+	// (calloc zeroes are not enough for map fields — they need a live htab).
 	allocReg := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", allocReg, size))
+	g.line(fmt.Sprintf("  %s = call ptr @calloc(i64 1, i64 %d)", allocReg, size))
 
 	// v0.5.4: ALWAYS store the vtable pointer at offset 0, even for classes
 	// with no methods. Previously only classes with methods got their vtable

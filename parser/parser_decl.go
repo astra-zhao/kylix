@@ -16,7 +16,7 @@ func (p *Parser) isSoftKeyword() bool {
 		token.FORWARD, token.VIRTUAL, token.OVERRIDE, token.STATIC,
 		token.STORED, token.PACKED, token.FILE, token.NEW, token.DELETE,
 		token.EXPORT, token.IMPORT, token.MODULE, token.IS,
-		token.EXCEPT, token.ON, token.WHEN:
+		token.EXCEPT, token.ON, token.WHEN, token.OBJECT, token.USES:
 		return true
 	}
 	return false

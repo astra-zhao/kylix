@@ -62,8 +62,9 @@ var
 begin
   bi := TBox<Integer>.Create;
 end.`)
-	// Constructor goes through emitConstructor which uses @malloc.
-	assertIRContains(t, ir, "call ptr @malloc")
+	// Constructor goes through emitConstructor (v0.6.9 P4: calloc — zeroed
+	// instance, so scalar/record fields never start as heap garbage).
+	assertIRContains(t, ir, "call ptr @calloc")
 	// And references the specialized struct.
 	assertIRContains(t, ir, "%TBox_Integer")
 }
@@ -98,6 +99,6 @@ var
 begin
   f := TFoo.Create;
 end.`)
-	assertIRContains(t, ir, "call ptr @malloc")
+	assertIRContains(t, ir, "call ptr @calloc")
 	assertIRContains(t, ir, "%TFoo")
 }

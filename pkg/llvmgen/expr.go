@@ -824,6 +824,37 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		return g.emitIntToStr(e.Arguments[0])
 	}
 
+	// v0.6.9 P4: WriteOut(s) — unbounded stdout write (write(1, s, strlen)).
+	// The WriteLn path uses a fixed 512-byte buffer; the bootstrap's whole
+	// emitted IR (megabytes) needs a real write.
+	if funcName == "WriteOut" && len(e.Arguments) == 1 {
+		v, _, err := g.emitExpr(e.Arguments[0])
+		if err != nil {
+			return "", "", err
+		}
+		n := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", n, v))
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @write(i32 1, ptr %s, i64 %s)", r, v, n))
+		return r, "i64", nil
+	}
+
+	// v0.6.9 P4: EProg(s) — stderr progress probe (fprintf(stderr, "%s\n", s)).
+	// A bootstrap self-emit run leaves a live trail on stderr even if the
+	// process is OOM-killed mid-emit. bootstrap emitter has the matching
+	// EProg dispatch in EmitPlainCall.
+	if funcName == "EProg" && len(e.Arguments) == 1 {
+		v, _, err := g.emitExpr(e.Arguments[0])
+		if err != nil {
+			return "", "", err
+		}
+		n := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", n, v))
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @write(i32 2, ptr %s, i64 %s)", r, v, n))
+		return r, "i64", nil
+	}
+
 	// v0.6.1: FloatToStr(x) → snprintf("%.17g"). Without this the bootstrap
 	// (src/generator.klx calls FloatToStr for float literal emission) lowered it
 	// to a call on an unknown function returning i64, so the String result was

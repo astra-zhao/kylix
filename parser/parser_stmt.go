@@ -68,7 +68,8 @@ func (p *Parser) parseBlockStatement() *ast.BlockStatement {
 	iterations := 0
 	for !p.curTokenIs(token.END) && !p.curTokenIs(token.EOF) {
 		iterations++
-		if iterations > 1000 {
+		// v0.6.9 P3: stdlib_ir.klx's StdIrInit has ~6400 append statements.
+		if iterations > 20000 {
 			p.errors = append(p.errors, fmt.Sprintf("Block parsing exceeded maximum iterations at token: %s (%s)",
 				p.curToken.Literal, p.curToken.Type))
 			break

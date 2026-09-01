@@ -1,6 +1,10 @@
 unit lexer;
 uses token;
 
+var
+  LFChar: String;   // v0.6.9 P4: a real 0x0A byte lifted from the source text
+  LFSet: Boolean;   // guard: Length() on a null global string would strlen(null)
+
 type
   TLexer = class
     Input: String;
@@ -38,6 +42,11 @@ begin
 
   if Ord(self.Ch) = 10 then
   begin
+    if LFSet = false then
+    begin
+      LFChar := self.Ch;
+      LFSet := true;
+    end;
     self.Line := self.Line + 1;
     self.Column := 0;
   end;

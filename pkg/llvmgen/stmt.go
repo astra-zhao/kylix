@@ -344,8 +344,10 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 					for _, f := range g.classes[retKylix].Fields {
 						size += llvmTypeSize(f.LLVMType)
 					}
+					// v0.6.9 P4: calloc — the caller may read fields the callee
+					// never assigned (garbage unterminated strings downstream).
 					recReg := g.tmp()
-					g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", recReg, size))
+					g.line(fmt.Sprintf("  %s = call ptr @calloc(i64 1, i64 %d)", recReg, size))
 					// Store vtable for is/as (records have [0 x ptr] vtable).
 					g.line(fmt.Sprintf("  store ptr @%s_vtable, ptr %s", retKylix, recReg))
 					g.line(fmt.Sprintf("  store ptr %s, ptr %%result", recReg))
@@ -701,8 +703,11 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 			for _, f := range g.classes[ident.Value].Fields {
 				size += llvmTypeSize(f.LLVMType)
 			}
+			// v0.6.9 P4: calloc — `var tok: TToken` fields must start zeroed;
+			// reading an unassigned field of a malloc'd record returns heap
+			// garbage (0xbe pattern) that explodes downstream string ops.
 			rec := g.tmp()
-			g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", rec, size))
+			g.line(fmt.Sprintf("  %s = call ptr @calloc(i64 1, i64 %d)", rec, size))
 			g.line(fmt.Sprintf("  store ptr %s, ptr %s", rec, allocaReg))
 			g.locals[name] = allocaReg
 			g.localTypes[name] = ident.Value

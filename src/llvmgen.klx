@@ -34,6 +34,13 @@ type
   TLLVMGenerator = class
     Output: String;         // IR text accumulator (compat)
     OutputBuf: String;      // P3: chunked output buffer (avoids O(n²) strcpy)
+    StmtSeq: Integer;       // v0.6.9 P4: stderr probe sequence counter
+    EmitDepth: Integer;     // v0.6.9 P4: call-emit recursion depth (circuit breaker)
+    BufLen: Integer;        // v0.6.9 P4: manual flush counter — Length(field)
+                            // mis-resolved inside the inline type-block methods,
+                            // so the >4096 flush never fired and OutputBuf grew
+                            // unbounded (each Write re-malloc'd the whole buffer
+                            // → the 6GB self-emit OOM).
     OutputChunks: array of String; // P3: completed 4KB chunks, joined at the end
     StrCount: Integer;
     StrDedup: array of TLLVMStringConst;
@@ -97,6 +104,7 @@ type
     // P2: class layout tables (mirrors host ClassInfo/FieldInfo/MethodInfo)
     ClassNames: array of String;
     ClassEmittedFlags: array of Boolean;
+    EmittedNames: array of String; // v0.6.9 P4: emitted-class name list
     ClassParents: array of String;
     ClassFieldNames: array of String;   // per-class field names (comma-string)
     ClassFieldTypes: array of String;   // per-class field LLVM types (comma-string)
@@ -123,6 +131,25 @@ type
     // to append at module end (MarkStdSeg enqueues, EmitStdlibSegments drains).
     UsedMods: array of String;
     UsedSegs: array of String;
+    RecordNames: array of String; // v0.6.9 P3: record type names (Pass 0)
+    // v0.6.9 P4: flat per-(class,slot) registries. The comma-string accessors
+    // below are char-at-a-time O(n²) per call and got hit 1.4M times while
+    // self-compiling (MethodCount alone = 1.3GB of never-freed garbage → the
+    // self-emit OOM). Flat entries are copied from the parent in MakeClassInfo
+    // (child tables are supersets), so lookups never walk the inheritance
+    // chain and never build strings. Integer arrays here are append+read only.
+    VtCls: array of Integer;   // owning class index
+    VtSlot: array of Integer;  // vtable slot
+    VtName: array of String;
+    VtRet: array of String;    // escaped (',' → '|') like ClassMethodRet
+    VtDef: array of String;    // defining class name
+    FlCls: array of Integer;   // owning class index
+    FlSlot: array of Integer;  // 0-based field slot (struct index = slot+1)
+    FlName: array of String;
+    FlType: array of String;
+    FlKylix: array of String;
+    FlElem: array of String;
+    FlMap: array of String;    // '1' when the field is a map
     // scratch for the JsonEncode map-arg check (member chains parse; a bare
     // function-parameter `arr[0] as T` does not)
     TmpArg0: TExpression;
@@ -132,12 +159,23 @@ type
     // implementation `procedure TLLVMGenerator.Write` parses as an expression
     // ("no prefix parse function for write"). Inline bodies disambiguate.
     procedure Write(s: String);
+    var big: String;
     begin
-      self.OutputBuf := self.OutputBuf + s;
-      if Length(self.OutputBuf) > 4096 then
+      // v0.6.9 P4 DBG: every emitter output funnels through here — catch any
+      // runaway line, print its head, and truncate so the run survives.
+      big := s;
+      if Length(big) > 8192 then
+      begin
+        self.WriteLine('  ; DBG huge-write len=' + self.IntToStrS(Length(big)) + ' head=' + big[0:100]);
+        big := '; TRUNC';
+      end;
+      self.OutputBuf := self.OutputBuf + big;
+      self.BufLen := self.BufLen + Length(big);
+      if self.BufLen > 4096 then
       begin
         append(self.OutputChunks, self.OutputBuf);
         self.OutputBuf := '';
+        self.BufLen := 0;
       end;
     end;
 
@@ -154,11 +192,16 @@ type
 
     procedure WriteLine(s: String);
     begin
-      self.OutputBuf := self.OutputBuf + s + '\n';
-      if Length(self.OutputBuf) > 4096 then
+      // v0.6.9 P4: use a real 0x0A byte (lifted from the source by the lexer)
+      // — the raw '\n' literal stays 2 bytes in the bootstrap, and the
+      // emitted IR must be multi-line for llc to parse it.
+      self.OutputBuf := self.OutputBuf + s + LFChar;
+      self.BufLen := self.BufLen + Length(s) + Length(LFChar);
+      if self.BufLen > 4096 then
       begin
         append(self.OutputChunks, self.OutputBuf);
         self.OutputBuf := '';
+        self.BufLen := 0;
       end;
     end;
 
@@ -610,12 +653,17 @@ var
   decl: TNode;
   td: TTypeDecl;
   cd: TClassDecl;
+  cdec: TConstDecl;
   mainIdx: Integer;
   hasBody: Boolean;
   ei: Integer;
 begin
   self.EmitHeader();
   self.EmitRuntimeDecls();
+  // v0.6.9 P4: register the `progs` parameter array so `progs[pi].Field`
+  // resolves (was: array index unhandled → IsUnit/Declarations/Statements
+  // all collapsed to stubs inside Pass 0/2/3).
+  self.RegisterArray('progs', true, 'ptr', 'TProgram', 0, 0);
   self.WriteLine('  ; dbg programs=' + self.IntToStrS(Length(progs)));
   StdIrInit();
   // NOTE: uses collection for EmitPrograms is done inside EmitDecl loops via
@@ -646,6 +694,7 @@ begin
           if self.ClassIndex(td.Name) < 0 then
           begin
             append(self.ClassNames, td.Name);
+            append(self.RecordNames, td.Name);
             append(self.ClassEmittedFlags, false);
             append(self.ClassParents, '');
             append(self.ClassFieldNames, '');
@@ -705,6 +754,15 @@ begin
             append(self.CVals, ei);
           end;
         end;
+      end
+      else if decl is TConstDecl then
+      begin
+        // v0.6.9 P4: integer consts must be registered or every read in the
+        // emitted code collapses to 0 (`undefined var PREC_EQUALS` broke
+        // GetPrecedence → all call parsing in gen2).
+        cdec := decl as TConstDecl;
+        append(self.CNames, cdec.Name);
+        append(self.CVals, self.EvalConstInt(cdec.Value));
       end;
       i := i + 1;
     end;
@@ -839,15 +897,37 @@ end;
 // end, instead of O(n²) re-copying per WriteLine). P3.
 procedure TLLVMGenerator.FinalizeOutput;
 var
-  i: Integer;
-  all: String;
+  n, i, w: Integer;
 begin
-  all := '';
-  for i := 0 to Length(self.OutputChunks) - 1 do
-    all := all + self.OutputChunks[i];
-  all := all + self.OutputBuf;
-  self.Output := all;
+  // v0.6.9/P4: pairwise in-place merge. The old `all := all + chunk` loop is
+  // O(n²) in allocations — ~1900 4KB chunks re-malloc the whole prefix on
+  // every step ≈ 7GB of never-freed strings (no GC in the LLVM runtime) —
+  // the self-emit OOM. Pairwise merging does log2(n) rounds, each allocating
+  // the output size once (~2x total). NB: `w <= i` always, so overwriting
+  // slot w with the merge of slots i/i+1 never clobbers unmerged data.
+  if Length(self.OutputBuf) > 0 then
+    append(self.OutputChunks, self.OutputBuf);
   self.OutputBuf := '';
+  n := Length(self.OutputChunks);
+  while n > 1 do
+  begin
+    w := 0;
+    i := 0;
+    while i < n do
+    begin
+      if i + 1 < n then
+        self.OutputChunks[w] := self.OutputChunks[i] + self.OutputChunks[i + 1]
+      else
+        self.OutputChunks[w] := self.OutputChunks[i];
+      w := w + 1;
+      i := i + 2;
+    end;
+    n := w;
+  end;
+  if n > 0 then
+    self.Output := self.OutputChunks[0]
+  else
+    self.Output := '';
   self.OutputChunks := [];
 end;
 
@@ -867,6 +947,7 @@ begin
   self.WriteLine('declare i32 @printf(ptr noundef, ...)');
   self.WriteLine('declare i32 @puts(ptr noundef)');
   self.WriteLine('declare ptr @malloc(i64 noundef)');
+  self.WriteLine('declare i64 @write(i32 noundef, ptr noundef, i64 noundef)');
   self.WriteLine('declare ptr @calloc(i64 noundef, i64 noundef)');
   self.WriteLine('declare void @free(ptr noundef)');
   self.WriteLine('declare i64 @strlen(ptr noundef)');
@@ -979,6 +1060,14 @@ var
   stmt: TStatement;
 begin
   self.WriteLine('; ===== Entry point =====');
+  // v0.6.9 P4: fresh local scope — the last Pass-2 function's locals leak
+  // into main otherwise, so main's `for i := ...` RegisterLocal found a
+  // stale 'i' (no alloca emitted here) and referenced the ghost register.
+  self.LNames := [];
+  self.LTypes := [];
+  self.LRegs := [];
+  self.LKylix := [];
+  self.LMapValueTypes := [];
   self.InFunc := true;
   self.InReturnFunc := false;
   self.ResultLLVMType := '';
@@ -1199,6 +1288,8 @@ var
   cflds: array of String;
   fld: TVarDecl;
   j, m: Integer;
+  fslot: Integer;
+  at: TArrayType;
   llvmT, kt, ekt: String;
 begin
   if self.ClassEmitted(rname) then Exit;
@@ -1228,9 +1319,10 @@ begin
     ekt := '';
     if fld.VarType is TArrayType then
     begin
-      if (fld.VarType as TArrayType).Dynamic then llvmT := '{ ptr, i64, i64 }'
+      at := fld.VarType as TArrayType;
+      if at.Dynamic then llvmT := '{ ptr, i64, i64 }'
       else llvmT := self.LlvmTypeOfExpr(fld.VarType);
-      ekt := self.TypeExprName((fld.VarType as TArrayType).ElementType);
+      ekt := self.TypeExprName(at.ElementType);
     end
     else if fld.VarType is TMapType then llvmT := 'ptr'
     else if fld.VarType <> nil then llvmT := self.LlvmTypeOfExpr(fld.VarType);
@@ -1242,6 +1334,18 @@ begin
       self.ClassFieldKylix[self.ClassIndex(rname)] := self.ClassFieldKylix[self.ClassIndex(rname)] + kt + ',';
       self.ClassFieldElemKylix[self.ClassIndex(rname)] := self.ClassFieldElemKylix[self.ClassIndex(rname)] + ekt + ',';
       self.ClassFieldMaps[self.ClassIndex(rname)] := self.ClassFieldMaps[self.ClassIndex(rname)] + '0,';
+      // v0.6.9 P4: keep the flat registry in sync (field lookups scan it).
+      // NB: compute the slot BEFORE appending — ClassFieldCountAt scans the
+      // flat table, so counting after the FlCls append shifts every slot +1
+      // (the `{ ptr, , double }` llc regression).
+      fslot := self.ClassFieldCountAt(self.ClassIndex(rname));
+      append(self.FlCls, self.ClassIndex(rname));
+      append(self.FlSlot, fslot);
+      append(self.FlName, fld.Names[m]);
+      append(self.FlType, llvmT);
+      append(self.FlKylix, kt);
+      append(self.FlElem, ekt);
+      append(self.FlMap, '0');
     end;
   end;
   self.MarkClassEmitted(rname);
@@ -1300,15 +1404,33 @@ var
   st: TStatement;
   vd: TVarDecl;
   blk: TBlockStatement;
+  ifst: TIfStatement;
+  whst: TWhileStatement;
+  forst: TForStatement;
+  trst: TTryStatement;
+  vname: String;
+  vtyExp: TExpression;
+  hasVType, notInferred: Boolean;
 begin
+  // v0.6.9 P4: every nested field read goes through a local FIRST. The direct
+  // forms — (st as T).Field.Statements as a call argument, vd.Names[0] as an
+  // argument, `and` compounds of member chains — hit the broken param-marshal
+  // / compound-condition paths and blow the emit up (8GB garbage concats).
   for i := 0 to Length(stmts) - 1 do
   begin
     st := stmts[i];
     if st is TVarDecl then
     begin
       vd := st as TVarDecl;
-      if (vd.VarType <> nil) and (vd.Inferred = false) then
-        self.EmitVarDeclSingle(vd.Names[0], vd.VarType);
+      vname := vd.Names[0];
+      vtyExp := vd.VarType;
+      hasVType := vd.VarType <> nil;
+      notInferred := vd.Inferred = false;
+      if hasVType then
+      begin
+        if notInferred then
+          self.EmitVarDeclSingle(vname, vtyExp);
+      end;
     end
     else if st is TBlockStatement then
     begin
@@ -1317,46 +1439,86 @@ begin
     end
     else if st is TIfStatement then
     begin
-      if (st as TIfStatement).Consequence <> nil then
-        self.PreEmitAllocas((st as TIfStatement).Consequence.Statements);
-      if (st as TIfStatement).Alternative <> nil then
-        self.PreEmitAllocas((st as TIfStatement).Alternative.Statements);
+      ifst := st as TIfStatement;
+      if ifst.Consequence <> nil then
+      begin
+        blk := ifst.Consequence as TBlockStatement;
+        self.PreEmitAllocas(blk.Statements);
+      end;
+      if ifst.Alternative <> nil then
+      begin
+        blk := ifst.Alternative as TBlockStatement;
+        self.PreEmitAllocas(blk.Statements);
+      end;
     end
     else if st is TWhileStatement then
     begin
-      if (st as TWhileStatement).Body <> nil then
-        self.PreEmitAllocas((st as TWhileStatement).Body.Statements);
+      whst := st as TWhileStatement;
+      if whst.Body <> nil then
+      begin
+        blk := whst.Body as TBlockStatement;
+        self.PreEmitAllocas(blk.Statements);
+      end;
     end
     else if st is TForStatement then
     begin
       // v0.6.9 P3: hoist the loop variable's alloca too (EmitFor would
       // otherwise alloca it inside an enclosing branch block)
-      self.RegisterLocal((st as TForStatement).Variable, 'i64', '');
-      if (st as TForStatement).Body <> nil then
-        self.PreEmitAllocas((st as TForStatement).Body.Statements);
+      forst := st as TForStatement;
+      vname := forst.Variable;
+      self.RegisterLocal(vname, 'i64', '');
+      if forst.Body <> nil then
+      begin
+        blk := forst.Body as TBlockStatement;
+        self.PreEmitAllocas(blk.Statements);
+      end;
     end
     else if st is TTryStatement then
     begin
-      if (st as TTryStatement).Body <> nil then
-        self.PreEmitAllocas((st as TTryStatement).Body.Statements);
-      if (st as TTryStatement).ExceptBlock <> nil then
-        self.PreEmitAllocas((st as TTryStatement).ExceptBlock.Statements);
-      if (st as TTryStatement).FinallyBlock <> nil then
-        self.PreEmitAllocas((st as TTryStatement).FinallyBlock.Statements);
+      trst := st as TTryStatement;
+      if trst.Body <> nil then
+      begin
+        blk := trst.Body as TBlockStatement;
+        self.PreEmitAllocas(blk.Statements);
+      end;
+      if trst.ExceptBlock <> nil then
+      begin
+        blk := trst.ExceptBlock as TBlockStatement;
+        self.PreEmitAllocas(blk.Statements);
+      end;
+      if trst.FinallyBlock <> nil then
+      begin
+        blk := trst.FinallyBlock as TBlockStatement;
+        self.PreEmitAllocas(blk.Statements);
+      end;
     end;
   end;
 end;
 
 function TLLVMGenerator.FuncParamTypes(decl: TNode): String;
 var
-  i: Integer;
-  s: String;
+  i, k: Integer;
+  s, ptt, out2: String;
+  fd: TFunctionDecl;
+  ptyExp: TExpression;
 begin
   s := '';
-  for i := 0 to Length((decl as TFunctionDecl).Parameters) - 1 do
+  fd := decl as TFunctionDecl;
+  for i := 0 to Length(fd.Parameters) - 1 do
   begin
     if i > 0 then s := s + ',';
-    s := s + self.LlvmTypeOfExpr((decl as TFunctionDecl).Parameters[i].ParamType);
+    ptyExp := fd.Parameters[i].ParamType; // v0.6.9 P4: index-member via local
+    ptt := self.LlvmTypeOfExpr(ptyExp);
+    // v0.6.9 P4: escape ',' in '{ ptr, i64, i64 }' — the raw comma split the
+    // comma-string and shifted every later parameter's type (fragments like
+    // ' i64 }' / 'TExpression' then leaked into other calls' arg types).
+    out2 := '';
+    for k := 0 to Length(ptt) - 1 do
+    begin
+      if ptt[k:k+1] = ',' then out2 := out2 + '|'
+      else out2 := out2 + ptt[k:k+1];
+    end;
+    s := s + out2;
   end;
   result := s;
 end;
@@ -1392,6 +1554,10 @@ procedure TLLVMGenerator.EmitFunctionDecl(fd: TFunctionDecl);
 var
   i: Integer;
   retType, llvmT, allocaReg: String;
+  pname: String;
+  ptyExp: TExpression;
+  lnode: TNode;
+  vat: TArrayType;
   params: array of String;
   lvd: TVarDecl;
   blk: TBlockStatement;
@@ -1402,6 +1568,7 @@ begin
   // the name contains a dot. Lower to @ClassName_MethodName with a leading
   // `ptr %self` parameter (mirrors host v0.5.4; most bootstrap TLexer/TParser/
   // TGenerator methods are written this way in the units).
+  EProg('fn ' + fd.Name);
   extClass := '';
   extMethod := '';
   funcSymbol := fd.Name;
@@ -1421,9 +1588,14 @@ begin
     append(params, 'ptr %self');
   for i := 0 to Length(fd.Parameters) - 1 do
   begin
+    // v0.6.9 P4: funnel index-member reads (fd.Parameters[i].X) through
+    // locals — as call arguments they hit the broken param-marshal path and
+    // blow up the emit (8GB of garbage concats, see EmitFunctionDecl notes).
+    pname := fd.Parameters[i].Name;
+    ptyExp := fd.Parameters[i].ParamType;
     llvmT := 'i64';
-    if fd.Parameters[i].ParamType <> nil then llvmT := self.LlvmTypeOfExpr(fd.Parameters[i].ParamType);
-    append(params, llvmT + ' %' + fd.Parameters[i].Name);
+    if ptyExp <> nil then llvmT := self.LlvmTypeOfExpr(ptyExp);
+    append(params, llvmT + ' %' + pname);
   end;
   self.WriteLine('define ' + retType + ' @' + funcSymbol + '(' + self.JoinStr(params, ', ') + ') {');
   self.WriteLine('entry:');
@@ -1446,10 +1618,20 @@ begin
   end;
   for i := 0 to Length(fd.Parameters) - 1 do
   begin
+    // v0.6.9 P4: index-member reads through locals (see the params loop above
+    // — direct `fd.Parameters[i].X` call args explode the param marshal).
+    EProg('ploop2 i=' + self.IntToStrS(i));
+    pname := fd.Parameters[i].Name;
+    EProg('ploop2 name');
+    ptyExp := fd.Parameters[i].ParamType;
+    EProg('ploop2 pty');
     llvmT := 'i64';
-    if fd.Parameters[i].ParamType <> nil then llvmT := self.LlvmTypeOfExpr(fd.Parameters[i].ParamType);
-    allocaReg := self.RegisterLocal(fd.Parameters[i].Name, llvmT, self.TypeExprName(fd.Parameters[i].ParamType));
-    self.WriteLine('  store ' + llvmT + ' %' + fd.Parameters[i].Name + ', ptr ' + allocaReg);
+    if ptyExp <> nil then llvmT := self.LlvmTypeOfExpr(ptyExp);
+    EProg('ploop2 llvmT');
+    allocaReg := self.RegisterLocal(pname, llvmT, self.TypeExprName(ptyExp));
+    EProg('ploop2 reg');
+    self.WriteLine('  store ' + llvmT + ' %' + pname + ', ptr ' + allocaReg);
+    EProg('ploop2 store');
   end;
   if retType <> 'void' then
   begin
@@ -1462,9 +1644,12 @@ begin
   end;
   for i := 0 to Length(fd.LocalDecls) - 1 do
   begin
-    if fd.LocalDecls[i] is TVarDecl then
+    // v0.6.9 P4: index-member is/as (fd.LocalDecls[i] is T) explodes the emit
+    // (8GB of garbage concats) — funnel the element through a local first.
+    lnode := fd.LocalDecls[i];
+    if lnode is TVarDecl then
     begin
-      lvd := fd.LocalDecls[i] as TVarDecl;
+      lvd := lnode as TVarDecl;
       self.EmitVarDecl(lvd);
     end;
   end;
@@ -1489,19 +1674,26 @@ procedure TLLVMGenerator.EmitMethod(className: String; method: TFunctionDecl);
 var
   i: Integer;
   retType, llvmT, allocaReg: String;
+  pname: String;
+  ptyExp: TExpression;
+  lnode: TNode;
   params: array of String;
   lvd: TVarDecl;
   blk: TBlockStatement;
 begin
+  EProg('fn ' + className + '.' + method.Name);
   retType := 'void';
   if method.ReturnType <> nil then retType := self.LlvmTypeOfExpr(method.ReturnType);
   params := [];
   append(params, 'ptr %self');
   for i := 0 to Length(method.Parameters) - 1 do
   begin
+    // v0.6.9 P4: index-member reads through locals (param-marshal explosion)
+    pname := method.Parameters[i].Name;
+    ptyExp := method.Parameters[i].ParamType;
     llvmT := 'i64';
-    if method.Parameters[i].ParamType <> nil then llvmT := self.LlvmTypeOfExpr(method.Parameters[i].ParamType);
-    append(params, llvmT + ' %' + method.Parameters[i].Name);
+    if ptyExp <> nil then llvmT := self.LlvmTypeOfExpr(ptyExp);
+    append(params, llvmT + ' %' + pname);
   end;
   self.WriteLine('define ' + retType + ' @' + className + '_' + method.Name + '(' + self.JoinStr(params, ', ') + ') {');
   self.WriteLine('entry:');
@@ -1521,10 +1713,19 @@ begin
   append(self.LKylix, className);
   for i := 0 to Length(method.Parameters) - 1 do
   begin
+    pname := method.Parameters[i].Name;
+    ptyExp := method.Parameters[i].ParamType;
     llvmT := 'i64';
-    if method.Parameters[i].ParamType <> nil then llvmT := self.LlvmTypeOfExpr(method.Parameters[i].ParamType);
-    allocaReg := self.RegisterLocal(method.Parameters[i].Name, llvmT, self.TypeExprName(method.Parameters[i].ParamType));
-    self.WriteLine('  store ' + llvmT + ' %' + method.Parameters[i].Name + ', ptr ' + allocaReg);
+    if ptyExp <> nil then llvmT := self.LlvmTypeOfExpr(ptyExp);
+    allocaReg := self.RegisterLocal(pname, llvmT, self.TypeExprName(ptyExp));
+    self.WriteLine('  store ' + llvmT + ' %' + pname + ', ptr ' + allocaReg);
+    // v0.6.9 P4: array params need element info or `p[i]` reads collapse to
+    // unhandled stubs inside the function body (EmitStatements' stmts etc).
+    if ptyExp is TArrayType then
+    begin
+      vat := ptyExp as TArrayType;
+      self.RegisterArray(pname, vat.Dynamic, self.LlvmTypeOfExpr(vat.ElementType), self.TypeExprName(vat.ElementType), 0, 0);
+    end;
   end;
   if retType <> 'void' then
   begin
@@ -1537,9 +1738,11 @@ begin
   end;
   for i := 0 to Length(method.LocalDecls) - 1 do
   begin
-    if method.LocalDecls[i] is TVarDecl then
+    // v0.6.9 P4: index-member is/as through a local (see EmitFunctionDecl)
+    lnode := method.LocalDecls[i];
+    if lnode is TVarDecl then
     begin
-      lvd := method.LocalDecls[i] as TVarDecl;
+      lvd := lnode as TVarDecl;
       self.EmitVarDecl(lvd);
     end;
   end;
@@ -1580,10 +1783,15 @@ end;
 // ============================================================================
 
 procedure TLLVMGenerator.EmitStatements(stmts: array of TStatement);
-var i: Integer;
+var i, n: Integer;
 begin
-  for i := 0 to Length(stmts) - 1 do
+  n := Length(stmts);
+  for i := 0 to n - 1 do
+  begin
+    if n > 8 then
+      EProg('stmt seq=' + self.IntToStrS(self.StmtSeq) + ' i=' + self.IntToStrS(i) + ' of=' + self.IntToStrS(n));
     self.EmitStatement(stmts[i]);
+  end;
 end;
 
 procedure TLLVMGenerator.EmitStatement(stmt: TStatement);
@@ -1598,33 +1806,40 @@ var
   ret: TReturnStatement;
   blk: TBlockStatement;
 begin
+  self.EmitDepth := 0;
   if stmt is TVarDecl then
   begin
+    EProg('kind var');
     vd := stmt as TVarDecl;
     self.EmitVarDecl(vd);
   end
   else if stmt is TAssignmentStatement then
   begin
+    EProg('kind assign');
     asgn := stmt as TAssignmentStatement;
     self.EmitAssign(asgn);
   end
   else if stmt is TExpressionStatement then
   begin
+    EProg('kind expr');
     es := stmt as TExpressionStatement;
     self.EmitExprStatement(es);
   end
   else if stmt is TIfStatement then
   begin
+    EProg('kind if');
     ifSt := stmt as TIfStatement;
     self.EmitIf(ifSt);
   end
   else if stmt is TWhileStatement then
   begin
+    EProg('kind while');
     wh := stmt as TWhileStatement;
     self.EmitWhile(wh);
   end
   else if stmt is TForStatement then
   begin
+    EProg('kind for');
     fo := stmt as TForStatement;
     self.EmitFor(fo);
   end
@@ -1752,14 +1967,32 @@ end;
 
 procedure TLLVMGenerator.EmitVarDeclSingle(name: String; varType: TExpression);
 var llvmT: String;
+  vat: TArrayType;
+  vtn: String;
+  ista: Boolean;
 begin
+  vtn := self.TypeExprName(varType);
+  if name = 'at' then
+  begin
+    ista := false;
+    if varType is TArrayType then ista := true;
+    EProg('VDS at vtn=' + vtn + ' ci=' + self.IntToStrS(self.ClassIndex(vtn)));
+  end;
+  llvmT := self.LlvmTypeOfExpr(varType);
+  if name = 'at' then
+    EProg('VDS at llvmT=' + llvmT);
   if varType is TArrayType then
   begin
-    if (varType as TArrayType).Dynamic then
+    // v0.6.9 P4: at := ... locals must keep their Kylix class name (was ''),
+    // or a following `at.Dynamic` / `at.ElementType` member read resolves no
+    // receiver class → unhandled stub → `br i1 ptr` verifier error. Also
+    // funnel the as-chain reads through the `at` local.
+    vat := varType as TArrayType;
+    if vat.Dynamic then
       llvmT := '{ ptr, i64, i64 }'
     else
       llvmT := '[1 x i64]';
-    self.RegisterLocal(name, llvmT, '');
+    self.RegisterLocal(name, llvmT, self.TypeExprName(varType));
     self.RegisterArrayFromType(name, varType);
     Exit;
   end;
@@ -1777,7 +2010,47 @@ begin
   end;
   llvmT := self.LlvmTypeOfExpr(varType);
   if self.IsClass(self.TypeExprName(varType)) then llvmT := 'ptr';
+  // v0.6.9 P3: record local — heap-allocate the struct up front (host
+  // stmt.go v0.5.4): records have no Create, so `tok.Line := x` must GEP
+  // into valid memory immediately after declaration.
+  if varType is TIdentifier then
+  begin
+    // NB: keep the guard nested — `and` compounds of is-checks + method
+    // calls compile to `call @(i1)` (bootstrap codegen bug).
+    if self.IsRecordType((varType as TIdentifier).Value) then
+    begin
+      self.RegisterLocal(name, 'ptr', self.TypeExprName(varType));
+      self.EmitRecordStorageAlloc(name, self.TypeExprName(varType));
+      Exit;
+    end;
+  end;
   self.RegisterLocal(name, llvmT, self.TypeExprName(varType));
+end;
+
+// EmitRecordStorageAlloc — calloc a zeroed record struct of cname's field
+// sizes and store its address into local `name`'s ptr slot (host emitVarDecl
+// v0.5.5). v0.6.9 P4: MUST be calloc — a plain malloc leaves record fields
+// uninitialized; reading one (e.g. tok.Line before first assignment) yields a
+// garbage pointer/garbage unterminated string, which then explodes strlen /
+// concat downstream (the 0xbe-bebe SEGV in TParser_NextToken under ASAN).
+procedure TLLVMGenerator.EmitRecordStorageAlloc(name: String; cname: String);
+var
+  ci, i: Integer;
+  allocaReg, rec: String;
+  size: Integer;
+  ft: String;
+begin
+  ci := self.ClassIndex(cname);
+  size := 8; // vtable ptr
+  for i := 0 to self.ClassFieldCountAt(ci) - 1 do
+  begin
+    ft := self.FieldTypeAt(ci, i);
+    size := size + self.LlvmTypeSize(ft);
+  end;
+  allocaReg := self.LocalReg(name);
+  rec := self.Tmp();
+  self.WriteLine('  ' + rec + ' = call ptr @calloc(i64 1, i64 ' + self.IntToStrS(size) + ')');
+  self.WriteLine('  store ptr ' + rec + ', ptr ' + allocaReg);
 end;
 
 procedure TLLVMGenerator.AssignToName(name: String; value: TExpression);
@@ -1905,6 +2178,7 @@ end;
 procedure TLLVMGenerator.EmitArrayIndexStore(idx: TIndexExpression; value: TExpression);
 var
   leftName: String;
+  memL: TMemberExpression;
 begin
   // arr[i] := v for a local/param/global array var — dispatch to the real
   // store emitter (v0.6.9 P3: was a P1 stub, dropped writes silently).
@@ -1917,8 +2191,83 @@ begin
       Exit;
     end;
   end;
-  // class-field array store obj.Field[i] := v — not yet handled (P3).
+  // v0.6.9 P4: class-field array store obj.Field[i] := v — the
+  // FinalizeOutput pairwise merge needs `self.OutputChunks[w] := ...`.
+  if idx.Left is TMemberExpression then
+  begin
+    memL := idx.Left as TMemberExpression;
+    if self.EmitFieldArrayIndexStore(memL, idx.Index, value) then
+      Exit;
+  end;
   self.WriteLine('  ; array store (unhandled)');
+end;
+
+// EmitFieldArrayIndexStore — obj.Field[i] := value for a dynamic array-typed
+// class field. Returns false when the receiver/field can't be resolved.
+function TLLVMGenerator.EmitFieldArrayIndexStore(mem: TMemberExpression; idxExpr, valExpr: TExpression): Boolean;
+var
+  classT, selfReg, valReg, elemT: String;
+  ci, fi: Integer;
+  slot, sliceVal, dataPtr, idxReg, elemPtr: String;
+begin
+  result := false;
+  classT := '';
+  if mem.Obj is TIdentifier then
+  begin
+    if (mem.Obj as TIdentifier).Value = 'self' then
+      classT := self.CurClassName
+    else
+      classT := self.LocalKylix((mem.Obj as TIdentifier).Value);
+    if classT = '' then classT := self.GKylix((mem.Obj as TIdentifier).Value);
+  end
+  else
+  begin
+    selfReg := self.EmitExpr(mem.Obj);
+    if self.IsClass(self.LastType) then classT := self.LastType;
+  end;
+  if self.IsClass(classT) = false then Exit;
+  if mem.Obj is TIdentifier then
+  begin
+    if self.HasLocal((mem.Obj as TIdentifier).Value) then
+      selfReg := self.LocalReg((mem.Obj as TIdentifier).Value)
+    else
+      selfReg := self.GReg((mem.Obj as TIdentifier).Value);
+  end;
+  ci := self.ClassIndex(classT);
+  fi := self.FieldIndex(classT, mem.Member);
+  if fi < 0 then Exit;
+  elemT := self.FieldLLVM(classT, mem.Member);
+  // v0.6.9 P4: only DYNAMIC slice fields take this path — static array
+  // fields ([N x T], e.g. example21's TStack.Items) have their own store
+  // handling; hijacking them broke example21.
+  if elemT <> '{ ptr, i64, i64 }' then Exit;
+  elemT := self.KylixTToLLVM(self.FieldElemKylixAt(classT, fi));
+  // field slot holds an inline { ptr, i64, i64 } slice — load it, take the
+  // data ptr, then GEP to the element slot.
+  slot := self.Tmp();
+  self.WriteLine('  ' + slot + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 ' + self.IntToStrS(fi + 1));
+  sliceVal := self.Tmp();
+  self.WriteLine('  ' + sliceVal + ' = load { ptr, i64, i64 }, ptr ' + slot);
+  dataPtr := self.Tmp();
+  self.WriteLine('  ' + dataPtr + ' = extractvalue { ptr, i64, i64 } ' + sliceVal + ', 0');
+  idxReg := self.EmitExprTyped(idxExpr);
+  elemPtr := self.Tmp();
+  self.WriteLine('  ' + elemPtr + ' = getelementptr inbounds ' + elemT + ', ptr ' + dataPtr + ', i64 ' + idxReg);
+  valReg := self.EmitExprTyped(valExpr);
+  if elemT = 'i1' then
+  begin
+    if self.LastType = 'i64' then valReg := self.CoerceValue(valReg, 'i64', 'i1');
+  end
+  else if elemT = 'i64' then
+  begin
+    if self.LastType = 'i1' then valReg := self.CoerceValue(valReg, 'i1', 'i64');
+  end
+  else if elemT = 'ptr' then
+  begin
+    if self.LastType = 'i64' then valReg := self.CoerceValue(valReg, 'i64', 'ptr');
+  end;
+  self.WriteLine('  store ' + elemT + ' ' + valReg + ', ptr ' + elemPtr);
+  result := true;
 end;
 
 // TryMapIndexStore — m[key] := value for a map local/global OR obj.Field[key]
@@ -2059,17 +2408,37 @@ end;
 procedure TLLVMGenerator.EmitIf(stmt: TIfStatement);
 var
   cond, thenLbl, elseLbl, endLbl: String;
+  cond2: String;
+  blk: TBlockStatement;
 begin
   cond := self.EmitExpr(stmt.Condition);
+  // v0.6.9 P4: Boolean locals are stored in i64 slots (zext on assign) — the
+  // condition loads back as i64; coerce to i1 before `br i1`.
+  if self.LastType = 'i64' then
+  begin
+    cond2 := self.Tmp();
+    self.WriteLine('  ' + cond2 + ' = icmp ne i64 ' + cond + ', 0');
+    cond := cond2;
+  end;
   thenLbl := self.Label();
   elseLbl := self.Label();
   endLbl := self.Label();
   self.WriteLine('  br i1 ' + cond + ', label %' + thenLbl + ', label %' + elseLbl);
   self.WriteLine(thenLbl + ':');
-  if stmt.Consequence <> nil then self.EmitStatements(stmt.Consequence.Statements);
+  // v0.6.9 P4: stmt.Consequence.Statements as a call arg explodes the emit —
+  // funnel through a block local.
+  if stmt.Consequence <> nil then
+  begin
+    blk := stmt.Consequence as TBlockStatement;
+    self.EmitStatements(blk.Statements);
+  end;
   self.WriteLine('  br label %' + endLbl);
   self.WriteLine(elseLbl + ':');
-  if stmt.Alternative <> nil then self.EmitStatements(stmt.Alternative.Statements);
+  if stmt.Alternative <> nil then
+  begin
+    blk := stmt.Alternative as TBlockStatement;
+    self.EmitStatements(blk.Statements);
+  end;
   self.WriteLine('  br label %' + endLbl);
   self.WriteLine(endLbl + ':');
 end;
@@ -2077,7 +2446,9 @@ end;
 procedure TLLVMGenerator.EmitWhile(stmt: TWhileStatement);
 var
   headLbl, bodyLbl, endLbl, cond: String;
+  cond2: String;
   savedHead, savedBreak: String;
+  blk: TBlockStatement;
 begin
   headLbl := self.Label();
   bodyLbl := self.Label();
@@ -2092,9 +2463,16 @@ begin
   self.WriteLine('  br label %' + headLbl);
   self.WriteLine(headLbl + ':');
   cond := self.EmitExpr(stmt.Condition);
+  if self.LastType = 'i64' then
+  begin
+    cond2 := self.Tmp();
+    self.WriteLine('  ' + cond2 + ' = icmp ne i64 ' + cond + ', 0');
+    cond := cond2;
+  end;
   self.WriteLine('  br i1 ' + cond + ', label %' + bodyLbl + ', label %' + endLbl);
   self.WriteLine(bodyLbl + ':');
-  self.EmitStatements(stmt.Body.Statements);
+  blk := stmt.Body as TBlockStatement;
+  self.EmitStatements(blk.Statements);
   self.WriteLine('  br label %' + headLbl);
   self.WriteLine(endLbl + ':');
   self.LoopHead := savedHead;
@@ -2106,9 +2484,16 @@ var
   varReg, initVal, condVal, incReg, cmp: String;
   headLbl, bodyLbl, incLbl, endLbl: String;
   savedHead, savedBreak: String;
+  loopVar: String;
+  blk: TBlockStatement;
 begin
-  varReg := self.RegisterLocal(stmt.Variable, 'i64', '');
+  EProg('for: enter');
+  loopVar := stmt.Variable;
+  EProg('for: var');
+  varReg := self.RegisterLocal(loopVar, 'i64', '');
+  EProg('for: reg');
   initVal := self.EmitExpr(stmt.From);
+  EProg('for: init');
   self.WriteLine('  store i64 ' + initVal + ', ptr ' + varReg);
   headLbl := self.Label();
   bodyLbl := self.Label();
@@ -2120,7 +2505,7 @@ begin
   self.LoopBreak := endLbl;
   self.WriteLine('  br label %' + headLbl);
   self.WriteLine(headLbl + ':');
-  condVal := self.EmitIdentLoad(stmt.Variable);
+  condVal := self.EmitIdentLoad(loopVar);
   cmp := self.Tmp();
   if stmt.DownTo then
   begin
@@ -2133,14 +2518,18 @@ begin
     self.WriteLine('  br i1 ' + cmp + ', label %' + bodyLbl + ', label %' + endLbl);
   end;
   self.WriteLine(bodyLbl + ':');
-  self.EmitStatements(stmt.Body.Statements);
+  EProg('for: pre-body');
+  blk := stmt.Body as TBlockStatement;
+  self.EmitStatements(blk.Statements);
+  EProg('for: post-body');
   self.WriteLine('  br label %' + incLbl);
+  EProg('for: post-inc');
   self.WriteLine(incLbl + ':');
   incReg := self.Tmp();
   if stmt.DownTo then
-    self.WriteLine('  ' + incReg + ' = add i64 ' + self.EmitIdentLoad(stmt.Variable) + ', -1')
+    self.WriteLine('  ' + incReg + ' = add i64 ' + self.EmitIdentLoad(loopVar) + ', -1')
   else
-    self.WriteLine('  ' + incReg + ' = add i64 ' + self.EmitIdentLoad(stmt.Variable) + ', 1');
+    self.WriteLine('  ' + incReg + ' = add i64 ' + self.EmitIdentLoad(loopVar) + ', 1');
   self.WriteLine('  store i64 ' + incReg + ', ptr ' + varReg);
   self.WriteLine('  br label %' + headLbl);
   self.WriteLine(endLbl + ':');
@@ -2520,6 +2909,7 @@ end;
 function TLLVMGenerator.EmitInfix(e: TInfixExpression; t: String): String;
 var
   lv, rv, lt, rt, r: String;
+  lv2, rv2: String;
   cmpReg, arithName: String;
 begin
   lv := self.EmitExprTyped(e.Left);
@@ -2531,6 +2921,28 @@ begin
   // host's classes[lt] normalization) — `self.CurToken = before` on TToken.
   if self.IsClass(lt) then lt := 'ptr';
   if self.IsClass(rt) then rt := 'ptr';
+  // v0.6.9 P4: mixed i64/i1 comparisons — Boolean array elements load as i64
+  // (8-byte slots) but the literal side is i1; widen the i1 side to i64.
+  if lt = 'i64' then
+  begin
+    if rt = 'i1' then
+    begin
+      rv2 := self.Tmp();
+      self.WriteLine('  ' + rv2 + ' = zext i1 ' + rv + ' to i64');
+      rv := rv2;
+      rt := 'i64';
+    end;
+  end;
+  if rt = 'i64' then
+  begin
+    if lt = 'i1' then
+    begin
+      lv2 := self.Tmp();
+      self.WriteLine('  ' + lv2 + ' = zext i1 ' + lv + ' to i64');
+      lv := lv2;
+      lt := 'i64';
+    end;
+  end;
   // v0.6.9 P3: Variant comparisons/arithmetic — box the scalar side and
   // dispatch to the runtime (host emitVariantCompare / emitVariantArith).
   // Must run BEFORE the ptr-concat/strcmp paths (a box is a ptr).
@@ -2765,6 +3177,21 @@ begin
   result := r;
 end;
 
+// IsRecordType — is name a `= record` type (Pass 0 registered)?
+function TLLVMGenerator.IsRecordType(name: String): Boolean;
+begin
+  result := self.IndexOfStr(self.RecordNames, name) >= 0;
+end;
+
+// LlvmTypeSize — byte size of an LLVM scalar type (record malloc sizing;
+// mirrors host llvmTypeSize).
+function TLLVMGenerator.LlvmTypeSize(llvmT: String): Integer;
+begin
+  if llvmT = '{ ptr, i64, i64 }' then result := 24
+  else if llvmT = 'double' then result := 8
+  else result := 8;
+end;
+
 // IsBoxTypeName — class/record/variant pseudo-names are all ptr-typed, so
 // ClassName↔ptr coercions are identity moves.
 function TLLVMGenerator.IsBoxTypeName(t: String): Boolean;
@@ -2976,10 +3403,33 @@ end;
 
 function TLLVMGenerator.EmitPlainCall(fname: String; args: array of String; t: String): String;
 var
-  retType, r, argList, pt: String;
+  retType, r, argList, pt, n: String;
   i, fi: Integer;
 begin
   self.WriteLine('  ; dbg pc ' + fname + ' nfn=' + self.IntToStrS(Length(self.FNames)));
+  // v0.6.9 P4: WriteOut(s) — unbounded stdout write (matches host).
+  if fname = 'WriteOut' then
+  begin
+    n := self.Tmp();
+    self.WriteLine('  ' + n + ' = call i64 @strlen(ptr ' + args[0] + ')');
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = call i64 @write(i32 1, ptr ' + args[0] + ', i64 ' + n + ')');
+    self.LastType := 'i64';
+    result := r;
+    Exit;
+  end;
+  // v0.6.9 P4: EProg(s) — stderr progress probe (fprintf(stderr, "%s\n", s)).
+  // A self-emit run leaves a live trail on stderr even if the process dies.
+  if fname = 'EProg' then
+  begin
+    n := self.Tmp();
+    self.WriteLine('  ' + n + ' = call i64 @strlen(ptr ' + args[0] + ')');
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = call i64 @write(i32 2, ptr ' + args[0] + ', i64 ' + n + ')');
+    self.LastType := 'i64';
+    result := r;
+    Exit;
+  end;
   retType := '';
   fi := self.IndexOfStr(self.FNames, fname);
   if fi >= 0 then retType := self.FRet[fi];
@@ -2994,7 +3444,7 @@ begin
     if fi >= 0 then
     begin
       if fi < Length(self.FParamTypes) then
-        pt := self.NthOf(self.FParamTypes[fi], i);
+        pt := self.UnescapePipe(self.NthOf(self.FParamTypes[fi], i));
       if pt = '' then pt := 'i64';
     end;
     // v0.6.9 P3: coerce the actual to the formal's type (Average(3, 4, 5)
@@ -3166,6 +3616,16 @@ begin
       Exit;
     end;
     r := self.Tmp();
+    if Length(seg) > 64 then
+    begin
+      self.WriteLine('  ; DBG huge-stdlib-seg len=' + self.IntToStrS(Length(seg)));
+      seg := 'SEGBIG';
+    end;
+    if Length(fname) > 64 then
+    begin
+      self.WriteLine('  ; DBG huge-stdlib-fn len=' + self.IntToStrS(Length(fname)));
+      fname := 'FNBIG';
+    end;
     self.WriteLine('  ' + r + ' = add i64 0, 0 ; stdlib ' + seg + '.' + fname + ' not implemented');
     self.LastType := 'i64';
     result := r;
@@ -4102,21 +4562,17 @@ end;
 // ---- class layout bookkeeping (mirrors host ClassInfo/FieldInfo/MethodInfo) --
 
 function TLLVMGenerator.ClassEmitted(cname: String): Boolean;
-var i: Integer;
 begin
-  result := false;
-  i := self.ClassIndex(cname);
-  if (i >= 0) and (Length(self.ClassEmittedFlags) > i) then result := self.ClassEmittedFlags[i];
+  // v0.6.9 P4: name-list instead of a Boolean-array element write — the
+  // element store emitted an i1 into a ptr slot (KylixTToLLVM gap) and broke
+  // the verifier. A flat name list is simpler and type-safe.
+  result := self.IndexOfStr(self.EmittedNames, cname) >= 0;
 end;
 
 procedure TLLVMGenerator.MarkClassEmitted(cname: String);
-var i: Integer;
 begin
-  i := self.ClassIndex(cname);
-  if i < 0 then Exit;
-  while Length(self.ClassEmittedFlags) <= i do
-    append(self.ClassEmittedFlags, false);
-  self.ClassEmittedFlags[i] := true;
+  if self.IndexOfStr(self.EmittedNames, cname) < 0 then
+    append(self.EmittedNames, cname);
 end;
 
 function TLLVMGenerator.ClassIndex(cname: String): Integer;
@@ -4167,6 +4623,10 @@ procedure TLLVMGenerator.MakeClassInfo(cname: String; cd: TClassDecl);
 var
   j, m, mi: Integer;
   parentIdx: Integer;
+  myci, k, kf, n: Integer;
+  at: TArrayType;
+  fslot: Integer;
+  kylixVal, mapFlag: String;
   llvmT, kt, ekt: String;
   fld: TVarDecl;
   meth: TFunctionDecl;
@@ -4187,14 +4647,32 @@ begin
   append(self.ClassMethodIdx, ',');
   parentIdx := -1;
   if cd.Parent <> '' then parentIdx := self.ClassIndex(cd.Parent);
+  myci := self.ClassIndex(cname);
   // copy inherited fields (index 0 = vtable ptr; fields start at 1)
   if parentIdx >= 0 then
   begin
-    self.ClassFieldNames[self.ClassIndex(cname)] := self.ClassFieldNames[parentIdx];
-    self.ClassFieldTypes[self.ClassIndex(cname)] := self.ClassFieldTypes[parentIdx];
-    self.ClassFieldKylix[self.ClassIndex(cname)] := self.ClassFieldKylix[parentIdx];
-    self.ClassFieldElemKylix[self.ClassIndex(cname)] := self.ClassFieldElemKylix[parentIdx];
-    self.ClassFieldMaps[self.ClassIndex(cname)] := self.ClassFieldMaps[parentIdx];
+    self.ClassFieldNames[myci] := self.ClassFieldNames[parentIdx];
+    self.ClassFieldTypes[myci] := self.ClassFieldTypes[parentIdx];
+    self.ClassFieldKylix[myci] := self.ClassFieldKylix[parentIdx];
+    self.ClassFieldElemKylix[myci] := self.ClassFieldElemKylix[parentIdx];
+    self.ClassFieldMaps[myci] := self.ClassFieldMaps[parentIdx];
+    // v0.6.9 P4: flat registry — copy the parent's field entries (child table
+    // is a superset; slots are identical). Snapshot Length first: append
+    // inside the loop must not extend the scanned range.
+    n := Length(self.FlCls);
+    for kf := 0 to n - 1 do
+    begin
+      if self.FlCls[kf] = parentIdx then
+      begin
+        append(self.FlCls, myci);
+        append(self.FlSlot, self.FlSlot[kf]);
+        append(self.FlName, self.FlName[kf]);
+        append(self.FlType, self.FlType[kf]);
+        append(self.FlKylix, self.FlKylix[kf]);
+        append(self.FlElem, self.FlElem[kf]);
+        append(self.FlMap, self.FlMap[kf]);
+      end;
+    end;
   end;
   // own fields
   for j := 0 to Length(cd.Fields) - 1 do
@@ -4205,59 +4683,101 @@ begin
     ekt := '';
     if fld.VarType is TArrayType then
     begin
-      if (fld.VarType as TArrayType).Dynamic then llvmT := '{ ptr, i64, i64 }'
+      at := fld.VarType as TArrayType;
+      if at.Dynamic then llvmT := '{ ptr, i64, i64 }'
       else llvmT := self.LlvmTypeOfExpr(fld.VarType);
       // bake the array ELEMENT's Kylix type name (e.g. TDiagnostic) so
       // obj.Field[i] can resolve the receiver class for .Member / .Method
-      ekt := self.TypeExprName((fld.VarType as TArrayType).ElementType);
+      ekt := self.TypeExprName(at.ElementType);
     end
     else if fld.VarType is TMapType then llvmT := 'ptr'
     else if fld.VarType <> nil then llvmT := self.LlvmTypeOfExpr(fld.VarType);
     if llvmT = 'variant' then llvmT := 'ptr';
     for m := 0 to Length(fld.Names) - 1 do
     begin
-      self.ClassFieldNames[self.ClassIndex(cname)] := self.ClassFieldNames[self.ClassIndex(cname)] + fld.Names[m] + ',';
-      self.ClassFieldTypes[self.ClassIndex(cname)] := self.ClassFieldTypes[self.ClassIndex(cname)] + llvmT + ';';
+      kylixVal := kt;
+      mapFlag := '0';
       if fld.VarType is TMapType then
+      begin
         // map field: store the VALUE type name (e.g. TTokenType / Boolean /
         // String / array) so map reads can coerce (host mapValueKylixType
         // reads mt.ValueType — we bake it into the kylix table).
-        self.ClassFieldKylix[self.ClassIndex(cname)] := self.ClassFieldKylix[self.ClassIndex(cname)] + self.TypeExprName((fld.VarType as TMapType).ValueType) + ','
-      else
-        self.ClassFieldKylix[self.ClassIndex(cname)] := self.ClassFieldKylix[self.ClassIndex(cname)] + kt + ',';
-      self.ClassFieldElemKylix[self.ClassIndex(cname)] := self.ClassFieldElemKylix[self.ClassIndex(cname)] + ekt + ',';
-      if fld.VarType is TMapType then
-        self.ClassFieldMaps[self.ClassIndex(cname)] := self.ClassFieldMaps[self.ClassIndex(cname)] + '1,'
-      else
-        self.ClassFieldMaps[self.ClassIndex(cname)] := self.ClassFieldMaps[self.ClassIndex(cname)] + '0,';
+        kylixVal := self.TypeExprName((fld.VarType as TMapType).ValueType);
+        mapFlag := '1';
+      end;
+      self.ClassFieldNames[myci] := self.ClassFieldNames[myci] + fld.Names[m] + ',';
+      self.ClassFieldTypes[myci] := self.ClassFieldTypes[myci] + llvmT + ';';
+      self.ClassFieldKylix[myci] := self.ClassFieldKylix[myci] + kylixVal + ',';
+      self.ClassFieldElemKylix[myci] := self.ClassFieldElemKylix[myci] + ekt + ',';
+      self.ClassFieldMaps[myci] := self.ClassFieldMaps[myci] + mapFlag + ',';
+      // v0.6.9 P4: flat registry entry (slot = current field count)
+      fslot := self.ClassFieldCountAt(myci);
+      append(self.FlCls, myci);
+      append(self.FlSlot, fslot);
+      append(self.FlName, fld.Names[m]);
+      append(self.FlType, llvmT);
+      append(self.FlKylix, kylixVal);
+      append(self.FlElem, ekt);
+      append(self.FlMap, mapFlag);
     end;
   end;
   // methods: inherited first (vtable superset), then own; override reuses slot
   if parentIdx >= 0 then
   begin
-    self.ClassMethodNames[self.ClassIndex(cname)] := self.ClassMethodNames[parentIdx];
-    self.ClassMethodRet[self.ClassIndex(cname)] := self.ClassMethodRet[parentIdx];
-    self.ClassMethodDef[self.ClassIndex(cname)] := self.ClassMethodDef[parentIdx];
-    self.ClassMethodIdx[self.ClassIndex(cname)] := self.ClassMethodIdx[parentIdx];
+    self.ClassMethodNames[myci] := self.ClassMethodNames[parentIdx];
+    self.ClassMethodRet[myci] := self.ClassMethodRet[parentIdx];
+    self.ClassMethodDef[myci] := self.ClassMethodDef[parentIdx];
+    self.ClassMethodIdx[myci] := self.ClassMethodIdx[parentIdx];
+    // v0.6.9 P4: flat registry — copy the parent's method entries (same slots)
+    n := Length(self.VtCls);
+    for k := 0 to n - 1 do
+    begin
+      if self.VtCls[k] = parentIdx then
+      begin
+        append(self.VtCls, myci);
+        append(self.VtSlot, self.VtSlot[k]);
+        append(self.VtName, self.VtName[k]);
+        append(self.VtRet, self.VtRet[k]);
+        append(self.VtDef, self.VtDef[k]);
+      end;
+    end;
   end;
   for j := 0 to Length(cd.Methods) - 1 do
   begin
     meth := cd.Methods[j];
-    if self.StrContains(self.ClassMethodNames[self.ClassIndex(cname)], ',' + meth.Name + ',') then
+    if self.StrContains(self.ClassMethodNames[myci], ',' + meth.Name + ',') then
     begin
       // override: update ret type + defining class at this slot
-      mi := self.MethodIndex(self.ClassIndex(cname), meth.Name);
-      self.ClassMethodRet[self.ClassIndex(cname)] := self.ReplaceSlot(self.ClassMethodRet[self.ClassIndex(cname)], mi, self.ClassRetType(meth));
-      self.ClassMethodDef[self.ClassIndex(cname)] := self.ReplaceSlot(self.ClassMethodDef[self.ClassIndex(cname)], mi, cname);
+      mi := self.MethodIndex(myci, meth.Name);
+      self.ClassMethodRet[myci] := self.ReplaceSlot(self.ClassMethodRet[myci], mi, self.ClassRetType(meth));
+      self.ClassMethodDef[myci] := self.ReplaceSlot(self.ClassMethodDef[myci], mi, cname);
+      // v0.6.9 P4: update the flat entry at the same slot
+      for k := 0 to Length(self.VtCls) - 1 do
+      begin
+        if self.VtCls[k] = myci then
+        begin
+          if self.VtSlot[k] = mi then
+          begin
+            self.VtRet[k] := self.ClassRetType(meth);
+            self.VtDef[k] := cname;
+          end;
+        end;
+      end;
     end
     else
     begin
       // append: vtable idx = current method count
-      mi := self.MethodCount(self.ClassIndex(cname));
-      self.ClassMethodNames[self.ClassIndex(cname)] := self.ClassMethodNames[self.ClassIndex(cname)] + meth.Name + ',';
-      self.ClassMethodRet[self.ClassIndex(cname)] := self.ClassMethodRet[self.ClassIndex(cname)] + self.ClassRetType(meth) + ',';
-      self.ClassMethodDef[self.ClassIndex(cname)] := self.ClassMethodDef[self.ClassIndex(cname)] + cname + ',';
-      self.ClassMethodIdx[self.ClassIndex(cname)] := self.ClassMethodIdx[self.ClassIndex(cname)] + self.IntToStrS(mi) + ',';
+      mi := self.MethodCount(myci);
+      self.ClassMethodNames[myci] := self.ClassMethodNames[myci] + meth.Name + ',';
+      self.ClassMethodRet[myci] := self.ClassMethodRet[myci] + self.ClassRetType(meth) + ',';
+      self.ClassMethodDef[myci] := self.ClassMethodDef[myci] + cname + ',';
+      self.ClassMethodIdx[myci] := self.ClassMethodIdx[myci] + self.IntToStrS(mi) + ',';
+      // v0.6.9 P4: flat registry entry
+      append(self.VtCls, myci);
+      append(self.VtSlot, mi);
+      append(self.VtName, meth.Name);
+      append(self.VtRet, self.ClassRetType(meth));
+      append(self.VtDef, cname);
     end;
   end;
 end;
@@ -4285,43 +4805,35 @@ end;
 // comma-str slot helpers — the vtable-related comma strings use a leading and
 // trailing comma (e.g. ",Create,Get,"); these helpers split by index.
 function TLLVMGenerator.MethodCount(ci: Integer): Integer;
-var s: String;
+var k: Integer;
 begin
-  s := self.ClassMethodNames[ci];
+  // v0.6.9 P4: flat scan — the old char-at-a-time comma walk was O(M²) with
+  // two slices per char and got called 1.4M times (1.3GB of garbage).
   result := 0;
-  while Length(s) > 0 do
+  for k := 0 to Length(self.VtCls) - 1 do
   begin
-    if s[0:1] = ',' then result := result + 1;
-    s := s[1:Length(s)];
+    if self.VtCls[k] = ci then result := result + 1;
   end;
-  result := result - 1; // leading comma counts extra
 end;
 
 function TLLVMGenerator.MethodIndex(ci: Integer; mname: String): Integer;
-var s, tok: String;
+var k: Integer;
 begin
+  // v0.6.9 P4: flat scan (entries were copied from the parent at registration,
+  // so inherited methods resolve without walking the chain).
   result := -1;
-  s := self.ClassMethodNames[ci];
-  while Length(s) > 0 do
+  EProg('MI enter vt=' + self.IntToStrS(Length(self.VtCls)) + ' mlen=' + self.IntToStrS(Length(mname)));
+  for k := 0 to Length(self.VtCls) - 1 do
   begin
-    if s[0:1] = ',' then
+    if self.VtCls[k] = ci then
     begin
-      s := s[1:Length(s)];
-      if s = '' then break;
-      // extract name up to next comma
-      tok := '';
-      while (Length(s) > 0) and (s[0:1] <> ',') do
+      if self.VtName[k] = mname then
       begin
-        tok := tok + s[0:1];
-        s := s[1:Length(s)];
+        result := self.VtSlot[k];
+        Exit;
       end;
-      result := result + 1;
-      if tok = mname then Exit;
-    end
-    else
-      s := s[1:Length(s)];
+    end;
   end;
-  result := -1;
 end;
 
 function TLLVMGenerator.ReplaceSlot(list: String; idx: Integer; newVal: String): String;
@@ -4596,42 +5108,33 @@ end;
 // ---- field/method lookup helpers (comma-string based, mirror host) ----
 
 function TLLVMGenerator.ClassFieldCountAt(ci: Integer): Integer;
-var s: String;
+var k: Integer;
 begin
-  s := self.ClassFieldNames[ci];
+  // v0.6.9 P4: flat scan (was char-at-a-time O(F²))
   result := 0;
-  while Length(s) > 0 do
+  for k := 0 to Length(self.FlCls) - 1 do
   begin
-    if s[0:1] = ',' then result := result + 1;
-    s := s[1:Length(s)];
+    if self.FlCls[k] = ci then result := result + 1;
   end;
-  // field comma-strings are trailing-comma ("f1,f2,") → comma count = field count
 end;
 
 function TLLVMGenerator.FieldIndex(cname, fname: String): Integer;
 var ci, k: Integer;
-  s, tok: String;
 begin
+  // v0.6.9 P4: flat scan (was char-at-a-time O(F²) with two slices per char)
   result := -1;
   ci := self.ClassIndex(cname);
   if ci < 0 then Exit;
-  k := 0;
-  s := self.ClassFieldNames[ci];
-  while Length(s) > 0 do
+  for k := 0 to Length(self.FlCls) - 1 do
   begin
-    tok := '';
-    while (Length(s) > 0) and (s[0:1] <> ',') do
+    if self.FlCls[k] = ci then
     begin
-      tok := tok + s[0:1];
-      s := s[1:Length(s)];
+      if self.FlName[k] = fname then
+      begin
+        result := self.FlSlot[k];
+        Exit;
+      end;
     end;
-    if tok = fname then
-    begin
-      result := k;
-      Exit;
-    end;
-    k := k + 1;
-    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
   end;
 end;
 
@@ -4641,155 +5144,113 @@ begin
 end;
 
 function TLLVMGenerator.FieldLLVM(cname, fname: String): String;
-var i, ci: Integer;
-  s, tok: String;
+var ci, k: Integer;
 begin
+  // v0.6.9 P4: flat scan (was O(F²) via FieldNameAt per candidate)
   result := 'i64';
   ci := self.ClassIndex(cname);
   if ci < 0 then Exit;
-  s := self.ClassFieldTypes[ci];
-  i := 0;
-  while Length(s) > 0 do
+  for k := 0 to Length(self.FlCls) - 1 do
   begin
-    tok := '';
-    while (Length(s) > 0) and (s[0:1] <> ';') do
+    if self.FlCls[k] = ci then
     begin
-      tok := tok + s[0:1];
-      s := s[1:Length(s)];
+      if self.FlName[k] = fname then
+      begin
+        result := self.FlType[k];
+        Exit;
+      end;
     end;
-    if self.FieldNameAt(ci, i) = fname then
-    begin
-      result := tok;
-      Exit;
-    end;
-    i := i + 1;
-    if (Length(s) > 0) and (s[0:1] = ';') then s := s[1:Length(s)];
   end;
 end;
 
 function TLLVMGenerator.FieldNameAt(ci, fi: Integer): String;
-var s, tok: String;
-  k: Integer;
+var k: Integer;
 begin
+  // v0.6.9 P4: flat scan
   result := '';
-  s := self.ClassFieldNames[ci];
-  k := 0;
-  while Length(s) > 0 do
+  for k := 0 to Length(self.FlCls) - 1 do
   begin
-    tok := '';
-    while (Length(s) > 0) and (s[0:1] <> ',') do
+    if self.FlCls[k] = ci then
     begin
-      tok := tok + s[0:1];
-      s := s[1:Length(s)];
+      if self.FlSlot[k] = fi then
+      begin
+        result := self.FlName[k];
+        Exit;
+      end;
     end;
-    if k = fi then
-    begin
-      result := tok;
-      Exit;
-    end;
-    k := k + 1;
-    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
   end;
 end;
 
 
 function TLLVMGenerator.FieldKylixAt(ci, fi: Integer): String;
-var s, tok: String;
-  k: Integer;
+var k: Integer;
 begin
+  // v0.6.9 P4: flat scan
   result := '';
-  s := self.ClassFieldKylix[ci];
-  k := 0;
-  while Length(s) > 0 do
+  for k := 0 to Length(self.FlCls) - 1 do
   begin
-    tok := '';
-    while (Length(s) > 0) and (s[0:1] <> ',') do
+    if self.FlCls[k] = ci then
     begin
-      tok := tok + s[0:1];
-      s := s[1:Length(s)];
+      if self.FlSlot[k] = fi then
+      begin
+        result := self.FlKylix[k];
+        Exit;
+      end;
     end;
-    if k = fi then
-    begin
-      result := tok;
-      Exit;
-    end;
-    k := k + 1;
-    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
   end;
 end;
 
 function TLLVMGenerator.FieldElemKylixAt(ci, fi: Integer): String;
-var s, tok: String;
-  k: Integer;
+var k: Integer;
 begin
+  // v0.6.9 P4: flat scan
   result := '';
-  s := self.ClassFieldElemKylix[ci];
-  k := 0;
-  while Length(s) > 0 do
+  for k := 0 to Length(self.FlCls) - 1 do
   begin
-    tok := '';
-    while (Length(s) > 0) and (s[0:1] <> ',') do
+    if self.FlCls[k] = ci then
     begin
-      tok := tok + s[0:1];
-      s := s[1:Length(s)];
+      if self.FlSlot[k] = fi then
+      begin
+        result := self.FlElem[k];
+        Exit;
+      end;
     end;
-    if k = fi then
-    begin
-      result := tok;
-      Exit;
-    end;
-    k := k + 1;
-    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
   end;
 end;
 
 function TLLVMGenerator.FieldTypeAt(ci, fi: Integer): String;
-var s, tok: String;
-  k: Integer;
+var k: Integer;
 begin
+  // v0.6.9 P4: flat scan (was char-at-a-time O(F²) with two slices per char)
   result := '';
-  s := self.ClassFieldTypes[ci];
-  k := 0;
-  while Length(s) > 0 do
+  for k := 0 to Length(self.FlCls) - 1 do
   begin
-    tok := '';
-    while (Length(s) > 0) and (s[0:1] <> ';') do
+    if self.FlCls[k] = ci then
     begin
-      tok := tok + s[0:1];
-      s := s[1:Length(s)];
+      if self.FlSlot[k] = fi then
+      begin
+        result := self.FlType[k];
+        Exit;
+      end;
     end;
-    if k = fi then
-    begin
-      result := tok;
-      Exit;
-    end;
-    k := k + 1;
-    if (Length(s) > 0) and (s[0:1] = ';') then s := s[1:Length(s)];
   end;
 end;
 
 function TLLVMGenerator.FieldMapAt(ci, fi: Integer): Boolean;
-var s, tok: String;
-  k: Integer;
+var k: Integer;
 begin
+  // v0.6.9 P4: flat scan
   result := false;
-  s := self.ClassFieldMaps[ci];
-  k := 0;
-  while Length(s) > 0 do
+  for k := 0 to Length(self.FlCls) - 1 do
   begin
-    tok := '';
-    while (Length(s) > 0) and (s[0:1] <> ',') do
+    if self.FlCls[k] = ci then
     begin
-      tok := tok + s[0:1];
-      s := s[1:Length(s)];
+      if self.FlSlot[k] = fi then
+      begin
+        if self.FlMap[k] = '1' then result := true;
+        Exit;
+      end;
     end;
-    if k = fi then
-    begin
-      if tok = '1' then result := true;
-      Exit;
-    end;
-    k := k + 1;
-    if (Length(s) > 0) and (s[0:1] = ',') then s := s[1:Length(s)];
   end;
 end;
 
@@ -4802,38 +5263,17 @@ begin
 end;
 
 function TLLVMGenerator.MethodRetAt(ci, mi: Integer): String;
-var s, tok: String;
-  k: Integer;
+var k: Integer;
 begin
-  // parse ClassMethodRet[ci] (comma-separated, no leading comma) at slot mi
+  // v0.6.9 P4: flat scan. VtRet stores the ESCAPED ret (',' → '|') — unescape.
   result := 'void';
-  s := self.ClassMethodRet[ci];
-  k := 0;
-  while Length(s) > 0 do
+  for k := 0 to Length(self.VtCls) - 1 do
   begin
-    if s[0:1] = ',' then
+    if self.VtCls[k] = ci then
     begin
-      k := k + 1;
-      s := s[1:Length(s)];
-    end
-    else
-    begin
-      tok := '';
-      while (Length(s) > 0) and (s[0:1] <> ',') do
+      if self.VtSlot[k] = mi then
       begin
-        tok := tok + s[0:1];
-        s := s[1:Length(s)];
-      end;
-      if k - 1 = mi then
-      begin
-        // v0.6.9 P3: unescape '|' (baked ',') from tuple return types
-        out2 := '';
-        for i := 0 to Length(tok) - 1 do
-        begin
-          if tok[i:i+1] = '|' then out2 := out2 + ','
-          else out2 := out2 + tok[i:i+1];
-        end;
-        result := out2;
+        result := self.UnescapePipe(self.VtRet[k]);
         Exit;
       end;
     end;
@@ -4841,62 +5281,35 @@ begin
 end;
 
 function TLLVMGenerator.MethodNameAt(ci, mi: Integer): String;
-var s, tok: String;
-  k: Integer;
+var k: Integer;
 begin
+  // v0.6.9 P4: flat scan
   result := '';
-  s := self.ClassMethodNames[ci];
-  k := 0;
-  while Length(s) > 0 do
+  for k := 0 to Length(self.VtCls) - 1 do
   begin
-    if s[0:1] = ',' then
+    if self.VtCls[k] = ci then
     begin
-      if s = ',' then begin s := ''; break; end;
-      k := k + 1;
-      s := s[1:Length(s)];
-      if s = '' then break;
-      tok := '';
-      while (Length(s) > 0) and (s[0:1] <> ',') do
+      if self.VtSlot[k] = mi then
       begin
-        tok := tok + s[0:1];
-        s := s[1:Length(s)];
-      end;
-      if k - 1 = mi then
-      begin
-        result := tok;
+        result := self.VtName[k];
         Exit;
       end;
-    end
-    else
-      s := s[1:Length(s)];
+    end;
   end;
 end;
 
 function TLLVMGenerator.DefClassAt(ci, mi: Integer): String;
-var s, tok: String;
-  k: Integer;
+var k: Integer;
 begin
+  // v0.6.9 P4: flat scan
   result := '';
-  s := self.ClassMethodDef[ci];
-  k := 0;
-  while Length(s) > 0 do
+  for k := 0 to Length(self.VtCls) - 1 do
   begin
-    if s[0:1] = ',' then
+    if self.VtCls[k] = ci then
     begin
-      k := k + 1;
-      s := s[1:Length(s)];
-    end
-    else
-    begin
-      tok := '';
-      while (Length(s) > 0) and (s[0:1] <> ',') do
+      if self.VtSlot[k] = mi then
       begin
-        tok := tok + s[0:1];
-        s := s[1:Length(s)];
-      end;
-      if k - 1 = mi then
-      begin
-        result := tok;
+        result := self.VtDef[k];
         Exit;
       end;
     end;
@@ -4904,34 +5317,48 @@ begin
 end;
 
 function TLLVMGenerator.MethodIndexAt(ci, mi: Integer): Integer;
-var s, tok: String;
-  k: Integer;
+var k: Integer;
 begin
+  // v0.6.9 P4: flat scan — the stored vtable idx IS the slot
   result := -1;
-  s := self.ClassMethodIdx[ci];
-  k := 0;
-  while Length(s) > 0 do
+  for k := 0 to Length(self.VtCls) - 1 do
   begin
-    if s[0:1] = ',' then
+    if self.VtCls[k] = ci then
     begin
-      k := k + 1;
-      s := s[1:Length(s)];
-    end
-    else
-    begin
-      tok := '';
-      while (Length(s) > 0) and (s[0:1] <> ',') do
+      if self.VtSlot[k] = mi then
       begin
-        tok := tok + s[0:1];
-        s := s[1:Length(s)];
-      end;
-      if k - 1 = mi then
-      begin
-        result := self.EvalDec(tok);
+        result := self.VtSlot[k];
         Exit;
       end;
     end;
   end;
+end;
+
+// KylixTToLLVM — LLVM scalar type for a Kylix element type name (used for
+// dynamic array element stores; Boolean arrays hold i1 elements, not ptr).
+function TLLVMGenerator.KylixTToLLVM(k: String): String;
+var lo: String;
+begin
+  lo := LowerCase(k);
+  if (lo = 'boolean') or (lo = 'bool') then result := 'i1'
+  else if (lo = 'integer') or (lo = 'int64') or (lo = 'int') or (lo = 'longint') then result := 'i64'
+  else if (lo = 'real') or (lo = 'double') or (lo = 'float') then result := 'double'
+  else result := 'ptr';
+end;
+
+// UnescapePipe — restore ',' from the '|' escapes ClassRetType baked (flat
+// registry keeps the escaped form so tuple ret types stay one token).
+function TLLVMGenerator.UnescapePipe(s: String): String;
+var i: Integer;
+  out2: String;
+begin
+  out2 := '';
+  for i := 0 to Length(s) - 1 do
+  begin
+    if s[i:i+1] = '|' then out2 := out2 + ','
+    else out2 := out2 + s[i:i+1];
+  end;
+  result := out2;
 end;
 
 // EvalDec parses a decimal string to an Integer (the only int parsing helper
@@ -5027,6 +5454,7 @@ var
   r, selfReg, objReg, classT, loaded: String;
   ci, idx, fi: Integer;
 begin
+  EProg('MEM ' + member.Member);
   // Constructor pattern: TFoo.Create — fresh heap-allocated instance.
   if member.Member = 'Create' then
   begin
@@ -5044,6 +5472,11 @@ begin
   end;
   // resolve receiver's class (self / local / global class-typed variable)
   classT := '';
+  // v0.6.9 P4 DBG: report receiver resolution for member reads
+  if member.Obj is TIdentifier then
+  begin
+    EProg('MEMOBJ ' + member.Member + ' recv=' + (member.Obj as TIdentifier).Value + ' lk=' + self.LocalKylix((member.Obj as TIdentifier).Value));
+  end;
   if member.Obj is TIdentifier then
   begin
     if (member.Obj as TIdentifier).Value = 'self' then
@@ -5110,7 +5543,16 @@ begin
         Exit;
       end;
     end;
+  end
+  else if member.Obj is TTypeCastExpression then
+  begin
+    // v0.6.9 P4: `(decl as TFunctionDecl).Body` — the cast reports its target
+    // class via LastType (EmitAsExpr); emit the receiver once here and fall
+    // through to the normal field-read path below.
+    selfReg := self.EmitExpr(member.Obj);
+    if self.IsClass(self.LastType) then classT := self.LastType;
   end;
+  EProg('CHK ' + classT + ' ci=' + self.IntToStrS(self.ClassIndex(classT)) + ' cn=' + self.IntToStrS(Length(self.ClassNames)));
   if self.IsClass(classT) then
   begin
     if member.Obj is TIdentifier then
@@ -5140,6 +5582,7 @@ begin
     end;
     ci := self.ClassIndex(classT);
     fi := self.FieldIndex(classT, member.Member);
+    EProg('FIELD ' + classT + '.' + member.Member + ' fi=' + self.IntToStrS(fi));
     if fi >= 0 then
     begin
       r := self.Tmp();
@@ -5203,7 +5646,32 @@ var
   ci, fi: Integer;
   extFn: String;
   vtablePtr, fnPtrLoc, vtableGEP, argList, argReg: String;
+  objName: String;
+  nargs: Integer;
+  mm: String;
 begin
+  // v0.6.9 P4: emit recursion circuit breaker. A corrupted/garbage AST node
+  // can make the emitter re-emit the same call from inside its own emission
+  // (observed: self.TypeExprName infinitely re-entering) — each level mallocs
+  // the full call IR → the 6-9GB self-emit OOM. Statements reset the depth,
+  // so a single statement's legitimate call nesting stays far below this.
+  self.EmitDepth := self.EmitDepth + 1;
+  if self.EmitDepth > 128 then
+  begin
+    EProg('DEPTH-CUT at ' + member.Member);
+    r := self.Tmp();
+    self.WriteLine('  ' + r + ' = add i64 0, 0 ; emit depth cut');
+    self.MemberType := 'i64';
+    self.EmitDepth := self.EmitDepth - 1;
+    result := r;
+    Exit;
+  end;
+  // v0.6.9 P4 DBG: stderr probe for runaway argument lists
+  if Length(margs) > 16 then
+  begin
+    EProg('DBGMCWA n=' + self.IntToStrS(Length(margs)));
+  end;
+  EProg('MCWA ' + member.Member);
   // Constructor with args: TFoo.Create(...) — allocate + (P2: init).
   if member.Member = 'Create' then
   begin
@@ -5233,6 +5701,13 @@ begin
     // member chain; its LastType reports the receiver's class name.
     selfReg := self.EmitExpr(member.Obj);
     classT := self.LastType;
+  end
+  else if member.Obj is TTypeCastExpression then
+  begin
+    // v0.6.9 P4: `(decl as TFunctionDecl).Body` — the cast reports its target
+    // class via LastType (EmitAsExpr); emit the receiver once here.
+    selfReg := self.EmitExpr(member.Obj);
+    if self.IsClass(self.LastType) then classT := self.LastType;
   end;
   if not self.IsClass(classT) then
   begin
@@ -5258,16 +5733,33 @@ begin
         selfReg := '%self'
     else
     begin
-      if self.HasLocal((member.Obj as TIdentifier).Value) then
+      // v0.6.9 P4 DBG: trap runaway strings feeding the receiver load
+      objName := (member.Obj as TIdentifier).Value;
+      if Length(objName) > 128 then
       begin
-        objReg := self.LocalReg((member.Obj as TIdentifier).Value);
+        self.WriteLine('  ; DBG huge-ident len=' + self.IntToStrS(Length(objName)));
+        objName := 'SEGBIG';
+      end;
+      if self.HasLocal(objName) then
+      begin
+        objReg := self.LocalReg(objName);
         selfReg := self.Tmp();
+        if Length(selfReg) > 128 then
+        begin
+          self.WriteLine('  ; DBG huge-selfreg-load len=' + self.IntToStrS(Length(selfReg)));
+          selfReg := '%dbg';
+        end;
         self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
       end
       else
       begin
-        objReg := self.GReg((member.Obj as TIdentifier).Value);
+        objReg := self.GReg(objName);
         selfReg := self.Tmp();
+        if Length(selfReg) > 128 then
+        begin
+          self.WriteLine('  ; DBG huge-selfreg-load len=' + self.IntToStrS(Length(selfReg)));
+          selfReg := '%dbg';
+        end;
         self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
       end;
     end;
@@ -5276,6 +5768,10 @@ begin
   begin
     // v0.6.9 P3: chained receiver already emitted in the classT resolution
     // above — selfReg holds the receiver register, do not emit twice.
+  end
+  else if member.Obj is TTypeCastExpression then
+  begin
+    // v0.6.9 P4: already emitted in the classT resolution above.
   end
   else
     selfReg := self.EmitExpr(member.Obj);
@@ -5291,13 +5787,52 @@ begin
     if self.IndexOfStr(self.FNames, extFn) >= 0 then
     begin
       argList := 'ptr ' + selfReg;
-      for i := 0 to Length(margs) - 1 do
+  if Length(selfReg) > 128 then
+  begin
+    self.WriteLine('  ; DBG huge-selfreg2 len=' + self.IntToStrS(Length(selfReg)));
+    selfReg := '%dbg';
+    argList := 'ptr %dbg';
+  end;
+      if Length(selfReg) > 128 then
+      begin
+        self.WriteLine('  ; DBG huge-selfreg2 len=' + self.IntToStrS(Length(selfReg)));
+        selfReg := '%dbg';
+        argList := 'ptr %dbg';
+      end;
+      nargs := Length(margs);
+      if nargs > 32 then
+      begin
+        self.WriteLine('  ; DBG huge-margs len=' + self.IntToStrS(nargs));
+        nargs := 32;
+      end;
+      for i := 0 to nargs - 1 do
       begin
         argReg := self.EmitExprTyped(margs[i]);
-        argList := argList + ', ' + self.LastType + ' ' + argReg;
+        if Length(argReg) > 128 then
+        begin
+          self.WriteLine('  ; DBG huge-argreg len=' + self.IntToStrS(Length(argReg)));
+          argReg := '%dbg';
+        end;
+        // v0.6.9 P4: normalize LastType — a class-field read reports the
+        // field's KYLIX class name (e.g. 'TExpression'), which is not an LLVM
+        // type; class args pass as ptr.
+        if self.IsClass(self.LastType) then
+          argList := argList + ', ptr ' + argReg
+        else
+          argList := argList + ', ' + self.LastType + ' ' + argReg;
+        if Length(argList) > 2048 then
+        begin
+          self.WriteLine('  ; DBG arglist-capped-ext len=' + self.IntToStrS(Length(argList)) + ' i=' + self.IntToStrS(i));
+          argList := 'ptr %self';
+        end;
       end;
       methT := self.FRet[self.IndexOfStr(self.FNames, extFn)];
       if methT = '' then methT := 'i64';
+      if Length(argList) > 512 then
+      begin
+        self.WriteLine('  ; DBG huge-arglist-ext len=' + self.IntToStrS(Length(argList)));
+        argList := 'ptr %self';
+      end;
       if methT = 'void' then
       begin
         self.WriteLine('  call void @' + extFn + '(' + argList + ')');
@@ -5314,13 +5849,30 @@ begin
       Exit;
     end;
     r := self.Tmp();
-    self.WriteLine('  ' + r + ' = add i1 1, 0 ; method ' + member.Member + ' not emitted (stub true)');
+    mm := member.Member;
+    if Length(mm) > 128 then
+    begin
+      self.WriteLine('  ; DBG huge-member len=' + self.IntToStrS(Length(mm)) + ' head=' + mm[0:80]);
+      mm := 'SEGBIG';
+    end;
+    self.WriteLine('  ' + r + ' = add i1 1, 0 ; method ' + mm + ' not emitted (stub true)');
     self.MemberType := 'i1';
     result := r;
     Exit;
   end;
   methT := self.MethodRetAt(ci, fi);
   if methT = 'variant' then methT := 'ptr';
+  // v0.6.9 P4 DBG: catch whichever operand is a runaway (garbage) string
+  if Length(selfReg) > 128 then
+  begin
+    self.WriteLine('  ; DBG huge-selfreg len=' + self.IntToStrS(Length(selfReg)));
+    selfReg := '%dbg';
+  end;
+  if Length(methT) > 128 then
+  begin
+    self.WriteLine('  ; DBG huge-metht len=' + self.IntToStrS(Length(methT)));
+    methT := 'i64';
+  end;
   // load vtable ptr from struct[0]
   vtableGEP := self.Tmp();
   self.WriteLine('  ' + vtableGEP + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 0');
@@ -5333,15 +5885,41 @@ begin
   // call via function pointer (self + args)
   r := self.Tmp();
   argList := 'ptr ' + selfReg;
-  for i := 0 to Length(margs) - 1 do
+  nargs := Length(margs);
+  if nargs > 32 then
   begin
+    self.WriteLine('  ; DBG huge-margs len=' + self.IntToStrS(nargs));
+    nargs := 32;
+  end;
+  for i := 0 to nargs - 1 do
+  begin
+    if i > 32 then
+    begin
+      self.WriteLine('  ; DBG margs-runaway len=' + self.IntToStrS(Length(margs)) + ' i=' + self.IntToStrS(i));
+      break;
+    end;
     argReg := self.EmitExprTyped(margs[i]);
+    if Length(argReg) > 128 then
+    begin
+      self.WriteLine('  ; DBG huge-argreg len=' + self.IntToStrS(Length(argReg)));
+      argReg := '%dbg';
+    end;
     if self.LastType = 'ptr' then argList := argList + ', ptr ' + argReg
     else if self.LastType = 'i1' then argList := argList + ', i1 ' + argReg
     else if self.LastType = 'double' then argList := argList + ', double ' + argReg
     else if self.LastType = '{ ptr, i64, i64 }' then argList := argList + ', { ptr, i64, i64 } ' + argReg
     else if self.IsClass(self.LastType) then argList := argList + ', ptr ' + argReg
     else argList := argList + ', i64 ' + argReg;
+    if Length(argList) > 2048 then
+    begin
+      self.WriteLine('  ; DBG arglist-capped-vt len=' + self.IntToStrS(Length(argList)) + ' i=' + self.IntToStrS(i));
+      argList := 'ptr %self';
+    end;
+  end;
+  if Length(argList) > 512 then
+  begin
+    self.WriteLine('  ; DBG huge-arglist-vt len=' + self.IntToStrS(Length(argList)));
+    argList := 'ptr %self';
   end;
   if methT = 'void' then
     self.WriteLine('  call void ' + fnPtr + '(' + argList + ')')
@@ -5436,9 +6014,19 @@ begin
 end;
 
 function TLLVMGenerator.EmitAsExpr(e: TTypeCastExpression; t: String): String;
+var tn: String;
 begin
   self.LastType := 'ptr';
   result := self.EmitExpr(e.Expression);
+  // v0.6.9 P4: report the CAST's target class name as LastType — `at := e as
+  // TArrayType` must register `at` with Kylix type TArrayType, or a following
+  // `at.Dynamic` member read resolves no receiver class (unhandled stub →
+  // `br i1 ptr` verifier error). TargetType read via a local (as-chain safe).
+  tn := self.TypeExprName(e.TargetType);
+  if tn <> '' then
+  begin
+    if self.IsClass(tn) then self.LastType := tn;
+  end;
 end;
 
 function TLLVMGenerator.EmitArrayIndex(idx: TIndexExpression; t: String): String;
@@ -5713,19 +6301,29 @@ begin
   // heap ptr; GEP in ptr and load ptr, and report the ELEMENT class so a
   // following .Member / .Method resolves the receiver.
   elemK := self.FieldElemKylixAt(ci, fi);
-  if (elemK <> '') and self.IsClass(elemK) then
-    elemLLVM := 'ptr'
+  // v0.6.9 P4: String elements are ptr-typed too — tagging them 'i64' made
+  // `self.Output := self.OutputChunks[0]` ptrtoint the handle and the next
+  // strlen dereferenced an integer (SIGBUS). Normalize ptr-like element types.
+  if elemK = 'String' then
+  begin
+    elemLLVM := 'ptr';
+    self.LastType := 'ptr';
+  end
+  else if (elemK <> '') and self.IsClass(elemK) then
+  begin
+    elemLLVM := 'ptr';
+    self.LastType := elemK;
+  end
   else
+  begin
     elemLLVM := 'i64';
+    self.LastType := 'i64';
+  end;
   ptr := self.Tmp();
   self.WriteLine('  ' + ptr + ' = getelementptr inbounds ' + elemLLVM + ', ptr ' + dataPtr2 + ', i64 ' + zeroIdx);
   loaded := self.Tmp();
   self.WriteLine('  ' + loaded + ' = load ' + elemLLVM + ', ptr ' + ptr);
   self.LastArrayReg := loaded;
-  if (elemK <> '') and self.IsClass(elemK) then
-    self.LastType := elemK
-  else
-    self.LastType := 'i64';
   result := true;
 end;
 

@@ -219,10 +219,10 @@ func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 		switch ident.Value {
 		case "Ord":
 			if len(e.Arguments) == 1 {
-				// Ord(s) → func() int { if len(s)==0 { return 0 }; return int(s[0]) }()
-				g.write("func() int { if len(")
+				// Ord(s) → func() int64 { if len(s)==0 { return 0 }; return int64(s[0]) }()
+				g.write("func() int64 { if len(")
 				g.generateExpression(e.Arguments[0])
-				g.write(") == 0 { return 0 }; return int(")
+				g.write(") == 0 { return 0 }; return int64(")
 				g.generateExpression(e.Arguments[0])
 				g.write("[0]) }()")
 				return

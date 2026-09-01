@@ -95,7 +95,9 @@ begin
       // emitted (the main non-unit program's statements become the entry).
       IRGen := TLLVMGenerator.Create;
       IRGen.EmitPrograms(Programs);
-      WriteLn(IRGen.Output);
+      // v0.6.9 P4: the emitted IR is megabytes — WriteLn's 512-byte staging
+      // buffer overflows. WriteOut does a plain write(1, s, strlen).
+      WriteOut(IRGen.Output);
     end
     else
     begin
