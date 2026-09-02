@@ -393,7 +393,7 @@ begin
   // v0.6.9 P4: defensive — a garbage/uninitialized llvmT from a broken
   // inference path made SuffixFor's strcmp dereference junk (gen2 self-emit
   // SEGV). Also probe the value so the bad producer is visible on stderr.
-  EProg('RL ' + name + ' lt=' + llvmT);
+  EProg('RL1');
   if llvmT = 'i64' then llvmT := 'i64'
   else if llvmT = 'i1' then llvmT := 'i1'
   else if llvmT = 'double' then llvmT := 'double'
@@ -401,25 +401,33 @@ begin
   else if llvmT = '{ ptr, i64, i64 }' then llvmT := '{ ptr, i64, i64 }'
   else if llvmT = 'variant' then llvmT := 'ptr'
   else llvmT := 'i64';
+  EProg('RL2');
   if self.HasLocal(name) then
   begin
+    EProg('RL3');
     result := self.LocalReg(name);
     Exit;
   end;
+  EProg('RL4');
   suffix := self.SuffixFor(llvmT);
+  EProg('RL5');
   reg := '%v_' + name + suffix;
-  if llvmT = 'variant' then llvmT := 'ptr';
+  EProg('RL6');
   self.WriteLine('  ' + reg + ' = alloca ' + llvmT + ', align 8');
+  EProg('RL7');
   if llvmT = 'ptr' then self.WriteLine('  store ptr null, ptr ' + reg)
   else if llvmT = 'i1' then self.WriteLine('  store i1 0, ptr ' + reg)
   else if llvmT = 'double' then self.WriteLine('  store double 0.0, ptr ' + reg)
   else if llvmT = '{ ptr, i64, i64 }' then self.WriteLine('  store { ptr, i64, i64 } zeroinitializer, ptr ' + reg)
   else self.WriteLine('  store i64 0, ptr ' + reg);
+  EProg('RL8');
   append(self.LNames, name);
   append(self.LTypes, llvmT);
   append(self.LRegs, reg);
   append(self.LKylix, kylixT);
+  EProg('RL9');
   result := reg;
+  EProg('RL10 ' + name + ' ' + kylixT);
 end;
 
 // RegisterMapLocal — declare a map local var: alloca a ptr slot holding the
@@ -1302,13 +1310,16 @@ var
   td: TTypeDecl;
   rtDecl: TRecordType;
 begin
+  EProg('ED enter');
   if decl is TClassDecl then
   begin
+    EProg('ED class');
     cd := decl as TClassDecl;
     self.EmitClassDecl(cd);
   end
   else if decl is TFunctionDecl then
   begin
+    EProg('ED fn');
     fd := decl as TFunctionDecl;
     // unit interface declarations carry no body — the implementation (same
     // name, with Body) is the one to emit; emitting both duplicates the define.
@@ -1321,6 +1332,7 @@ begin
   end
   else if decl is TVarDecl then
   begin
+    EProg('ED var');
     vd := decl as TVarDecl;
     self.EmitGlobalVarDecl(vd);
   end
@@ -1466,6 +1478,7 @@ var
   i: Integer;
   llvmT: String;
 begin
+  EProg('GVD n=' + self.IntToStrS(Length(vd.Names)));
   for i := 0 to Length(vd.Names) - 1 do
   begin
     llvmT := 'i64';
@@ -1485,6 +1498,7 @@ begin
     else
       append(self.GMapValueTypes, '');
   end;
+  EProg('GLEN len=' + self.IntToStrS(Length(self.GNames)) + ' i=' + self.IntToStrS(i));
 end;
 
 // FuncParamTypes — comma-joined LLVM types of a function declaration's
@@ -2192,13 +2206,19 @@ var
   ident: TIdentifier;
   idx: TIndexExpression;
   fldMem: TMemberExpression;
+  an: String;
+  gi: Integer;
 begin
   if asgn.Name is TIdentifier then
   begin
     ident := asgn.Name as TIdentifier;
-    if (not self.HasLocal(ident.Value)) and (self.IndexOfStr(self.GNames, ident.Value) < 0) then
-      self.RegisterLocal(ident.Value, 'i64', '');
-    self.AssignToName(ident.Value, asgn.Value);
+    // v0.6.9 P4 DBG: print the GNames lookup result for every assignment
+    an := ident.Value;
+    gi := self.IndexOfStr(self.GNames, an);
+    EProg('ASSIGN ' + an + ' gi=' + self.IntToStrS(gi));
+    if gi < 0 then
+      self.RegisterLocal(an, 'i64', '');
+    self.AssignToName(an, asgn.Value);
     Exit;
   end;
   if asgn.Name is TIndexExpression then
