@@ -390,6 +390,17 @@ function TLLVMGenerator.RegisterLocal(name, llvmT, kylixT: String): String;
 var
   reg, suffix: String;
 begin
+  // v0.6.9 P4: defensive — a garbage/uninitialized llvmT from a broken
+  // inference path made SuffixFor's strcmp dereference junk (gen2 self-emit
+  // SEGV). Also probe the value so the bad producer is visible on stderr.
+  EProg('RL ' + name + ' lt=' + llvmT);
+  if llvmT = 'i64' then llvmT := 'i64'
+  else if llvmT = 'i1' then llvmT := 'i1'
+  else if llvmT = 'double' then llvmT := 'double'
+  else if llvmT = 'ptr' then llvmT := 'ptr'
+  else if llvmT = '{ ptr, i64, i64 }' then llvmT := '{ ptr, i64, i64 }'
+  else if llvmT = 'variant' then llvmT := 'ptr'
+  else llvmT := 'i64';
   if self.HasLocal(name) then
   begin
     result := self.LocalReg(name);
@@ -654,6 +665,7 @@ var
   td: TTypeDecl;
   cd: TClassDecl;
   cdec: TConstDecl;
+  et: TEnumType;
   mainIdx: Integer;
   hasBody: Boolean;
   ei: Integer;
@@ -664,6 +676,81 @@ begin
   // resolves (was: array index unhandled → IsUnit/Declarations/Statements
   // all collapsed to stubs inside Pass 0/2/3).
   self.RegisterArray('progs', true, 'ptr', 'TProgram', 0, 0);
+  // v0.6.9 P4: hand-bake TProgram's field table. Pass 0 reads
+  // progs[pi].Declarations BEFORE ast.klx's MakeClassInfo runs (ast is file
+  // #3, token is #1 — chicken-and-egg), so the field lookup needs the table
+  // now. Slots match the TProgram GEPs (Declarations=6, Statements=7).
+  if self.ClassIndex('TProgram') < 0 then
+  begin
+    append(self.ClassNames, 'TProgram');
+    append(self.ClassEmittedFlags, false);
+    append(self.ClassParents, '');
+    append(self.ClassFieldNames, '');
+    append(self.ClassFieldTypes, '');
+    append(self.ClassFieldKylix, '');
+    append(self.ClassFieldElemKylix, '');
+    append(self.ClassFieldMaps, '');
+    append(self.ClassMethodNames, ',');
+    append(self.ClassMethodRet, ',');
+    append(self.ClassMethodDef, ',');
+    append(self.ClassMethodIdx, ',');
+    append(self.FlCls, self.ClassIndex('TProgram'));
+    append(self.FlSlot, 0);
+    append(self.FlName, 'Name');
+    append(self.FlType, 'ptr');
+    append(self.FlKylix, 'String');
+    append(self.FlElem, '');
+    append(self.FlMap, '0');
+    append(self.FlCls, self.ClassIndex('TProgram'));
+    append(self.FlSlot, 1);
+    append(self.FlName, 'NameToken');
+    append(self.FlType, 'ptr');
+    append(self.FlKylix, 'TToken');
+    append(self.FlElem, '');
+    append(self.FlMap, '0');
+    append(self.FlCls, self.ClassIndex('TProgram'));
+    append(self.FlSlot, 2);
+    append(self.FlName, 'UnitName');
+    append(self.FlType, 'ptr');
+    append(self.FlKylix, 'String');
+    append(self.FlElem, '');
+    append(self.FlMap, '0');
+    append(self.FlCls, self.ClassIndex('TProgram'));
+    append(self.FlSlot, 3);
+    append(self.FlName, 'IsUnit');
+    append(self.FlType, 'i1');
+    append(self.FlKylix, 'Boolean');
+    append(self.FlElem, '');
+    append(self.FlMap, '0');
+    append(self.FlCls, self.ClassIndex('TProgram'));
+    append(self.FlSlot, 4);
+    append(self.FlName, 'Uses');
+    append(self.FlType, '{ ptr, i64, i64 }');
+    append(self.FlKylix, '');
+    append(self.FlElem, 'String');
+    append(self.FlMap, '0');
+    append(self.FlCls, self.ClassIndex('TProgram'));
+    append(self.FlSlot, 5);
+    append(self.FlName, 'Declarations');
+    append(self.FlType, '{ ptr, i64, i64 }');
+    append(self.FlKylix, '');
+    append(self.FlElem, 'TNode');
+    append(self.FlMap, '0');
+    append(self.FlCls, self.ClassIndex('TProgram'));
+    append(self.FlSlot, 6);
+    append(self.FlName, 'Statements');
+    append(self.FlType, '{ ptr, i64, i64 }');
+    append(self.FlKylix, '');
+    append(self.FlElem, 'TStatement');
+    append(self.FlMap, '0');
+    append(self.FlCls, self.ClassIndex('TProgram'));
+    append(self.FlSlot, 7);
+    append(self.FlName, 'UsesPolymorphism');
+    append(self.FlType, 'i1');
+    append(self.FlKylix, 'Boolean');
+    append(self.FlElem, '');
+    append(self.FlMap, '0');
+  end;
   self.WriteLine('  ; dbg programs=' + self.IntToStrS(Length(progs)));
   StdIrInit();
   // NOTE: uses collection for EmitPrograms is done inside EmitDecl loops via
@@ -674,9 +761,10 @@ begin
   // (field access / receiver dispatch need it before emission).
   for pi := 0 to Length(progs) - 1 do
   begin
-    for i := 0 to Length(progs[pi].Declarations) - 1 do
+    p := progs[pi];
+    for i := 0 to Length(p.Declarations) - 1 do
     begin
-      decl := progs[pi].Declarations[i];
+      decl := p.Declarations[i];
       if decl is TTypeDecl then
       begin
         td := decl as TTypeDecl;
@@ -720,9 +808,10 @@ begin
   for pi := 0 to Length(progs) - 1 do
   begin
     i := 0;
-    while i < Length(progs[pi].Declarations) do
+    p := progs[pi];
+    while i < Length(p.Declarations) do
     begin
-      decl := progs[pi].Declarations[i];
+      decl := p.Declarations[i];
       if decl is TFunctionDecl then
       begin
         hasBody := (decl as TFunctionDecl).Body <> nil;
@@ -748,9 +837,10 @@ begin
           // does NOT shadow, so reusing `i` here clobbers the outer loop
           // (a 3-member enum left i=3, silently skipping every declaration
           // after the first type in the file — the IsLetter registration bug).
-          for ei := 0 to Length((td.DeclType as TEnumType).Names) - 1 do
+          et := td.DeclType as TEnumType;
+          for ei := 0 to Length(et.Names) - 1 do
           begin
-            append(self.CNames, (td.DeclType as TEnumType).Names[ei]);
+            append(self.CNames, et.Names[ei]);
             append(self.CVals, ei);
           end;
         end;
@@ -771,9 +861,10 @@ begin
   // appends top-level functions there for units) — register them too.
   for pi := 0 to Length(progs) - 1 do
   begin
-    for i := 0 to Length(progs[pi].Statements) - 1 do
+    p := progs[pi];
+    for i := 0 to Length(p.Statements) - 1 do
     begin
-      decl := progs[pi].Statements[i];
+      decl := p.Statements[i];
       if decl is TFunctionDecl then
       begin
         hasBody := (decl as TFunctionDecl).Body <> nil;
@@ -796,12 +887,14 @@ begin
   // Pass 2: emit declarations (all files) — plus unit functions from Statements.
   for pi := 0 to Length(progs) - 1 do
   begin
-    for i := 0 to Length(progs[pi].Declarations) - 1 do
-      self.EmitDecl(progs[pi].Declarations[i]);
+    p := progs[pi];
+    for i := 0 to Length(p.Declarations) - 1 do
+      self.EmitDecl(p.Declarations[i]);
     i := 0;
-    while i < Length(progs[pi].Statements) do
+    p := progs[pi];
+    while i < Length(p.Statements) do
     begin
-      decl := progs[pi].Statements[i];
+      decl := p.Statements[i];
       if decl is TFunctionDecl then
       begin
         hasBody := (decl as TFunctionDecl).Body <> nil;
@@ -815,13 +908,20 @@ begin
   mainIdx := -1;
   for pi := 0 to Length(progs) - 1 do
   begin
-    if (not progs[pi].IsUnit) and (Length(progs[pi].Statements) > 0) then
+    p := progs[pi];
+    if p.IsUnit then
+      continue;
+    if Length(p.Statements) > 0 then
     begin
       mainIdx := pi;
       break;
     end;
   end;
-  if mainIdx >= 0 then self.EmitMain(progs[mainIdx].Statements);
+  if mainIdx >= 0 then
+  begin
+    p := progs[mainIdx];
+    self.EmitMain(p.Statements);
+  end;
   self.EmitStdlibSegments();
   if self.NeedHashtab then self.EmitHashtabBodies();
   if self.NeedClassRTTI then self.EmitClassRuntime();
@@ -1641,6 +1741,8 @@ begin
     append(self.LTypes, retType);
     append(self.LRegs, '%result');
     append(self.LKylix, self.TypeExprName(fd.ReturnType));
+    // v0.6.9 P4: record returns need a calloc'd record in the result slot
+    self.EmitRecordResultInit(self.TypeExprName(fd.ReturnType));
   end;
   for i := 0 to Length(fd.LocalDecls) - 1 do
   begin
@@ -1677,6 +1779,7 @@ var
   pname: String;
   ptyExp: TExpression;
   lnode: TNode;
+  vat: TArrayType;
   params: array of String;
   lvd: TVarDecl;
   blk: TBlockStatement;
@@ -1735,6 +1838,7 @@ begin
     append(self.LTypes, retType);
     append(self.LRegs, '%result');
     append(self.LKylix, self.TypeExprName(method.ReturnType));
+    self.EmitRecordResultInit(self.TypeExprName(method.ReturnType));
   end;
   for i := 0 to Length(method.LocalDecls) - 1 do
   begin
@@ -5346,6 +5450,27 @@ begin
   else result := 'ptr';
 end;
 
+// EmitRecordResultInit — heap-allocate a zeroed record for a `result` slot
+// whose function returns a record by value. `result.Field := x` GEPs through
+// this pointer; without it the slot holds garbage (ReadNumber SEGV, x8=0x53b).
+// No-op when retKylix is not a record.
+procedure TLLVMGenerator.EmitRecordResultInit(retKylix: String);
+var ci, i, size: Integer;
+  ft, rec: String;
+begin
+  if self.IsRecordType(retKylix) = false then Exit;
+  ci := self.ClassIndex(retKylix);
+  size := 8;
+  for i := 0 to self.ClassFieldCountAt(ci) - 1 do
+  begin
+    ft := self.FieldTypeAt(ci, i);
+    size := size + self.LlvmTypeSize(ft);
+  end;
+  rec := self.Tmp();
+  self.WriteLine('  ' + rec + ' = call ptr @calloc(i64 1, i64 ' + self.IntToStrS(size) + ')');
+  self.WriteLine('  store ptr ' + rec + ', ptr %result');
+end;
+
 // UnescapePipe — restore ',' from the '|' escapes ClassRetType baked (flat
 // registry keeps the escaped form so tuple ret types stay one token).
 function TLLVMGenerator.UnescapePipe(s: String): String;
@@ -6007,9 +6132,17 @@ begin
     result := r;
     Exit;
   end;
-  // unsupported is target
+  // v0.6.9 P4: unregistered target still gets a real vtable comparison —
+  // gen2's Pass 0 runs `decl is TTypeDecl` while cn=1 (only hand-baked
+  // TProgram), and the old constant-false fallback killed ALL class dispatch
+  // in gen2. The target's vtable constant always exists in the output IR
+  // (ast.klx's classes are emitted in Pass 2).
+  selfReg := self.EmitExpr(e.Expression);
+  objVT := self.Tmp();
+  self.WriteLine('  ' + objVT + ' = load ptr, ptr ' + selfReg);
   r := self.Tmp();
-  self.WriteLine('  ' + r + ' = add i1 0, 0 ; is (unsupported)');
+  self.WriteLine('  ' + r + ' = call i1 @__kylix_class_is_a(ptr ' + objVT + ', ptr @' + target + '_vtable)');
+  self.NeedClassRTTI := true;
   result := r;
 end;
 
@@ -6162,6 +6295,13 @@ begin
     else
       classT := self.LocalKylix((mem.Obj as TIdentifier).Value);
     if classT = '' then classT := self.GKylix((mem.Obj as TIdentifier).Value);
+  end
+  else if mem.Obj is TIndexExpression then
+  begin
+    // v0.6.9 P4: `progs[pi].Declarations[i]` — the member's receiver is an
+    // index expression; emit it once (LastType carries the element class).
+    selfReg := self.EmitExpr(mem.Obj);
+    if self.IsClass(self.LastType) then classT := self.LastType;
   end;
   if not self.IsClass(classT) then Exit;
   ci := self.ClassIndex(classT);
@@ -6284,6 +6424,10 @@ begin
         self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
       end;
     end;
+  end
+  else if mem.Obj is TIndexExpression then
+  begin
+    // v0.6.9 P4: already emitted in the classT resolution above.
   end
   else
     selfReg := self.EmitExpr(mem.Obj);
