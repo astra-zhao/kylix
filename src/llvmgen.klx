@@ -276,7 +276,18 @@ end;
 
 function TLLVMGenerator.IndexOfStr(arr: array of String; needle: String): Integer;
 var i: Integer;
+  el: String;
 begin
+  // v0.6.9 P4 DBG: trace the KeywordsInitialized lookup specifically
+  if needle = 'KeywordsInitialized' then
+  begin
+    EProg('IOS len=' + self.IntToStrS(Length(arr)));
+    for i := 0 to Length(arr) - 1 do
+    begin
+      el := arr[i];
+      EProg('IOS elem=' + el);
+    end;
+  end;
   for i := 0 to Length(arr) - 1 do
     if arr[i] = needle then
     begin
@@ -1477,6 +1488,7 @@ procedure TLLVMGenerator.EmitGlobalVarDecl(vd: TVarDecl);
 var
   i: Integer;
   llvmT: String;
+  gnchk: String;
 begin
   EProg('GVD n=' + self.IntToStrS(Length(vd.Names)));
   for i := 0 to Length(vd.Names) - 1 do
@@ -1497,6 +1509,9 @@ begin
       append(self.GMapValueTypes, self.TypeExprName((vd.VarType as TMapType).ValueType))
     else
       append(self.GMapValueTypes, '');
+    // v0.6.9 P4 DBG: verify the appended element's content is intact
+    gnchk := self.GNames[i];
+    EProg('GN=' + gnchk);
   end;
   EProg('GLEN len=' + self.IntToStrS(Length(self.GNames)) + ' i=' + self.IntToStrS(i));
 end;
@@ -1672,6 +1687,7 @@ var
   ptyExp: TExpression;
   lnode: TNode;
   vat: TArrayType;
+  ktn: String;
   params: array of String;
   lvd: TVarDecl;
   blk: TBlockStatement;
@@ -1742,7 +1758,8 @@ begin
     llvmT := 'i64';
     if ptyExp <> nil then llvmT := self.LlvmTypeOfExpr(ptyExp);
     EProg('ploop2 llvmT');
-    allocaReg := self.RegisterLocal(pname, llvmT, self.TypeExprName(ptyExp));
+    ktn := self.TypeExprName(ptyExp);
+    allocaReg := self.RegisterLocal(pname, llvmT, ktn);
     EProg('ploop2 reg');
     self.WriteLine('  store ' + llvmT + ' %' + pname + ', ptr ' + allocaReg);
     EProg('ploop2 store');
@@ -1794,6 +1811,7 @@ var
   ptyExp: TExpression;
   lnode: TNode;
   vat: TArrayType;
+  ktn: String;
   params: array of String;
   lvd: TVarDecl;
   blk: TBlockStatement;
@@ -1834,7 +1852,8 @@ begin
     ptyExp := method.Parameters[i].ParamType;
     llvmT := 'i64';
     if ptyExp <> nil then llvmT := self.LlvmTypeOfExpr(ptyExp);
-    allocaReg := self.RegisterLocal(pname, llvmT, self.TypeExprName(ptyExp));
+    ktn := self.TypeExprName(ptyExp);
+    allocaReg := self.RegisterLocal(pname, llvmT, ktn);
     self.WriteLine('  store ' + llvmT + ' %' + pname + ', ptr ' + allocaReg);
     // v0.6.9 P4: array params need element info or `p[i]` reads collapse to
     // unhandled stubs inside the function body (EmitStatements' stmts etc).
