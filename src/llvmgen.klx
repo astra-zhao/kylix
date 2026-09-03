@@ -1520,6 +1520,11 @@ begin
     EProg('GN=' + gnchk);
   end;
   EProg('GLEN len=' + self.IntToStrS(Length(self.GNames)) + ' i=' + self.IntToStrS(i));
+  if Length(self.GNames) > 1 then
+  begin
+    gl1 := self.GNames[1];
+    EProg('G1=' + gl1);
+  end;
 end;
 
 // FuncParamTypes — comma-joined LLVM types of a function declaration's
@@ -2208,6 +2213,7 @@ begin
   if actualType = 'variant' then actualType := 'ptr';
   if t <> actualType then valReg := self.CoerceValue(valReg, t, actualType);
   // global assignment: store to @__kylix_g_<name>
+  EProg('ATN ' + name + ' gln=' + self.IntToStrS(Length(self.GNames)));
   if self.IndexOfStr(self.GNames, name) >= 0 then
   begin
     gname := self.GReg(name);
