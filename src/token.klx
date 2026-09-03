@@ -48,8 +48,8 @@ type
   end;
 
 var
-  Keywords: map[String]TTokenType;
   KeywordsInitialized: Boolean;
+  Keywords: map[String]TTokenType;
 
 procedure InitKeywords();
 begin

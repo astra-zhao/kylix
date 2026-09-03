@@ -576,12 +576,22 @@ function TLLVMGenerator.LlvmTypeFor(tname: String): String;
 var lo: String;
 begin
   lo := LowerCase(tname);
-  if (lo = 'integer') or (lo = 'int64') or (lo = 'int') or (lo = 'longint') then result := 'i64'
-  else if (lo = 'boolean') or (lo = 'bool') then result := 'i1'
-  else if (lo = 'real') or (lo = 'double') or (lo = 'float') or (lo = 'single') then result := 'double'
-  else if (lo = 'string') or (lo = 'ansistring') then result := 'ptr'
-  else if (lo = 'char') then result := 'i8'
-  else if (lo = 'variant') then result := 'ptr'
+  // v0.6.9 P4: or 不短路的复合改为嵌套 if —— bootstrap 的 or 会求值所有
+  // 操作数（其中某些 strcmp 可能碰到垃圾指针）
+  if lo = 'integer' then result := 'i64'
+  else if lo = 'int64' then result := 'i64'
+  else if lo = 'int' then result := 'i64'
+  else if lo = 'longint' then result := 'i64'
+  else if lo = 'boolean' then result := 'i1'
+  else if lo = 'bool' then result := 'i1'
+  else if lo = 'real' then result := 'double'
+  else if lo = 'double' then result := 'double'
+  else if lo = 'float' then result := 'double'
+  else if lo = 'single' then result := 'double'
+  else if lo = 'string' then result := 'ptr'
+  else if lo = 'ansistring' then result := 'ptr'
+  else if lo = 'char' then result := 'i8'
+  else if lo = 'variant' then result := 'ptr'
   else result := 'i64';
 end;
 
@@ -1468,7 +1478,10 @@ begin
   ci := self.ClassIndex(rname);
   cflds := [];
   for i := 0 to self.ClassFieldCountAt(ci) - 1 do
+  begin
     append(cflds, self.FieldTypeAt(ci, i));
+    EProg('CFT i=' + self.IntToStrS(i) + ' val=' + self.FieldTypeAt(ci, i));
+  end;
   fieldTypes := [];
   append(fieldTypes, 'ptr');
   for i := 0 to Length(cflds) - 1 do
@@ -4767,6 +4780,7 @@ var
   fld: TVarDecl;
   meth: TFunctionDecl;
 begin
+  EProg('MCI ' + cname);
   // fresh entry — field tables are comma-strings: "Name1,Name2," per class
   // (same pattern as the method tables; Kylix has no nested arrays).
   append(self.ClassNames, cname);
@@ -5053,8 +5067,12 @@ function TLLVMGenerator.EmitArrayIndexLocal(name: String; idxExpr: TExpression; 
 var
   ai: Integer;
   idxReg, zeroIdx, dataPtrLoc, dataPtr, ptr, loaded: String;
+  aek: String;
 begin
   ai := self.ArrInfoOf(name);
+  // v0.6.9 P4 DBG: probe the array metadata at the point of use
+  aek := self.ArrElemKylix[ai];
+  EProg('AIL ' + name + ' ai=' + self.IntToStrS(ai) + ' elemK=' + aek);
   idxReg := self.EmitExpr(idxExpr);
   zeroIdx := self.Tmp();
   if (self.ArrDynamic[ai] = false) and (self.ArrLower[ai] <> 0) then
