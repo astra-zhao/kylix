@@ -405,13 +405,6 @@ begin
   // inference path made SuffixFor's strcmp dereference junk (gen2 self-emit
   // SEGV). Also probe the value so the bad producer is visible on stderr.
   EProg('RL1');
-  if llvmT = 'i64' then llvmT := 'i64'
-  else if llvmT = 'i1' then llvmT := 'i1'
-  else if llvmT = 'double' then llvmT := 'double'
-  else if llvmT = 'ptr' then llvmT := 'ptr'
-  else if llvmT = '{ ptr, i64, i64 }' then llvmT := '{ ptr, i64, i64 }'
-  else if llvmT = 'variant' then llvmT := 'ptr'
-  else llvmT := 'i64';
   EProg('RL2');
   if self.HasLocal(name) then
   begin
