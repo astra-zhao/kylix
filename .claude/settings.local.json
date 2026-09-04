@@ -48,7 +48,8 @@
       "Bash(echo \"EXIT CODE: $?\")",
       "Bash(git reset *)",
       "Bash(awk '{print $2, $11, $12}')",
-      "Bash(./exceptions)"
+      "Bash(./exceptions)",
+      "Bash(/tmp/kylix_bin build *)"
     ]
   }
 }

@@ -98,11 +98,27 @@ func (g *Generator) emitWhile(s *ast.WhileStatement) error {
 func (g *Generator) emitFor(s *ast.ForStatement) error {
 	// Allocate loop variable
 	counterReg := fmt.Sprintf("%%v_%s_int", s.Variable)
-	if _, exists := g.locals[s.Variable]; !exists {
+	// v0.6.9: a binding that points at a program/unit GLOBAL (@__kylix_g_*,
+	// registered by registerGlobalsInScope) must NOT be reused as the loop
+	// counter — the shared global slot gets clobbered by a nested call's own
+	// for-loop over the same var name, and the outer loop's increment then
+	// reads the clobbered value (observed: EmitMethodCallWithArgs's arg loop
+	// re-ran its last iteration forever via @__kylix_g_i). Shadow it with a
+	// fresh alloca; the final counter value is stored back at loop exit so a
+	// post-loop read of the global still sees the loop's last value.
+	shadowGlobal := ""
+	if reg, exists := g.locals[s.Variable]; exists && !strings.HasPrefix(reg, "@__kylix_g_") {
+		counterReg = reg
+	} else {
+		if exists {
+			shadowGlobal = reg
+			// Branch-scoped locals snapshots can resurrect the global binding in
+			// a sibling branch, which would re-emit the same alloca name — mint a
+			// unique register via the tmp counter.
+			counterReg = strings.Replace(g.tmp(), "%t", fmt.Sprintf("%%v_%s_int", s.Variable), 1)
+		}
 		g.line(fmt.Sprintf("  %s = alloca i64, align 8", counterReg))
 		g.locals[s.Variable] = counterReg
-	} else {
-		counterReg = g.locals[s.Variable]
 	}
 
 	// Initialize
@@ -166,6 +182,14 @@ func (g *Generator) emitFor(s *ast.ForStatement) error {
 	g.line(fmt.Sprintf("  br label %%%s", headerLbl))
 
 	g.line(fmt.Sprintf("%s:", exitLbl))
+	// v0.6.9: shadowed global — publish the loop's final counter value back to
+	// the global slot (preserves the pre-shadow observable value for a
+	// post-loop read of the global).
+	if shadowGlobal != "" {
+		finalV := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i64, ptr %s", finalV, counterReg))
+		g.line(fmt.Sprintf("  store i64 %s, ptr %s", finalV, shadowGlobal))
+	}
 	return nil
 }
 

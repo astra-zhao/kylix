@@ -117,7 +117,7 @@ type
     ClassMethodIdx: array of String;    // per-class method vtable idx (comma str)
     // P2: array-of-T metadata (mirrors host arrayInfo)
     ArrNames: array of String;
-    ArrDynamic: array of Boolean;
+    ArrDynamic: array of Integer;
     ArrElem: array of String;
     ArrElemKylix: array of String;
     ArrSize: array of Integer;
@@ -281,11 +281,9 @@ begin
   // v0.6.9 P4 DBG: trace the KeywordsInitialized lookup specifically
   if needle = 'KeywordsInitialized' then
   begin
-    EProg('IOS len=' + self.IntToStrS(Length(arr)));
     for i := 0 to Length(arr) - 1 do
     begin
       el := arr[i];
-      EProg('IOS elem=' + el);
     end;
   end;
   for i := 0 to Length(arr) - 1 do
@@ -404,34 +402,24 @@ begin
   // v0.6.9 P4: defensive — a garbage/uninitialized llvmT from a broken
   // inference path made SuffixFor's strcmp dereference junk (gen2 self-emit
   // SEGV). Also probe the value so the bad producer is visible on stderr.
-  EProg('RL1');
-  EProg('RL2');
   if self.HasLocal(name) then
   begin
-    EProg('RL3');
     result := self.LocalReg(name);
     Exit;
   end;
-  EProg('RL4');
   suffix := self.SuffixFor(llvmT);
-  EProg('RL5');
   reg := '%v_' + name + suffix;
-  EProg('RL6');
   self.WriteLine('  ' + reg + ' = alloca ' + llvmT + ', align 8');
-  EProg('RL7');
   if llvmT = 'ptr' then self.WriteLine('  store ptr null, ptr ' + reg)
   else if llvmT = 'i1' then self.WriteLine('  store i1 0, ptr ' + reg)
   else if llvmT = 'double' then self.WriteLine('  store double 0.0, ptr ' + reg)
   else if llvmT = '{ ptr, i64, i64 }' then self.WriteLine('  store { ptr, i64, i64 } zeroinitializer, ptr ' + reg)
   else self.WriteLine('  store i64 0, ptr ' + reg);
-  EProg('RL8');
   append(self.LNames, name);
   append(self.LTypes, llvmT);
   append(self.LRegs, reg);
   append(self.LKylix, kylixT);
-  EProg('RL9');
   result := reg;
-  EProg('RL10 ' + name + ' ' + kylixT);
 end;
 
 // RegisterMapLocal — declare a map local var: alloca a ptr slot holding the
@@ -957,6 +945,7 @@ var
   decl: TNode;
   td: TTypeDecl;
   cd: TClassDecl;
+  hasBody: Boolean;
 begin
   self.EmitHeader();
   self.EmitRuntimeDecls();
@@ -1324,16 +1313,13 @@ var
   td: TTypeDecl;
   rtDecl: TRecordType;
 begin
-  EProg('ED enter');
   if decl is TClassDecl then
   begin
-    EProg('ED class');
     cd := decl as TClassDecl;
     self.EmitClassDecl(cd);
   end
   else if decl is TFunctionDecl then
   begin
-    EProg('ED fn');
     fd := decl as TFunctionDecl;
     // unit interface declarations carry no body — the implementation (same
     // name, with Body) is the one to emit; emitting both duplicates the define.
@@ -1346,7 +1332,6 @@ begin
   end
   else if decl is TVarDecl then
   begin
-    EProg('ED var');
     vd := decl as TVarDecl;
     self.EmitGlobalVarDecl(vd);
   end
@@ -1480,7 +1465,6 @@ begin
   for i := 0 to self.ClassFieldCountAt(ci) - 1 do
   begin
     append(cflds, self.FieldTypeAt(ci, i));
-    EProg('CFT i=' + self.IntToStrS(i) + ' val=' + self.FieldTypeAt(ci, i));
   end;
   fieldTypes := [];
   append(fieldTypes, 'ptr');
@@ -1495,8 +1479,8 @@ var
   i: Integer;
   llvmT: String;
   gnchk: String;
+  gl1: String;
 begin
-  EProg('GVD n=' + self.IntToStrS(Length(vd.Names)));
   for i := 0 to Length(vd.Names) - 1 do
   begin
     llvmT := 'i64';
@@ -1517,13 +1501,10 @@ begin
       append(self.GMapValueTypes, '');
     // v0.6.9 P4 DBG: verify the appended element's content is intact
     gnchk := self.GNames[i];
-    EProg('GN=' + gnchk);
   end;
-  EProg('GLEN len=' + self.IntToStrS(Length(self.GNames)) + ' i=' + self.IntToStrS(i));
   if Length(self.GNames) > 1 then
   begin
     gl1 := self.GNames[1];
-    EProg('G1=' + gl1);
   end;
 end;
 
@@ -1699,6 +1680,7 @@ var
   lnode: TNode;
   vat: TArrayType;
   ktn: String;
+  aet, aek: String;
   params: array of String;
   lvd: TVarDecl;
   blk: TBlockStatement;
@@ -1709,7 +1691,6 @@ begin
   // the name contains a dot. Lower to @ClassName_MethodName with a leading
   // `ptr %self` parameter (mirrors host v0.5.4; most bootstrap TLexer/TParser/
   // TGenerator methods are written this way in the units).
-  EProg('fn ' + fd.Name);
   extClass := '';
   extMethod := '';
   funcSymbol := fd.Name;
@@ -1761,19 +1742,23 @@ begin
   begin
     // v0.6.9 P4: index-member reads through locals (see the params loop above
     // — direct `fd.Parameters[i].X` call args explode the param marshal).
-    EProg('ploop2 i=' + self.IntToStrS(i));
     pname := fd.Parameters[i].Name;
-    EProg('ploop2 name');
     ptyExp := fd.Parameters[i].ParamType;
-    EProg('ploop2 pty');
     llvmT := 'i64';
     if ptyExp <> nil then llvmT := self.LlvmTypeOfExpr(ptyExp);
-    EProg('ploop2 llvmT');
     ktn := self.TypeExprName(ptyExp);
     allocaReg := self.RegisterLocal(pname, llvmT, ktn);
-    EProg('ploop2 reg');
     self.WriteLine('  store ' + llvmT + ' %' + pname + ', ptr ' + allocaReg);
-    EProg('ploop2 store');
+    // v0.6.9 P4: array params must register in ArrNames or `p[i]` reads
+    // collapse to the unhandled-index stub inside the function body (EmitMethod
+    // has the same block — the dot-name method path was missing it).
+    if ptyExp is TArrayType then
+    begin
+      vat := ptyExp as TArrayType;
+      aet := self.LlvmTypeOfExpr(vat.ElementType);
+      aek := self.TypeExprName(vat.ElementType);
+      self.RegisterArray(pname, vat.Dynamic, aet, aek, 0, 0);
+    end;
   end;
   if retType <> 'void' then
   begin
@@ -1823,11 +1808,11 @@ var
   lnode: TNode;
   vat: TArrayType;
   ktn: String;
+  aet, aek: String;
   params: array of String;
   lvd: TVarDecl;
   blk: TBlockStatement;
 begin
-  EProg('fn ' + className + '.' + method.Name);
   retType := 'void';
   if method.ReturnType <> nil then retType := self.LlvmTypeOfExpr(method.ReturnType);
   params := [];
@@ -1871,7 +1856,12 @@ begin
     if ptyExp is TArrayType then
     begin
       vat := ptyExp as TArrayType;
-      self.RegisterArray(pname, vat.Dynamic, self.LlvmTypeOfExpr(vat.ElementType), self.TypeExprName(vat.ElementType), 0, 0);
+      // v0.6.9 P4: funnel the element-type calls through locals — method calls
+      // as RegisterArray arguments hit the broken param-marshal path and blow
+      // up the emit (see EmitFunctionDecl notes).
+      aet := self.LlvmTypeOfExpr(vat.ElementType);
+      aek := self.TypeExprName(vat.ElementType);
+      self.RegisterArray(pname, vat.Dynamic, aet, aek, 0, 0);
     end;
   end;
   if retType <> 'void' then
@@ -1936,8 +1926,6 @@ begin
   n := Length(stmts);
   for i := 0 to n - 1 do
   begin
-    if n > 8 then
-      EProg('stmt seq=' + self.IntToStrS(self.StmtSeq) + ' i=' + self.IntToStrS(i) + ' of=' + self.IntToStrS(n));
     self.EmitStatement(stmts[i]);
   end;
 end;
@@ -1957,37 +1945,31 @@ begin
   self.EmitDepth := 0;
   if stmt is TVarDecl then
   begin
-    EProg('kind var');
     vd := stmt as TVarDecl;
     self.EmitVarDecl(vd);
   end
   else if stmt is TAssignmentStatement then
   begin
-    EProg('kind assign');
     asgn := stmt as TAssignmentStatement;
     self.EmitAssign(asgn);
   end
   else if stmt is TExpressionStatement then
   begin
-    EProg('kind expr');
     es := stmt as TExpressionStatement;
     self.EmitExprStatement(es);
   end
   else if stmt is TIfStatement then
   begin
-    EProg('kind if');
     ifSt := stmt as TIfStatement;
     self.EmitIf(ifSt);
   end
   else if stmt is TWhileStatement then
   begin
-    EProg('kind while');
     wh := stmt as TWhileStatement;
     self.EmitWhile(wh);
   end
   else if stmt is TForStatement then
   begin
-    EProg('kind for');
     fo := stmt as TForStatement;
     self.EmitFor(fo);
   end
@@ -2117,18 +2099,9 @@ procedure TLLVMGenerator.EmitVarDeclSingle(name: String; varType: TExpression);
 var llvmT: String;
   vat: TArrayType;
   vtn: String;
-  ista: Boolean;
 begin
   vtn := self.TypeExprName(varType);
-  if name = 'at' then
-  begin
-    ista := false;
-    if varType is TArrayType then ista := true;
-    EProg('VDS at vtn=' + vtn + ' ci=' + self.IntToStrS(self.ClassIndex(vtn)));
-  end;
   llvmT := self.LlvmTypeOfExpr(varType);
-  if name = 'at' then
-    EProg('VDS at llvmT=' + llvmT);
   if varType is TArrayType then
   begin
     // v0.6.9 P4: at := ... locals must keep their Kylix class name (was ''),
@@ -2213,7 +2186,6 @@ begin
   if actualType = 'variant' then actualType := 'ptr';
   if t <> actualType then valReg := self.CoerceValue(valReg, t, actualType);
   // global assignment: store to @__kylix_g_<name>
-  EProg('ATN ' + name + ' gln=' + self.IntToStrS(Length(self.GNames)));
   if self.IndexOfStr(self.GNames, name) >= 0 then
   begin
     gname := self.GReg(name);
@@ -2246,7 +2218,6 @@ begin
     // v0.6.9 P4 DBG: print the GNames lookup result for every assignment
     an := ident.Value;
     gi := self.IndexOfStr(self.GNames, an);
-    EProg('ASSIGN ' + an + ' gi=' + self.IntToStrS(gi));
     if gi < 0 then
       self.RegisterLocal(an, 'i64', '');
     self.AssignToName(an, asgn.Value);
@@ -2642,13 +2613,9 @@ var
   loopVar: String;
   blk: TBlockStatement;
 begin
-  EProg('for: enter');
   loopVar := stmt.Variable;
-  EProg('for: var');
   varReg := self.RegisterLocal(loopVar, 'i64', '');
-  EProg('for: reg');
   initVal := self.EmitExpr(stmt.From);
-  EProg('for: init');
   self.WriteLine('  store i64 ' + initVal + ', ptr ' + varReg);
   headLbl := self.Label();
   bodyLbl := self.Label();
@@ -2673,12 +2640,9 @@ begin
     self.WriteLine('  br i1 ' + cmp + ', label %' + bodyLbl + ', label %' + endLbl);
   end;
   self.WriteLine(bodyLbl + ':');
-  EProg('for: pre-body');
   blk := stmt.Body as TBlockStatement;
   self.EmitStatements(blk.Statements);
-  EProg('for: post-body');
   self.WriteLine('  br label %' + incLbl);
-  EProg('for: post-inc');
   self.WriteLine(incLbl + ':');
   incReg := self.Tmp();
   if stmt.DownTo then
@@ -3573,7 +3537,6 @@ begin
     result := r;
     Exit;
   end;
-  // v0.6.9 P4: EProg(s) — stderr progress probe (fprintf(stderr, "%s\n", s)).
   // A self-emit run leaves a live trail on stderr even if the process dies.
   if fname = 'EProg' then
   begin
@@ -4429,7 +4392,7 @@ begin
     ai := self.IndexOfStr(self.ArrNames, (arg as TIdentifier).Value);
   if ai >= 0 then
   begin
-    if self.ArrDynamic[ai] then
+    if self.ArrDynamic[ai] <> 0 then
     begin
       // v0.6.9 P3: ArraySlot resolves local OR main-program-global arrays
       // (main-program `var` becomes a global — LocalReg alone returns '')
@@ -4786,7 +4749,6 @@ var
   fld: TVarDecl;
   meth: TFunctionDecl;
 begin
-  EProg('MCI ' + cname);
   // fresh entry — field tables are comma-strings: "Name1,Name2," per class
   // (same pattern as the method tables; Kylix has no nested arrays).
   append(self.ClassNames, cname);
@@ -4978,7 +4940,6 @@ begin
   // v0.6.9 P4: flat scan (entries were copied from the parent at registration,
   // so inherited methods resolve without walking the chain).
   result := -1;
-  EProg('MI enter vt=' + self.IntToStrS(Length(self.VtCls)) + ' mlen=' + self.IntToStrS(Length(mname)));
   for k := 0 to Length(self.VtCls) - 1 do
   begin
     if self.VtCls[k] = ci then
@@ -5038,9 +4999,21 @@ begin
 end;
 
 procedure TLLVMGenerator.RegisterArray(name: String; dyn: Boolean; elemT, elemK: String; size, lb: Integer);
+var
+  di: Integer;
 begin
   append(self.ArrNames, name);
-  append(self.ArrDynamic, dyn);
+  // v0.6.9 P4.11: ArrDynamic must be Integer, not Boolean. The self-hosted
+  // emitter writes Boolean dynamic-array elements with an i1 GEP (1-byte
+  // stride) but reads them back with an i64 GEP (8-byte stride): element k is
+  // written at byte k yet read at byte 8k, so ArrDynamic[0] works by luck and
+  // ArrDynamic[1+] reads heap garbage → arrays registered after the first are
+  // misclassified as static (Length(names) → "static array length", gen2 IR
+  // divergence). Storing 0/1 in an Integer array keeps write/read strides at
+  // 8 bytes on both sides.
+  di := 0;
+  if dyn then di := 1;
+  append(self.ArrDynamic, di);
   append(self.ArrElem, elemT);
   append(self.ArrElemKylix, elemK);
   append(self.ArrSize, size);
@@ -5078,10 +5051,9 @@ begin
   ai := self.ArrInfoOf(name);
   // v0.6.9 P4 DBG: probe the array metadata at the point of use
   aek := self.ArrElemKylix[ai];
-  EProg('AIL ' + name + ' ai=' + self.IntToStrS(ai) + ' elemK=' + aek);
   idxReg := self.EmitExpr(idxExpr);
   zeroIdx := self.Tmp();
-  if (self.ArrDynamic[ai] = false) and (self.ArrLower[ai] <> 0) then
+  if (self.ArrDynamic[ai] = 0) and (self.ArrLower[ai] <> 0) then
     self.WriteLine('  ' + zeroIdx + ' = sub i64 ' + idxReg + ', ' + self.IntToStrS(self.ArrLower[ai]))
   else
     self.WriteLine('  ' + zeroIdx + ' = add i64 ' + idxReg + ', 0');
@@ -5137,7 +5109,7 @@ begin
   ai := self.ArrInfoOf(name);
   idxReg := self.EmitExpr(idxExpr);
   zeroIdx := self.Tmp();
-  if (self.ArrDynamic[ai] = false) and (self.ArrLower[ai] <> 0) then
+  if (self.ArrDynamic[ai] = 0) and (self.ArrLower[ai] <> 0) then
     self.WriteLine('  ' + zeroIdx + ' = sub i64 ' + idxReg + ', ' + self.IntToStrS(self.ArrLower[ai]))
   else
     self.WriteLine('  ' + zeroIdx + ' = add i64 ' + idxReg + ', 0');
@@ -5566,11 +5538,11 @@ end;
 // present. Mirrors host emitConstructor.
 function TLLVMGenerator.EmitConstructor(cname: String): String;
 var
-  ci, i, size: Integer;
+  ci, i, size, fm: Integer;
   allocReg, vtablePtr, slot, tbl, r: String;
   hasCreate: Boolean;
   ctypes: array of String;
-  cfmaps: array of Boolean;
+  cfmaps: array of Integer;
 begin
   ci := self.ClassIndex(cname);
   if ci < 0 then
@@ -5601,13 +5573,19 @@ begin
   // map fields → htab_new; dynamic slice fields → zero
   cfmaps := [];
   for i := 0 to self.ClassFieldCountAt(ci) - 1 do
-    append(cfmaps, self.FieldMapAt(ci,i));
+  begin
+    // v0.6.9 P4.11: Integer 0/1, not Boolean — same write(i1)/read(i64) GEP
+    // stride mismatch as ArrDynamic.
+    fm := 0;
+    if self.FieldMapAt(ci,i) then fm := 1;
+    append(cfmaps, fm);
+  end;
   ctypes := [];
   for i := 0 to self.ClassFieldCountAt(ci) - 1 do
     append(ctypes, self.FieldTypeAt(ci,i));
   for i := 0 to Length(ctypes) - 1 do
   begin
-    if cfmaps[i] then
+    if cfmaps[i] <> 0 then
     begin
       self.NeedHashtab := true;
       slot := self.Tmp();
@@ -5633,9 +5611,10 @@ end;
 function TLLVMGenerator.EmitMember(member: TMemberExpression; t: String): String;
 var
   r, selfReg, objReg, classT, loaded: String;
+  vtableGEP, vtablePtr, fnPtrLoc, fnPtr: String;
+  methT: String;
   ci, idx, fi: Integer;
 begin
-  EProg('MEM ' + member.Member);
   // Constructor pattern: TFoo.Create — fresh heap-allocated instance.
   if member.Member = 'Create' then
   begin
@@ -5656,7 +5635,6 @@ begin
   // v0.6.9 P4 DBG: report receiver resolution for member reads
   if member.Obj is TIdentifier then
   begin
-    EProg('MEMOBJ ' + member.Member + ' recv=' + (member.Obj as TIdentifier).Value + ' lk=' + self.LocalKylix((member.Obj as TIdentifier).Value));
   end;
   if member.Obj is TIdentifier then
   begin
@@ -5733,7 +5711,6 @@ begin
     selfReg := self.EmitExpr(member.Obj);
     if self.IsClass(self.LastType) then classT := self.LastType;
   end;
-  EProg('CHK ' + classT + ' ci=' + self.IntToStrS(self.ClassIndex(classT)) + ' cn=' + self.IntToStrS(Length(self.ClassNames)));
   if self.IsClass(classT) then
   begin
     if member.Obj is TIdentifier then
@@ -5763,7 +5740,6 @@ begin
     end;
     ci := self.ClassIndex(classT);
     fi := self.FieldIndex(classT, member.Member);
-    EProg('FIELD ' + classT + '.' + member.Member + ' fi=' + self.IntToStrS(fi));
     if fi >= 0 then
     begin
       r := self.Tmp();
@@ -5839,7 +5815,6 @@ begin
   self.EmitDepth := self.EmitDepth + 1;
   if self.EmitDepth > 128 then
   begin
-    EProg('DEPTH-CUT at ' + member.Member);
     r := self.Tmp();
     self.WriteLine('  ' + r + ' = add i64 0, 0 ; emit depth cut');
     self.MemberType := 'i64';
@@ -5850,9 +5825,7 @@ begin
   // v0.6.9 P4 DBG: stderr probe for runaway argument lists
   if Length(margs) > 16 then
   begin
-    EProg('DBGMCWA n=' + self.IntToStrS(Length(margs)));
   end;
-  EProg('MCWA ' + member.Member);
   // Constructor with args: TFoo.Create(...) — allocate + (P2: init).
   if member.Member = 'Create' then
   begin

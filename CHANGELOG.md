@@ -43,11 +43,13 @@ All notable changes to the Kylix compiler are documented in this file.
 - **构造函数 calloc**（malloc 垃圾 ptr 字段被解引用）、**Args 数组化**（`Args[0]` 走 EmitArrayIndexLocal + LastType）+ ArraySlot 特判、**nil→slice coerce**（`result := nil` → 零 slice）、**vtable 调用 slice/类名参数类型**、**FloatToStr/StrToFloat/StrToInt64 内置**（%.17g/strtod）、tolower/toupper declare、**main 无条件 argc/argv**（NeedArgs 循环依赖导致 gen2 读不到命令行文件）、**方法表元组返回类型转义**（`{ ptr, i64 }` 的逗号以 `|` 存储绕开逗号串拆分）。
 - **parser 侧**：uses 子句记录模块名（原只跳过！）；`Uses` 作成员/字段名（tkUses 进 IsIdentOrSoftKeyword，lexer 大小写不敏感）；块迭代上限 1000→20000（stdlib_ir.klx 的 StdIrInit 有 6400 条 append）；host parser 同步（token.USES soft keyword + 上限）。
 
-### 🎉 gen2 编译器诞生（P4 里程碑）
+### 🎉 gen2 编译器诞生 + IR 不动点达成（P4 里程碑）
 
-- **8 文件自举 IR 通过 llc 并链接出 `gen2`**（LLVM 编译的 bootstrap 编译器，814KB，无 Go 依赖）——gen2 能启动、解析参数、ReadFile、进入 parser 阶段。
+- **8 文件自举 IR 通过 llc 并链接出 `gen2`**（LLVM 编译的 bootstrap 编译器，无 Go 依赖）——gen2 能启动、解析参数、ReadFile、进入 parser 阶段。
 - 自举 emit 147k 行 IR / ~6s（8 文件，不含 llvmgen.klx）。
-- **gen2 完全闭环进行中**：lexer NextToken 内崩溃待修（每轮 crash→修→重编循环 5-10 分钟）；`llvmgen.klx` 自举 emit 性能（逗号串扫描 O(n²)，>10min）待优化。
+- **P4.10 gen1 自举 emit"递归级联"破案**：非真递归——host `registerGlobalsInScope` 把 main.klx 程序级全局（`var i: Integer` → `@__kylix_g_i`）注册进 `g.locals`，host emitFor 发现 `g.locals["i"]` 已存在就直接把 **for 循环计数器绑到全局槽**；嵌套函数调用污染全局后外层循环 inc 读到污染值（cond 恒真）→ 末次迭代无限重跑，直到 EmitDepth>128 DEPTH-CUT。修复（`pkg/llvmgen/stmt_flow.go` emitFor）：已有绑定是 `@__kylix_g_*` 时铸造新 alloca `%v_<name>_int` + 出口写回终值（可观测语义不变）；同名 alloca 铸造走 tmp 计数器防分支快照复活冲突。顺带发现 EmitDepth 泄漏（MCWA 正常出口不递减）。
+- **P4.11 gen2→gen3 IR 不动点达成**：gen1（host 编译）`--emit-llvm` 9 文件 → mem2reg/llc/clang → gen2（纯原生）→ gen2 `--emit-llvm` 同 9 文件 → **输出与 gen1 逐字节一致（fp ≡ gen2 输出，~220k 行）**；用不动点 IR 构建的 gen3 与 gen2 编译教程输出逐字节一致。根因（最后一个分歧）：自举 emitter 对 **`array of Boolean` 写读宽度不一致**——写侧（append）发 `getelementptr i1`（1 字节 stride），读侧（索引）发 `getelementptr i64`（8 字节 stride），元素 k 写在字节 k、读在字节 8k：`ArrDynamic[0]` 恰好对齐正常、`ArrDynamic[1+]` 读堆垃圾 → 首个注册之后的数组全部被误判为静态（`Length(names)` 发 "static array length"）。修复：`ArrDynamic`/`cfmaps` 从 `array of Boolean` 改 `array of Integer`（0/1），读写两侧 stride 恒为 8 字节。
+- **调试探针网全部清理**：72 处 EProg 调用（EETI/EETC/S6/S7/MCWAx/VDS/RL/ED/kind/* 系列全删），EProg stderr 内建（host + bootstrap 两端）保留作调试基础设施；顺带修 3 处探针删除残留（`if name='at' then` 悬空把 TArrayType 分支绑成 if 体——RegisterArrayFromType 失调、`if n > 8 then` 空体、EETC 悬空 else）。
 
 ### 教程验证（scripts/test_bootstrap_all.sh）
 
@@ -62,6 +64,8 @@ All notable changes to the Kylix compiler are documented in this file.
 3. **for 循环变量不遮蔽**：内层 `for i` 重用外层 `i` → 外层循环被击穿（type 段后声明全跳过的根因）。
 4. **host rebuild 的 `| tail -1` 吞失败**：管道 exit code 掩盖 llc 错误，bootstrap 二进制静默陈旧——验证 rebuild 输出必须含 `✓ Built`。
 5. **`(参数数组[i] as T)`、`(self.字段 as T).Value` 不可 lower**——只有 `(成员链 as T).Value` 形态可靠；纯 ident 的 as 需成员链中转。
+6. **`array of Boolean` 字段数组不可用**：自举 emitter 写侧 i1 GEP（1 字节）/读侧 i64 GEP（8 字节），元素 1+ 读堆垃圾——用 `array of Integer`（0/1）替代（P4.11 根因）。
+7. **探针删除残留**：`if cond then EProg(...);` 删探针后悬空 if 会把下一个分支/语句绑成 if 体——删探针必须连带检查 then/else 结构。
 
 ### 其它
 
