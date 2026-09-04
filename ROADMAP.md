@@ -1,11 +1,11 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-08-31  
-> 当前版本: v0.6.9（进行中——bootstrap 无 Go 闭环 P3+P4）  
+> 最后更新: 2026-09-04  
+> 当前版本: v0.6.9（已发布——bootstrap 无 Go 闭环）  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**🚧 v0.6.9 进行中！** bootstrap 无 Go 闭环两大突破：(1) **stdlib IR 烘焙**——host 生成的 stdlib IR 按 13 段烘焙进 `src/stdlib_ir.klx`（免手写 15.5k 行 Go 移植），bootstrap 只做 call-site dispatch + wrapper 类方法；(2) **gen2 编译器诞生**——8 文件自举 IR（147k 行）通过 llc 并链接出 gen2（814KB，无 Go 依赖），能启动/读文件/进入 parser。**bootstrap emitter 补缺 20+ 项**（dot-name 方法/链式成员/record 类型系统/epilogue 重排/嵌套循环/alloca hoisting/构造函数 calloc 等，详见 CHANGELOG）。**教程 sweep 48/51 PASS**（bootstrap-vs-host 逐字 diff，`scripts/test_bootstrap_all.sh`）。**收尾**：gen2 lexer 崩溃待修（crash→修循环约 5-15 轮）、llvmgen.klx 自举 emit 性能 O(n²)、教程 15/50 两个已知失败。**完成后发布 v0.6.9 → 进入 v0.7.0 web 框架**。详见 [CHANGELOG.md](CHANGELOG.md)。
+**✅ v0.6.9 已发布！** bootstrap 无 Go 闭环达成：(1) **stdlib IR 烘焙**——host 生成的 stdlib IR 按 13 段烘焙进 `src/stdlib_ir.klx`（免手写 15.5k 行 Go 移植），bootstrap 只做 call-site dispatch + wrapper 类方法；(2) **gen2 编译器诞生 + IR 不动点**——9 文件自举 IR（~220k 行）通过 llc 并链接出 gen2（纯原生无 Go），**gen1 ≡ gen2 ≡ gen3 逐字节一致（真正不动点）**；P4.10/P4.11 破案两大根因（for 计数器全局槽污染、`array of Boolean` 写读 stride 不一致）。**bootstrap emitter 补缺 20+ 项**（dot-name 方法/链式成员/record 类型系统/epilogue 重排/嵌套循环/alloca hoisting/构造函数 calloc 等，详见 CHANGELOG）。**教程 sweep 50/51 PASS**（bootstrap-vs-host 逐字 diff，`scripts/test_bootstrap_all.sh`；example15 lambda / example50 jwt 已于 P4.12 修复，example33 为 host 端 SKIP）。**下一步 → v0.7.0 web 框架**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 **✅ v0.5.8 已发布！** Runtime 正确性达成 51/51（全部 go-build + 运行正确）。修复泛型类静态数组 `array[0..99] of T` 误发为 `[]T`（动态切片）→ `Items` len=0 → `self.Items[self.Count] = item` panic。改 `GenerateTypeExpression` 按 `arrType.Dynamic` 区分静态 `[Size]T` 与动态 `[]T`。example21 runtime 正确（Stack count: 3, Pop: 30/20, count: 1, Pop: World）。self-reproduction 不动点保持。详见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -55,8 +55,17 @@
 | **v0.5.6** | LLVM 后端 bootstrap self-host 51/51（28 codegen bug + 移植缺口修复） | ✅ 完成 | 2026-07-28 |
 | **v0.5.7** | LLVM 后端 bootstrap self-reproduction 不动点（main_self→main_self2→main_self3，self_gen.go≡self_gen2.go） | ✅ 完成 | 2026-07-29 |
 | **v0.5.8** | Runtime 正确性（example21 泛型静态数组 array[0..N] of T → [N]T 修复；51/51 runtime 正确） | ✅ 完成 | 2026-07-30 |
-| **v0.5.9** | 多态 gate + KylixBoot 注解自动装配（#2 validation ✓ + #3 多态 gate ✓ + #4 KylixBoot autowire ✓ + #5 ORM ✓） | 🚧 进行中 | 2026-08 |
-| **v0.6.0** | KylixRT 生产就绪（CI/CD + 性能 benchmark + JetBrains 插件 + JsonEncode 双端 parity） | 📋 长期 | 2026-08+ |
+| **v0.5.9** | 多态 gate + KylixBoot 注解自动装配（#2 validation ✓ + #3 多态 gate ✓ + #4 KylixBoot autowire ✓ + #5 ORM ✓） | ✅ 完成 | 2026-08-08 |
+| **v0.6.0** | 性能 benchmark（#7）+ LLVM -O2 验证（#8）+ var 参数 host 支持 | ✅ 完成 | 2026-08-10 |
+| **v0.6.1** | KylixRT 核心（`kylix run` auto 后端 + LLVM boot 自动装配 + 51 教程 LLVM 51/51） | ✅ 完成 | 2026-08-10 |
+| **v0.6.2** | 跨平台（target triple + Linux 51/51 + kylix doctor + test/bench --backend=llvm） | ✅ 完成 | 2026-08-11 |
+| **v0.6.3** | jwt 双端真实现 + 分发 B 捆绑 LLVM + Variant 传参 segfault 修复 | ✅ 完成 | 2026-08-16 |
+| **v0.6.4** | DbQueryRows（Variant map 行）+ websocket 完整 5 函数（RFC 6455） | ✅ 完成 | 2026-08-18 |
+| **v0.6.5** | WS 自回环 + 手写 SHA-1 修复 + KylixRT 完善 + 性能 30× | ✅ 完成 | 2026-08-20 |
+| **v0.6.6** | boot HTTP server（路由表 + BootRun 真体）+ stdlib 补全 5 项 | ✅ 完成 | 2026-08-21 |
+| **v0.6.7** | #9 JetBrains 插件（TextMate + LSP4IJ + Live Templates）+ 安装使用手册 | ✅ 完成 | 2026-08-22 |
+| **v0.6.8** | boot server 补强（POST body/req.JSON/JWT 真校验）+ stdlib 补全 + 插件完善 | ✅ 完成 | 2026-08-23 |
+| **v0.6.9** | bootstrap 无 Go 闭环（stdlib IR 烘焙 + gen2 编译器 + IR 不动点 + 教程 sweep 50/51） | ✅ 完成 | 2026-09-04 |
 
 ---
 

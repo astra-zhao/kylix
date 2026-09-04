@@ -210,6 +210,15 @@ func (g *Generator) emitJwtSignBody() {
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds [2048 x i8], ptr %s, i64 0, i64 0", payloadPtr, payloadBuf))
 	g.line(fmt.Sprintf("  store i8 0, ptr %s", payloadPtr))
 	g.jwtStrcat(payloadPtr, g.ptrTo(g.addString("{"), 2))
+	// firstSlot tracks whether we've emitted the first extra claim (only the
+	// first one gets no leading comma — otherwise the payload would start
+	// `{,"role":...` which parse_flat rejects). NB: the alloca MUST live in
+	// entry — afterClaimsLbl loads it on the extra==null path too, and an
+	// alloca in the walk-claims block does not dominate that use (llc
+	// "Instruction does not dominate all uses").
+	firstSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i1, align 1", firstSlot))
+	g.line(fmt.Sprintf("  store i1 true, ptr %s", firstSlot))
 	// Walk extraClaims (a Variant map box, or null).
 	extraNull := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq ptr %%extra, null", extraNull))
@@ -232,12 +241,6 @@ func (g *Generator) emitJwtSignBody() {
 	iSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
 	g.line(fmt.Sprintf("  store i64 0, ptr %s", iSlot))
-	// firstSlot tracks whether we've emitted the first extra claim (only the
-	// first one gets no leading comma — otherwise the payload would start
-	// `{,"role":...` which parse_flat rejects).
-	firstSlot := g.tmp()
-	g.line(fmt.Sprintf("  %s = alloca i1, align 1", firstSlot))
-	g.line(fmt.Sprintf("  store i1 true, ptr %s", firstSlot))
 	claimLoop := g.label()
 	claimBody := g.label()
 	claimDone := g.label()

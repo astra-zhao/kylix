@@ -12,7 +12,7 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
-## v0.6.9 (2026-08-31) — bootstrap 无 Go 闭环（stdlib IR 烘焙 + gen2 编译器诞生）
+## v0.6.9 (2026-09-04) — bootstrap 无 Go 闭环（stdlib IR 烘焙 + gen2 编译器诞生 + IR 不动点）
 
 > 分两阶段：**P3**（stdlib IR 烘焙 + bootstrap emitter 大规模补缺）与 **P4**（llc 错误驱动的自举闭环冲刺）。全程以 `scripts/test_bootstrap_all.sh` 的 51 教程 bootstrap-vs-host 输出 diff 为回归基线。
 
@@ -51,11 +51,17 @@ All notable changes to the Kylix compiler are documented in this file.
 - **P4.11 gen2→gen3 IR 不动点达成**：gen1（host 编译）`--emit-llvm` 9 文件 → mem2reg/llc/clang → gen2（纯原生）→ gen2 `--emit-llvm` 同 9 文件 → **输出与 gen1 逐字节一致（fp ≡ gen2 输出，~220k 行）**；用不动点 IR 构建的 gen3 与 gen2 编译教程输出逐字节一致。根因（最后一个分歧）：自举 emitter 对 **`array of Boolean` 写读宽度不一致**——写侧（append）发 `getelementptr i1`（1 字节 stride），读侧（索引）发 `getelementptr i64`（8 字节 stride），元素 k 写在字节 k、读在字节 8k：`ArrDynamic[0]` 恰好对齐正常、`ArrDynamic[1+]` 读堆垃圾 → 首个注册之后的数组全部被误判为静态（`Length(names)` 发 "static array length"）。修复：`ArrDynamic`/`cfmaps` 从 `array of Boolean` 改 `array of Integer`（0/1），读写两侧 stride 恒为 8 字节。
 - **调试探针网全部清理**：72 处 EProg 调用（EETI/EETC/S6/S7/MCWAx/VDS/RL/ED/kind/* 系列全删），EProg stderr 内建（host + bootstrap 两端）保留作调试基础设施；顺带修 3 处探针删除残留（`if name='at' then` 悬空把 TArrayType 分支绑成 if 体——RegisterArrayFromType 失调、`if n > 8 then` 空体、EETC 悬空 else）。
 
+### P4.12：教程 15（lambda）+ 50（jwt）收尾
+
+- **无捕获 lambda 字面量（example15）**：自举 emitter 新增 Pass 2.5（`EmitLambdaDecls`/`EmitLambdaFunction`/`ScanLambdaStmt`）——扫 main-body var 赋值的 `TLambdaExpression`，预发射 `define void @__lambda_N(params)`（fresh 局部作用域 + body emit + 签名注册，参数类型串 `,` 分隔 + 类型内 `,`→`|` 转义）；EmitExprTyped 创建点按**独立计数器 `LambdaSiteCount`**（与 Pass 2.5 扫描序天然对齐，复用 `LambdaCount` 会错位——Pass 2.5 已预增）返回 `@__lambda_N`；EmitPlainCall 查 `LambdaVarName` 表分发（`call void @__lambda_N` + 参数类型从注册签名取）。仅支持无捕获 procedure 形态（捕获闭包需 host 的 env-struct 降级，留后续）。
+- **JwtSign firstSlot domination（example50，host + bootstrap 双端）**：`emitJwtSignBody` 的 `firstSlot`（首 claim 分隔符标记）alloca/store 原发在 walk-claims 分支块内，join 块（extra==null 路径）load 它 → llc "Instruction does not dominate all uses"。修复：alloca 提到 entry；`src/stdlib_ir.klx` jwt 段同步（`/tmp/stdir_cover` 已失效，全量重烘不可行，按 host 新产出逐行对齐手工同步）。
+- 自举坑清单 +2：**复合布尔条件**（`(fi<0) and (li>=0)` 编出 `call @(i1)`——嵌套 if 改写，坑 #2 的另一形态）；**main-body 包裹**（parser 把 `begin...end` 主体包成单个 TBlockStatement——扫 main 语句须先解包，EmitMain 同款处理）。
+
 ### 教程验证（scripts/test_bootstrap_all.sh）
 
-- **48/51 PASS**（bootstrap `--emit-llvm` → llc → clang → 运行，输出与 host 二进制 **diff 逐字一致**）+ example33 多文件 PASS。
-- 覆盖全部硬核教程：36-39（sysutil/jsonutil/datetime/regex）、48（net/crypto/encoding）、53（cache）、54（httpclient，-lcurl）、55（websocket 自回环）、41-46/49/51（boot 注解系列）、56/57（Variant）。
-- 已知失败 2 个（详见 TECHNICAL_DEBT.md）：example15（lambda 字面量未支持）、example50（jwt claims 路径 alloca domination）。
+- **50/51 PASS**（bootstrap `--emit-llvm` → llc → clang → 运行，输出与 host 二进制 **diff 逐字一致**）+ example33 多文件 SKIP（host 端多文件构建不支持，非 bootstrap 缺陷）。
+- 覆盖全部硬核教程：36-39（sysutil/jsonutil/datetime/regex）、48（net/crypto/encoding）、53（cache）、54（httpclient，-lcurl）、55（websocket 自回环）、41-46/49/51（boot 注解系列）、56/57（Variant）、15（lambda）、50（jwt）。
+- **已知失败清零**（example15/example50 于 P4.12 修复）；**IR 不动点在修复后复验保持**：fp19 ≡ g5_all（~220k 行逐字节）+ gen3 ≡ gen2。
 
 ### bootstrap 编译器坑清单（调试结晶，自举开发必读）
 
@@ -66,6 +72,8 @@ All notable changes to the Kylix compiler are documented in this file.
 5. **`(参数数组[i] as T)`、`(self.字段 as T).Value` 不可 lower**——只有 `(成员链 as T).Value` 形态可靠；纯 ident 的 as 需成员链中转。
 6. **`array of Boolean` 字段数组不可用**：自举 emitter 写侧 i1 GEP（1 字节）/读侧 i64 GEP（8 字节），元素 1+ 读堆垃圾——用 `array of Integer`（0/1）替代（P4.11 根因）。
 7. **探针删除残留**：`if cond then EProg(...);` 删探针后悬空 if 会把下一个分支/语句绑成 if 体——删探针必须连带检查 then/else 结构。
+8. **复合布尔条件另一形态**：EmitPlainCall 里 `(fi < 0) and (li >= 0)` 也编出 `call @(i1)` 空符号（与坑 #2 同根）——自举源码里的复合 `and`/`or` 一律改嵌套 if（P4.9 SuffixFor 同款教训）。
+9. **main body 是单个 TBlockStatement**：parser 把 `begin...end` 主体包成一个块节点——凡扫 prog.Statements 的 Pass（如 EmitLambdaDecls）须先解包，对齐 EmitMain 的处理。
 
 ### 其它
 

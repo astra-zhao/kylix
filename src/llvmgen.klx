@@ -126,6 +126,17 @@ type
     // parallel to FNames/FRet — EmitPlainCall needs them to type the call's
     // arguments (LLVM rejects untyped call args).
     FParamTypes: array of String;
+    // v0.6.9 P4.12: no-capture lambda static dispatch. Pass 2.5 of EmitProgram
+    // scans main-body var decls for lambda literals, emits `define void
+    // @__lambda_N(...)` before EmitMain, and registers (varname → funcname,
+    // param-type signature) so EmitPlainCall can resolve `greet('Alice')`.
+    // Creation sites (EmitExprTyped TLambdaExpression) allocate ids in AST
+    // order, which matches the Pass 2.5 scan order.
+    LambdaCount: Integer;
+    LambdaSiteCount: Integer;
+    LambdaFuncName: array of String;
+    LambdaVarName: array of String;
+    LambdaParamT: array of String;
     // v0.6.9 P3: stdlib IR segments (see src/stdlib_ir.klx). UsedMods collects
     // every program's `uses` names; UsedSegs is the queue of baked IR segments
     // to append at module end (MarkStdSeg enqueues, EmitStdlibSegments drains).
@@ -913,6 +924,16 @@ begin
       end;
       i := i + 1;
     end;
+  end;
+  // Pass 2.5: emit no-capture lambdas found in main-body var decls as top
+  // level `define void @__lambda_N` (v0.6.9 P4.12) — must happen BEFORE
+  // EmitMain so the defines are not nested inside @main's body.
+  for pi := 0 to Length(progs) - 1 do
+  begin
+    p := progs[pi];
+    if p.IsUnit then
+      continue;
+    self.EmitLambdaDecls(p);
   end;
   // Pass 3: main statements — the first non-unit program with statements.
   mainIdx := -1;
@@ -1796,7 +1817,172 @@ begin
 end;
 
 
-// EmitMethod — define @ClassName_Method(ptr %self, ...params) { body }.
+// EmitLambdaDecls — v0.6.9 P4.12: scan main-body var decls for lambda
+// literals and emit each as a top-level `define void @__lambda_N` BEFORE
+// EmitMain (Pass 2.5). Only no-capture lambdas are supported (example15's
+// anonymous procedures); captures would need the host's env-struct closure
+// lowering. Ids are allocated in scan order, matching EmitExprTyped's
+// creation-site order.
+procedure TLLVMGenerator.EmitLambdaDecls(prog: TProgram);
+var
+  i, j: Integer;
+  stmts: array of TStatement;
+  st, st2: TStatement;
+  blk: TBlockStatement;
+  vd: TVarDecl;
+  asn: TAssignmentStatement;
+  lam: TLambdaExpression;
+  vname: String;
+begin
+  // The parser wraps `begin...end` main bodies in a single TBlockStatement —
+  // unwrap it (EmitMain does the same) before scanning for lambda literals.
+  stmts := prog.Statements;
+  if (Length(stmts) = 1) then
+  begin
+    if stmts[0] is TBlockStatement then
+    begin
+      blk := stmts[0] as TBlockStatement;
+      stmts := blk.Statements;
+    end;
+  end;
+  for i := 0 to Length(stmts) - 1 do
+  begin
+    st := stmts[i];
+    // One nesting level: `if cond then begin ... end` style bodies are not
+    // scanned (a lambda bound inside a nested block is unsupported here).
+    if st is TBlockStatement then
+    begin
+      blk := st as TBlockStatement;
+      for j := 0 to Length(blk.Statements) - 1 do
+      begin
+        st2 := blk.Statements[j];
+        self.ScanLambdaStmt(st2);
+      end;
+    end
+    else
+    begin
+      self.ScanLambdaStmt(st);
+    end;
+  end;
+end;
+
+// ScanLambdaStmt — one statement: if it binds a lambda literal (var decl or
+// assignment), emit its body as a top-level @__lambda_N (v0.6.9 P4.12).
+procedure TLLVMGenerator.ScanLambdaStmt(st: TStatement);
+var
+  vd: TVarDecl;
+  asn: TAssignmentStatement;
+  lam: TLambdaExpression;
+  vname: String;
+begin
+  if st is TVarDecl then
+  begin
+    vd := st as TVarDecl;
+    if Length(vd.Names) = 1 then
+    begin
+      if vd.Value <> nil then
+      begin
+        if vd.Value is TLambdaExpression then
+        begin
+          lam := vd.Value as TLambdaExpression;
+          vname := vd.Names[0];
+          self.EmitLambdaFunction(vname, lam);
+        end;
+      end;
+    end;
+  end
+  else if st is TAssignmentStatement then
+  begin
+    // `greet := procedure(...) begin ... end;` — Name is a TIdentifier.
+    asn := st as TAssignmentStatement;
+    if asn.Name <> nil then
+    begin
+      if asn.Name is TIdentifier then
+      begin
+        if asn.Value <> nil then
+        begin
+          if asn.Value is TLambdaExpression then
+          begin
+            lam := asn.Value as TLambdaExpression;
+            vname := (asn.Name as TIdentifier).Value;
+            self.EmitLambdaFunction(vname, lam);
+          end;
+        end;
+      end;
+    end;
+  end;
+end;
+
+// EmitLambdaFunction — emit one lambda as `define void @__lambda_N(params)`
+// and register (varname → funcname, param-type signature) for call-site
+// dispatch in EmitPlainCall. Mirrors EmitFunctionDecl's body lowering with a
+// fresh local scope; lambdas have no receiver and (supported form) no return.
+procedure TLLVMGenerator.EmitLambdaFunction(vname: String; lam: TLambdaExpression);
+var
+  i, k: Integer;
+  fn, llvmT, ptt, sig, reg: String;
+  params: array of String;
+  blk: TBlockStatement;
+  vat: TArrayType;
+begin
+  fn := '__lambda_' + self.IntToStrS(self.LambdaCount);
+  self.LambdaCount := self.LambdaCount + 1;
+  append(self.LambdaFuncName, fn);
+  append(self.LambdaVarName, vname);
+  sig := '';
+  params := [];
+  for i := 0 to Length(lam.Parameters) - 1 do
+  begin
+    if i > 0 then sig := sig + ',';
+    ptt := self.LlvmTypeOfExpr(lam.Parameters[i].ParamType);
+    // escape ',' in struct types — see FuncParamTypes
+    for k := 0 to Length(ptt) - 1 do
+    begin
+      if ptt[k:k+1] = ',' then
+        sig := sig + '|'
+      else
+        sig := sig + ptt[k:k+1];
+    end;
+    append(params, ptt + ' %' + lam.Parameters[i].Name);
+  end;
+  append(self.LambdaParamT, sig);
+
+  self.WriteLine('define void @' + fn + '(' + self.JoinStr(params, ', ') + ') {');
+  self.WriteLine('entry:');
+  self.InFunc := true;
+  self.InReturnFunc := false;
+  self.ResultLLVMType := '';
+  self.FuncExitLabel := self.Label();
+  self.CurClassName := '';
+  // fresh local scope
+  self.LNames := [];
+  self.LTypes := [];
+  self.LRegs := [];
+  self.LKylix := [];
+  for i := 0 to Length(lam.Parameters) - 1 do
+  begin
+    llvmT := 'i64';
+    if lam.Parameters[i].ParamType <> nil then llvmT := self.LlvmTypeOfExpr(lam.Parameters[i].ParamType);
+    reg := self.RegisterLocal(lam.Parameters[i].Name, llvmT, self.TypeExprName(lam.Parameters[i].ParamType));
+    self.WriteLine('  store ' + llvmT + ' %' + lam.Parameters[i].Name + ', ptr ' + reg);
+    if lam.Parameters[i].ParamType is TArrayType then
+    begin
+      vat := lam.Parameters[i].ParamType as TArrayType;
+      self.RegisterArray(lam.Parameters[i].Name, vat.Dynamic,
+        self.LlvmTypeOfExpr(vat.ElementType), self.TypeExprName(vat.ElementType), 0, 0);
+    end;
+  end;
+  if lam.Body is TBlockStatement then
+  begin
+    blk := lam.Body as TBlockStatement;
+    self.PreEmitAllocas(blk.Statements);
+    self.EmitStatements(blk.Statements);
+  end;
+  self.EmitFuncEpilogue();
+  self.WriteLine('}');
+  self.WriteLine('');
+  self.InFunc := false;
+end;
 // Mirrors EmitFunctionDecl but prepends the self receiver and records
 // CurClassName so self.Field / self.Method() resolve.
 procedure TLLVMGenerator.EmitMethod(className: String; method: TFunctionDecl);
@@ -2876,6 +3062,22 @@ begin
     self.WriteLine('  ' + sliceVal3 + ' = insertvalue { ptr, i64, i64 } ' + sliceVal2 + ', i64 ' + self.IntToStrS(n) + ', 2');
     result := sliceVal3;
   end
+  else if node is TLambdaExpression then
+  begin
+    // v0.6.9 P4.12: no-capture lambda literal. EmitLambdaDecls (Pass 2.5)
+    // already emitted the @__lambda_N define and will register the binding;
+    // here we just mint the matching function-pointer name in AST order.
+    // The var slot stores the name string (never read — call sites dispatch
+    // via LambdaVarName).
+    // NB: LambdaCount is consumed by EmitLambdaDecls (Pass 2.5, which runs
+    // first and pre-allocates ids 0..n-1). Creation sites must mirror that
+    // scan order — the AST order is identical, so a separate counter that
+    // starts at 0 aligns with the pre-allocated ids.
+    r := '@__lambda_' + self.IntToStrS(self.LambdaSiteCount);
+    self.LambdaSiteCount := self.LambdaSiteCount + 1;
+    self.LastType := 'ptr';
+    result := r;
+  end
   else
   begin
     self.LastType := 'i64';
@@ -3522,8 +3724,8 @@ end;
 
 function TLLVMGenerator.EmitPlainCall(fname: String; args: array of String; t: String): String;
 var
-  retType, r, argList, pt, n: String;
-  i, fi: Integer;
+  retType, r, argList, pt, n, callSig: String;
+  i, fi, li: Integer;
 begin
   self.WriteLine('  ; dbg pc ' + fname + ' nfn=' + self.IntToStrS(Length(self.FNames)));
   // v0.6.9 P4: WriteOut(s) — unbounded stdout write (matches host).
@@ -3551,6 +3753,22 @@ begin
   retType := '';
   fi := self.IndexOfStr(self.FNames, fname);
   if fi >= 0 then retType := self.FRet[fi];
+  // v0.6.9 P4.12: lambda call dispatch — `greet('Alice')` where greet was
+  // bound to a no-capture lambda literal. Redirect to the emitted
+  // @__lambda_N and type the args from the lambda's registered signature.
+  li := self.IndexOfStr(self.LambdaVarName, fname);
+  callSig := '';
+  // NB: no compound `and` here — the bootstrap emitter mis-compiles complex
+  // boolean conditions (see bootstrap pitfalls, P4.9/P4.12).
+  if fi < 0 then
+  begin
+    if li >= 0 then
+    begin
+      fname := self.LambdaFuncName[li];
+      retType := 'void';
+      callSig := self.LambdaParamT[li];
+    end;
+  end;
   if retType = '' then retType := 'i64';
   // v0.6.9 P3: type each argument from the registered param types — LLVM
   // rejects untyped call args (`call @Add(%t1, %t2)` is invalid).
@@ -3559,7 +3777,12 @@ begin
   begin
     if i > 0 then argList := argList + ', ';
     pt := 'i64';
-    if fi >= 0 then
+    if callSig <> '' then
+    begin
+      pt := self.UnescapePipe(self.NthOf(callSig, i));
+      if pt = '' then pt := 'i64';
+    end
+    else if fi >= 0 then
     begin
       if fi < Length(self.FParamTypes) then
         pt := self.UnescapePipe(self.NthOf(self.FParamTypes[fi], i));

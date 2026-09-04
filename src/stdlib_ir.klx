@@ -3411,6 +3411,10 @@ begin
   append(StdIrLines, '  store i8 0, ptr %t1631');
   append(StdIrLines, '  %t1632 = getelementptr inbounds [2 x i8], ptr @kstr.jwt.18, i64 0, i64 0');
   append(StdIrLines, '  call ptr @strcat(ptr %t1631, ptr %t1632)');
+  // firstSlot alloca MUST live in entry — lbl229 (extra==null path) loads it,
+  // and an alloca in lbl230 does not dominate that use (llc verify failure).
+  append(StdIrLines, '  %t1641 = alloca i1, align 1');
+  append(StdIrLines, '  store i1 true, ptr %t1641');
   append(StdIrLines, '  %t1633 = icmp eq ptr %extra, null');
   append(StdIrLines, '  br i1 %t1633, label %lbl229, label %lbl230');
   append(StdIrLines, 'lbl230:');
@@ -3422,8 +3426,6 @@ begin
   append(StdIrLines, '  %t1639 = extractvalue { ptr, i64 } %t1637, 1');
   append(StdIrLines, '  %t1640 = alloca i64, align 8');
   append(StdIrLines, '  store i64 0, ptr %t1640');
-  append(StdIrLines, '  %t1641 = alloca i1, align 1');
-  append(StdIrLines, '  store i1 true, ptr %t1641');
   append(StdIrLines, '  br label %lbl231');
   append(StdIrLines, 'lbl231:');
   append(StdIrLines, '  %t1642 = load i64, ptr %t1640');
