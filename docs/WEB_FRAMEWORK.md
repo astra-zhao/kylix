@@ -548,23 +548,21 @@ res.status(500).json(error);          // Internal Server Error
 
 ## Limitations
 
-1. **Single-threaded**: Currently uses Go's default HTTP server (single goroutine per request)
-2. **No Authentication**: Built-in auth middleware not yet available
-3. **No Database ORM**: Manual data management required
-4. **Basic Middleware**: Only logger middleware included
-5. **No WebSocket**: Real-time features not supported yet
+1. **Single-threaded**: The LLVM boot server (`BootRun`) serves one connection at a time; the Go backend uses Go's default HTTP server (one goroutine per request)
+2. **Auth scope**: JWT auth is wired via `BootRegisterJwtAuth` (HS256, v0.6.8 real verification); OAuth is not built in
+3. **WebSocket**: available as a separate stdlib module (`WsDial`/`WsAccept`/`WsSend`/`WsRecv`/`WsClose`, RFC 6455, v0.6.4+), not yet integrated into the web middleware chain
 
 ## Future Enhancements
 
-- [ ] Authentication middleware (JWT, OAuth)
-- [ ] Database ORM integration
-- [ ] WebSocket support
-- [ ] Template engine
+- [x] ~~Authentication middleware (JWT)~~ ✅ v0.3.3 (`BootRegisterJwtAuth`) — real HS256 verification since v0.6.8
+- [x] ~~Database ORM integration~~ ✅ v0.5.9 (`[Entity]`/`[Repository]` annotations)
+- [x] ~~Template engine~~ ✅ available (`template` module, `res.HTML`)
+- [x] ~~CORS middleware~~ ✅ `boot.CORS()`
+- [x] ~~Request validation~~ ✅ v0.3.2 (`[Required]`/`[Email]`/`[Min]`...)
+- [x] ~~API documentation generator~~ ✅ v0.3.3 (`kylix doc --openapi`, OpenAPI 3.1)
+- [ ] OAuth support
 - [ ] File upload handling
 - [ ] Rate limiting middleware
-- [ ] CORS middleware
-- [ ] Request validation
-- [ ] API documentation generator
 
 ## Examples
 
@@ -643,11 +641,9 @@ end.
 
 ### 限制
 
-1. 单线程（每个请求一个 goroutine）
-2. 尚无内置认证中间件
-3. 无数据库 ORM
-4. 基础中间件（仅日志记录器）
-5. 无 WebSocket 支持
+1. 单线程——LLVM 端 boot server（`BootRun`）一次服务一个连接；Go 端用 Go 默认 HTTP server（每请求一个 goroutine）
+2. 认证范围——JWT 经 `BootRegisterJwtAuth` 接入（HS256，v0.6.8 起真校验）；OAuth 未内置
+3. WebSocket——作为独立 stdlib 模块提供（`WsDial`/`WsAccept`/`WsSend`/`WsRecv`/`WsClose`，RFC 6455，v0.6.4+），尚未并入 web 中间件链
 
 ### 未来增强
 

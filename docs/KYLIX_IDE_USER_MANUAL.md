@@ -1,6 +1,6 @@
 # Kylix IDE Tool 使用手册
 
-Kylix 是一个现代化的 Pascal 编译器，将 Kylix 代码编译为 Go 语言。本手册介绍 Kylix IDE 工具的所有功能。
+Kylix 是一个现代化的 Pascal 编译器：默认转译为 Go 代码，也可经 LLVM 后端（`--backend=llvm`）直接产出原生二进制。本手册介绍 Kylix IDE 工具的所有功能。
 
 ## 目录
 
@@ -37,7 +37,7 @@ kylix version
 
 输出示例：
 ```
-Kylix 0.2.0
+Kylix 0.6.9
 ```
 
 ---
@@ -127,6 +127,25 @@ kylix build --target=<os>/<arch> <file.klx>
 - `-o, --output <file>` - 指定输出文件路径
 - `-v, --verbose` - 显示详细编译信息
 - `--target <os/arch>` - 交叉编译目标平台
+- `--backend=llvm` - 经 LLVM 后端编译为原生二进制（绕过 Go 工具链）
+- `--llvm-opt=N` - LLVM 优化级别（0/1/2/3，配合 `--backend=llvm`）
+- `-g` - 生成 DWARF 调试信息（配合 `--backend=llvm`，LLDB 逐行单步）
+- `--emit-llvm` - 输出 LLVM IR（.ll）而非二进制
+
+### LLVM 原生后端
+
+```bash
+# 安装 LLVM 后预检（go/llc/clang/opt/sqlite3/curl/openssl）
+kylix doctor
+
+# 经 LLVM 编译为原生二进制（无 Go 依赖）
+kylix build --backend=llvm main.klx
+
+# 优化 + 交叉编译
+kylix build --backend=llvm --llvm-opt=2 --target=linux/amd64 main.klx
+```
+
+`kylix run` 自动探测：PATH 上有 Go 工具链走 Go 后端，否则回退 LLVM 后端——装了 LLVM 没装 Go 的机器也能 `kylix run hello.klx`。详见 [llvm-backend.md](llvm-backend.md)。
 
 ---
 
@@ -429,6 +448,25 @@ npm install
 - `kylix.compiler.path` - Kylix 编译器路径（默认：`kylix`）
 - `kylix.lsp.enabled` - 是否启用 LSP（默认：`true`）
 
+### JetBrains IDE（IntelliJ IDEA / GoLand，v0.6.7+）
+
+`jetbrains-plugin/` 提供完整的 Gradle Kotlin 插件（IC 2024.3+）：
+
+```bash
+cd jetbrains-plugin
+./gradlew buildPlugin
+# 产出 build/distributions/Kylix-*.zip
+# IDE 中：Settings → Plugins → ⚙ → Install Plugin from Disk… 选择 zip → 重启
+```
+
+**功能**：
+- TextMate 语法高亮（`.klx` 文件）
+- LSP4IJ 桥接 `kylix lsp`：补全、跳转定义、重命名、格式化、错误高亮
+- 25 个 Live Templates（`prog`/`func`/`class`/`controller` 等缩写 + Tab 展开）
+- Kylix Run 配置（`kylix run`）
+
+前置要求：先安装 LSP4IJ 插件（Marketplace 搜索），`kylix` 在 PATH（或设 `KYLIX_PATH`）。完整手册见 `jetbrains-plugin/README.md`。
+
 ### 其他编辑器
 
 Kylix LSP 服务器支持标准的 LSP 协议，可以集成到任何支持 LSP 的编辑器：
@@ -474,7 +512,26 @@ end;
 
 ### Q: 如何在函数中返回多个值？
 
-**A:** Kylix 目前不支持多返回值，可以使用记录类型：
+**A:** Kylix 支持多返回值元组，用 `(a, b) := F(...)` 解构（需在 program 级 var 区声明接收变量）：
+
+```pascal
+program Demo;
+
+function DivMod(a: Integer; b: Integer): (Integer, Integer);
+begin
+  result := (a div b, a mod b);
+end;
+
+var
+  q, r: Integer;
+
+begin
+  (q, r) := DivMod(17, 5);
+  WriteLn(q, ' ', r);   // 3 2
+end.
+```
+
+也可以使用记录类型返回（见下）：
 
 ```pascal
 type
@@ -630,6 +687,6 @@ end.
 
 ## 下一步
 
-- 阅读 [Kylix 开发指南](KYILIX_DEV_GUIDE.md) 了解如何贡献代码
+- 阅读 [Kylix 开发指南](KYLIX_DEV_GUIDE.md) 了解如何贡献代码
 - 查看 [示例代码](../examples/) 学习更多用法
 - 访问项目仓库获取最新版本

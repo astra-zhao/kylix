@@ -2,15 +2,19 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-0.6.5-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.9-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
-Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
+Kylix is a modern reimagining of Pascal, designed to compile to Go or to native binaries via the LLVM backend. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
+> 🚀 **v0.6.9**: **The bootstrap compiler now builds with no Go at all.** The compiler's own source (`src/*.klx`, 9 files) emits LLVM IR (`--emit-llvm`), links into a native `gen2` compiler with zero Go dependency, and **gen1 ≡ gen2 ≡ gen3 are byte-identical (~220k lines of IR — a true fixed point)**. The stdlib is baked into the bootstrap as extracted IR (`src/stdlib_ir.klx`), so no hand-porting of 15.5k lines of Go. The no-capture lambda and JwtSign fixes complete the tutorial sweep: **50/51 PASS** (bootstrap-vs-host byte-diff). See [CHANGELOG.md](CHANGELOG.md).
+>
 > 🚀 **v0.6.8**: boot server enhancements + stdlib completion + JetBrains plugin polish. `BootRun` reads POST bodies (`req.Body()`), `req.JSON()` binds JSON to a `map[String]Variant`, `BootRegisterJwtAuth` really validates `Authorization: Bearer` (HS256); stdlib adds `Base64URLEncode/Decode` + nested-object JSON; the JetBrains plugin gains a `.klx` file icon, a Kylix run configuration (`kylix run`), and undefined-identifier warnings. See [CHANGELOG.md](CHANGELOG.md).
+>
+> 🚀 **v0.6.7**: **JetBrains plugin** — a full Gradle Kotlin project (`jetbrains-plugin/`): TextMate syntax highlighting, LSP4IJ bridge to `kylix lsp` (completion/navigation/rename/formatting), 25 live templates, plus a complete install & usage manual. ROADMAP #9 ✅. See [CHANGELOG.md](CHANGELOG.md).
 > 🚀 **v0.6.6**: KylixBoot HTTP server + stdlib completion. `BootRun` now serves real HTTP/1.1 on the LLVM backend (route table, `:param` path params, `req.Param/Query/Header/Body`) — KylixBoot apps run with **no Go toolchain**. Plus JWT claims (Verify returns a claims map with exp expiry; JwtSubject/GetString/GetInt; Sign extraClaims), cache TTL (PutWithTTL/Sweep), HttpGetJSON → Variant map, UrlEncode/Decode, Variant div/mod. See [CHANGELOG.md](CHANGELOG.md).
 > 🚀 **v0.6.5**: WS loopback + hand-rolled SHA-1 fix + KylixRT polish + performance. Single-process WebSocket echo loopback (two-phase `WsDialConnect`/`WsDialFinish` — no threads), hand-rolled SHA-1 replaces OpenSSL, string-interpolation overflow fix, and the LLVM backend got a **30× faster `-O0` build** (11.5 s → 0.38 s on the bootstrap compiler) via single-pass DCE, pre-opt caching, mem2reg and `-disable-verify`. See [CHANGELOG.md](CHANGELOG.md).
 >
@@ -28,7 +32,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 >
 > 🔥 **v0.5.8**: Runtime 正确性达成 51/51 — 泛型类静态数组 array[0..N] of T 误发为 []T 动态切片 → Items len=0 → Push panic。修复 GenerateTypeExpression 按 Dynamic 区分静态 [Size]T 与动态 []T。example21 runtime 正确。self-reproduction 不动点保持。go test 16 包全绿，教程 **51/51 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
-> 🔥 **v0.5.7*/: LLVM backend bootstrap self-host achieves **51/51 (100%)** — the bootstrap source `src/*.klx` (7 files, 5250 lines) compiles via the LLVM backend into a native binary `main_self` (**no Go dependency**), which compiles all 51 tutorial examples producing Go code that `go build` succeeds and **runs correctly**. This release fixes 28 codegen bugs + porting gaps across three categories: (1) LLVM codegen bugs (Exit/funcExit, bare method calls, string concat overflow, null guards, htab_get, map undef, repeat NextToken, Exception order); (2) Porting gaps (record/enum value types, stdlib function dispatch + error wrapping, KylixBoot types, lambda, string escaping, multi-return, generics TStack<Integer>, validation stub, unit interface/implementation); (3) Debugging techniques (lldb by function name, main.ll IR, in-repo sweep, no-underscore filenames, multi-file unit build, generic `>` not consumed). go test 16 packages green, tutorials **51/51 (100%)**. See [CHANGELOG.md](CHANGELOG.md).
+> 🔥 **v0.5.7**: LLVM backend bootstrap self-host achieves **51/51 (100%)** — the bootstrap source `src/*.klx` (7 files, 5250 lines) compiles via the LLVM backend into a native binary `main_self` (**no Go dependency**), which compiles all 51 tutorial examples producing Go code that `go build` succeeds and **runs correctly**. This release fixes 28 codegen bugs + porting gaps across three categories: (1) LLVM codegen bugs (Exit/funcExit, bare method calls, string concat overflow, null guards, htab_get, map undef, repeat NextToken, Exception order); (2) Porting gaps (record/enum value types, stdlib function dispatch + error wrapping, KylixBoot types, lambda, string escaping, multi-return, generics TStack<Integer>, validation stub, unit interface/implementation); (3) Debugging techniques (lldb by function name, main.ll IR, in-repo sweep, no-underscore filenames, multi-file unit build, generic `>` not consumed). go test 16 packages green, tutorials **51/51 (100%)**. See [CHANGELOG.md](CHANGELOG.md).
 >
 > 🔥 **v0.5.4**: LLVM backend self-hosting compiles — the bootstrap source `src/*.klx` (7 files, 5250 lines) now compiles via the LLVM backend into a native binary `kylix_self_llvm` (127KB, **no Go dependency**), advancing the KylixRT milestone ("LLVM backend can compile the Kylix compiler itself"). IR generation succeeds (736KB) → llc passes → links to native binary → runs exit 0 producing Go code (with real newlines + WriteLn statement recognition + is/as runtime type dispatch). This release fixes 20+ LLVM backend gaps (type system, global variables, record support, external methods, is/as runtime RTTI, map value typing, builtins). go test 16 packages green, tutorials **51/51 (100%)**. See [CHANGELOG.md](CHANGELOG.md).
 >
@@ -63,15 +67,16 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go. It combines 
 - **String Interpolation**: `'Hello, ${name}!'`
 - **Modern Exception Handling**: try/except/finally, `on E: Type do` clauses
 
-### Complete Toolchain (v0.2.0)
-- **Testing**: `kylix test` — discover and run `Test*` procedures in `*_test.klx` files
-- **Benchmarking**: `kylix bench` — measure performance of `Bench*` procedures
+### Complete Toolchain (v0.2.0+)
+- **Testing**: `kylix test` — discover and run `Test*` procedures in `*_test.klx` files (`--backend=llvm` runs them without Go)
+- **Benchmarking**: `kylix bench` — measure performance of `Bench*` procedures (`--backend=llvm` supported)
 - **Documentation**: `kylix doc` — generate Markdown from `//` doc comments
 - **Type Checking**: Enhanced with error codes (KLX001–499), recovery, and "did you mean?" suggestions
 - **LSP Server**: Full IDE support with completion, hover, diagnostics, and signature help
 - **Package Manager**: `kylix add`, `kylix remove`, `kylix publish` for dependency management
 - **WASI**: `kylix build --wasi` — compile to WebAssembly System Interface (v0.3.0-alpha)
-- **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain. **51/51 tutorials compile and run on the LLVM backend (100%)** (Go backend: 51/51), with per-instruction DWARF debug info (`-g`, LLDB line-stepping + variable inspection, including class methods/lambdas via DISubprogram and block scopes via DILexicalBlock), generic class methods (TStack<T>.Push/Pop), static arrays with real lower bounds, and a growing stdlib with real IR implementations: db (DbOpen/DbExec/DbQueryScalar/**DbQueryRows**), **websocket** (RFC 6455 client+server), jwt (HS256), httpclient, sysutil, datetime, jsonutil, crypto, encoding, cache, boot.
+- **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain. **51/51 tutorials compile and run on the LLVM backend (100%)** (Go backend: 51/51), with per-instruction DWARF debug info (`-g`, LLDB line-stepping + variable inspection, including class methods/lambdas via DISubprogram and block scopes via DILexicalBlock), generic class methods (TStack<T>.Push/Pop), static arrays with real lower bounds, and a growing stdlib with real IR implementations: db (DbOpen/DbExec/DbQueryScalar/**DbQueryRows**), **websocket** (RFC 6455 client+server), jwt (HS256), httpclient, sysutil, datetime, jsonutil, crypto, encoding, cache, boot. Also: `--target` cross-compilation (v0.6.2), `--llvm-opt=2` optimization channel, `kylix doctor` environment preflight, and **`--emit-llvm`** (v0.6.9) — the bootstrap compiler's own IR output, which is the basis of the no-Go self-hosting loop.
+- **Bootstrap, No-Go Loop (v0.6.9)**: the compiler's own source (`src/*.klx`) emits LLVM IR, links into a native `gen2` compiler with zero Go dependency, and iterates to a **byte-identical IR fixed point** (gen1 ≡ gen2 ≡ gen3, ~220k lines). The stdlib ships to the bootstrap as baked IR data (`src/stdlib_ir.klx`). **Tutorial sweep 50/51 PASS** (bootstrap-vs-host byte-diff, `scripts/test_bootstrap_all.sh`).
 - **KylixBoot Framework**: Spring Boot–style annotation-driven web apps (v0.3.1)
 - **Annotation Auto-Wiring**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` auto route registration (v0.3.2)
 - **Dependency Injection**: `[Service]`/`[Component]`/`[Inject]` compile-time auto-wiring (v0.3.2)
@@ -143,7 +148,14 @@ kylix check            # Syntax check (no code generation)
 kylix fmt              # Format source files
 kylix repl             # Interactive REPL
 kylix lsp              # Start LSP server (for editors)
+kylix test             # Run tests (*_test.klx; --backend=llvm runs them without Go)
+kylix bench            # Run benchmarks (*_bench.klx; --backend=llvm supported)
+kylix doc              # Generate Markdown docs from // comments
+kylix debug            # Delve debugger integration (needs dlv)
+kylix add <pkg>        # Add a dependency package
+kylix remove <pkg>     # Remove a dependency package
 kylix publish          # Publish package to registry
+kylix doctor           # Environment preflight (go / llc / clang / opt / libs)
 kylix version          # Show version
 kylix help             # Show help
 ```
@@ -919,12 +931,17 @@ kylix/
 │   ├── lexer.klx
 │   ├── parser.klx      # TParser — all methods (2423 lines, not yet split)
 │   ├── generator.klx   # TGenerator — all methods (1702 lines, class body)
+│   ├── llvmgen.klx     # TLLVMGenerator — bootstrap LLVM emitter
+│   ├── stdlib_ir.klx   # Baked stdlib IR data (v0.6.9, auto-generated)
 │   ├── error.klx
 │   └── main.klx
 ├── examples/           # Example programs
+│   ├── complete-tutorial/  # 51 progressive tutorial examples
 │   ├── wasi-hello/     # WASI Hello World (Wasmtime/Node.js)
 │   └── cloudflare-worker/  # Cloudflare Workers HTTP handler
 ├── vscode-ext/         # VS Code extension
+├── jetbrains-plugin/   # JetBrains plugin (TextMate + LSP4IJ, v0.6.7)
+├── scripts/            # Tooling (test_bootstrap_all.sh, extract_stdlib_ir.py)
 └── docs/               # Documentation
 ```
 
@@ -942,6 +959,20 @@ npm install
 # Press F5 in VS Code to launch extension
 ```
 
+### JetBrains IDEs (IntelliJ / GoLand, v0.6.7)
+The `jetbrains-plugin/` directory contains a full Gradle Kotlin plugin (IC 2024.3+):
+- TextMate syntax highlighting (`.klx` files)
+- LSP4IJ bridge to `kylix lsp` — completion, go-to-definition, rename, formatting, error highlighting
+- 25 live templates (prog/func/class/controller/...)
+- Kylix run configuration
+
+```bash
+cd jetbrains-plugin
+./gradlew buildPlugin
+# Install the zip from build/distributions/ via Settings → Plugins → Install Plugin from Disk
+```
+See `jetbrains-plugin/README.md` for the full manual.
+
 ### Other Editors
 Kylix LSP supports any editor with LSP client:
 ```json
@@ -953,127 +984,20 @@ Kylix LSP supports any editor with LSP client:
 
 ## Documentation
 
+- [Beginner's Guide (中文)](docs/TUTORIAL_FOR_BEGINNERS_CN.md) - Zero-to-productive tutorial for first-time users
+- [Getting Started](docs/GETTING_STARTED.md) - Environment setup and first steps
 - [IDE User Manual](docs/KYLIX_IDE_USER_MANUAL.md) - Complete CLI and editor guide
 - [Developer Guide](docs/KYLIX_DEV_GUIDE.md) - Architecture, internals, and contributing
 - [Tools Explained](docs/KYLIX_TOOLS_EXPLAINED.md) - Beginner-friendly tool descriptions
 - [Web Framework Guide](docs/WEB_FRAMEWORK.md) - Web server and REST API development
 - [ORM Guide](docs/ORM_GUIDE.md) - Database ORM and query builder
 - [Template Engine Guide](docs/TEMPLATE_GUIDE.md) - HTML template rendering
-- [Phase 2 Summary](docs/PHASE2_SUMMARY.md) - IDE toolchain completion report
+- [LLVM Backend](docs/llvm-backend.md) - Native backend internals
+- [Self-Hosting Dev Guide](docs/SELFHOSTING_DEV_GUIDE.md) - How the bootstrap compiler works
 
 ## Roadmap
 
-### Phase 1: Transpiler ✅
-- ✅ Lexer and parser
-- ✅ AST generation
-- ✅ Go code generation
-- ✅ Basic language features
-- ✅ Modern features (lambdas, async, pattern matching)
-
-### Phase 2: IDE Tool ✅
-- ✅ CLI toolchain (new, build, run, check, fmt, repl, lsp)
-- ✅ Project management (kylix.toml)
-- ✅ LSP server with completion and hover
-- ✅ VS Code extension with syntax highlighting
-- ✅ Interactive REPL
-- ✅ Comprehensive documentation
-
-### Phase 3: Framework ✅
-- ✅ Web server (based on Go net/http)
-- ✅ Routing system (GET, POST, PUT, DELETE)
-- ✅ Path parameters (`/users/:id` syntax)
-- ✅ Middleware support (logger middleware)
-- ✅ JSON request/response handling
-- ✅ Static file serving
-- ✅ Anonymous procedures & functions
-- ✅ Enhanced VS Code extension (syntax highlighting, snippets, completions)
-- ✅ Web framework documentation
-- ✅ Dependency injection container
-- ✅ Configuration system
-- ✅ Middleware suite (CORS, Auth, Rate Limit, Request ID, Logging)
-- ✅ Request validation
-- ✅ ORM (MySQL, PostgreSQL, SQLite support)
-- ✅ Template engine (layouts, partials, custom functions)
-- ✅ Auto-configuration (multi-source config loading)
-
-### Phase 4: Language Enhancements ✅
-- ✅ Generic type parameter declarations (classes and functions)
-- ✅ Exception handling with ON clause (`on E: ExceptionType do`)
-- ✅ Constructor/destructor/inherited keywords
-- ✅ Lambda expression parameter parsing
-- ✅ Async/await code generation improvements
-
-### Phase 5: Standard Library & Tooling ✅
-- ✅ File I/O (`sysutil`) — read, write, copy, directory operations, path utilities
-- ✅ JSON (`jsonutil`) — encode, decode, type-safe accessors, file I/O
-- ✅ DateTime (`datetime`) — date arithmetic, formatting, parsing, comparisons
-- ✅ Regular Expressions (`regex`) — match, find, replace, split, pattern helpers
-- ✅ REPL improvements — readline with history (↑/↓), lexer-based detection, stderr separation
-- ✅ Formatter fixes — class visibility modifiers, properties, const type annotations
-- ✅ Generator stdlib wiring — sysutil, jsonutil, datetime, regex modules
-
-### Phase 6-7: Bug Fixes & Language Capabilities ✅
-- ✅ String interpolation (Lexer→Parser→Generator)
-- ✅ Exception types with ON clause
-- ✅ Multi-value return (`function Div(a,b: Integer): (Integer, Integer)`)
-- ✅ Properties code generation (getter/setter)
-- ✅ Map type (`map[K]V`), Variant type, Dynamic arrays
-- ✅ Enum types (`type TColor = (Red, Green, Blue)`)
-- ✅ Multi-file module system (`unit X;`, `uses X;`)
-
-### Phase 8: Self-Hosting Compiler ✅
-- ✅ 7 Kylix source files written (token, ast, lexer, parser, error, generator, main)
-- ✅ Class code generation (struct + interface{} polymorphism)
-- ✅ Soft keywords (25+ keywords usable as identifiers)
-- ✅ is/as type dispatch for expressions and statements
-- ✅ Local variable declarations, constructor, builtins
-
-### Phase 9: Bootstrap Verification ✅ Complete
-- ✅ Multi-file bootstrap compilation
-- ✅ Self-hosted Go output compiles and runs with zero errors
-- ✅ Diff verification: Go reference vs Kylix self-hosted — semantically equivalent
-- ✅ 15/15 examples pass on both compilers
-
-### v0.2.1–v0.2.6: Engineering Quality & stdlib ✅
-- ✅ Enhanced type system (multi-param generics, interface mapping, type inference)
-- ✅ GitHub Actions CI/CD, incremental compilation (55×), dead code elimination
-- ✅ LSP incremental sync, REPL Tab completion, i18n error messages
-- ✅ stdlib Phase 1–3: strutil, mathutil, arrayutil, collections, stringbuilder, resulttype, iter
-- ✅ Delve debugger integration, WebAssembly backend (`--wasm`)
-- ✅ Parallel compilation, LSP large-file performance benchmarks
-
-### v0.3.0-alpha: Architecture Breakthrough ✅
-- ✅ LLVM native backend — Milestone 1 (scalar types, control flow, functions, classes)
-- ✅ WASI support (`--wasi`, `--tinygo`, `pkg/wasi/`, `stdlib/src/wasi.klx`)
-- ✅ Package registry server (`registry/`, REST API, htmx frontend, `kylix publish`)
-- ✅ stdlib Phase 4: pure Kylix jsonutil (nested JSON), regex, datetime (DateAdd/DateSub)
-- ✅ `external` function declaration parsing fixed
-- ✅ HTTP client stdlib (`httpclient`)
-
-### v0.3.1: KylixBoot + Compiler Fixes + LLVM Arrays ✅
-- ✅ KylixBoot framework (`pkg/boot/`, ~700 lines, 23 tests) — router, DI, middleware, graceful shutdown
-- ✅ Annotation syntax `[Name]` / `[Name(args)]` on classes, types, functions, fields
-- ✅ KLX-C01 fix: `var p: TClass` now emits `*TClass` instead of `interface{}`
-- ✅ KLX-C02 fix: single-quoted strings with `${...}` produce STRING_INTERPOLATION
-- ✅ KLX-C03 fix: lambda/anonymous-function return types preserved
-- ✅ KLX-C04 fix: match statement codegen now produces valid Go
-- ✅ KLX-C05 fix: `uses sysutil/jsonutil/...` in program files now injects stdlib symbols (40+ functions)
-- ✅ LLVM Milestone 2 Phase 1: static + dynamic arrays, `--llvm-opt=N`
-- ✅ Tutorial expanded with `example40_declarative_oop.klx` and `example41_attributes.klx` (32/34 examples pass)
-
-### v0.3.2-dev: KylixBoot Annotation Stack ✅ (in progress)
-- ✅ Auto-route registration from `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` annotations
-- ✅ DI auto-wiring: `[Service]`/`[Component]`/`[Inject]`
-- ✅ Procedure-style route handlers (`procedure M(req; res)`)
-- ✅ Validation annotations: `[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]` → `Validate()`/`IsValid()`
-- ✅ Security annotations: `[Authenticated]`/`[Role('admin')]` per-route guards
-- ✅ ORM annotations: `[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]`
-- ✅ Annotation diagnostics: KLX207 (duplicate route) … KLX213 (invalid ORM)
-- ✅ Tutorial: 41/41 examples pass (6 new KylixBoot annotation examples)
-- ✅ LLVM Milestone 2 Phase 2 — interface fat pointer + member access + method dispatch + is/as
-- ✅ LLVM Milestone 2 Phase 3 — generic class monomorphization (template cloning + type-param substitution)
-- ✅ Registry deployment scaffold (Dockerfile / docker-compose / CI — `make up` after DNS + TLS)
-- ✅ stdlib Phase 6: net / crypto / encoding
+Current status: **v0.6.9** (2026-09-04) — bootstrap no-Go loop achieved (stdlib IR baking, gen2 native compiler, byte-identical IR fixed point, tutorial sweep 50/51 PASS). Next up: v0.7.0 web page development + web framework (templates, page rendering, static assets, forms/cookies) + net Winsock / regex pcre2 real implementations. The full roadmap lives in [ROADMAP.md](ROADMAP.md).
 
 ## Cross-Platform Compilation
 
@@ -1112,7 +1036,7 @@ All cross-compilation runs on your local machine — no remote build servers nee
 
 The final binary has no external dependencies. End users do not need Go or Kylix installed to run it.
 
-### LLVM Native Backend (v0.3.0-alpha → v0.6.4)
+### LLVM Native Backend (v0.3.0-alpha → v0.6.9)
 
 Kylix has an experimental LLVM backend that generates native binaries directly from the AST, bypassing the Go toolchain entirely.
 
@@ -1146,9 +1070,9 @@ begin
 end.
 ```
 
-Generics, interfaces, and exceptions land in Milestone 2 (Phase 2-3, v3.2).
+Since Milestone 2, the LLVM backend also covers interfaces (fat pointers), generic class monomorphization, exceptions, lambdas/closures, Variant, DWARF debug info, and the KylixBoot annotation auto-wiring — see the LLVM backend page in `docs/` for details.
 
-### LLVM stdlib (real IR implementations, v0.4.2 → v0.6.4)
+### LLVM stdlib (real IR implementations, v0.4.2 → v0.6.9)
 
 The LLVM backend compiles stdlib-heavy programs **without Go**. Modules with real IR implementations:
 
@@ -1211,43 +1135,20 @@ end.
 
 ## Changelog
 
-### v0.3.1 (2026-06-23) — KylixBoot Framework + Compiler Fixes + LLVM Arrays
+Recent releases (see [CHANGELOG.md](CHANGELOG.md) for the full history):
 
-KylixBoot framework (router/DI/middleware, 23 tests), annotation syntax `[Name]`, 5 compiler fixes (KLX-C01..C05: typed class vars, string interpolation, lambda return types, match codegen, uses-symbol injection), LLVM Milestone 2 Phase 1 (static + dynamic arrays, `--llvm-opt=N`).
-
-### v0.3.0-alpha (2026-06-21) — Architecture Breakthrough 🚀
-
-LLVM native backend (Milestone 1), WASI target, package registry server, stdlib Phase 4 (pure Kylix jsonutil/regex/datetime), `external` parsing fix, HTTP client stdlib.
-
-### v0.2.6 (2026-06-20) — Performance & Optimization
-
-Parallel compilation (goroutine pool), dead code elimination, LSP large-file performance benchmarks.
-
-### v0.2.5 (2026-06-20) — Toolchain Deepening
-
-LSP cross-file rename + code actions, `kylix doc` code example extraction, `kylix bench --mem`, `iter` module, class method external definition fix.
-
-### v0.2.4 (2026-06-20) — Polish & Ecosystem
-
-i18n fully integrated, REPL `:type` real inference, SetLength fixed, package manager nested deps + lockfile, stdlib Phase 3.
-
-### v0.2.3 (2026-06-19) — Developer Experience
-
-LSP incremental sync, REPL Tab/load/type, test fixtures + filter, i18n framework, Delve debug, WebAssembly backend.
-
-### v0.2.2 (2026-06-19) — Engineering Quality
-
-GitHub Actions CI, generic signature verification, project-level type checking, incremental compilation activated, stdlib Phase 2.
-
-### v0.2.1 (2026-06-19) — Type System + stdlib Phase 1
-
-Multi-param generic constraints, class→interface mapping, enhanced type inference, strutil + mathutil.
-
-### v0.2.0 (2026-06-17) — Production-Ready Release
-
-Error codes (KLX001–499), type inference, generic constraints, `kylix test/doc/bench` toolchain.
-
-See [CHANGELOG.md](CHANGELOG.md) for full release history.
+| Version | Highlights |
+|---------|------------|
+| v0.6.9 | Bootstrap no-Go loop: stdlib IR baking, gen2 native compiler, IR fixed point (gen1≡gen2≡gen3), tutorials 50/51 |
+| v0.6.8 | Boot server hardening (POST body / req.JSON / real JWT validation) + stdlib completion + JetBrains polish |
+| v0.6.7 | JetBrains plugin (TextMate + LSP4IJ + live templates) + install manual — ROADMAP #9 done |
+| v0.6.6 | Boot HTTP server (real HTTP/1.1, no Go needed) + stdlib: JWT claims, cache TTL, HttpGetJSON, UrlEncode |
+| v0.6.5 | WS loopback + hand-rolled SHA-1 + 30× faster LLVM -O0 builds |
+| v0.6.4 | DbQueryRows (Variant map rows) + complete websocket (RFC 6455) |
+| v0.6.3 | jwt dual-end real implementation + bundled LLVM distribution |
+| v0.6.2 | Cross-platform: target triples, Linux 51/51, kylix doctor, test/bench --backend=llvm |
+| v0.6.1 | KylixRT: kylix run with no Go toolchain (auto backend) |
+| v0.6.0 | Performance benchmarks + LLVM -O2 verification (575 ms vs 11.5 s) |
 
 ## Contributing
 

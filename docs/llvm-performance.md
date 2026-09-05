@@ -1,6 +1,6 @@
 # LLVM Backend Performance Guide
 
-> **Status**: v0.4.1 — `--llvm-opt` now runs the standalone `opt` tool for full IR-level optimization (mem2reg, inlining, loop induction, DCE), in addition to llc's codegen-level `-O<N>`.
+> **Status**: v0.6.9 — `--llvm-opt` runs the standalone `opt` tool for full IR-level optimization (mem2reg, inlining, loop induction, DCE), in addition to llc's codegen-level `-O<N>`. Since v0.6.5 the default `-O0` build already runs `opt --passes=mem2reg` (see below); since v0.6.2 the backend supports `--target` cross-compilation.
 >
 > **v0.6.5**: the default `-O0` build now also runs `opt --passes=mem2reg` before llc (the biggest single IR-shrinking step), cutting **compile time ~30×** (11.5s → 0.38s on the bootstrap compiler) — see [compile-performance.md](compile-performance.md). The runtime numbers below are unchanged (v0.6.5 doesn't alter codegen semantics).
 
@@ -105,4 +105,4 @@ done
 
 ---
 
-**Last Updated**: 2026-07-02 (v0.4.1)
+**Last Updated**: 2026-09-04 (v0.6.9)

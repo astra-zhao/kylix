@@ -2,9 +2,9 @@
 
 > 本教程包含 5 个经过测试的 Kylix 示例，从 Hello World 到类与对象，逐步介绍 Kylix 语言的核心特性。
 > 
-> **环境要求**: 已安装 Kylix 编译器（v0.3.0-alpha 或更高版本）
+> **环境要求**: 已安装 Kylix 编译器（v0.6.9 或更高版本）
 > 
-> **运行方式**: `kylix build example.klx && go run example.go`
+> **运行方式**: `kylix run example.klx`（自动探测 Go/LLVM 后端；无 Go 工具链时回退 LLVM）
 
 ---
 
@@ -21,8 +21,7 @@ end.
 
 **运行**:
 ```bash
-kylix build example1_hello.klx
-go run example1_hello.go
+kylix run example1_hello.klx
 ```
 
 **输出**:
@@ -243,7 +242,8 @@ Person: Bob, Age: 30
 - JSON 处理：`uses jsonutil; obj := ParseJSON(str);`
 - 文件 I/O：`uses sysutil; content := ReadFile('data.txt');`
 - WASI 编译：`kylix build --wasi main.klx`
-- LLVM 后端：`kylix build --backend=llvm main.klx`
+- LLVM 原生后端：`kylix build --backend=llvm main.klx`（无 Go 依赖；`kylix doctor` 预检环境）
+- 自举编译器：编译器自身就是用 Kylix 写的（`src/*.klx`），且 bootstrap 已无 Go 闭环（v0.6.9）
 
 **完整文档**: [README_CN.md](../README_CN.md) | [官网](https://kylix.top) | [更新日志](../CHANGELOG.md)
 
@@ -274,5 +274,5 @@ kylix test myfile_test.klx
 
 ---
 
-**版本**: 适用于 Kylix v0.3.0-alpha  
-**最后更新**: 2026-06-21
+**版本**: 适用于 Kylix v0.6.9  
+**最后更新**: 2026-09-04

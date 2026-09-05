@@ -1,6 +1,6 @@
 # 自举编译器开发指南 (Self-Hosting Development Guide)
 
-> 版本: v0.5.7+ (2026-07-29)
+> 版本: v0.6.9 (2026-09-04)
 > 关联: [KYLIX_DEV_GUIDE.md](KYLIX_DEV_GUIDE.md) · [ROADMAP.md](../ROADMAP.md) · [TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md)
 
 本指南详细记录 Kylix 自举编译器的设计、构建流程、当前状态与后续开发方法。这是仓库中**最权威**的自举工作参考——动手改 `src/*.klx` 或 Go 后端多态 codegen 前，请先读本文档。
@@ -16,12 +16,14 @@
 | 概念 | 说明 | 当前状态 |
 |------|------|-------------|
 | **宿主编译器** | 现有 Go 写的编译器（`cmd/kylix` + `generator/` + `parser/` + `ast/`...），构建产物 `/tmp/kylix_bin` | ✅ 生产可用 |
-| **自举源码** | `src/*.klx`（7 文件、7451 行），用 Kylix 方言重写的编译器 | ✅ 源码完成 |
+| **自举源码** | `src/*.klx`（9 文件、~25k 行），用 Kylix 方言重写的编译器 | ✅ 源码完成 |
 | **自举产物** | 自举源码经 Go 后端转译 → 合并 main.go → `go build` → `kylix_self` 二进制 | ✅ 构建打通（v0.5.2）|
 | **round-trip** | `kylix_self` 产出的编译器（`kylix_self2`）能正确编译任意程序 | ✅ 达成（v0.5.3，含自繁殖）|
 | **self-reproduction 不动点** | `kylix_selfA` 编译 `src/*.klx` → `self_gen2.go` → `kylix_selfB` → `self_gen3.go`，两者逐字节一致 | ✅ 达成（v0.5.7，CI `selfrepro` job 自动验证）|
+| **无 Go 闭环（IR 不动点）** | gen1（host）`--emit-llvm` 9 文件 → llc/clang → gen2（纯原生编译器）→ gen2 再 emit 同 9 文件，与 gen1 **逐字节一致**（~220k 行 IR），gen3 ≡ gen2 | ✅ 达成（v0.6.9，P3+P4+P4.12）|
+| **教程 sweep（bootstrap）** | `scripts/test_bootstrap_all.sh`：bootstrap-vs-host 输出逐字 diff | ✅ 50/51 PASS（example33 多文件为 host 端 SKIP）|
 
-> **关键**：自举链路已完整打通——v0.5.2 构建、v0.5.3 round-trip + 自繁殖、v0.5.7 LLVM 后端 self-host（51/51）+ self-reproduction 不动点。当前目标：LLVM 后端无 Go 闭环（`src/generator.klx` 实现 LLVM IR emitter——巨型工程，见 ROADMAP），以及新 stdlib 函数的 bootstrap 类型映射同步（每次加 stdlib 函数都要在 `src/generator.klx` 补类型映射，否则不动点打破）。
+> **关键**：自举链路已完整打通——v0.5.2 构建、v0.5.3 round-trip + 自繁殖、v0.5.7 LLVM 后端 self-host（51/51）+ self-reproduction 不动点、**v0.6.9 无 Go 闭环（IR 不动点，gen1 ≡ gen2 ≡ gen3）**。v0.6.9 的关键拼图：(1) **stdlib IR 烘焙**——`scripts/extract_stdlib_ir.py` 把 host 生成的 stdlib IR 烘焙进 `src/stdlib_ir.klx`，bootstrap 只做 call-site dispatch；(2) **`src/llvmgen.klx`**——自举 LLVM IR emitter（emitter 补缺 20+ 项）；(3) 教程 15（无捕获 lambda 静态分发）与 50（JwtSign alloca 提升）收尾修复。**持续维护点**：每次加 stdlib 函数都要重烘 `stdlib_ir.klx`（cover.klx 入库后可自动），并在 `src/generator.klx` 补类型映射，否则不动点打破。
 
 ---
 
@@ -29,16 +31,18 @@
 
 7 个单元文件，按依赖顺序：
 
-| 文件 | 行数 | 职责 |
-|------|------|------|
-| `token.klx` | 214 | Token 类型枚举 + 关键字表（`Keywords` map） |
-| `error.klx` | 91 | `TDiagnostic`/`TErrorList` 错误收集与格式化 |
-| `ast.klx` | 375 | AST 节点类层次（60 个 class，三层继承） |
-| `lexer.klx` | 366 | `TLexer` 词法分析器 + `NewLexer` 工厂 |
-| `parser.klx` | 2423 | `TParser` Pratt 解析器 + `NewParser` 工厂（最大的文件） |
-| `generator.klx` | 1702 | `TGenerator` Go 代码生成器（第二大的文件） |
-| `main.klx` | 79 | 入口：ReadFile→Lex→Parse→GenerateMulti→WriteLn |
-| `kylix.toml` | — | 项目配置（`name=kylix-compiler`，`main=main.klx`） |
+| 文件 | 职责 |
+|------|------|
+| `token.klx` | Token 类型枚举 + 关键字表（`Keywords` map） |
+| `error.klx` | `TDiagnostic`/`TErrorList` 错误收集与格式化 |
+| `ast.klx` | AST 节点类层次（60 个 class，三层继承） |
+| `lexer.klx` | `TLexer` 词法分析器 + `NewLexer` 工厂 |
+| `parser.klx` | `TParser` Pratt 解析器 + `NewParser` 工厂（最大的文件） |
+| `generator.klx` | `TGenerator` Go 代码生成器（第二大的文件） |
+| `llvmgen.klx` | **v0.6.9** `TLLVMGenerator` —— 自举 LLVM IR emitter（`--emit-llvm` 输出 .ll） |
+| `stdlib_ir.klx` | **v0.6.9** 烘焙 stdlib IR 数据（13 段 + 139 签名，AUTO-GENERATED 勿手改） |
+| `main.klx` | 入口：ReadFile→Lex→Parse→Emit→WriteLn |
+| `kylix.toml` | 项目配置（`name=kylix-compiler`，`main=main.klx`） |
 
 ### 2.1 类层次（`ast.klx` 核心）
 
@@ -255,7 +259,7 @@ example19_inheritance.klx、example40_declarative_oop.klx 用继承 + 字段访�
 
 ---
 
-## 7. 当前状态与 v5.4 目标
+## 7. 当前状态与历史里程碑
 
 ### 7.1 v0.5.3 已达成（round-trip + 自繁殖）
 

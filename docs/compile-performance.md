@@ -2,7 +2,7 @@
 
 > **Status**: v0.6.0 — first compile-time benchmark for the Kylix compiler;
 > updated for the v0.6.5 LLVM performance work.
-> Target: the bootstrap sources (`src/*.klx`, **7 files / 7451 lines**), the
+> Target: the bootstrap sources (`src/*.klx`, now **9 files** incl. `llvmgen.klx` + `stdlib_ir.klx`; 7 files / 7451 lines at v0.6.0), the
 > largest real-world Kylix codebase, compiled on both backends with the
 > incremental cache both cold and warm.
 
@@ -64,4 +64,4 @@ bash benchmarks/compile_time.sh
 
 ---
 
-**Last Updated**: 2026-08-10 (v0.6.0)
+**Last Updated**: 2026-09-04 (v0.6.9)

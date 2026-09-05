@@ -1,16 +1,18 @@
-# Kylix 入门教程 — 从简到难
+# Kylix Getting Started — Step by Step
 
-> 本教程包含 5 个经过测试的 Kylix 示例，从 Hello World 到类与对象，逐步介绍 Kylix 语言的核心特性。
-> 
-> **环境要求**: 已安装 Kylix 编译器（v0.3.0-alpha 或更高版本）
-> 
-> **运行方式**: `kylix build example.klx && go run example.go`
+> This tutorial walks through 5 tested Kylix examples, from Hello World to classes and objects, introducing the core features of the language one step at a time.
+>
+> **Requirements**: Kylix compiler installed (v0.6.9 or later)
+>
+> **How to run**: `kylix run example.klx` (auto-detects the Go/LLVM backend; falls back to LLVM when no Go toolchain is present)
+
+> 🇨🇳 中文版: [GETTING_STARTED_CN.md](GETTING_STARTED_CN.md)
 
 ---
 
-## 示例 1: Hello World — 第一个程序
+## Example 1: Hello World — your first program
 
-最简单的 Kylix 程序，输出 "Hello, Kylix!"。
+The simplest Kylix program, printing "Hello, Kylix!".
 
 ```pascal
 program HelloWorld;
@@ -19,27 +21,26 @@ begin
 end.
 ```
 
-**运行**:
+**Run**:
 ```bash
-kylix build example1_hello.klx
-go run example1_hello.go
+kylix run example1_hello.klx
 ```
 
-**输出**:
+**Output**:
 ```
 Hello, Kylix!
 ```
 
-**说明**:
-- `program` 关键字声明程序名
-- `begin...end.` 包裹主程序块
-- `WriteLn()` 输出一行文本
+**Notes**:
+- `program` declares the program name
+- `begin...end.` wraps the main program block
+- `WriteLn()` prints a line of text
 
 ---
 
-## 示例 2: 变量与类型 — 数据存储
+## Example 2: Variables and Types — storing data
 
-演示 Kylix 的基本数据类型：`String`、`Integer`、`Real`、`Boolean`。
+Demonstrates the basic data types: `String`, `Integer`, `Real`, `Boolean`.
 
 ```pascal
 program Variables;
@@ -63,24 +64,24 @@ begin
 end.
 ```
 
-**输出**:
+**Output**:
 ```
 Name: Alice
 Age: 25
 Status: Passed
 ```
 
-**说明**:
-- `var` 声明变量
-- `:=` 赋值运算符
-- `IntToStr()` 将整数转为字符串（用于拼接）
-- `if...then...else` 条件判断
+**Notes**:
+- `var` declares variables
+- `:=` is the assignment operator
+- `IntToStr()` converts an integer to a string (for concatenation)
+- `if...then...else` conditional branching
 
 ---
 
-## 示例 3: 函数与过程 — 代码复用
+## Example 3: Functions and Procedures — reusing code
 
-函数返回值，过程不返回值。演示递归（Factorial）和参数传递。
+Functions return values, procedures don't. Demonstrates recursion (Factorial) and parameter passing.
 
 ```pascal
 program FunctionDemo;
@@ -119,23 +120,23 @@ begin
 end.
 ```
 
-**输出**:
+**Output**:
 ```
 10 + 20 = 30
 5! = 120
 Hello, Kylix User!
 ```
 
-**说明**:
-- `function` 有返回值（用 `result` 赋值）
-- `procedure` 无返回值
-- 函数可以递归调用自己（`Factorial`）
+**Notes**:
+- `function` returns a value (assigned via `result`)
+- `procedure` returns nothing
+- Functions can call themselves recursively (`Factorial`)
 
 ---
 
-## 示例 4: 循环 — 重复执行
+## Example 4: Loops — repeating work
 
-演示 `while` 循环和嵌套循环。
+Demonstrates `while` loops and nested loops.
 
 ```pascal
 program LoopsDemo;
@@ -143,7 +144,7 @@ var
   i, sum: Integer;
   j: Integer;
 begin
-  // While loop - 求和 1 到 5
+  // While loop - sum 1 to 5
   WriteLn('=== For Loop ===');
   sum := 0;
   i := 1;
@@ -154,7 +155,7 @@ begin
   end;
   WriteLn('Sum 1-5: ' + IntToStr(sum));
 
-  // Nested loops - 乘法表
+  // Nested loops - multiplication table
   WriteLn('=== Multiplication Table (3x3) ===');
   i := 1;
   while i <= 3 do
@@ -170,7 +171,7 @@ begin
 end.
 ```
 
-**输出**:
+**Output**:
 ```
 === For Loop ===
 Sum 1-5: 15
@@ -186,16 +187,16 @@ Sum 1-5: 15
 3 x 3 = 9
 ```
 
-**说明**:
-- `while...do` 循环（条件为真时执行）
-- `begin...end` 包裹多条语句
-- 嵌套循环：外层控制行，内层控制列
+**Notes**:
+- `while...do` loops (runs while the condition is true)
+- `begin...end` wraps multiple statements
+- Nested loops: the outer loop controls rows, the inner loop columns
 
 ---
 
-## 示例 5: 类与对象 — 面向对象编程
+## Example 5: Classes and Objects — OOP
 
-演示类的定义、创建对象、访问字段。
+Demonstrates class definitions, object creation, and field access.
 
 ```pascal
 program ClassDemo;
@@ -217,62 +218,63 @@ begin
 end.
 ```
 
-**输出**:
+**Output**:
 ```
 Person: Bob, Age: 30
 ```
 
-**说明**:
-- `type...class` 定义类
-- `public` 声明公开字段
-- `TPerson.Create` 创建对象实例
-- `.` 操作符访问字段
+**Notes**:
+- `type...class` defines a class
+- `public` declares public fields
+- `TPerson.Create` creates an object instance
+- `.` accesses fields
 
 ---
 
-## 下一步学习
+## Where to go next
 
-**中级主题**:
-- 数组与记录：`array of Integer`、`record...end`
-- 异常处理：`try...except...finally`
-- 泛型：`TList<T>`
-- 接口：`interface...end`
+**Intermediate topics**:
+- Arrays and records: `array of Integer`, `record...end`
+- Exception handling: `try...except...finally`
+- Generics: `TList<T>`
+- Interfaces: `interface...end`
 
-**高级主题**:
-- Web 服务器：`uses web; app := createServer(8080);`
-- JSON 处理：`uses jsonutil; obj := ParseJSON(str);`
-- 文件 I/O：`uses sysutil; content := ReadFile('data.txt');`
-- WASI 编译：`kylix build --wasi main.klx`
-- LLVM 后端：`kylix build --backend=llvm main.klx`
+**Advanced topics**:
+- Web server: `uses web; app := createServer(8080);`
+- JSON processing: `uses jsonutil; obj := ParseJSON(str);`
+- File I/O: `uses sysutil; content := ReadFile('data.txt');`
+- WASI builds: `kylix build --wasi main.klx`
+- LLVM native backend: `kylix build --backend=llvm main.klx` (no Go dependency; run `kylix doctor` to preflight the environment)
+- The self-hosting compiler: the compiler itself is written in Kylix (`src/*.klx`), and the bootstrap has closed the no-Go loop (v0.6.9)
 
-**完整文档**: [README.md](README.md) | [官网](https://kylix.top) | [CHANGELOG](CHANGELOG.md)
+**Full docs**: [README.md](../README.md) | [Website](https://kylix.top) | [CHANGELOG](../CHANGELOG.md)
 
 ---
 
-## 常见问题
+## FAQ
 
-**Q: 如何查看版本？**
+**Q: How do I check the version?**
 ```bash
 kylix version
 ```
 
-**Q: 如何格式化代码？**
+**Q: How do I format code?**
 ```bash
 kylix fmt myfile.klx
 ```
 
-**Q: 如何运行测试？**
+**Q: How do I run tests?**
 ```bash
 kylix test myfile_test.klx
 ```
 
-**Q: 编译出错怎么办？**
-- 检查语法：每个语句后面要有分号 `;`
-- 函数返回值：用 `result :=` 而不是 `return`
-- 变量先声明：`var x: Integer;` 在 `begin` 之前
-- 字符串拼接：用 `+` 连接字符串
+**Q: The build fails — what now?**
+- Check syntax: every statement needs a semicolon `;`
+- Function return values: use `result :=`, not `return`
+- Declare variables first: `var x: Integer;` before `begin`
+- String concatenation: use `+` to join strings
 
 ---
 
-**版本**: 适用于 Kylix v0.3.0-alpha  
-**最后更新**: 2026-06-21
+**Version**: applies to Kylix v0.6.9
+**Last updated**: 2026-09-04

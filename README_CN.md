@@ -2,15 +2,18 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-0.6.5-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.6.9-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
-Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
+Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后端编译为原生二进制。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
+> 🚀 **v0.6.9**: **bootstrap 编译器彻底摆脱 Go。** 编译器自身源码（`src/*.klx`，9 文件）经 `--emit-llvm` 产出 LLVM IR，链接成零 Go 依赖的原生 `gen2` 编译器，且 **gen1 ≡ gen2 ≡ gen3 逐字节一致（~220k 行 IR——真正的不动点）**。stdlib 以烘焙 IR 数据（`src/stdlib_ir.klx`）进入 bootstrap，免手写 15.5k 行 Go 移植。无捕获 lambda 与 JwtSign 修复补齐教程 sweep：**50/51 PASS**（bootstrap-vs-host 输出逐字 diff）。详见 [CHANGELOG.md](CHANGELOG.md)。
+>
 > 🚀 **v0.6.8**: boot server 补强 + stdlib 补全 + JetBrains 插件完善。`BootRun` 读取 POST body（`req.Body()`）、`req.JSON()` 绑定 JSON → `map[String]Variant`、`BootRegisterJwtAuth` 真校验 `Authorization: Bearer`（HS256）；stdlib 新增 `Base64URLEncode/Decode` + JSON 嵌套对象；JetBrains 插件新增 `.klx` 文件图标、Kylix Run 配置（`kylix run`）、未定义标识符 warning。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🚀 **v0.6.7**: **JetBrains 插件** — 完整 Gradle Kotlin 项目（`jetbrains-plugin/`）：TextMate 语法高亮、LSP4IJ 桥接 `kylix lsp`（补全/跳转/重命名/格式化）、25 个 Live Templates，附完整安装使用手册。ROADMAP #9 ✅。详见 [CHANGELOG.md](CHANGELOG.md)。
 > 🚀 **v0.6.6**: boot HTTP server + stdlib 补全。LLVM 端 `BootRun` 真实现 HTTP/1.1 服务器（路由表 + `:param` 路径参数 + `req.Param/Query/Header/Body`）——**KylixBoot 应用无 Go 工具链真正可用**。外加 jwt claims（Verify 返回 claims map + exp 过期 + JwtSubject/GetString/GetInt + Sign extraClaims）、cache TTL（PutWithTTL/Sweep）、HttpGetJSON → Variant map、UrlEncode/Decode、Variant div/mod。详见 [CHANGELOG.md](CHANGELOG.md)。
 > 🚀 **v0.6.5**: WS 自回环 + 手写 SHA-1 修复 + KylixRT 完善 + 性能优化。单进程 WebSocket echo 自回环（分阶段 `WsDialConnect`/`WsDialFinish`，无需线程）；手写 SHA-1 替换 OpenSSL；字符串插值溢出修复；LLVM 后端 **-O0 编译提速 30×**（bootstrap 11.5s→0.38s，DCE 单遍 + 缓存提前 + mem2reg + disable-verify）。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
@@ -26,7 +29,9 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go。它将 Pascal 
 >
 > 🔥 **v0.5.9**: 多态 gate 缺口修复 + KylixBoot 注解自动装配移植完成 — 宿主编译器与 bootstrap 编译器对 `src/*.klx` 的基类发射收敛为一致（`type TNode interface`；3 处根因：GenerateClassDecl interface 分支 / CollectClassTypes 无条件填充 ClassIsBaseStr / 类型表达式多态分支发 ident.Value）；#4 KylixBoot autowire（`[Controller]`/`[Get]`/`[Inject]` 路由/DI 装配）+ #5 ORM 注解（`[Entity]`/`[Repository]`/`[Query]` → ToRow/FromRow + FindAll/FindById/Save/DeleteById + Query 方法）移植到 `src/generator.klx`。self-reproduction 不动点保持（`self_gen2 ≡ self_gen3`，7388 行逐字节一致），bootstrap 编译 51 教程 **51/51**，go test 16 包全绿。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
-> 🔥 **v0.5.6**: LLVM 后端 bootstrap self-host 达成 **51/51 (100%)** — 自举源码 `src/*.klx`（7 文件 5250 行）经 LLVM 后端多文件构建成原生二进制 `main_self`（**无 Go 依赖**），编译全部 51 个教程示例产出的 Go 代码能 `go build` 成功并**正确运行**。本轮修复 28 个 codegen bug + 移植缺口，分三类：(1) LLVM codegen bug（Exit/funcExit 出口块——v0.5.5"整数解析失败"真因、裸方法调用、字符串拼接溢出、null 守卫、htb_get、map undef、repeat NextToken、Exception 顺序）；(2) 移植缺口（record/enum 值类型、stdlib 函数派发+error 包装+boot 类型、lambda、字符串转义、多返回、泛型 TStack<Integer>、validation stub、unit 段标记+forward 声明）；(3) 调试技术（lldb 函数名断点、main.ll IR、in-repo sweep、泛型 `>` 不消费）。go test 16 包全绿，教程 **51/51 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🔥 **v0.5.8**: Runtime 正确性达成 51/51 — 泛型类静态数组 array[0..N] of T 误发为 []T 动态切片 → Items len=0 → Push panic。修复 GenerateTypeExpression 按 Dynamic 区分静态 [Size]T 与动态 []T。example21 runtime 正确。self-reproduction 不动点保持。go test 16 包全绿，教程 **51/51 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
+>
+> 🔥 **v0.5.7**: LLVM 后端 bootstrap self-host 达成 **51/51 (100%)** — 自举源码 `src/*.klx`（7 文件 5250 行）经 LLVM 后端多文件构建成原生二进制 `main_self`（**无 Go 依赖**），编译全部 51 个教程示例产出的 Go 代码能 `go build` 成功并**正确运行**。本轮修复 28 个 codegen bug + 移植缺口，分三类：(1) LLVM codegen bug（Exit/funcExit 出口块——v0.5.5"整数解析失败"真因、裸方法调用、字符串拼接溢出、null 守卫、htb_get、map undef、repeat NextToken、Exception 顺序）；(2) 移植缺口（record/enum 值类型、stdlib 函数派发+error 包装+boot 类型、lambda、字符串转义、多返回、泛型 TStack<Integer>、validation stub、unit 段标记+forward 声明）；(3) 调试技术（lldb 函数名断点、main.ll IR、in-repo sweep、泛型 `>` 不消费）。go test 16 包全绿，教程 **51/51 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
 > 🔥 **v0.5.4**: LLVM 后端自举编译打通 — 自举源码 `src/*.klx`（7 文件 5250 行）经 LLVM 后端编译成原生二进制 `kylix_self_llvm`（127KB，**无 Go 依赖**），推进 KylixRT 里程碑（「LLVM 后端可编译 Kylix 编译器自身」）。IR 生成成功（736KB）→ llc 通过 → 链接成原生二进制 → 运行 exit 0 产出 Go 代码（含真换行 + WriteLn 语句识别 + is/as 运行时类型分派）。本轮修复 20+ 个 LLVM 后端缺口（类型系统、全局变量、record 支持、外部方法、is/as 运行时、map 值类型化、builtin 等）。go test 16 包全绿，教程 **51/51 (100%)**。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
@@ -97,6 +102,19 @@ go build -o kylix cmd/kylix/main.go
 export PATH=$PATH:$(pwd)
 ```
 
+**Go 后端**（默认）需要 Go 工具链。**LLVM 后端**（`--backend=llvm`）产出**无 Go 运行时依赖**的原生二进制,但需要 LLVM 工具链 —— 用 `kylix doctor` 检查：
+
+```bash
+# macOS
+brew install llvm
+# Linux
+sudo apt-get install llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev
+
+./kylix doctor   # 诊断 go / llc / clang / opt / sqlite3 / curl / openssl
+```
+
+`kylix run` 自动选择：PATH 上有 Go 工具链走 Go,否则走 LLVM 后端 —— 所以在装了 LLVM 但没装 Go 的机器上,`kylix run hello.klx` 依然可用。跨平台用 `--target`：`kylix build --backend=llvm --target=linux/amd64`（链接异平台需要该平台的工具链/CRT —— 见 CI）。
+
 ## 快速开始
 
 ```bash
@@ -132,9 +150,14 @@ kylix doc              # 从注释生成 Markdown 文档
 kylix debug            # 启动 Delve 调试器 (需安装 dlv)
 kylix repl             # 交互式 REPL
 kylix lsp              # 启动 LSP 服务 (供编辑器)
+kylix test             # 运行测试 (*_test.klx; --backend=llvm 无 Go 也可跑)
+kylix bench            # 运行基准测试 (*_bench.klx; 支持 --backend=llvm)
+kylix doc              # 从 // 注释生成 Markdown 文档
+kylix debug            # 启动 Delve 调试器 (需安装 dlv)
 kylix add <pkg>        # 添加依赖包
 kylix remove <pkg>     # 删除依赖包
 kylix publish          # 发布包到注册中心
+kylix doctor           # 环境预检 (go / llc / clang / opt / 系统库)
 kylix version          # 显示版本
 kylix help             # 显示帮助
 ```
@@ -954,10 +977,15 @@ kylix/
 │   ├── generator_stmt.go   # 语句
 │   └── generator_expr.go   # 表达式
 ├── src/                # 自举编译器源码 (.klx)
+│   ├── ...                 # token/error/ast/lexer/parser/generator/llvmgen/main
+│   └── stdlib_ir.klx       # 烘焙 stdlib IR 数据 (v0.6.9, 自动生成勿手改)
 ├── examples/           # 示例程序
+│   ├── complete-tutorial/  # 51 个渐进式教程示例
 │   ├── wasi-hello/         # WASI 示例 (Wasmtime/Node.js)
 │   └── cloudflare-worker/  # Cloudflare Workers 示例
 ├── vscode-ext/         # VS Code 扩展
+├── jetbrains-plugin/   # JetBrains 插件 (TextMate + LSP4IJ, v0.6.7)
+├── scripts/            # 工具脚本 (test_bootstrap_all.sh, extract_stdlib_ir.py)
 └── docs/               # 文档
 ```
 
@@ -975,6 +1003,20 @@ npm install
 # 在 VS Code 按 F5 启动扩展
 ```
 
+### JetBrains IDE (IntelliJ / GoLand, v0.6.7)
+`jetbrains-plugin/` 目录包含完整的 Gradle Kotlin 插件（IC 2024.3+）:
+- TextMate 语法高亮（`.klx` 文件）
+- LSP4IJ 桥接 `kylix lsp` — 补全、跳转定义、重命名、格式化、错误高亮
+- 25 个 Live Templates（prog/func/class/controller/...）
+- Kylix Run 配置
+
+```bash
+cd jetbrains-plugin
+./gradlew buildPlugin
+# 在 build/distributions/ 产出 zip,经 Settings → Plugins → Install Plugin from Disk 安装
+```
+完整手册见 `jetbrains-plugin/README.md`。
+
 ### 其他编辑器
 Kylix LSP 支持任何带 LSP 客户端的编辑器:
 ```json
@@ -986,152 +1028,20 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 
 ## 文档
 
+- [小白上手教程](docs/TUTORIAL_FOR_BEGINNERS_CN.md) - 零基础到能上手,由浅入深
+- [快速开始](docs/GETTING_STARTED.md) - 环境准备与第一步
 - [IDE 用户手册](docs/KYLIX_IDE_USER_MANUAL.md) - 完整的 CLI 与编辑器指南
 - [开发者指南](docs/KYLIX_DEV_GUIDE.md) - 架构、内部机制、贡献指南
 - [工具说明](docs/KYLIX_TOOLS_EXPLAINED.md) - 适合新手的工具说明
 - [Web 框架指南](docs/WEB_FRAMEWORK.md) - Web 服务器与 REST API 开发
 - [ORM 指南](docs/ORM_GUIDE.md) - 数据库 ORM 与查询构造器
 - [模板引擎指南](docs/TEMPLATE_GUIDE.md) - HTML 模板渲染
+- [LLVM 后端](docs/llvm-backend.md) - 原生后端内部机制
+- [自举开发指南](docs/SELFHOSTING_DEV_GUIDE.md) - bootstrap 编译器工作原理
 
 ## 路线图
 
-### Phase 1: 转译器 ✅
-- ✅ 词法分析与语法分析
-- ✅ AST 生成
-- ✅ Go 代码生成
-- ✅ 基础语言特性
-- ✅ 现代特性 (lambda、async、模式匹配)
-
-### Phase 2: IDE 工具 ✅
-- ✅ CLI 工具链 (new、build、run、check、fmt、repl、lsp)
-- ✅ 项目管理 (kylix.toml)
-- ✅ LSP 服务,支持补全和悬停
-- ✅ VS Code 扩展(语法高亮)
-- ✅ 交互式 REPL
-- ✅ 完整文档
-
-### Phase 3: 框架 ✅
-- ✅ Web 服务器 (基于 Go net/http)
-- ✅ 路由系统 (GET、POST、PUT、DELETE)
-- ✅ 路径参数 (`/users/:id`)
-- ✅ 中间件支持
-- ✅ JSON 请求/响应
-- ✅ 静态文件服务
-- ✅ 匿名过程与匿名函数
-- ✅ 增强的 VS Code 扩展
-- ✅ 依赖注入容器
-- ✅ 配置系统
-- ✅ 中间件套件 (CORS、Auth、Rate Limit、Request ID、Logging)
-- ✅ 请求验证
-- ✅ ORM (MySQL、PostgreSQL、SQLite)
-- ✅ 模板引擎
-- ✅ 自动配置
-
-### Phase 4: 语言增强 ✅
-- ✅ 泛型类型参数声明 (类与函数)
-- ✅ 异常处理 ON 子句 (`on E: ExceptionType do`)
-- ✅ Constructor/destructor/inherited 关键字
-- ✅ Lambda 表达式参数解析
-- ✅ Async/await 代码生成改进
-
-### Phase 5: 标准库与工具链 ✅
-- ✅ 文件 I/O (`sysutil`)
-- ✅ JSON (`jsonutil`)
-- ✅ 日期时间 (`datetime`)
-- ✅ 正则表达式 (`regex`)
-- ✅ REPL 改进 (readline 历史)
-- ✅ Formatter 修复
-- ✅ Generator stdlib 串接
-
-### Phase 6-7: Bug 修复与语言能力 ✅
-- ✅ 字符串插值
-- ✅ 异常类型 (ON 子句)
-- ✅ 多返回值 (`function Div(a,b: Integer): (Integer, Integer)`)
-- ✅ 属性代码生成 (getter/setter)
-- ✅ Map 类型、Variant 类型、动态数组
-- ✅ 枚举类型
-- ✅ 多文件模块系统 (`unit X;`、`uses X;`)
-
-### Phase 8: 自举编译器 ✅
-- ✅ 7 个 Kylix 源文件 (token、ast、lexer、parser、error、generator、main)
-- ✅ 类代码生成
-- ✅ 软关键字 (25+ 关键字可作标识符)
-- ✅ is/as 类型分发
-- ✅ 局部变量声明、构造器、内置函数
-
-### Phase 9: 自举验证 ✅
-- ✅ 多文件自举编译
-- ✅ 自举生成的 Go 输出零错误编译运行
-- ✅ Diff 验证: Go 参考实现 vs Kylix 自举 — 语义等价
-- ✅ 15/15 示例在两种编译器上通过
-
-### Phase 10-12 (v0.2.0+) — 生产级编译器 ✅
-- ✅ 错误代码体系 (KLX001–499) + 智能建议
-- ✅ 类型推导 (`var x := 42`)
-- ✅ 泛型约束验证 (`T: IComparable`)
-- ✅ 完整测试框架 (`kylix test`)
-- ✅ 文档生成器 (`kylix doc`)
-- ✅ 性能基准 (`kylix bench`)
-
-### v0.2.1 — 增强类型系统 ✅
-- ✅ 多参数泛型约束 (`TMap<K: IComparable, V: IHashable>`)
-- ✅ 类→接口实现映射验证 (含方法签名)
-- ✅ 增强类型推导 (Boolean、array of T、nil、not 等)
-- ✅ stdlib Phase 1 (`strutil`、`mathutil`)
-
-### v0.2.2 — 工程质量 ✅
-- ✅ GitHub Actions CI/CD
-- ✅ 泛型约束方法签名验证
-- ✅ 包级类型检查 (`CheckProject`)
-- ✅ 增量编译启用 (BuildCache)
-- ✅ stdlib Phase 2 (`arrayutil`、`collections`)
-
-### v0.2.3 — 开发者体验 ✅
-- ✅ LSP 增量同步 (textDocumentSync 升级到 Incremental)
-- ✅ REPL Tab 补全 + `:load` + `:type`
-- ✅ kylix test 高级功能 (Setup/Teardown/--filter)
-- ✅ 错误信息国际化 i18n (中英双语)
-- ✅ Delve 调试器集成 (`kylix debug`)
-- ✅ WebAssembly 后端 (`--wasm`、`--tinygo`)
-
-### v0.2.4–v0.2.6 — 完善、生态与性能 ✅
-- ✅ i18n 全面接入、REPL `:type` 真正推导、SetLength 修复
-- ✅ 包管理器嵌套依赖 + lockfile、stdlib Phase 3
-- ✅ LSP 跨文件 rename、`kylix doc` 代码示例、`kylix bench --mem`、iter 模块
-- ✅ 并行编译 (goroutine pool)、死代码消除、LSP 大文件性能基准
-
-### v0.3.0-alpha — 架构突破 ✅
-- ✅ LLVM 原生后端 Milestone 1（标量类型、控制流、函数、类/vtable）
-- ✅ WASI 支持（`--wasi`、`--tinygo`、`pkg/wasi/`、`stdlib/src/wasi.klx`）
-- ✅ 包注册中心服务端（`registry/`、REST API、htmx 前端、`kylix publish`）
-- ✅ stdlib Phase 4：纯 Kylix jsonutil（嵌套 JSON）、regex、datetime（DateAdd/DateSub）
-- ✅ `external` 函数声明解析修复
-- ✅ HTTP 客户端 stdlib（`httpclient`）
-
-### v0.3.1 — KylixBoot + 编译器修复 + LLVM 数组 ✅
-- ✅ KylixBoot 框架（`pkg/boot/`，约 700 行，23 测试）—— 路由、DI、中间件、优雅停机
-- ✅ 注解语法 `[Name]` / `[Name(args)]`，作用于类、类型、函数和字段
-- ✅ KLX-C01 修复：`var p: TClass` 现在生成 `*TClass`（不再是 `interface{}`）
-- ✅ KLX-C02 修复：单引号字符串中的 `${...}` 正确生成 STRING_INTERPOLATION
-- ✅ KLX-C03 修复：lambda / 匿名函数返回类型保留
-- ✅ KLX-C04 修复：match 语句 codegen 生成有效 Go 代码
-- ✅ KLX-C05 修复：`uses sysutil/jsonutil/...` 在 program 文件中注入 stdlib 符号（40+ 函数）
-- ✅ LLVM Milestone 2 Phase 1：静态 + 动态数组，`--llvm-opt=N`
-- ✅ 教程扩展 `example40_declarative_oop.klx` 和 `example41_attributes.klx`（32/34 示例通过）
-
-### v0.3.2-dev：KylixBoot 注解栈 ✅（进行中）
-- ✅ 从 `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` 注解自动注册路由
-- ✅ DI 自动装配：`[Service]`/`[Component]`/`[Inject]`
-- ✅ Procedure 风格路由 handler（`procedure M(req; res)`）
-- ✅ 校验注解：`[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]` → `Validate()`/`IsValid()`
-- ✅ 安全注解：`[Authenticated]`/`[Role('admin')]` 按路由守卫
-- ✅ ORM 注解：`[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]`
-- ✅ 注解诊断：KLX207（重复路由）… KLX213（非法 ORM）
-- ✅ 教程：41/41 示例通过（新增 6 个 KylixBoot 注解示例）
-- ✅ LLVM Milestone 2 Phase 2 —— 接口 fat pointer + 成员访问 + 方法分发 + is/as
-- ✅ LLVM Milestone 2 Phase 3 —— 泛型类单态化（模板克隆 + 类型参数替换）
-- ✅ 包注册中心部署脚手架（Dockerfile / docker-compose / CI — DNS + TLS 后 `make up` 即可上线）
-- ✅ stdlib Phase 6：net / crypto / encoding
+当前状态：**v0.6.9**（2026-09-04）—— bootstrap 无 Go 闭环达成（stdlib IR 烘焙、gen2 原生编译器、逐字节 IR 不动点、教程 sweep 50/51 PASS）。下一步：v0.7.0 web 页面开发 + web 框架（模板引擎、页面渲染、静态资源、表单/Cookie）+ net Winsock / regex pcre2 真实现。完整路线图见 [ROADMAP.md](ROADMAP.md)。
 
 ## 跨平台编译
 
@@ -1186,7 +1096,7 @@ kylix build --wasm --tinygo main.klx  # TinyGo (~30 KB)
 | WebAssembly | wasm | `--wasm` (含可选 `--tinygo`) |
 | WASI | wasip1/wasm | `--wasi` (含可选 `--tinygo`) |
 
-### LLVM 原生后端 (v0.3.0-alpha → v0.6.4)
+### LLVM 原生后端 (v0.3.0-alpha → v0.6.9)
 
 Kylix 现在有实验性 LLVM 后端，直接从 AST 生成原生二进制，绕过 Go 工具链。
 
@@ -1220,9 +1130,9 @@ begin
 end.
 ```
 
-接口、泛型和异常计划在 Milestone 2 Phase 2-3（v3.2）中实现。
+自 Milestone 2 起,LLVM 后端还覆盖了接口（fat pointer）、泛型类单态化、异常、lambda/闭包、Variant、DWARF 调试信息与 KylixBoot 注解自动装配 —— 详见 `docs/` 下的 LLVM 后端文档。
 
-### LLVM stdlib（真实 IR 实现，v0.4.2 → v0.6.4）
+### LLVM stdlib（真实 IR 实现，v0.4.2 → v0.6.9）
 
 LLVM 后端现在可以**无需 Go** 编译 stdlib 密集型程序。已有真实 IR 实现的模块：
 
@@ -1250,28 +1160,20 @@ WsClose(ws);
 
 ## 更新日志
 
-完整版本历史请见 [CHANGELOG.md](CHANGELOG.md)。最近更新:
+最近版本（完整历史见 [CHANGELOG.md](CHANGELOG.md)）：
 
-### v0.3.1 (2026-06-23)
-KylixBoot 框架（路由/DI/中间件，23 测试）、注解语法 `[Name]`、5 个编译器修复（KLX-C01..C05：类变量类型、字符串插值、lambda 返回值、match codegen、uses 符号注入）、LLVM Milestone 2 Phase 1（静态 + 动态数组、`--llvm-opt=N`）。
-
-### v0.3.0-alpha (2026-06-21)
-架构突破 — LLVM 原生后端 Milestone 1、WASI 支持、包注册中心服务端、stdlib Phase 4（纯 Kylix jsonutil/regex/datetime）、`external` 解析修复、HTTP 客户端 stdlib。
-
-### v0.2.6 (2026-06-20)
-性能与优化 — 并行编译 (goroutine pool)、死代码消除、LSP 大文件性能基准。
-
-### v0.2.5 (2026-06-20)
-工具链深化 — LSP 跨文件 rename + codeAction、`kylix doc` 代码示例提取、`kylix bench --mem`、iter 模块、类方法外部定义修复。
-
-### v0.2.4 (2026-06-20)
-完善与生态 — i18n 全面接入、REPL `:type` 真正推导、SetLength 修复、包管理器嵌套依赖 + lockfile、stdlib Phase 3。
-
-### v0.2.3 (2026-06-19)
-开发者体验全面提升 — LSP 增量同步、REPL Tab 补全、测试 fixtures + filter、i18n 框架、Delve 调试器、WebAssembly 后端。
-
-### v0.2.0 (2026-06-17)
-🎉 生产级首发 — 错误代码体系、类型推导、泛型约束、`kylix test/doc/bench` 完整工具链。
+| 版本 | 亮点 |
+|------|------|
+| v0.6.9 | bootstrap 无 Go 闭环：stdlib IR 烘焙、gen2 原生编译器、IR 不动点（gen1≡gen2≡gen3）、教程 50/51 |
+| v0.6.8 | boot server 补强（POST body / req.JSON / JWT 真校验）+ stdlib 补全 + JetBrains 完善 |
+| v0.6.7 | JetBrains 插件（TextMate + LSP4IJ + Live Templates）+ 安装手册 —— ROADMAP #9 完成 |
+| v0.6.6 | boot HTTP server（真 HTTP/1.1,无 Go 可用）+ stdlib：JWT claims、cache TTL、HttpGetJSON、UrlEncode |
+| v0.6.5 | WS 自回环 + 手写 SHA-1 + LLVM -O0 编译提速 30× |
+| v0.6.4 | DbQueryRows（Variant map 行）+ 完整 websocket（RFC 6455） |
+| v0.6.3 | jwt 双端真实现 + 捆绑 LLVM 分发 |
+| v0.6.2 | 跨平台：target triple、Linux 51/51、kylix doctor、test/bench --backend=llvm |
+| v0.6.1 | KylixRT：kylix run 无 Go 工具链（auto 探测后端） |
+| v0.6.0 | 性能 benchmark + LLVM -O2 验证（575ms vs 11.5s） |
 
 ## 贡献
 

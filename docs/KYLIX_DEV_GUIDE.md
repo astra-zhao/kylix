@@ -20,7 +20,7 @@
 
 ## 项目架构
 
-Kylix 是一个 **源码到源码编译器（Transpiler）**，将 Kylix 代码编译为 Go 代码，然后由 Go 工具链执行。
+Kylix 是一个 **双后端编译器**：默认把 Kylix 代码转译为 Go 代码（Go 工具链执行），也可经 **LLVM 后端** 直接生成原生二进制（`--backend=llvm`，无 Go 依赖）。编译器自身源码（`src/*.klx`）可用 LLVM 后端自举，且已达成无 Go 闭环（v0.6.9）。
 
 ```
 ┌─────────────┐
@@ -56,6 +56,24 @@ Kylix 是一个 **源码到源码编译器（Transpiler）**，将 Kylix 代码�
 ┌─────────────┐
 │  Go 工具链   │  编译/运行 Go 代码
 └─────────────┘
+```
+
+LLVM 后端（`pkg/llvmgen/`）从同一棵 AST 分叉：
+
+```
+┌─────────────┐
+│     AST     │
+└──────┬──────┘
+       │  --backend=llvm
+       ▼
+┌─────────────┐
+│ LLVMGenerator │  代码生成：AST → LLVM IR (.ll)
+└──────┬──────┘
+       │
+       ▼
+┌──────────────────────┐
+│ opt / llc / clang    │  优化 → 目标文件 → 原生二进制
+└──────────────────────┘
 ```
 
 ### 设计原则
@@ -183,6 +201,14 @@ kylix/
 ├── generator/              # Go 代码生成器
 │   └── generator.go
 │
+├── pkg/llvmgen/            # LLVM 原生后端（IR 生成 + stdlib IR + Variant + DWARF）
+│   ├── codegen.go
+│   ├── compile.go
+│   └── stdlib_*.go
+│
+├── src/                    # 自举编译器源码（.klx，9 文件）
+│   └── stdlib_ir.klx       # 烘焙 stdlib IR 数据（自动生成）
+│
 ├── token/                  # Token 定义
 │   └── token.go
 │
@@ -192,6 +218,7 @@ kylix/
 │   └── ...
 │
 ├── vscode-ext/             # VS Code 扩展
+├── jetbrains-plugin/       # JetBrains 插件（TextMate + LSP4IJ）
 │   ├── extension.js
 │   ├── package.json
 │   └── syntaxes/
@@ -598,52 +625,9 @@ echo "All tests passed!"
 
 ## 路线图
 
-### Phase 1: 基础编译器 ✅
+早期 Phase 1–5（基础编译器、IDE 工具、Web 框架、语言增强、标准库）已全部完成 —— 泛型、异常、接口、多态、模式匹配、lambda/async、完整 stdlib（文件 I/O、网络、JSON、日期时间、正则、加密、db、websocket、jwt）均已落地。当前状态 **v0.6.9**（bootstrap 无 Go 闭环达成，gen1 ≡ gen2 ≡ gen3 逐字节 IR 不动点），下一站 v0.7.0（web 页面开发 + web 框架）。
 
-- [x] Lexer 和 Parser
-- [x] AST 生成
-- [x] Go 代码生成
-- [x] 基本语言特性
-- [x] CLI 工具
-
-### Phase 2: IDE 工具 ✅
-
-- [x] CLI 工具链
-- [x] LSP 服务器
-- [x] VS Code 扩展
-- [x] 语法高亮
-- [x] 代码补全
-- [x] 语法检查
-- [x] 项目管理
-
-### Phase 3: Web 框架（进行中）
-
-- [ ] 依赖注入容器
-- [ ] HTTP 服务器
-- [ ] 路由系统
-- [ ] 中间件支持
-- [ ] ORM
-- [ ] 模板引擎
-- [ ] 自动配置
-
-### Phase 4: 语言增强（计划中）
-
-- [ ] 泛型
-- [ ] 异常处理
-- [ ] 接口
-- [ ] 继承和多态
-- [ ] 模式匹配
-- [ ] Lambda 表达式
-- [ ] 异步/并发支持
-
-### Phase 5: 标准库（计划中）
-
-- [ ] 文件 I/O
-- [ ] 网络编程
-- [ ] JSON 处理
-- [ ] 日期时间
-- [ ] 正则表达式
-- [ ] 加密
+完整路线图见 [ROADMAP.md](ROADMAP.md)，版本历史见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -656,6 +640,8 @@ echo "All tests passed!"
 2. **性能**：Go 编译的代码性能优秀
 3. **生态系统**：可以直接使用 Go 的标准库和第三方包
 4. **简单**：编译器保持小巧，易于理解和维护
+
+需要脱离 Go 工具链时，LLVM 后端（`--backend=llvm`）直接产出原生二进制——无 Go 运行时依赖，且支持 DWARF 调试、`--target` 交叉编译与 `-O2` 优化通道。参见 [llvm-backend.md](llvm-backend.md)。
 
 ### Q: Pratt 解析算法是什么？
 
@@ -723,8 +709,8 @@ func (g *Generator) mapBuiltinFunction(name string) string {
 
 ## 联系
 
-- **项目仓库**: [GitHub](https://github.com/your-repo/kylix)
-- **问题反馈**: [Issues](https://github.com/your-repo/kylix/issues)
-- **讨论**: [Discussions](https://github.com/your-repo/kylix/discussions)
+- **项目仓库**: [GitHub](https://github.com/astra-zhao/kylix)
+- **问题反馈**: [Issues](https://github.com/astra-zhao/kylix/issues)
+- **讨论**: [Discussions](https://github.com/astra-zhao/kylix/discussions)
 
 感谢你的贡献！🎉
