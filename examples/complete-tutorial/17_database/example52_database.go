@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"kylix/stdlib"
+	"fmt"
 )
 
 func main() {
@@ -22,8 +22,18 @@ fmt.Println(("user count: " + count))
 name := func() string { _v, _ := stdlib.DbQueryScalar(db, "SELECT name FROM users WHERE age = 30"); return _v }()
 //line example52_database.klx:20
 fmt.Println(("age 30 user: " + name))
-//line example52_database.klx:22
+//line example52_database.klx:24
+rows := func() []map[string]interface{} { _v, _ := stdlib.DbQueryRows(db, "SELECT name, age FROM users ORDER BY age"); return _v }()
+//line example52_database.klx:25
+fmt.Println(("row count: " + fmt.Sprintf("%d", int64(len(rows)))))
+//line example52_database.klx:26
+fmt.Println(rows[0]["name"])
+//line example52_database.klx:27
+fmt.Println(rows[1]["name"])
+//line example52_database.klx:28
+fmt.Println(rows[0]["age"])
+//line example52_database.klx:30
 stdlib.DbClose(db)
-//line example52_database.klx:23
+//line example52_database.klx:31
 fmt.Println("database demo OK")
 }

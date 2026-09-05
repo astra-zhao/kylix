@@ -6,7 +6,7 @@ import (
 
 const MAX_SIZE = 100
 const APP_NAME = "Kylix Demo"
-const PI = 3.141593
+const PI = 3.14159265359
 const DEBUG_MODE = true
 func main() {
 //line example03_constants.klx:11

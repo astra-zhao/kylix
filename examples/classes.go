@@ -86,7 +86,7 @@ dog.Speak()
 //line classes.klx:78
 dog.Fetch("ball")
 //line classes.klx:80
-car := &Vehicle{Speed: 60.000000}
+car := &Vehicle{Speed: 60.0}
 //line classes.klx:81
 car.Move(100)
 }

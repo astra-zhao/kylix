@@ -4,7 +4,13 @@
 
 ```bash
 kylix version
-# Should show: Kylix 3.0.0-alpha
+# Should show: Kylix 0.6.9 (or later)
+```
+
+Optional — preflight the native LLVM backend (no Go needed at runtime):
+
+```bash
+kylix doctor
 ```
 
 ## 5-Minute Quick Start
@@ -19,8 +25,8 @@ begin
 end.
 ENDKLX
 
-kylix build hello.klx
-go run hello.go
+kylix run hello.klx
+# or: kylix build hello.klx && go run hello.go
 ```
 
 ### 2. Variables and Functions (2 minutes)
@@ -46,14 +52,13 @@ var
 begin
   sum := Add(10, 20);
   product := Multiply(5, 6);
-  
+
   WriteLn('10 + 20 = ', sum);
   WriteLn('5 * 6 = ', product);
 end.
 ENDKLX
 
-kylix build calc.klx
-go run calc.go
+kylix run calc.klx
 ```
 
 ### 3. Control Flow (2 minutes)
@@ -92,44 +97,49 @@ begin
 end.
 ENDKLX
 
-kylix build loops.klx
-go run loops.go
+kylix run loops.klx
 ```
 
 ## Run All Tutorial Examples
 
 ```bash
-cd /tmp/kylix_complete
-./test_all.sh
+# Go backend (51/51)
+KYLIX=/path/to/kylix bash examples/complete-tutorial/test_all.sh
+
+# LLVM backend (51/51, native binaries)
+bash examples/complete-tutorial/test_all_llvm.sh
 ```
 
 ## Learn by Category
 
 ### Beginners (Start Here)
 ```bash
-cd /tmp/kylix_complete/01_basics
+cd examples/complete-tutorial/01_basics
 # Run each example:
-kylix build example01_hello.klx && go run example01_hello.go
-kylix build example02_variables.klx && go run example02_variables.go
+kylix run example01_hello.klx
+kylix run example02_variables.klx
 # ... continue through example06
 ```
 
 ### Intermediate
 ```bash
-cd /tmp/kylix_complete/02_control_flow
+cd examples/complete-tutorial/02_control_flow
 # All 5 control flow examples
 
-cd /tmp/kylix_complete/03_functions
-# Functions, recursion, multi-return
+cd examples/complete-tutorial/03_functions
+# Functions, recursion, lambda, multi-return
 ```
 
 ### Advanced
 ```bash
-cd /tmp/kylix_complete/06_advanced_types
-# Arrays, maps, records
+cd examples/complete-tutorial/06_advanced_types
+# Enum, arrays, maps, records, string ops
 
-cd /tmp/kylix_complete/10_exceptions
+cd examples/complete-tutorial/10_exceptions
 # Exception handling
+
+cd examples/complete-tutorial/12_special_features
+# Annotations, KylixBoot, validation, security, ORM
 ```
 
 ## Common Patterns
@@ -159,18 +169,26 @@ var ratio := 3.14;         // Real
 var active := true;        // Boolean
 ```
 
-### Arrays
+### Arrays and Maps
 ```pascal
 var numbers: array[0..4] of Integer;
 numbers[0] := 10;
 numbers[1] := 20;
-```
 
-### Maps
-```pascal
 var scores: map[String]Integer;
 scores['Alice'] := 95;
 WriteLn(scores['Alice']);
+```
+
+### Multiple Return Values
+```pascal
+function DivMod(a: Integer; b: Integer): (Integer, Integer);
+begin
+  result := (a div b, a mod b);
+end;
+
+var q, r: Integer;
+(q, r) := DivMod(17, 5);
 ```
 
 ### Exception Handling
@@ -190,29 +208,21 @@ end
 end;
 ```
 
-## What to Avoid (Bugs in v3.0.0-alpha)
-
-❌ Don't use classes (field access broken)
-❌ Don't use lambda expressions
-❌ Don't use match expressions
-❌ Don't use enum types
-❌ Don't use `{ }` comments (use `//` instead)
-❌ Don't use `Write()` (use `WriteLn()` instead)
-
 ## Next Steps
 
 1. ✅ Run the 5-minute examples above
-2. ✅ Read through `/tmp/kylix_complete/README.md`
-3. ✅ Try examples in `/tmp/kylix_complete/01_basics/`
-4. ✅ Explore control flow examples
-5. ✅ Learn functions and recursion
-6. ✅ Master advanced types (arrays, maps, records)
+2. ✅ Read through `examples/complete-tutorial/README.md`
+3. ✅ Try examples in `01_basics/` and `02_control_flow/`
+4. ✅ Learn functions, recursion and lambdas
+5. ✅ Master advanced types (arrays, maps, records, enum)
+6. ✅ Explore annotations and the KylixBoot framework
 
 ## Get Help
 
-- Tutorial: `/tmp/kylix_complete/README.md`
-- Examples: `/tmp/kylix_complete/*/example*.klx`
-- Test: `/tmp/kylix_complete/test_all.sh`
-- Summary: `/tmp/kylix_complete/SUMMARY.md`
+- Tutorial: `examples/complete-tutorial/README.md` (中文版: `README_CN.md`)
+- Beginner walkthrough: `docs/TUTORIAL_FOR_BEGINNERS_CN.md`
+- Examples: `examples/complete-tutorial/*/example*.klx`
+- Full sweep: `examples/complete-tutorial/test_all.sh`
+- Index: `examples/complete-tutorial/INDEX.md`
 
 Happy coding! 🚀

@@ -19,9 +19,9 @@ var point TPoint
 var person TPerson
 func main() {
 //line example22_records.klx:22
-point.X = 10.500000
+point.X = 10.5
 //line example22_records.klx:23
-point.Y = 20.300000
+point.Y = 20.3
 //line example22_records.klx:25
 fmt.Println("Point: (", point.X, ", ", point.Y, ")")
 //line example22_records.klx:28

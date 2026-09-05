@@ -12,7 +12,7 @@ return (a + b)
 }
 var numbers = []interface{}{1, 2, 3, 4, 5}
 var name = "World"
-var greeting = "Hello, ${name}!"
+var greeting = fmt.Sprintf("Hello, %v!", name)
 //line modern.klx:8
 func Apply(fn function, value int64) int64 {
 var result int64
@@ -37,7 +37,10 @@ result = ("Data from " + url)
 func Describe(value int64) string {
 var result string
 //line modern.klx:23
-switch _v := value	 {
+	{
+_v := value		
+_ = _v		
+		switch {
 case _v == 0		:
 //line modern.klx:24
 "zero"
@@ -56,6 +59,7 @@ case (value > 100)		:
 		default:
 //line modern.klx:29
 "other"
+		}
 	}
 return result
 }

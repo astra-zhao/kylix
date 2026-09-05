@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"kylix/stdlib"
+	"fmt"
 )
 
 var arr []interface{}
@@ -10,9 +10,9 @@ var v interface{}
 var i int64
 func main() {
 //line example56_variant.klx:22
-v = 10.000000
+v = 10.0
 //line example56_variant.klx:23
-if (v == 10.000000)	 {
+if (v == 10.0)	 {
 //line example56_variant.klx:23
 fmt.Println("scalar match")
 }	
@@ -21,7 +21,7 @@ fmt.Println(v)
 //line example56_variant.klx:27
 arr = stdlib.JsonGetArray(func() map[string]interface{} { _v, _ := stdlib.JsonDecodeMap("{\"nums\":[10,20,30]}"); return _v }(), "nums")
 //line example56_variant.klx:28
-if (arr[0] == 10.000000)	 {
+if (arr[0] == 10.0)	 {
 //line example56_variant.klx:28
 fmt.Println("arr[0] is 10")
 }	

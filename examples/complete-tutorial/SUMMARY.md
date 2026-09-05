@@ -1,5 +1,15 @@
 # Kylix Tutorial Creation Summary
 
+> ⚠️ **Historical document — do not use for current status.**
+>
+> This is a point-in-time creation log from when the tutorial was first
+> authored (Kylix v3.0.0-alpha era, 23 examples, `/tmp/kylix_complete/`,
+> ~87% success rate). Every limitation mentioned below has since been fixed.
+>
+> **Current status (v0.6.9): 50 numbered examples across 20 chapters —
+> Go backend 51/51, LLVM backend 51/51, no-Go bootstrap 50 PASS + 1 SKIP.
+> See [README.md](README.md) / [README_CN.md](README_CN.md) / [INDEX.md](INDEX.md).**
+
 ## What Was Created
 
 A comprehensive Kylix v3.0.0-alpha tutorial with **23 tested examples** organized into **8 categories**.

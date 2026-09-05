@@ -1,27 +1,25 @@
-# Kylix v3.1.1 Complete Tutorial
+# Kylix Complete Tutorial
 
-Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix v3.3.0 with tested, runnable examples — 44 of 44 checks pass (43 `example*.klx` files plus the `math_helper.klx` unit companion file).
+Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix **v0.6.9** with tested, runnable examples — **50 numbered examples across 20 chapters**, plus the `math_helper.klx` unit companion and a `test.klx` smoke file.
+
+Test status (v0.6.9):
+
+- ✅ Go backend sweep: **51/51** (`examples/complete-tutorial/test_all.sh`)
+- ✅ LLVM backend sweep: **51/51** (`examples/complete-tutorial/test_all_llvm.sh`, native binaries, no Go at runtime)
+- ✅ Bootstrap (self-hosted, no-Go) sweep: **50 PASS + 1 SKIP** (`scripts/test_bootstrap_all.sh`; example33 is multi-file and verified host-side)
+- ✅ The compiler itself is written in Kylix and reaches an IR fixed point (gen1 ≡ gen2 ≡ gen3)
 
 ## What is Kylix?
 
-Kylix is a modern Pascal-to-Go transpiler that brings modern language features to the Pascal syntax. Write Pascal, get Go performance.
+Kylix is a modern Pascal compiler: by default it transpiles to readable Go code (compiled with `go build`), and with `--backend=llvm` it emits LLVM IR directly to produce a native binary — no Go toolchain needed at runtime.
 
 ## Prerequisites
 
-- Kylix compiler (v3.1.1 or later)
-- Go 1.18+ (for running generated code)
+- Kylix compiler (v0.6.9 or later)
+- Either **Go 1.18+** (Go backend) or **LLVM** (`llc`/`clang`, native backend). Run `kylix doctor` to preflight the LLVM environment.
+- Native backend links against system libraries for some stdlib modules (openssl, sqlite3, curl) as needed.
 
 ## Tutorial Structure
-
-This tutorial contains **42 runnable example files** organized into categories. Several major v3.0 limitations are now fixed in v3.1.x:
-
-- ✅ `var p: TClass` now works correctly (KLX-C01)
-- ✅ String interpolation `${var}` expands (KLX-C02)
-- ✅ Lambda return types preserved (KLX-C03)
-- ✅ `match` statement codegen fixed (KLX-C04)
-- ✅ `uses sysutil/jsonutil/datetime/...` works in `program` files (KLX-C05)
-- ✅ Generic class methods emit valid Go receivers (KLX-G01, v3.1.1)
-- ✅ Unit `interface` / `implementation` sections compile correctly (KLX-M01, v3.1.1)
 
 ### 1. Basics (6 examples) - `01_basics/`
 - `example01_hello.klx` - Hello World
@@ -38,70 +36,81 @@ This tutorial contains **42 runnable example files** organized into categories. 
 - `example10_repeat.klx` - Repeat-until loops
 - `example11_case.klx` - Case statements
 
-### 3. Functions (3 examples) - `03_functions/`
+### 3. Functions (4 examples) - `03_functions/`
 - `example13_functions.klx` - Functions and procedures
 - `example14_recursion.klx` - Recursive functions
+- `example15_lambda.klx` - Lambdas and closures
 - `example16_multireturn.klx` - Multiple return values
 
-### 4. OOP (3 examples) - `04_oop/`
+### 4. OOP (4 examples) - `04_oop/`
 - `example17_class_fields.klx` - Class fields
 - `example18_class_methods.klx` - Class methods (`self.Field`)
 - `example19_inheritance.klx` - Class inheritance
+- `example40_declarative_oop.klx` - `var p := TPerson.Create` pattern with inheritance
 
 ### 5. Generics (1 example) - `05_generics/`
 - `example21_generic_class.klx` - Generic stack class
 
-### 6. Advanced Types (3 examples) - `06_advanced_types/`
+### 6. Advanced Types (5 examples) - `06_advanced_types/`
+- `example20_enum.klx` - Enum types
 - `example22_records.klx` - Record types
-- `example23_arrays.klx` - Fixed arrays
+- `example23_arrays.klx` - Fixed and dynamic arrays
 - `example24_map.klx` - Map type (hash tables)
+- `example25_string_ops.klx` - String operations
 
 ### 7. Core Functions (1 example) - `07_stdlib_core/`
 - `example29_basic_funcs.klx` - Max, Min, Abs functions
 
-### 8. Exceptions (2 examples) - `10_exceptions/`
+### 8. stdlib Utils (4 examples) - `08_stdlib_utils/`
+- `example36_sysutil.klx` - File system / environment utilities
+- `example37_jsonutil.klx` - JSON encode/decode
+- `example38_datetime.klx` - Date and time
+- `example39_regex.klx` - Regular expressions
+
+### 9. Exceptions (2 examples) - `10_exceptions/`
 - `example27_try_except.klx` - Try-except blocks
 - `example28_finally.klx` - Try-finally and try-except-finally
 
-### 9. Modules (2 examples) - `11_modules/`
-- `math_helper.klx` - Unit definition
+### 10. Modules (1 example + unit) - `11_modules/`
+- `math_helper.klx` - Unit definition (`unit`/`interface`/`implementation`)
 - `example33_use_module.klx` - Using units with `uses`
 
-### 10. Declarative OOP (1 example) - new in v3.1.0
-- `example40_declarative_oop.klx` - `var p := TPerson.Create` pattern with inheritance (KLX-C01 fix demo)
-
-### 11. Special Features (7 examples) - new in v3.1.0+
+### 11. Special Features (7 examples) - `12_special_features/`
 - `example41_attributes.klx` - `[Attribute]` annotation syntax (`[Controller]`, `[Get]`, `[Inject]`, `[Entity]`)
-- `example42_kylixboot_autowire.klx` - v3.2.0 KylixBoot `[Controller]` + `[Get]` auto route registration
-- `example43_kylixboot_di.klx` - v3.2.0 KylixBoot `[Service]` + `[Inject]` DI auto-wiring
-- `example44_kylixboot_proc_handler.klx` - v3.2.0 procedure-style route handler
-- `example45_validation_annotations.klx` - v3.2.0 `[Required]`/`[Email]`/`[Min]`/`[MinLen]` field validators
-- `example46_security_annotations.klx` - v3.2.0 `[Authenticated]`/`[Role]` per-route security guards
-- `example47_orm_annotations.klx` - v3.2.0 ORM annotations (`[Entity]`/`[Repository]`/`[Query]`)
+- `example42_kylixboot_autowire.klx` - KylixBoot `[Controller]` + `[Get]` auto route registration
+- `example43_kylixboot_di.klx` - KylixBoot `[Service]` + `[Inject]` DI auto-wiring
+- `example44_kylixboot_proc_handler.klx` - Procedure-style route handler
+- `example45_validation_annotations.klx` - `[Required]`/`[Email]`/`[Min]`/`[MinLen]` field validators
+- `example46_security_annotations.klx` - `[Authenticated]`/`[Role]` per-route security guards
+- `example47_orm_annotations.klx` - ORM annotations (`[Entity]`/`[Repository]`/`[Query]`)
 
-### 12. stdlib Phase 6 (1 example) - new in v3.2.0
+### 12. stdlib Phase 6 (1 example) - `13_stdlib_phase6/`
 - `example48_phase6_net_crypto_encoding.klx` - SHA-256, Base64, BCrypt, CSV, HMAC, MD5
 
-### 13. Request Body Binding (1 example) - new in v3.3.0
+### 13. Request Body Binding (1 example) - `14_body_binding/`
 - `example49_body_binding.klx` - `[Body(TEntity)]` JSON request body binding with `Validate()`/`IsValid()` checks
 
-### 14. JWT Authentication (1 example) - new in v3.3.0
+### 14. JWT Authentication (1 example) - `15_jwt/`
 - `example50_jwt_auth.klx` - `JwtSign`/`JwtVerify` + `BootRegisterJwtAuth` for `[Authenticated]` route guards
 
-### 15. OpenAPI / Swagger (1 example) - new in v3.3.0
+### 15. OpenAPI / Swagger (1 example) - `16_openapi/`
 - `example51_openapi.klx` - `[Controller]`/`[Get]`/`[Post]`/`[Body]`/`[Authenticated]`/`[Role]` → OpenAPI 3.1 YAML via `kylix doc --openapi`
 
-### 16. Database (1 example) - new in v4.0 (Phase 7)
-- `example52_database.klx` - SQLite in-memory DB with `DbOpenSQLite`/`DbExec`/`DbQueryScalar`, parameterized queries
+### 16. Database (1 example) - `17_database/`
+- `example52_database.klx` - SQLite in-memory DB with `DbOpenSQLite`/`DbExec`/`DbQueryScalar`/`DbQueryRows`, parameterized queries
 
-### 17. Cache (1 example) - new in v4.0 (Phase 7)
+### 17. Cache (1 example) - `18_cache/`
 - `example53_cache.klx` - Thread-safe LRU cache with `NewCache`/`Put`/`GetString`/`Has`/`Delete`/`Size`/`Clear`
 
-### 18. HTTP Client (1 example) - new in v4.0 (Phase 7)
+### 18. HTTP Client (1 example) - `19_http/`
 - `example54_http.klx` - `THttpClient` with GET/POST/PUT/DELETE, one-shot helpers, `THttpResponse` (status+body)
 
-### 19. WebSocket (1 example) - new in v4.0 (Phase 7)
-- `example55_websocket.klx` - Minimal RFC 6455 WebSocket client/server (`WsDial`/`WsAccept`/`WsSend`/`WsRecv`/`WsClose`), pure stdlib
+### 19. WebSocket (1 example) - `20_websocket/`
+- `example55_websocket.klx` - RFC 6455 WebSocket client/server (`WsDial`/`WsAccept`/`WsSend`/`WsRecv`/`WsClose`), pure stdlib
+
+### 20. Variant (2 examples) - `21_variant/`
+- `example56_variant.klx` - Variant scalars and arrays (type-tagged runtime values)
+- `example57_variant_map.klx` - `map[String]Variant` with type-tagged values (`row['col']` style access)
 
 ## How to Run Examples
 
@@ -113,6 +122,13 @@ kylix build example01_hello.klx
 go run example01_hello.go
 ```
 
+Or with the native LLVM backend (no Go at runtime):
+
+```bash
+kylix run example01_hello.klx            # auto-detects backend
+kylix build --backend=llvm example01_hello.klx   # force native binary
+```
+
 ### Multi-File (Modules)
 
 ```bash
@@ -120,21 +136,6 @@ cd examples/complete-tutorial/11_modules
 kylix build math_helper.klx example33_use_module.klx
 go run main.go
 ```
-
-### Using Package Manager (v3.3.0+)
-
-Kylix 自动发现 `packages/` 目录下的单元文件：
-
-```bash
-# 安装第三方包
-kylix add github.com/user/http
-
-# 编译时自动包含 packages/ 中的单元
-kylix build main.klx
-# 等价于：kylix build main.klx packages/http/http.klx
-```
-
-`uses http;` 会自动找到 `packages/http/http.klx`，无需手动指定路径。
 
 ### All Examples in a Category
 
@@ -148,6 +149,16 @@ for f in example*.klx; do
 done
 ```
 
+### Full Sweep
+
+```bash
+# Go backend (51/51)
+KYLIX=/path/to/kylix bash examples/complete-tutorial/test_all.sh
+
+# LLVM backend (51/51, native binaries)
+bash examples/complete-tutorial/test_all_llvm.sh
+```
+
 ## Language Features Reference
 
 ### Variables and Types
@@ -155,10 +166,10 @@ done
 ```pascal
 var x: Integer;           // Integer type
 var name: String;         // String type
-var pi: Real;            // Float type
-var active: Boolean;     // Boolean type
+var pi: Real;             // Float type
+var active: Boolean;      // Boolean type
 
-var count := 42;         // Type inference
+var count := 42;          // Type inference
 ```
 
 ### Control Flow
@@ -244,7 +255,7 @@ point.X := 10.5;
 point.Y := 20.3;
 ```
 
-### Annotations (v3.1.0+)
+### Annotations
 
 ```pascal
 [Controller('/api/users')]
@@ -304,31 +315,11 @@ begin
 end.
 ```
 
-## Known Limitations (v3.1.1)
+## Known Limitations (v0.6.9)
 
-Most former tutorial limitations are now fixed. Remaining known issue:
-
-- **LLVM backend** — interfaces, generics, and exceptions are not yet supported (planned for Milestone 2 Phase 2-3 in v3.2)
-
-### Working Features
-✅ Basic types (Integer, String, Real, Boolean)
-✅ Type inference with `:=`
-✅ All control flow (if, while, for, repeat, case)
-✅ Functions, procedures, recursion, multi-return
-✅ Arrays (fixed + dynamic), Map types, Record types
-✅ Generic classes (build + run)
-✅ Exception handling (try/except/finally)
-✅ Modules (unit/uses)
-✅ All operators (arithmetic, comparison, logical)
-✅ **String interpolation `${var}`** (v3.1.0 fix)
-✅ **`var p: TClass` with field access** (v3.1.0 fix)
-✅ **Lambda return types** (v3.1.0 fix)
-✅ **`match` statement** (v3.1.0 fix)
-✅ **`uses sysutil/jsonutil/datetime/regex/httpclient` in programs** (v3.1.0 fix)
-✅ **Annotation syntax `[Name]` / `[Name(args)]`** (v3.1.0)
-✅ **KylixBoot framework** — `uses boot` for declarative web apps (v3.1.0)
-✅ **Generic class method receivers** (v3.1.1 fix)
-✅ **Unit interface/implementation sections** (v3.1.1 fix)
+- **Windows**: `net` (Winsock) and `regex` (pcre2) are stubs — real implementations are planned with Windows machine verification.
+- **Variant arithmetic** (`v + 1`) is LLVM-backend only; Go's `interface{}` cannot do operator arithmetic. Comparisons and printing work on both backends.
+- **example33** (multi-file unit build) is exercised host-side; the no-Go bootstrap sweep reports it as SKIP.
 
 ## Tips and Best Practices
 
@@ -339,7 +330,7 @@ Most former tutorial limitations are now fixed. Remaining known issue:
 5. **Arrays are 0-indexed** in Kylix (with optional Pascal-style 1-based ranges)
 6. **Maps auto-initialize** - no need for explicit initialization
 7. **Use `self.Field` inside class methods** to access instance fields
-8. **For class instance vars, both `var p: TPerson` and `var p := TPerson.Create` now work** (v3.1.0)
+8. **For class instance vars, both `var p: TPerson` and `var p := TPerson.Create` work**
 
 ## Quick Start Example
 
@@ -362,14 +353,14 @@ end.
 Compile and run:
 
 ```bash
-kylix build hello.klx
-go run hello.go
+kylix run hello.klx
 ```
 
 ## Further Learning
 
 - Official website: [kylix.top](https://kylix.top)
 - GitHub: [Kylix repository](https://github.com/astra-zhao/kylix)
+- Beginner-friendly walkthrough: [`docs/TUTORIAL_FOR_BEGINNERS_CN.md`](../../docs/TUTORIAL_FOR_BEGINNERS_CN.md)
 - Check `CHANGELOG.md` for version-specific features
 - Read `ROADMAP.md` for upcoming features
 
@@ -379,23 +370,24 @@ go run hello.go
 |----------|----------|--------|
 | Basics | 6 | ✅ All work |
 | Control Flow | 5 | ✅ All work |
-| Functions | 3 | ✅ All work |
-| OOP | 3 | ✅ All work |
+| Functions (incl. lambda) | 4 | ✅ All work |
+| OOP (incl. declarative) | 4 | ✅ All work |
 | Generics | 1 | ✅ Works |
-| Advanced Types | 3 | ✅ All work |
+| Advanced Types | 5 | ✅ All work |
 | Core Functions | 1 | ✅ Works |
+| stdlib Utils (sysutil/jsonutil/datetime/regex) | 4 | ✅ All work |
 | Exceptions | 2 | ✅ All work |
-| Modules | 2 | ✅ Works |
-| Declarative OOP | 1 | ✅ Works (v3.1.0) |
-| Annotations / Auto-wire / DI / Procedure handlers / Validation / Security / ORM | 7 | ✅ Works (v3.1.0+ / v3.2.0) |
-| stdlib Phase 6 (crypto / encoding) | 1 | ✅ Works (v3.2.0) |
-| Request Body Binding | 1 | ✅ Works (v3.3.0) |
-| JWT Authentication | 1 | ✅ Works (v3.3.0) |
-| OpenAPI / Swagger | 1 | ✅ Works (v3.3.0) |
-| Database (SQLite) | 1 | ✅ Works (v4.0 Phase 7) |
-| Cache (LRU) | 1 | ✅ Works (v4.0 Phase 7) |
-| HTTP Client | 1 | ✅ Works (v4.0 Phase 7) |
-| WebSocket | 1 | ✅ Works (v4.0 Phase 7) |
-| **Total** | **48** | **49/49 checks pass** |
+| Modules (unit/uses) | 1 + unit | ✅ Works |
+| Annotations / KylixBoot / Validation / Security / ORM | 7 | ✅ All work |
+| stdlib Phase 6 (crypto / encoding) | 1 | ✅ Works |
+| Request Body Binding | 1 | ✅ Works |
+| JWT Authentication | 1 | ✅ Works |
+| OpenAPI / Swagger | 1 | ✅ Works |
+| Database (SQLite) | 1 | ✅ Works |
+| Cache (LRU) | 1 | ✅ Works |
+| HTTP Client | 1 | ✅ Works |
+| WebSocket | 1 | ✅ Works |
+| Variant (scalars/arrays + map) | 2 | ✅ All work |
+| **Total** | **50 + unit + smoke** | **Go 51/51 · LLVM 51/51 · bootstrap 50+1 SKIP** |
 
 Happy coding with Kylix! 🚀

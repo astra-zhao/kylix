@@ -24,7 +24,7 @@ return result
 func GetPI() float64 {
 var result float64
 //line example13_functions.klx:18
-result = 3.141593
+result = 3.14159265359
 return result
 }
 

@@ -10,7 +10,7 @@ var pi float64
 var isActive bool
 var count int64 = 42
 var greeting string = "Hello"
-var ratio float64 = 3.141590
+var ratio float64 = 3.14159
 var flag bool = true
 func main() {
 //line example02_variables.klx:19
@@ -18,7 +18,7 @@ age = 25
 //line example02_variables.klx:20
 name = "Alice"
 //line example02_variables.klx:21
-pi = 3.141590
+pi = 3.14159
 //line example02_variables.klx:22
 isActive = false
 //line example02_variables.klx:25

@@ -10,7 +10,7 @@ count := 42
 //line example04_type_inference.klx:7
 message := "Hello"
 //line example04_type_inference.klx:8
-ratio := 3.141590
+ratio := 3.14159
 //line example04_type_inference.klx:9
 active := true
 //line example04_type_inference.klx:11
