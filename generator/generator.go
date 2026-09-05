@@ -26,6 +26,7 @@ type Generator struct {
 	sourceFile       string // current Kylix source file (for //line directives)
 	program          *ast.Program
 	variables        map[string]string // tracks variable types for codegen hints
+	declaredVars     map[string]bool   // v0.7.0 P0b: declared variable names (multi-return `=` vs `:=`)
 	inFunction       bool
 	inReturnFunc     bool                            // true when current function has a return value (Exit → return result)
 	inExceptHandler  bool                            // true when inside a recover() block for bare raise
@@ -59,6 +60,7 @@ type Generator struct {
 func New() *Generator {
 	return &Generator{
 		variables:        make(map[string]string),
+		declaredVars:     make(map[string]bool),
 		nameMap:          make(map[string]string),
 		imports:          make(map[string]bool),
 		exceptionTypes:   make(map[string]bool),
@@ -695,6 +697,12 @@ func (g *Generator) scanExpressionForImports(expr ast.Expression) {
 		if ident, ok := e.Function.(*ast.Identifier); ok {
 			if ident.Value == "StrToInt64" || ident.Value == "StrToFloat" {
 				g.imports["strconv"] = true
+			}
+			if ident.Value == "error" {
+				// v0.7.0 P0b: error('msg') → errors.New (pre-scan must add the
+				// import — the single-file Generate path emits imports before
+				// the body walks, so body-time import additions are lost).
+				g.imports["errors"] = true
 			}
 			if ident.Value == "ReadFile" {
 				// Only add `os` import when ReadFile uses the legacy inline

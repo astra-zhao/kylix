@@ -288,6 +288,9 @@ func (g *Generator) generateEnumType(name string, enum *ast.EnumType) {
 
 func (g *Generator) generateGlobalVarDecl(decl *ast.VarDecl) {
 	g.write("var ")
+	for _, name := range decl.Names {
+		g.declaredVars[name] = true
+	}
 	for i, name := range decl.Names {
 		if i > 0 {
 			g.write(", ")
@@ -356,6 +359,10 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 	}
 	g.generateTypeParams(decl.TypeParams)
 	g.generateFunctionSignature(decl)
+	// v0.7.0 P0b: register params as declared (multi-return `=` vs `:=`)
+	for _, param := range decl.Parameters {
+		g.declaredVars[param.Name] = true
+	}
 	g.setVarParams(decl) // v0.6.0: track `var` output params for body deref
 	g.writeLine(" {")
 	g.indent++
@@ -564,6 +571,12 @@ func (g *Generator) generateTypeExpression(expr ast.Expression) {
 	switch t := expr.(type) {
 	case *ast.Identifier:
 		typeName := t.Value
+		if typeName == "error" {
+			// v0.7.0 P0b: builtin error type — maps to Go's error interface.
+			// nil is the success value; error('msg') constructs errors.New(msg).
+			g.write("error")
+			return
+		}
 		if g.usedModules["boot"] {
 			switch typeName {
 			case "TRequest", "BootRequest":

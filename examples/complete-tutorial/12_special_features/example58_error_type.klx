@@ -1,0 +1,54 @@
+program ErrorType;
+
+// v0.7.0 P0b: builtin error type — functions return (value, error); nil is
+// the success value; error('msg') constructs an error; ErrorStr extracts
+// the message (nil-safe).
+
+// Function returning multiple values: (String, error)
+function FindUser(id: Integer): (String, error);
+begin
+  if id <= 0 then
+    result := ('', error('invalid id'))
+  else
+    result := ('user', nil);
+end;
+
+// Single error return
+function CheckAge(age: Integer): error;
+begin
+  if age < 0 then
+    result := error('age cannot be negative')
+  else
+    result := nil;
+end;
+
+var
+  name: String;
+  err: error;
+  e2: error;
+
+begin
+  (name, err) := FindUser(-1);
+  if err <> nil then
+    WriteLn('Error: ', ErrorStr(err))
+  else
+    WriteLn('Name: ', name);
+
+  (name, err) := FindUser(5);
+  if err <> nil then
+    WriteLn('Error: ', ErrorStr(err))
+  else
+    WriteLn('Name: ', name);
+
+  e2 := CheckAge(-3);
+  if e2 <> nil then
+    WriteLn('CheckAge: ', ErrorStr(e2))
+  else
+    WriteLn('CheckAge: ok');
+
+  e2 := CheckAge(30);
+  if e2 <> nil then
+    WriteLn('CheckAge: ', ErrorStr(e2))
+  else
+    WriteLn('CheckAge: ok');
+end.

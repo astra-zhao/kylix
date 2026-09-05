@@ -31,6 +31,10 @@ func LLVMType(typeName string) string {
 	case "trequest", "tresponse", "bootrequest", "bootresponse":
 		// v0.6.1: KylixBoot request/response framework types — opaque handles.
 		return "ptr"
+	case "error":
+		// v0.7.0 P0b: builtin error type — a nullable message string. nil is
+		// the success value; error('msg') lowers to the message string ptr.
+		return "ptr"
 	default:
 		return "i64" // fallback
 	}
@@ -861,6 +865,25 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 	// truncated to i64 and interface-method arg types mismatched.
 	if funcName == "FloatToStr" && len(e.Arguments) == 1 {
 		return g.emitFloatToStr(e.Arguments[0])
+	}
+
+	// v0.7.0 P0b: error('msg') → the message string ptr itself. LLVM error
+	// values are nullable message strings (nil lowers to a null ptr).
+	if funcName == "error" && len(e.Arguments) == 1 {
+		return g.emitExpr(e.Arguments[0])
+	}
+
+	// v0.7.0 P0b: ErrorStr(err) → null-guarded message ("" for nil).
+	if funcName == "ErrorStr" && len(e.Arguments) == 1 {
+		v, _, err := g.emitExpr(e.Arguments[0])
+		if err != nil {
+			return "", "", err
+		}
+		isNull := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", isNull, v))
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = select i1 %s, ptr @__kylix_emptystr, ptr %s", r, isNull, v))
+		return r, "ptr", nil
 	}
 
 	// Built-in: Length(s)

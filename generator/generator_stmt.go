@@ -113,6 +113,9 @@ func (g *Generator) generateExpressionStatement(s *ast.ExpressionStatement) {
 func (g *Generator) generateVarDecl(decl *ast.VarDecl) {
 	// Destructuring: var (a, b) := expr → a, b := expr
 	if len(decl.Names) > 1 && decl.Inferred {
+		for _, name := range decl.Names {
+			g.declaredVars[name] = true
+		}
 		for i, name := range decl.Names {
 			if i > 0 {
 				g.write(", ")
@@ -126,6 +129,7 @@ func (g *Generator) generateVarDecl(decl *ast.VarDecl) {
 	}
 
 	for _, name := range decl.Names {
+		g.declaredVars[name] = true
 		if decl.Inferred {
 			g.write(fmt.Sprintf("%s := ", name))
 			g.generateExpression(decl.Value)
@@ -147,6 +151,7 @@ func (g *Generator) generateVarDecl(decl *ast.VarDecl) {
 // generateLocalVarDecl generates a var declaration inside a function body (no initializer).
 func (g *Generator) generateLocalVarDecl(decl *ast.VarDecl) {
 	for _, name := range decl.Names {
+		g.declaredVars[name] = true
 		g.write("var " + name + " ")
 		if decl.Type != nil {
 			g.generateTypeExpression(decl.Type)
@@ -192,14 +197,37 @@ func (g *Generator) generateAssignment(stmt *ast.AssignmentStatement) {
 	}
 
 	// Multi-variable LHS: x, y := Pair() → x, y := Pair()
+	// v0.7.0 P0b: when every LHS name is already declared, emit `=` — a
+	// second `(x, y) := F()` would be a Go redeclaration error.
 	if tuple, ok := stmt.Name.(*ast.TupleLiteral); ok {
+		allDeclared := len(tuple.Elements) > 0
+		for _, elem := range tuple.Elements {
+			if ident, ok := elem.(*ast.Identifier); ok {
+				if !g.declaredVars[ident.Value] {
+					allDeclared = false
+					break
+				}
+			} else {
+				allDeclared = false
+				break
+			}
+		}
 		for i, elem := range tuple.Elements {
 			if i > 0 {
 				g.write(", ")
 			}
 			g.generateExpression(elem)
 		}
-		g.write(" := ")
+		if allDeclared {
+			g.write(" = ")
+		} else {
+			g.write(" := ")
+			for _, elem := range tuple.Elements {
+				if ident, ok := elem.(*ast.Identifier); ok {
+					g.declaredVars[ident.Value] = true
+				}
+			}
+		}
 		g.generateExpression(stmt.Value)
 		g.write("\n")
 		return

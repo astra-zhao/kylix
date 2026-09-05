@@ -61,11 +61,27 @@ type
     // constants: parallel name/value
     CNames: array of String;
     CVals: array of Integer;
+    // v0.7.0 P0a: non-integer constants (String/Real/Boolean) can't go through
+    // EvalConstInt — register the value EXPRESSION and evaluate it inline at
+    // each use (mirrors host g.constants re-evaluation).
+    CENames: array of String;
+    CExprs: array of TExpression;
+    // v0.7.0 P0a: program-level `var x: T = init` — collected by
+    // EmitGlobalVarDecl, stored into @__kylix_g_* at main() entry (LLVM
+    // globals can't hold non-constant initializers; the host emits a real
+    // Go `var x T = init`).
+    GInitNames: array of String;
+    GInitExprs: array of TExpression;
+    // v0.7.0 P0a: program-level record vars (example22) — names of globals
+    // that must be calloc'd at main() entry (the host lowers them to
+    // main-entry heap slots; a zeroinitializer global ptr segfaults).
+    GAllocNames: array of String;
     // functions: name → return LLVM type ('' = void)
     FNames: array of String;
     FRet: array of String;
     // current function context
     MemberType: String;   // P2: EmitMember/EmitMethodCall return type via field
+    LastRetKylix: String; // v0.7.0 P0a: Kylix ret name of the last method call
     LastArrayReg: String; // P3: register back-channel from TryClassFieldArrayIndex
     LastArgTypes: array of String; // P3/#44: arg types from the last EmitCall —
                           // EmitPlainCall coerces each actual to its formal's type
@@ -92,6 +108,40 @@ type
     NeedToLower: Boolean;
     NeedStrtod: Boolean;
     NeedAtoll: Boolean;
+    // v0.7.0 P0a: exception handling (try/except/finally/raise, examples
+    // 27/28) — NeedException gates the module-level runtime emission
+    // (globals + subtype table + is_subtype), InExceptHandler lets a bare
+    // `raise` inside an except handler re-throw the in-flight exception.
+    NeedException: Boolean;
+    InExceptHandler: Boolean;
+    // exception class name → runtime type ID (Exception = 1, subclasses
+    // sequential; parallel arrays, mirrors host exceptionTypeIDs)
+    ExcNames: array of String;
+    ExcIDs: array of Integer;
+    // per-function alloca sequence (host varNameSeq mirror): inferred
+    // `var x := …` re-declarations mint %v_x_1/_2… instead of reusing slots
+    VarSeqNames: array of String;
+    VarSeqCnts: array of Integer;
+    // multi-return functions (v0.7.0 P0a, example16): pass 1 registers the
+    // %__ret_<name> struct type; element LLVM types stored flattened
+    // (start + count into MRElems). Mirrors host multiRetTypes.
+    MRNames: array of String;
+    MRStarts: array of Integer;
+    MRCounts: array of Integer;
+    MRElems: array of String;
+    // while emitting a multi-return function: its struct type + name
+    CurMultiRet: String;
+    CurMultiRetName: String;
+    // v0.7.0 P0a: generic class monomorphization (example21). GenTpl* caches
+    // generic templates deferred at Pass 0/2; GenDone lists emitted
+    // instantiations; Subst* is the active single-type-param substitution
+    // while an instance's field tables / methods are emitted (TypeExprName
+    // resolves the param name to the concrete arg's Kylix type).
+    GenTplNames: array of String;
+    GenTplDecls: array of TClassDecl;
+    GenDone: array of String;
+    SubstName: String;
+    SubstKylix: String;
     // P2: top-level globals (name/type/reg, parallel arrays like locals)
     GNames: array of String;
     GTypes: array of String;
@@ -153,6 +203,7 @@ type
     VtSlot: array of Integer;  // vtable slot
     VtName: array of String;
     VtRet: array of String;    // escaped (',' → '|') like ClassMethodRet
+    VtRetK: array of String;   // v0.7.0 P0a: Kylix ret name (TResponse etc.)
     VtDef: array of String;    // defining class name
     FlCls: array of Integer;   // owning class index
     FlSlot: array of Integer;  // 0-based field slot (struct index = slot+1)
@@ -433,6 +484,84 @@ begin
   result := reg;
 end;
 
+// MRRetType — the %__ret_<name> struct LLVM type for a multi-return function
+// ('' when the function is not multi-return). v0.7.0 P0a.
+function TLLVMGenerator.MRRetType(fname: String): String;
+var i: Integer;
+begin
+  result := '';
+  i := self.IndexOfStr(self.MRNames, fname);
+  if i >= 0 then result := '%__ret_' + fname;
+end;
+
+// MRElemAt — the i-th element LLVM type of a multi-return function
+// ('i64' fallback, like the host's elemT default). v0.7.0 P0a.
+function TLLVMGenerator.MRElemAt(fname: String; idx: Integer): String;
+var i: Integer;
+begin
+  result := 'i64';
+  i := self.IndexOfStr(self.MRNames, fname);
+  if i >= 0 then
+  begin
+    if (idx >= 0) and (idx < self.MRCounts[i]) then
+      result := self.MRElems[self.MRStarts[i] + idx];
+  end;
+end;
+
+// FreshLocal — like RegisterLocal but ALWAYS mints a new alloca, even when
+// `name` is already registered (v0.7.0 P0a, example27). Used for inferred
+// `var x := …` declarations: a second same-named inferred var in one function
+// (e.g. `var result := …` in two try bodies) must not reuse the first slot —
+// the first alloca lives in an earlier branch block and does not dominate
+// later uses (LLVM verify failure). Mirrors host freshVarReg: %v_x first,
+// %v_x_1/_2… after; the type suffix stays the trailing text so the
+// alloca-name-based type inference keeps working. The locals entry is
+// overwritten so subsequent reads resolve to the newest slot.
+function TLLVMGenerator.FreshLocal(name, llvmT, kylixT: String): String;
+var
+  reg, suffix: String;
+  i, n: Integer;
+begin
+  suffix := self.SuffixFor(llvmT);
+  n := 0;
+  i := self.IndexOfStr(self.VarSeqNames, name);
+  if i >= 0 then
+  begin
+    n := self.VarSeqCnts[i];
+    self.VarSeqCnts[i] := n + 1;
+  end
+  else
+  begin
+    append(self.VarSeqNames, name);
+    append(self.VarSeqCnts, 1);
+  end;
+  if n = 0 then
+    reg := '%v_' + name + suffix
+  else
+    reg := '%v_' + name + '_' + self.IntToStrS(n) + suffix;
+  self.WriteLine('  ' + reg + ' = alloca ' + llvmT + ', align 8');
+  if llvmT = 'ptr' then self.WriteLine('  store ptr null, ptr ' + reg)
+  else if llvmT = 'i1' then self.WriteLine('  store i1 0, ptr ' + reg)
+  else if llvmT = 'double' then self.WriteLine('  store double 0.0, ptr ' + reg)
+  else if llvmT = '{ ptr, i64, i64 }' then self.WriteLine('  store { ptr, i64, i64 } zeroinitializer, ptr ' + reg)
+  else self.WriteLine('  store i64 0, ptr ' + reg);
+  i := self.IndexOfStr(self.LNames, name);
+  if i >= 0 then
+  begin
+    self.LTypes[i] := llvmT;
+    self.LRegs[i] := reg;
+    self.LKylix[i] := kylixT;
+  end
+  else
+  begin
+    append(self.LNames, name);
+    append(self.LTypes, llvmT);
+    append(self.LRegs, reg);
+    append(self.LKylix, kylixT);
+  end;
+  result := reg;
+end;
+
 // RegisterMapLocal — declare a map local var: alloca a ptr slot holding the
 // htab handle, initialized to htab_new(). Tracks the map's value kylix type so
 // reads can coerce (host emitMapVarDecl + mapVars).
@@ -497,6 +626,20 @@ end;
 function TLLVMGenerator.HasConst(name: String): Boolean;
 begin
   result := self.IndexOfStr(self.CNames, name) >= 0;
+end;
+
+// v0.7.0 P0a: non-integer const lookup (String/Real/Boolean constants).
+function TLLVMGenerator.HasConstExpr(name: String): Boolean;
+begin
+  result := self.IndexOfStr(self.CENames, name) >= 0;
+end;
+
+function TLLVMGenerator.ConstExpr(name: String): TExpression;
+var i: Integer;
+begin
+  result := nil;
+  i := self.IndexOfStr(self.CENames, name);
+  if i >= 0 then result := self.CExprs[i];
 end;
 
 function TLLVMGenerator.IsRecord(tname: String): Boolean;
@@ -591,13 +734,42 @@ begin
   else if lo = 'ansistring' then result := 'ptr'
   else if lo = 'char' then result := 'i8'
   else if lo = 'variant' then result := 'ptr'
+  else if lo = 'error' then result := 'ptr'  // v0.7.0 P0b: nullable msg string
   else result := 'i64';
 end;
 
 function TLLVMGenerator.TypeExprName(e: TExpression): String;
+var
+  gen: TGenericType;
+  gi: Integer;
+  mangled: String;
 begin
   if e = nil then result := ''
-  else if e is TIdentifier then result := (e as TIdentifier).Value
+  else if e is TIdentifier then
+  begin
+    // v0.7.0 P0a: active generic substitution — the type-param identifier
+    // resolves to the concrete instantiation argument (only type expressions
+    // flow through here, so expression identifiers named `T` are unaffected).
+    if self.SubstName <> '' then
+    begin
+      if (e as TIdentifier).Value = self.SubstName then
+      begin
+        result := self.SubstKylix;
+        Exit;
+      end;
+    end;
+    result := (e as TIdentifier).Value;
+  end
+  else if e is TGenericType then
+  begin
+    // v0.7.0 P0a: `TStack<Integer>` resolves to the mangled instance name
+    // (host mangleGeneric): Base_TArg1_TArg2.
+    gen := e as TGenericType;
+    mangled := gen.Base;
+    for gi := 0 to Length(gen.TypeParams) - 1 do
+      mangled := mangled + '_' + self.TypeExprName(gen.TypeParams[gi]);
+    result := mangled;
+  end
   else if e is TVariantType then result := 'Variant'
   else if e is TArrayType then result := 'array'
   else if e is TMapType then result := 'map'
@@ -662,12 +834,57 @@ begin
 end;
 
 // EvalConstInt — constant integer literal evaluation (used for array sizes).
+// v0.7.0 P0a: range desugaring produces ((upper-lower)+1) infix trees —
+// literals-only returned 1 for every `array[0..99]` (example21 baked a
+// [1 x i64] Items field). Mirrors host evalConstInt (pkg/llvmgen/array.go).
 function TLLVMGenerator.EvalConstInt(e: TExpression): Integer;
+var
+  inf: TInfixExpression;
+  pre: TPrefixExpression;
+  l, r: Integer;
 begin
+  result := 0;
+  if e = nil then Exit;
   if e is TIntegerLiteral then
-    result := (e as TIntegerLiteral).Value
-  else
-    result := 1;
+  begin
+    result := (e as TIntegerLiteral).Value;
+    Exit;
+  end;
+  if e is TPrefixExpression then
+  begin
+    pre := e as TPrefixExpression;
+    r := self.EvalConstInt(pre.Right);
+    if pre.Operator = '-' then
+      result := 0 - r
+    else
+      result := r;
+    Exit;
+  end;
+  if e is TInfixExpression then
+  begin
+    inf := e as TInfixExpression;
+    l := self.EvalConstInt(inf.Left);
+    r := self.EvalConstInt(inf.Right);
+    if inf.Operator = '+' then result := l + r
+    else if inf.Operator = '-' then result := l - r
+    else if inf.Operator = '*' then result := l * r
+    else if inf.Operator = '/' then
+    begin
+      if r <> 0 then result := l div r;
+    end
+    else if inf.Operator = 'div' then
+    begin
+      if r <> 0 then result := l div r;
+    end
+    else if inf.Operator = 'mod' then
+    begin
+      if r <> 0 then result := l mod r;
+    end
+    else
+      result := 1;
+    Exit;
+  end;
+  result := 1;
 end;
 
 // ============================================================================
@@ -690,6 +907,10 @@ var
   mainIdx: Integer;
   hasBody: Boolean;
   ei: Integer;
+  mfd: TFunctionDecl;
+  mrt, mel: String;
+  mre: TExpression;
+  k: Integer;
 begin
   self.EmitHeader();
   self.EmitRuntimeDecls();
@@ -821,7 +1042,11 @@ begin
       else if decl is TClassDecl then
       begin
         cd := decl as TClassDecl;
-        if self.ClassIndex(cd.Name) < 0 then self.MakeClassInfo(cd.Name, cd);
+        // v0.7.0 P0a: generic templates must NOT bake field tables here —
+        // the type param would resolve to i64/[1 x i64] garbage. They are
+        // registered by EmitDecl (Pass 2) and specialized on demand.
+        if Length(cd.TypeParams) = 0 then
+          if self.ClassIndex(cd.Name) < 0 then self.MakeClassInfo(cd.Name, cd);
       end;
     end;
   end;
@@ -847,6 +1072,28 @@ begin
           else
             append(self.FRet, self.LlvmTypeOfExpr((decl as TFunctionDecl).ReturnType));
           append(self.FParamTypes, self.FuncParamTypes(decl));
+          // v0.7.0 P0a: multi-return — register the %__ret_<name> struct and
+          // make it the function's LLVM return type (host pass 1). Element
+          // types are stored flattened; the type line is emitted NOW so it
+          // precedes every use (definition order, deterministic).
+          if Length((decl as TFunctionDecl).ReturnTypes) > 1 then
+          begin
+            mfd := decl as TFunctionDecl;
+            append(self.MRNames, mfd.Name);
+            append(self.MRStarts, Length(self.MRElems));
+            append(self.MRCounts, Length(mfd.ReturnTypes));
+            mrt := '';
+            for k := 0 to Length(mfd.ReturnTypes) - 1 do
+            begin
+              mre := mfd.ReturnTypes[k];
+              mel := self.LlvmTypeOfExpr(mre);
+              append(self.MRElems, mel);
+              if k > 0 then mrt := mrt + ', ';
+              mrt := mrt + mel;
+            end;
+            self.WriteLine('%__ret_' + mfd.Name + ' = type { ' + mrt + ' }');
+            self.FRet[Length(self.FRet) - 1] := '%__ret_' + mfd.Name;
+          end;
         end;
       end
       else if decl is TTypeDecl then
@@ -871,9 +1118,20 @@ begin
         // v0.6.9 P4: integer consts must be registered or every read in the
         // emitted code collapses to 0 (`undefined var PREC_EQUALS` broke
         // GetPrecedence → all call parsing in gen2).
+        // v0.7.0 P0a: non-integer const values (String/Real/Boolean) —
+        // EvalConstInt would collapse them to garbage; register the value
+        // expression instead (HasConstExpr path in EmitIdentLoad).
         cdec := decl as TConstDecl;
-        append(self.CNames, cdec.Name);
-        append(self.CVals, self.EvalConstInt(cdec.Value));
+        if cdec.Value is TIntegerLiteral then
+        begin
+          append(self.CNames, cdec.Name);
+          append(self.CVals, self.EvalConstInt(cdec.Value));
+        end
+        else
+        begin
+          append(self.CENames, cdec.Name);
+          append(self.CExprs, cdec.Value);
+        end;
       end;
       i := i + 1;
     end;
@@ -925,6 +1183,18 @@ begin
       i := i + 1;
     end;
   end;
+  // Pass 2.4 (v0.7.0 P0a): generic class monomorphization — scan all
+  // declarations and main statements for concrete instantiations and emit
+  // them BEFORE main so constructor/method calls resolve to the mangled
+  // instance classes (mirrors host collectInstantiations timing).
+  for pi := 0 to Length(progs) - 1 do
+  begin
+    p := progs[pi];
+    for i := 0 to Length(p.Declarations) - 1 do
+      self.ScanDeclForGenerics(p.Declarations[i]);
+    for i := 0 to Length(p.Statements) - 1 do
+      self.ScanStmtForGenerics(p.Statements[i]);
+  end;
   // Pass 2.5: emit no-capture lambdas found in main-body var decls as top
   // level `define void @__lambda_N` (v0.6.9 P4.12) — must happen BEFORE
   // EmitMain so the defines are not nested inside @main's body.
@@ -956,17 +1226,21 @@ begin
   self.EmitStdlibSegments();
   if self.NeedHashtab then self.EmitHashtabBodies();
   if self.NeedClassRTTI then self.EmitClassRuntime();
+  if self.NeedException then self.EmitExceptionRuntime();
   self.EmitStringConsts();
   self.FinalizeOutput();
 end;
 
 procedure TLLVMGenerator.EmitProgram(prog: TProgram);
 var
-  i, ei: Integer;
+  i, ei, k: Integer;
   decl: TNode;
   td: TTypeDecl;
   cd: TClassDecl;
   hasBody: Boolean;
+  mfd: TFunctionDecl;
+  mrt, mel: String;
+  mre: TExpression;
 begin
   self.EmitHeader();
   self.EmitRuntimeDecls();
@@ -989,6 +1263,25 @@ begin
         else
           append(self.FRet, self.LlvmTypeOfExpr((decl as TFunctionDecl).ReturnType));
         append(self.FParamTypes, self.FuncParamTypes(decl));
+        // v0.7.0 P0a: multi-return registration (see EmitPrograms pass 1)
+        if Length((decl as TFunctionDecl).ReturnTypes) > 1 then
+        begin
+          mfd := decl as TFunctionDecl;
+          append(self.MRNames, mfd.Name);
+          append(self.MRStarts, Length(self.MRElems));
+          append(self.MRCounts, Length(mfd.ReturnTypes));
+          mrt := '';
+          for k := 0 to Length(mfd.ReturnTypes) - 1 do
+          begin
+            mre := mfd.ReturnTypes[k];
+            mel := self.LlvmTypeOfExpr(mre);
+            append(self.MRElems, mel);
+            if k > 0 then mrt := mrt + ', ';
+            mrt := mrt + mel;
+          end;
+          self.WriteLine('%__ret_' + mfd.Name + ' = type { ' + mrt + ' }');
+          self.FRet[Length(self.FRet) - 1] := '%__ret_' + mfd.Name;
+        end;
       end;
     end
     else if decl is TTypeDecl then
@@ -1011,6 +1304,13 @@ begin
   for i := 0 to Length(prog.Declarations) - 1 do
     self.EmitDecl(prog.Declarations[i]);
 
+  // Pass 2.4 (v0.7.0 P0a): generic class monomorphization scan (see
+  // EmitPrograms — same timing, single-program path).
+  for i := 0 to Length(prog.Declarations) - 1 do
+    self.ScanDeclForGenerics(prog.Declarations[i]);
+  for i := 0 to Length(prog.Statements) - 1 do
+    self.ScanStmtForGenerics(prog.Statements[i]);
+
   // Pass 3: main function.
   if Length(prog.Statements) > 0 then
     self.EmitMain(prog.Statements);
@@ -1021,6 +1321,7 @@ begin
   self.EmitStdlibSegments();
   if self.NeedHashtab then self.EmitHashtabBodies();
   if self.NeedClassRTTI then self.EmitClassRuntime();
+  if self.NeedException then self.EmitExceptionRuntime();
   self.EmitStringConsts();
   self.FinalizeOutput();
 end;
@@ -1152,7 +1453,7 @@ begin
   self.WriteLine('declare i32 @sqlite3_open(ptr noundef, ptr noundef)');
   self.WriteLine('declare i32 @sqlite3_close(ptr noundef)');
   self.WriteLine('declare i32 @sqlite3_prepare_v2(ptr noundef, ptr noundef, i32 noundef, ptr noundef, ptr noundef)');
-  self.WriteLine('declare i32 @sqlite3_bind_text(ptr noundef, ptr noundef, i32 noundef, ptr noundef, i32 noundef, i64 noundef)');
+  self.WriteLine('declare i32 @sqlite3_bind_text(ptr noundef, i32 noundef, ptr noundef, i32 noundef, i64 noundef)');
   self.WriteLine('declare i32 @sqlite3_bind_int64(ptr noundef, i32 noundef, i64 noundef)');
   self.WriteLine('declare i32 @sqlite3_step(ptr noundef)');
   self.WriteLine('declare ptr @sqlite3_column_text(ptr noundef, i32 noundef)');
@@ -1199,6 +1500,8 @@ begin
   self.LTypes := [];
   self.LRegs := [];
   self.LKylix := [];
+  self.VarSeqNames := [];
+  self.VarSeqCnts := [];
   self.LMapValueTypes := [];
   self.InFunc := true;
   self.InReturnFunc := false;
@@ -1216,6 +1519,8 @@ begin
   // non-null before any function (e.g. InitKeywords) populates them. Mirrors
   // host emitProgram's merged-globals init (codegen.go).
   self.EmitGlobalMapInit();
+  // v0.7.0 P0a: `var x: T = init` initializers — store at main() entry.
+  self.EmitGlobalVarInits();
   // v0.6.9 P3: hoist explicitly-typed vars to main's entry block
   self.PreEmitAllocas(stmts);
   for i := 0 to Length(stmts) - 1 do
@@ -1273,6 +1578,49 @@ begin
       self.WriteLine('  ' + tbl + ' = call ptr @__kylix_htab_new()');
       self.WriteLine('  store ptr ' + tbl + ', ptr ' + self.GReg(self.GNames[i]));
     end;
+  end;
+end;
+
+// EmitGlobalVarInits — at main() entry, evaluate each program-level
+// `var x: T = init` initializer and store it into its @__kylix_g_* slot
+// (v0.7.0 P0a: collected by EmitGlobalVarDecl; mirrors the host's real Go
+// `var x T = init` emission).
+procedure TLLVMGenerator.EmitGlobalVarInits;
+var
+  i, j, rci, rsize: Integer;
+  valReg, gt, rn, ft, ra: String;
+begin
+  // v0.7.0 P0a: program-level RECORD vars are heap objects — the host lowers
+  // them to main-entry calloc slots (`var point: TPoint` → alloca + calloc);
+  // the bootstrap kept a null global pointer and the first field write
+  // segfaulted (example22). Allocate each record global BEFORE any use.
+  for i := 0 to Length(self.GAllocNames) - 1 do
+  begin
+    rn := self.GKylix(self.GAllocNames[i]);
+    rci := self.ClassIndex(rn);
+    if rci >= 0 then
+    begin
+      rsize := 8;
+      for j := 0 to self.ClassFieldCountAt(rci) - 1 do
+      begin
+        ft := self.FieldTypeAt(rci, j);
+        if ft = '{ ptr, i64, i64 }' then
+          rsize := rsize + 24
+        else
+          rsize := rsize + 8;
+      end;
+      ra := self.Tmp();
+      self.WriteLine('  ' + ra + ' = call ptr @calloc(i64 1, i64 ' + self.IntToStrS(rsize) + ')');
+      self.WriteLine('  store ptr ' + ra + ', ptr ' + self.GReg(self.GAllocNames[i]));
+    end;
+  end;
+  for i := 0 to Length(self.GInitNames) - 1 do
+  begin
+    valReg := self.EmitExprTyped(self.GInitExprs[i]);
+    gt := self.GType(self.GInitNames[i]);
+    if self.LastType <> gt then
+      valReg := self.CoerceValue(valReg, self.LastType, gt);
+    self.WriteLine('  store ' + gt + ' ' + valReg + ', ptr ' + self.GReg(self.GInitNames[i]));
   end;
 end;
 
@@ -1337,7 +1685,18 @@ begin
   if decl is TClassDecl then
   begin
     cd := decl as TClassDecl;
-    self.EmitClassDecl(cd);
+    // v0.7.0 P0a: generic templates are deferred — registered for the
+    // instantiation scan, never emitted directly (no substitution possible).
+    if Length(cd.TypeParams) > 0 then
+    begin
+      if self.IndexOfStr(self.GenTplNames, cd.Name) < 0 then
+      begin
+        append(self.GenTplNames, cd.Name);
+        append(self.GenTplDecls, cd);
+      end;
+    end
+    else
+      self.EmitClassDecl(cd);
   end
   else if decl is TFunctionDecl then
   begin
@@ -1406,6 +1765,245 @@ begin
   begin
     m := cd.Methods[i];
     self.EmitMethod(cd.Name, m);
+  end;
+end;
+
+// ============================================================================
+// Generic class monomorphization (v0.7.0 P0a, example21) — mirrors host
+// pkg/llvmgen/monomorph.go. Generic templates are deferred at Pass 0/2; a
+// scan before main finds every concrete `TStack<Integer>`-style
+// instantiation and emits a specialized copy (mangled Base_TArg) with the
+// type-param identifier substituted in field/param/return types. Only
+// single-type-param templates are substituted (SubstName holds one param);
+// multi-param templates still emit but only their first param resolves.
+// ============================================================================
+
+// MaybeInstantiateGeneric — emit `base<args>` once (idempotent via GenDone).
+procedure TLLVMGenerator.MaybeInstantiateGeneric(gen: TGenericType);
+var
+  ti, gi: Integer;
+  mangled, savedName: String;
+  tmpl: TClassDecl;
+begin
+  ti := self.IndexOfStr(self.GenTplNames, gen.Base);
+  if ti < 0 then Exit;
+  mangled := gen.Base;
+  for gi := 0 to Length(gen.TypeParams) - 1 do
+    mangled := mangled + '_' + self.TypeExprName(gen.TypeParams[gi]);
+  if self.IndexOfStr(self.GenDone, mangled) >= 0 then Exit;
+  append(self.GenDone, mangled);
+  tmpl := self.GenTplDecls[ti];
+  if Length(tmpl.TypeParams) <> Length(gen.TypeParams) then Exit;
+  savedName := tmpl.Name;
+  tmpl.Name := mangled;
+  self.SubstName := tmpl.TypeParams[0].Name;
+  self.SubstKylix := self.TypeExprName(gen.TypeParams[0]);
+  // field tables must bake with the substitution active (array sizes, elem
+  // types) — MakeClassInfo BEFORE EmitClassDecl, which would otherwise skip
+  // it and reuse stale tables.
+  if self.ClassIndex(mangled) < 0 then self.MakeClassInfo(mangled, tmpl);
+  self.EmitClassDecl(tmpl);
+  self.SubstName := '';
+  tmpl.Name := savedName;
+end;
+
+// ScanExprForGenerics — walk an expression tree, instantiating any concrete
+// generic type on the way (direct, member receiver, call function, args).
+procedure TLLVMGenerator.ScanExprForGenerics(e: TExpression);
+var
+  mem: TMemberExpression;
+  call: TCallExpression;
+  idx: TIndexExpression;
+  inf: TInfixExpression;
+  gen: TGenericType;
+  i: Integer;
+begin
+  if e = nil then Exit;
+  if e is TGenericType then
+  begin
+    gen := e as TGenericType;
+    self.MaybeInstantiateGeneric(gen);
+    Exit;
+  end;
+  if e is TMemberExpression then
+  begin
+    mem := e as TMemberExpression;
+    self.ScanExprForGenerics(mem.Obj);
+    Exit;
+  end;
+  if e is TCallExpression then
+  begin
+    call := e as TCallExpression;
+    self.ScanExprForGenerics(call.Func);
+    for i := 0 to Length(call.Arguments) - 1 do
+      self.ScanExprForGenerics(call.Arguments[i]);
+    Exit;
+  end;
+  if e is TIndexExpression then
+  begin
+    idx := e as TIndexExpression;
+    self.ScanExprForGenerics(idx.Left);
+    self.ScanExprForGenerics(idx.Index);
+    Exit;
+  end;
+  if e is TInfixExpression then
+  begin
+    inf := e as TInfixExpression;
+    self.ScanExprForGenerics(inf.Left);
+    self.ScanExprForGenerics(inf.Right);
+    Exit;
+  end;
+end;
+
+// ScanStmtForGenerics — walk a statement tree (recurses blocks/if/loops).
+procedure TLLVMGenerator.ScanStmtForGenerics(st: TStatement);
+var
+  vd: TVarDecl;
+  asn: TAssignmentStatement;
+  es: TExpressionStatement;
+  ifs: TIfStatement;
+  wh: TWhileStatement;
+  fs: TForStatement;
+  fe: TForEachStatement;
+  rep: TRepeatStatement;
+  blk: TBlockStatement;
+  ret: TReturnStatement;
+  cs: TCaseStatement;
+  cb: TCaseBranch;
+  tr: TTryStatement;
+  j: Integer;
+begin
+  if st = nil then Exit;
+  if st is TVarDecl then
+  begin
+    vd := st as TVarDecl;
+    self.ScanExprForGenerics(vd.VarType);
+    self.ScanExprForGenerics(vd.Value);
+    Exit;
+  end;
+  if st is TAssignmentStatement then
+  begin
+    asn := st as TAssignmentStatement;
+    self.ScanExprForGenerics(asn.Name);
+    self.ScanExprForGenerics(asn.Value);
+    Exit;
+  end;
+  if st is TExpressionStatement then
+  begin
+    es := st as TExpressionStatement;
+    self.ScanExprForGenerics(es.Expression);
+    Exit;
+  end;
+  if st is TIfStatement then
+  begin
+    ifs := st as TIfStatement;
+    self.ScanExprForGenerics(ifs.Condition);
+    self.ScanStmtForGenerics(ifs.Consequence);
+    self.ScanStmtForGenerics(ifs.Alternative);
+    Exit;
+  end;
+  if st is TWhileStatement then
+  begin
+    wh := st as TWhileStatement;
+    self.ScanExprForGenerics(wh.Condition);
+    self.ScanStmtForGenerics(wh.Body);
+    Exit;
+  end;
+  if st is TForStatement then
+  begin
+    fs := st as TForStatement;
+    self.ScanExprForGenerics(fs.From);
+    self.ScanExprForGenerics(fs.To);
+    self.ScanStmtForGenerics(fs.Body);
+    Exit;
+  end;
+  if st is TForEachStatement then
+  begin
+    fe := st as TForEachStatement;
+    self.ScanExprForGenerics(fe.Iterable);
+    self.ScanStmtForGenerics(fe.Body);
+    Exit;
+  end;
+  if st is TRepeatStatement then
+  begin
+    rep := st as TRepeatStatement;
+    self.ScanStmtForGenerics(rep.Body);
+    self.ScanExprForGenerics(rep.Condition);
+    Exit;
+  end;
+  if st is TBlockStatement then
+  begin
+    blk := st as TBlockStatement;
+    for j := 0 to Length(blk.Statements) - 1 do
+      self.ScanStmtForGenerics(blk.Statements[j]);
+    Exit;
+  end;
+  if st is TReturnStatement then
+  begin
+    ret := st as TReturnStatement;
+    self.ScanExprForGenerics(ret.ReturnValue);
+    Exit;
+  end;
+  if st is TCaseStatement then
+  begin
+    cs := st as TCaseStatement;
+    self.ScanExprForGenerics(cs.Expression);
+    for j := 0 to Length(cs.Branches) - 1 do
+    begin
+      cb := cs.Branches[j];
+      self.ScanStmtForGenerics(cb.Body);
+    end;
+    self.ScanStmtForGenerics(cs.ElseBranch);
+    Exit;
+  end;
+  if st is TTryStatement then
+  begin
+    tr := st as TTryStatement;
+    self.ScanStmtForGenerics(tr.Body);
+    self.ScanStmtForGenerics(tr.ExceptBlock);
+    self.ScanStmtForGenerics(tr.FinallyBlock);
+    Exit;
+  end;
+end;
+
+// ScanDeclForGenerics — declarations: inferred var decls + function bodies.
+procedure TLLVMGenerator.ScanDeclForGenerics(decl: TNode);
+var
+  vd: TVarDecl;
+  fd: TFunctionDecl;
+  ln: TNode;
+  lv: TVarDecl;
+  j: Integer;
+  blk: TBlockStatement;
+begin
+  if decl is TVarDecl then
+  begin
+    vd := decl as TVarDecl;
+    self.ScanExprForGenerics(vd.VarType);
+    self.ScanExprForGenerics(vd.Value);
+    Exit;
+  end;
+  if decl is TFunctionDecl then
+  begin
+    fd := decl as TFunctionDecl;
+    if fd.Body = nil then Exit;
+    for j := 0 to Length(fd.LocalDecls) - 1 do
+    begin
+      ln := fd.LocalDecls[j];
+      if ln is TVarDecl then
+      begin
+        lv := ln as TVarDecl;
+        self.ScanExprForGenerics(lv.VarType);
+        self.ScanExprForGenerics(lv.Value);
+      end;
+    end;
+    if fd.Body is TBlockStatement then
+    begin
+      blk := fd.Body as TBlockStatement;
+      for j := 0 to Length(blk.Statements) - 1 do
+        self.ScanStmtForGenerics(blk.Statements[j]);
+    end;
+    Exit;
   end;
 end;
 
@@ -1508,6 +2106,15 @@ begin
     if vd.VarType <> nil then llvmT := self.LlvmTypeOfExpr(vd.VarType);
     if llvmT = 'variant' then llvmT := 'ptr';
     self.WriteLine('@__kylix_g_' + vd.Names[i] + ' = global ' + llvmT + ' zeroinitializer');
+    // v0.7.0 P0a: `var x: T = init` — the initializer can't live in the LLVM
+    // global definition; collect it and store at main() entry
+    // (EmitGlobalVarInits). Previously the init was silently dropped and the
+    // global stayed zeroinitializer (example02/03 sweep DIFF).
+    if vd.Value <> nil then
+    begin
+      append(self.GInitNames, vd.Names[i]);
+      append(self.GInitExprs, vd.Value);
+    end;
     if vd.VarType is TMapType then self.NeedHashtab := true;
     append(self.GNames, vd.Names[i]);
     append(self.GTypes, llvmT);
@@ -1520,6 +2127,9 @@ begin
       append(self.GMapValueTypes, self.TypeExprName((vd.VarType as TMapType).ValueType))
     else
       append(self.GMapValueTypes, '');
+    // v0.7.0 P0a: record-typed globals get a main-entry calloc (example22)
+    if self.IndexOfStr(self.RecordNames, self.TypeExprName(vd.VarType)) >= 0 then
+      append(self.GAllocNames, vd.Names[i]);
     // v0.6.9 P4 DBG: verify the appended element's content is intact
     gnchk := self.GNames[i];
   end;
@@ -1726,6 +2336,12 @@ begin
   end;
   retType := 'void';
   if fd.ReturnType <> nil then retType := self.LlvmTypeOfExpr(fd.ReturnType);
+  // v0.7.0 P0a: multi-return — the function returns the %__ret_<name> struct
+  // (host: multiRetTypes check before single ReturnType in emitFunctionDecl).
+  self.CurMultiRet := self.MRRetType(fd.Name);
+  self.CurMultiRetName := fd.Name;
+  if self.CurMultiRet <> '' then
+    retType := self.CurMultiRet;
   params := [];
   if extClass <> '' then
     append(params, 'ptr %self');
@@ -1752,6 +2368,8 @@ begin
   self.LTypes := [];
   self.LRegs := [];
   self.LKylix := [];
+  self.VarSeqNames := [];
+  self.VarSeqCnts := [];
   if extClass <> '' then
   begin
     append(self.LNames, 'self');
@@ -1788,7 +2406,10 @@ begin
     append(self.LNames, 'result');
     append(self.LTypes, retType);
     append(self.LRegs, '%result');
-    append(self.LKylix, self.TypeExprName(fd.ReturnType));
+    if self.CurMultiRet <> '' then
+      append(self.LKylix, '')
+    else
+      append(self.LKylix, self.TypeExprName(fd.ReturnType));
     // v0.6.9 P4: record returns need a calloc'd record in the result slot
     self.EmitRecordResultInit(self.TypeExprName(fd.ReturnType));
   end;
@@ -1959,6 +2580,8 @@ begin
   self.LTypes := [];
   self.LRegs := [];
   self.LKylix := [];
+  self.VarSeqNames := [];
+  self.VarSeqCnts := [];
   for i := 0 to Length(lam.Parameters) - 1 do
   begin
     llvmT := 'i64';
@@ -2024,6 +2647,8 @@ begin
   self.LTypes := [];
   self.LRegs := [];
   self.LKylix := [];
+  self.VarSeqNames := [];
+  self.VarSeqCnts := [];
   append(self.LNames, 'self');
   append(self.LTypes, 'ptr');
   append(self.LRegs, '%self');
@@ -2127,6 +2752,10 @@ var
   fe: TForEachStatement;
   ret: TReturnStatement;
   blk: TBlockStatement;
+  rep: TRepeatStatement;
+  cs: TCaseStatement;
+  tr: TTryStatement;
+  rs: TRaiseStatement;
 begin
   self.EmitDepth := 0;
   if stmt is TVarDecl then
@@ -2174,6 +2803,26 @@ begin
     blk := stmt as TBlockStatement;
     self.EmitStatements(blk.Statements);
   end
+  else if stmt is TRepeatStatement then
+  begin
+    rep := stmt as TRepeatStatement;
+    self.EmitRepeat(rep);
+  end
+  else if stmt is TCaseStatement then
+  begin
+    cs := stmt as TCaseStatement;
+    self.EmitCase(cs);
+  end
+  else if stmt is TTryStatement then
+  begin
+    tr := stmt as TTryStatement;
+    self.EmitTry(tr);
+  end
+  else if stmt is TRaiseStatement then
+  begin
+    rs := stmt as TRaiseStatement;
+    self.EmitRaise(rs);
+  end
   else if stmt is TBreakStatement then self.WriteLine('  br label %' + self.LoopBreak)
   else if stmt is TContinueStatement then self.WriteLine('  br label %' + self.LoopHead)
   else self.WriteLine('  ; unhandled statement');
@@ -2215,6 +2864,9 @@ procedure TLLVMGenerator.EmitVarDecl(vd: TVarDecl);
 var
   i: Integer;
   valReg, llvmT, kylixT, allocaReg, fname: String;
+  createObj: TExpression;
+  rowsCall: TCallExpression;
+  rowsFn: TIdentifier;
 begin
   self.WriteLine('  ; dbg varDecl names=' + self.IntToStrS(Length(vd.Names)) + ' inferred=' + self.BoolStr1(vd.Inferred));
   if Length(vd.Names) = 0 then Exit;
@@ -2237,8 +2889,13 @@ begin
       begin
         if ((vd.Value as TCallExpression).Func as TMemberExpression).Member = 'Create' then
         begin
-          if ((vd.Value as TCallExpression).Func as TMemberExpression).Obj is TIdentifier then
-            kylixT := (((vd.Value as TCallExpression).Func as TMemberExpression).Obj as TIdentifier).Value;
+          // v0.7.0 P0a: the receiver may be a generic `TStack<Integer>` —
+          // TypeExprName resolves it to the mangled instance class name.
+          createObj := ((vd.Value as TCallExpression).Func as TMemberExpression).Obj;
+          if createObj is TIdentifier then
+            kylixT := (createObj as TIdentifier).Value
+          else if createObj is TGenericType then
+            kylixT := self.TypeExprName(createObj);
         end;
         // v0.6.9 P3: datetime chain calls return a TDateTime handle
         if ((vd.Value as TCallExpression).Func as TMemberExpression).Member = 'AddDays' then
@@ -2264,7 +2921,27 @@ begin
     end;
     for i := 0 to Length(vd.Names) - 1 do
     begin
-      allocaReg := self.RegisterLocal(vd.Names[i], llvmT, kylixT);
+      // v0.7.0 P0a: FreshLocal (not RegisterLocal) — a second same-named
+      // inferred var in one function (two try bodies) must mint its own
+      // alloca, or the first block's slot fails domination later (LLVM
+      // verify failure on example27).
+      // v0.7.0 P0a (example52): `var rows := DbQueryRows(...)` — the slice
+      // result must register as a dynamic array of Variant so rows[i]
+      // resolves and the chained rows[i]['col'] variant-map path fires.
+      if llvmT = '{ ptr, i64, i64 }' then
+      begin
+        if vd.Value is TCallExpression then
+        begin
+          rowsCall := vd.Value as TCallExpression;
+          if rowsCall.Func is TIdentifier then
+          begin
+            rowsFn := rowsCall.Func as TIdentifier;
+            if rowsFn.Value = 'DbQueryRows' then
+              self.RegisterArray(vd.Names[i], true, 'ptr', 'Variant', 0, 0);
+          end;
+        end;
+      end;
+      allocaReg := self.FreshLocal(vd.Names[i], llvmT, kylixT);
       if llvmT = 'variant' then
         self.WriteLine('  store ptr ' + valReg + ', ptr ' + allocaReg)
       else if llvmT = 'i1' then
@@ -2397,12 +3074,33 @@ var
   fldMem: TMemberExpression;
   an: String;
   gi: Integer;
+  tup: TTupleLiteral;
 begin
+  // v0.7.0 P0a: multi-return destructure `(a, b) := Fn(...)` (example16) —
+  // the call yields the %__ret struct; extractvalue each element into its
+  // slot (host emitTupleDestructure).
+  if asgn.Name is TTupleLiteral then
+  begin
+    tup := asgn.Name as TTupleLiteral;
+    self.EmitTupleDestructure(tup, asgn.Value);
+    Exit;
+  end;
   if asgn.Name is TIdentifier then
   begin
     ident := asgn.Name as TIdentifier;
     // v0.6.9 P4 DBG: print the GNames lookup result for every assignment
     an := ident.Value;
+    // v0.7.0 P0a: `result := (a, b)` inside a multi-return function — pack
+    // the tuple into the %__ret struct via insertvalue (host emitTupleBuild).
+    if (an = 'result') and (self.CurMultiRet <> '') then
+    begin
+      if asgn.Value is TTupleLiteral then
+      begin
+        tup := asgn.Value as TTupleLiteral;
+        self.EmitTupleBuild(tup);
+        Exit;
+      end;
+    end;
     gi := self.IndexOfStr(self.GNames, an);
     if gi < 0 then
       self.RegisterLocal(an, 'i64', '');
@@ -2521,6 +3219,7 @@ var
   classT, selfReg, valReg, elemT: String;
   ci, fi: Integer;
   slot, sliceVal, dataPtr, idxReg, elemPtr: String;
+  adj, elemT2: String;
 begin
   result := false;
   classT := '';
@@ -2549,9 +3248,37 @@ begin
   fi := self.FieldIndex(classT, mem.Member);
   if fi < 0 then Exit;
   elemT := self.FieldLLVM(classT, mem.Member);
+  // v0.7.0 P0a: STATIC array field ([N x elem], example21's TStack.Items) —
+  // the field slot IS the array: GEP the slot, GEP the element, store.
+  if elemT[0:1] = '[' then
+  begin
+    slot := self.Tmp();
+    self.WriteLine('  ' + slot + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 ' + self.IntToStrS(fi + 1));
+    idxReg := self.EmitExprTyped(idxExpr);
+    adj := self.Tmp();
+    self.WriteLine('  ' + adj + ' = add i64 ' + idxReg + ', 0');
+    elemT2 := self.KylixTToLLVM(self.FieldElemKylixAt(classT, fi));
+    elemPtr := self.Tmp();
+    self.WriteLine('  ' + elemPtr + ' = getelementptr ' + elemT + ', ptr ' + slot + ', i64 0, i64 ' + adj);
+    valReg := self.EmitExprTyped(valExpr);
+    if elemT2 = 'i1' then
+    begin
+      if self.LastType = 'i64' then valReg := self.CoerceValue(valReg, 'i64', 'i1');
+    end
+    else if elemT2 = 'i64' then
+    begin
+      if self.LastType = 'i1' then valReg := self.CoerceValue(valReg, 'i1', 'i64');
+    end
+    else if elemT2 = 'ptr' then
+    begin
+      if self.LastType = 'i64' then valReg := self.CoerceValue(valReg, 'i64', 'ptr');
+    end;
+    self.WriteLine('  store ' + elemT2 + ' ' + valReg + ', ptr ' + elemPtr);
+    result := true;
+    Exit;
+  end;
   // v0.6.9 P4: only DYNAMIC slice fields take this path — static array
-  // fields ([N x T], e.g. example21's TStack.Items) have their own store
-  // handling; hijacking them broke example21.
+  // fields ([N x T], e.g. example21's TStack.Items) are handled above.
   if elemT <> '{ ptr, i64, i64 }' then Exit;
   elemT := self.KylixTToLLVM(self.FieldElemKylixAt(classT, fi));
   // field slot holds an inline { ptr, i64, i64 } slice — load it, take the
@@ -2789,6 +3516,537 @@ begin
   self.WriteLine(endLbl + ':');
   self.LoopHead := savedHead;
   self.LoopBreak := savedBreak;
+end;
+
+// EmitTupleBuild — `result := (a, b)` inside a multi-return function
+// (v0.7.0 P0a, example16). Packs the tuple into the %__ret_<name> struct via
+// an insertvalue chain starting from `undef`, then stores it into the
+// %result alloca (mirrors host emitTupleBuild, pkg/llvmgen/stmt.go). Callers
+// must have CurMultiRet/CurMultiRetName set (EmitFunctionDecl).
+procedure TLLVMGenerator.EmitTupleBuild(tuple: TTupleLiteral);
+var
+  i: Integer;
+  acc, v, elemT, next: String;
+begin
+  acc := 'undef';
+  for i := 0 to Length(tuple.Elements) - 1 do
+  begin
+    v := self.EmitExprTyped(tuple.Elements[i]);
+    elemT := self.MRElemAt(self.CurMultiRetName, i);
+    next := self.Tmp();
+    // `insertvalue <struct> <acc>, <elemT> <v>, <idx>` — acc is bare `undef`
+    // on the first insert, a register afterwards; the struct type prefix
+    // covers both forms.
+    self.WriteLine('  ' + next + ' = insertvalue ' + self.CurMultiRet + ' ' + acc + ', ' + elemT + ' ' + v + ', ' + self.IntToStrS(i));
+    acc := next;
+  end;
+  self.WriteLine('  store ' + self.CurMultiRet + ' ' + acc + ', ptr %result');
+  self.LastType := self.CurMultiRet;
+end;
+
+// EmitTupleDestructure — `(q, r) := DivMod(...)` (v0.7.0 P0a, example16).
+// Emits the RHS call (yields the %__ret struct), then extractvalue each
+// element into its slot: existing local → local alloca, program-level global
+// → @__kylix_g_* alloca, otherwise a fresh alloca (example16 destructures
+// into globals in main and locals inside DivMod).
+procedure TLLVMGenerator.EmitTupleDestructure(tuple: TTupleLiteral; rhs: TExpression);
+var
+  i: Integer;
+  structVal, structType, fname, elemT, extracted: String;
+  call: TCallExpression;
+  fnIdent: TIdentifier;
+  el: TExpression;
+  vid: TIdentifier;
+  vname, allocaReg: String;
+begin
+  structVal := self.EmitExprTyped(rhs);
+  structType := self.LastType;
+  fname := '';
+  if rhs is TCallExpression then
+  begin
+    call := rhs as TCallExpression;
+    if call.Func is TIdentifier then
+    begin
+      fnIdent := call.Func as TIdentifier;
+      fname := fnIdent.Value;
+    end;
+  end;
+  for i := 0 to Length(tuple.Elements) - 1 do
+  begin
+    el := tuple.Elements[i];
+    if el is TIdentifier then
+    begin
+      vid := el as TIdentifier;
+      vname := vid.Value;
+      elemT := self.MRElemAt(fname, i);
+      extracted := self.Tmp();
+      self.WriteLine('  ' + extracted + ' = extractvalue ' + structType + ' ' + structVal + ', ' + self.IntToStrS(i));
+      if self.HasLocal(vname) then
+        allocaReg := self.LocalReg(vname)
+      else if self.IndexOfStr(self.GNames, vname) >= 0 then
+        allocaReg := self.GReg(vname)
+      else
+        allocaReg := self.FreshLocal(vname, elemT, '');
+      self.WriteLine('  store ' + elemT + ' ' + extracted + ', ptr ' + allocaReg);
+    end;
+  end;
+end;
+
+// EmitRepeat — repeat/until loop (v0.7.0 P0a, example10). Body runs first,
+// then the condition; the loop repeats while the condition is FALSE. Mirrors
+// host emitRepeat (pkg/llvmgen/stmt_flow.go): continue targets the body
+// start, break targets the exit.
+procedure TLLVMGenerator.EmitRepeat(stmt: TRepeatStatement);
+var
+  bodyLbl, exitLbl, cond, cond2, notCond: String;
+  savedHead, savedBreak: String;
+  blk: TBlockStatement;
+begin
+  bodyLbl := self.Label();
+  exitLbl := self.Label();
+  savedHead := self.LoopHead;
+  savedBreak := self.LoopBreak;
+  self.LoopHead := bodyLbl;
+  self.LoopBreak := exitLbl;
+  self.WriteLine('  br label %' + bodyLbl);
+  self.WriteLine(bodyLbl + ':');
+  if stmt.Body <> nil then
+  begin
+    blk := stmt.Body as TBlockStatement;
+    self.EmitStatements(blk.Statements);
+  end;
+  self.LoopHead := savedHead;
+  self.LoopBreak := savedBreak;
+  cond := self.EmitExpr(stmt.Condition);
+  if self.LastType = 'i64' then
+  begin
+    cond2 := self.Tmp();
+    self.WriteLine('  ' + cond2 + ' = icmp ne i64 ' + cond + ', 0');
+    cond := cond2;
+  end;
+  // repeat until cond → loop back while !cond
+  notCond := self.Tmp();
+  self.WriteLine('  ' + notCond + ' = xor i1 ' + cond + ', 1');
+  self.WriteLine('  br i1 ' + notCond + ', label %' + bodyLbl + ', label %' + exitLbl);
+  self.WriteLine(exitLbl + ':');
+end;
+
+// EmitCase — case/of selector statement (v0.7.0 P0a, example11). Integer
+// selectors emit an LLVM switch (like the host); non-integer branch values
+// are skipped (host parity — only IntegerLiteral values are collected).
+procedure TLLVMGenerator.EmitCase(stmt: TCaseStatement);
+var
+  sel, line: String;
+  i, j, n: Integer;
+  br: TCaseBranch;
+  brLbls: array of String;
+  defaultLbl, mergeLbl: String;
+  blk: TBlockStatement;
+  bodyNode: TNode;
+begin
+  sel := self.EmitExpr(stmt.Expression);
+  defaultLbl := self.Label();
+  mergeLbl := self.Label();
+  for i := 0 to Length(stmt.Branches) - 1 do
+    append(brLbls, self.Label());
+  line := '';
+  n := 0;
+  for i := 0 to Length(stmt.Branches) - 1 do
+  begin
+    br := stmt.Branches[i];
+    for j := 0 to Length(br.Values) - 1 do
+    begin
+      if br.Values[j] is TIntegerLiteral then
+      begin
+        if n > 0 then line := line + ' ';
+        line := line + 'i64 ' + self.IntToStrS((br.Values[j] as TIntegerLiteral).Value) + ', label %' + brLbls[i];
+        n := n + 1;
+      end;
+    end;
+  end;
+  if n > 0 then
+    self.WriteLine('  switch i64 ' + sel + ', label %' + defaultLbl + ' [ ' + line + ' ]')
+  else
+    self.WriteLine('  br label %' + defaultLbl);
+  for i := 0 to Length(stmt.Branches) - 1 do
+  begin
+    self.WriteLine(brLbls[i] + ':');
+    bodyNode := stmt.Branches[i].Body;
+    if bodyNode is TBlockStatement then
+    begin
+      blk := bodyNode as TBlockStatement;
+      self.EmitStatements(blk.Statements);
+    end;
+    self.WriteLine('  br label %' + mergeLbl);
+  end;
+  self.WriteLine(defaultLbl + ':');
+  if stmt.ElseBranch <> nil then
+  begin
+    blk := stmt.ElseBranch as TBlockStatement;
+    self.EmitStatements(blk.Statements);
+  end;
+  self.WriteLine('  br label %' + mergeLbl);
+  self.WriteLine(mergeLbl + ':');
+end;
+
+// EmitLongjmpToHandler — jump to the current handler's jmpbuf (v0.7.0 P0a).
+// No handler installed (@__kylix_jmpbuf null) → exit(70), an uncaught
+// exception. Mirrors host emitLongjmpToHandler (pkg/llvmgen/exc.go).
+procedure TLLVMGenerator.EmitLongjmpToHandler;
+var
+  jb, nz, hasLbl, noLbl: String;
+begin
+  jb := self.Tmp();
+  self.WriteLine('  ' + jb + ' = load ptr, ptr @__kylix_jmpbuf');
+  nz := self.Tmp();
+  self.WriteLine('  ' + nz + ' = icmp ne ptr ' + jb + ', null');
+  hasLbl := self.Label();
+  noLbl := self.Label();
+  self.WriteLine('  br i1 ' + nz + ', label %' + hasLbl + ', label %' + noLbl);
+  self.WriteLine(hasLbl + ':');
+  self.WriteLine('  call void @longjmp(ptr ' + jb + ', i32 1)');
+  self.WriteLine('  unreachable');
+  self.WriteLine(noLbl + ':');
+  self.WriteLine('  call void @exit(i32 70)');
+  self.WriteLine('  unreachable');
+end;
+
+// EmitTry — try/except/finally via setjmp/longjmp (v0.7.0 P0a, examples
+// 27/28). A global exception slot (@__kylix_exc_obj/type/active) + a per-try
+// jmpbuf saved/restored for nesting; on-clauses match by runtime type ID via
+// @__kylix_is_subtype. finally is emitted up to three times (normal / exc /
+// reraise) so it always runs. Mirrors host emitTry (pkg/llvmgen/exc.go).
+procedure TLLVMGenerator.EmitTry(stmt: TTryStatement);
+var
+  bufReg, bufptr, oldJBSlot, rc, isHandler: String;
+  tryBodyLbl, exceptLbl: String;
+  oldJB, restoredJB, restoredJB2, tid: String;
+  finallyNormalLbl, finallyExcLbl, finallyReraiseLbl, endLbl: String;
+  i: Integer;
+  onCl: TOnClause;
+  onBodyLbl, thisCheck, nextCheck, m: String;
+  onTypeName, eAlloca, obj: String;
+  blk: TBlockStatement;
+begin
+  self.NeedException := true;
+  bufReg := self.Tmp();
+  self.WriteLine('  ' + bufReg + ' = alloca [288 x i8], align 16');
+  bufptr := self.Tmp();
+  self.WriteLine('  ' + bufptr + ' = getelementptr [288 x i8], ptr ' + bufReg + ', i64 0, i64 0');
+  oldJBSlot := self.Tmp();
+  self.WriteLine('  ' + oldJBSlot + ' = alloca ptr, align 8');
+  // setjmp returns 0 on the first call, non-zero when longjmp lands here.
+  rc := self.Tmp();
+  self.WriteLine('  ' + rc + ' = call i32 @setjmp(ptr ' + bufptr + ')');
+  isHandler := self.Tmp();
+  self.WriteLine('  ' + isHandler + ' = icmp ne i32 ' + rc + ', 0');
+  tryBodyLbl := self.Label();
+  exceptLbl := self.Label();
+  self.WriteLine('  br i1 ' + isHandler + ', label %' + exceptLbl + ', label %' + tryBodyLbl);
+
+  // ── try body: install handler, run, pop ───────────────────
+  self.WriteLine(tryBodyLbl + ':');
+  oldJB := self.Tmp();
+  self.WriteLine('  ' + oldJB + ' = load ptr, ptr @__kylix_jmpbuf');
+  self.WriteLine('  store ptr ' + oldJB + ', ptr ' + oldJBSlot);
+  self.WriteLine('  store ptr ' + bufptr + ', ptr @__kylix_jmpbuf');
+  self.WriteLine('  store i1 false, ptr @__kylix_exc_active');
+  if stmt.Body <> nil then
+  begin
+    blk := stmt.Body as TBlockStatement;
+    self.EmitStatements(blk.Statements);
+  end;
+  restoredJB := self.Tmp();
+  self.WriteLine('  ' + restoredJB + ' = load ptr, ptr ' + oldJBSlot);
+  self.WriteLine('  store ptr ' + restoredJB + ', ptr @__kylix_jmpbuf');
+  self.WriteLine('  store i1 false, ptr @__kylix_exc_active');
+  finallyNormalLbl := self.Label();
+  finallyExcLbl := self.Label();
+  finallyReraiseLbl := self.Label();
+  endLbl := self.Label();
+  self.WriteLine('  br label %' + finallyNormalLbl);
+
+  // ── except dispatch: pop handler, match on-clauses in order ─
+  self.WriteLine(exceptLbl + ':');
+  restoredJB2 := self.Tmp();
+  self.WriteLine('  ' + restoredJB2 + ' = load ptr, ptr ' + oldJBSlot);
+  self.WriteLine('  store ptr ' + restoredJB2 + ', ptr @__kylix_jmpbuf');
+  tid := self.Tmp();
+  self.WriteLine('  ' + tid + ' = load i32, ptr @__kylix_exc_type');
+  nextCheck := exceptLbl;
+  for i := 0 to Length(stmt.OnClauses) - 1 do
+  begin
+    onCl := stmt.OnClauses[i];
+    onBodyLbl := self.Label();
+    thisCheck := nextCheck;
+    nextCheck := self.Label();
+    onTypeName := self.TypeExprName(onCl.OnType);
+    m := self.Tmp();
+    self.WriteLine('  ' + m + ' = call i1 @__kylix_is_subtype(i32 ' + tid + ', i32 ' + self.IntToStrS(self.ExcTypeID(onTypeName)) + ')');
+    // the first check reuses exceptLbl, which is already emitted above
+    if thisCheck <> exceptLbl then
+      self.WriteLine(thisCheck + ':');
+    self.WriteLine('  br i1 ' + m + ', label %' + onBodyLbl + ', label %' + nextCheck);
+    // on-body: bind the variable to the exception object, run, clear active
+    self.WriteLine(onBodyLbl + ':');
+    if onCl.Variable <> '' then
+    begin
+      eAlloca := self.RegisterLocal(onCl.Variable, 'ptr', onTypeName);
+      obj := self.Tmp();
+      self.WriteLine('  ' + obj + ' = load ptr, ptr @__kylix_exc_obj');
+      self.WriteLine('  store ptr ' + obj + ', ptr ' + eAlloca);
+    end;
+    self.InExceptHandler := true;
+    if onCl.Body <> nil then
+    begin
+      blk := onCl.Body as TBlockStatement;
+      self.EmitStatements(blk.Statements);
+    end;
+    self.InExceptHandler := false;
+    self.WriteLine('  store i1 false, ptr @__kylix_exc_active');
+    self.WriteLine('  br label %' + finallyExcLbl);
+  end;
+  if Length(stmt.OnClauses) > 0 then
+    self.WriteLine(nextCheck + ':');
+
+  // no on-clause matched (or none present): a plain ExceptBlock handles
+  // everything; otherwise the exception stays active → finally reraises.
+  if stmt.ExceptBlock <> nil then
+  begin
+    self.InExceptHandler := true;
+    blk := stmt.ExceptBlock as TBlockStatement;
+    self.EmitStatements(blk.Statements);
+    self.InExceptHandler := false;
+    self.WriteLine('  store i1 false, ptr @__kylix_exc_active');
+    self.WriteLine('  br label %' + finallyExcLbl);
+  end
+  else
+    self.WriteLine('  br label %' + finallyReraiseLbl);
+
+  // ── finally: normal path (try body completed) ─────────────
+  self.WriteLine(finallyNormalLbl + ':');
+  if stmt.FinallyBlock <> nil then
+  begin
+    blk := stmt.FinallyBlock as TBlockStatement;
+    self.EmitStatements(blk.Statements);
+  end;
+  self.WriteLine('  br label %' + endLbl);
+
+  // ── finally: except handled path ──────────────────────────
+  self.WriteLine(finallyExcLbl + ':');
+  if stmt.FinallyBlock <> nil then
+  begin
+    blk := stmt.FinallyBlock as TBlockStatement;
+    self.EmitStatements(blk.Statements);
+  end;
+  self.WriteLine('  br label %' + endLbl);
+
+  // ── finally: reraise path (uncaught exception) ────────────
+  self.WriteLine(finallyReraiseLbl + ':');
+  if stmt.FinallyBlock <> nil then
+  begin
+    blk := stmt.FinallyBlock as TBlockStatement;
+    self.EmitStatements(blk.Statements);
+  end;
+  self.EmitLongjmpToHandler();
+
+  self.WriteLine(endLbl + ':');
+end;
+
+// EmitRaise — `raise <expr>` / bare `raise` (v0.7.0 P0a, example27). For
+// `X.Create(args)` with X registered, the normal constructor path allocates
+// the object; for the built-in Exception (never declared by user code in the
+// bootstrap), the first constructor argument (the message) doubles as the
+// exception object. Mirrors host emitRaise (pkg/llvmgen/exc.go).
+procedure TLLVMGenerator.EmitRaise(stmt: TRaiseStatement);
+var
+  objReg: String;
+  typeName: String;
+  callEx: TCallExpression;
+  mem: TMemberExpression;
+begin
+  self.NeedException := true;
+  if stmt.Exception = nil then
+  begin
+    // bare raise: inside an except handler re-throw the in-flight exception
+    // (slot already holds it, exc_active stays true); outside, a generic
+    // Exception with a default message.
+    if not self.InExceptHandler then
+    begin
+      objReg := self.AddString('exception');
+      self.WriteLine('  store ptr ' + objReg + ', ptr @__kylix_exc_obj');
+      self.WriteLine('  store i32 1, ptr @__kylix_exc_type');
+      self.WriteLine('  store i1 true, ptr @__kylix_exc_active');
+    end;
+    self.EmitLongjmpToHandler();
+    Exit;
+  end;
+  objReg := '';
+  typeName := '';
+  if stmt.Exception is TCallExpression then
+  begin
+    callEx := stmt.Exception as TCallExpression;
+    if callEx.Func is TMemberExpression then
+    begin
+      mem := callEx.Func as TMemberExpression;
+      // NB: nested ifs, not an `and` compound — compound conditions after a
+      // cast-member-chain statement trip the bootstrap parser (坑清单).
+      if mem.Member = 'Create' then
+      begin
+        if mem.Obj is TIdentifier then
+        begin
+          typeName := (mem.Obj as TIdentifier).Value;
+          if self.ClassIndex(typeName) >= 0 then
+            objReg := self.EmitExprTyped(stmt.Exception)
+          else if Length(callEx.Arguments) > 0 then
+            objReg := self.EmitExprTyped(callEx.Arguments[0])
+          else
+            objReg := self.AddString('exception');
+        end;
+      end;
+    end;
+  end;
+  if objReg = '' then
+    objReg := self.EmitExprTyped(stmt.Exception);
+  self.WriteLine('  store ptr ' + objReg + ', ptr @__kylix_exc_obj');
+  self.WriteLine('  store i32 ' + self.IntToStrS(self.ExcTypeID(typeName)) + ', ptr @__kylix_exc_type');
+  self.WriteLine('  store i1 true, ptr @__kylix_exc_active');
+  self.EmitLongjmpToHandler();
+end;
+
+// ExcTypeID — runtime type ID for an exception class name (v0.7.0 P0a).
+// Exception = 1; user subclasses (parent chain reaches Exception) get
+// sequential IDs in registration order; anything else → 0 (generic).
+function TLLVMGenerator.ExcTypeID(cname: String): Integer;
+var
+  i, id: Integer;
+begin
+  if cname = 'Exception' then
+    result := 1
+  else
+  begin
+    i := self.IndexOfStr(self.ExcNames, cname);
+    if i >= 0 then
+      result := self.ExcIDs[i]
+    else if self.IsExceptionSubclass(cname) then
+    begin
+      id := Length(self.ExcNames) + 2;
+      append(self.ExcNames, cname);
+      append(self.ExcIDs, id);
+      result := id;
+    end
+    else
+      result := 0;
+  end;
+end;
+
+// IsExceptionSubclass — parent chain reaches 'Exception' (v0.7.0 P0a).
+// Exception itself is the root (false), mirroring the host helper.
+function TLLVMGenerator.IsExceptionSubclass(cname: String): Boolean;
+var
+  cur: String;
+begin
+  result := false;
+  if cname = 'Exception' then
+    Exit;
+  cur := cname;
+  while (cur <> '') and (cur <> 'Exception') do
+    cur := self.ClassParent(cur);
+  result := cur = 'Exception';
+end;
+
+// EmitExceptionRuntime — module-level exception runtime (v0.7.0 P0a):
+// the four exception-slot globals, the child→parent subtype edge table and
+// the @__kylix_is_subtype helper used by on-clause matching. Gated on
+// NeedException. The is_subtype loop uses the no-phi + alloca style proven
+// by EmitClassRuntime (an SSA-phi variant hung when the bootstrap compiler
+// ran it). Mirrors host emitExceptionGlobals/emitExceptionRuntime.
+procedure TLLVMGenerator.EmitExceptionRuntime;
+var
+  i, n, cid, pid: Integer;
+  edgesC, edgesP: array of Integer;
+  line: String;
+begin
+  self.WriteLine('; ===== Exception handling globals =====');
+  self.WriteLine('@__kylix_exc_obj = global ptr null');
+  self.WriteLine('@__kylix_exc_type = global i32 0');
+  self.WriteLine('@__kylix_exc_active = global i1 false');
+  self.WriteLine('@__kylix_jmpbuf = global ptr null');
+  self.WriteLine('');
+  self.WriteLine('; ===== Exception subtype table =====');
+  self.WriteLine('%__kylix_edge = type { i32, i32 }');
+
+  // pass 1: register runtime IDs for every exception subclass (ExcTypeID
+  // appends; do this before iterating ExcNames below)
+  for i := 0 to Length(self.ClassNames) - 1 do
+    self.ExcTypeID(self.ClassNames[i]);
+
+  // pass 2: child→parent edges (child ID > 1; Exception itself is the root)
+  n := 0;
+  for i := 0 to Length(self.ExcNames) - 1 do
+  begin
+    cid := self.ExcIDs[i];
+    pid := self.ExcTypeID(self.ClassParent(self.ExcNames[i]));
+    if pid > 0 then
+    begin
+      append(edgesC, cid);
+      append(edgesP, pid);
+      n := n + 1;
+    end;
+  end;
+
+  if n = 0 then
+    self.WriteLine('@__kylix_exctab = constant [0 x %__kylix_edge] zeroinitializer')
+  else
+  begin
+    line := '@__kylix_exctab = constant [' + self.IntToStrS(n) + ' x %__kylix_edge] [ ';
+    for i := 0 to n - 1 do
+    begin
+      if i > 0 then line := line + ', ';
+      line := line + '%__kylix_edge { i32 ' + self.IntToStrS(edgesC[i]) + ', i32 ' + self.IntToStrS(edgesP[i]) + ' }';
+    end;
+    self.WriteLine(line + ' ]');
+  end;
+  self.WriteLine('');
+  self.WriteLine('define i1 @__kylix_is_subtype(i32 %child, i32 %parent) {');
+  self.WriteLine('entry:');
+  self.WriteLine('  %cslot = alloca i32, align 4');
+  self.WriteLine('  %islot = alloca i64, align 8');
+  self.WriteLine('  %eq0 = icmp eq i32 %child, %parent');
+  self.WriteLine('  br i1 %eq0, label %ret_true, label %init');
+  self.WriteLine('init:');
+  self.WriteLine('  store i32 %child, ptr %cslot');
+  self.WriteLine('  store i64 0, ptr %islot');
+  self.WriteLine('  br label %loop');
+  self.WriteLine('loop:');
+  self.WriteLine('  %c = load i32, ptr %cslot');
+  self.WriteLine('  %i = load i64, ptr %islot');
+  self.WriteLine('  %oob = icmp eq i64 %i, ' + self.IntToStrS(n));
+  self.WriteLine('  br i1 %oob, label %ret_false, label %body');
+  self.WriteLine('body:');
+  self.WriteLine('  %slot = getelementptr inbounds [' + self.IntToStrS(n) + ' x %__kylix_edge], ptr @__kylix_exctab, i64 0, i64 %i');
+  self.WriteLine('  %cid_ptr = getelementptr inbounds %__kylix_edge, ptr %slot, i64 0, i32 0');
+  self.WriteLine('  %cid = load i32, ptr %cid_ptr');
+  self.WriteLine('  %iscur = icmp eq i32 %cid, %c');
+  self.WriteLine('  br i1 %iscur, label %found, label %loop_next');
+  self.WriteLine('found:');
+  self.WriteLine('  %pid_ptr = getelementptr inbounds %__kylix_edge, ptr %slot, i64 0, i32 1');
+  self.WriteLine('  %par = load i32, ptr %pid_ptr');
+  self.WriteLine('  %match = icmp eq i32 %par, %parent');
+  self.WriteLine('  br i1 %match, label %ret_true, label %update');
+  self.WriteLine('update:');
+  self.WriteLine('  store i32 %par, ptr %cslot');
+  self.WriteLine('  br label %loop_next');
+  self.WriteLine('loop_next:');
+  self.WriteLine('  %i_next = add i64 %i, 1');
+  self.WriteLine('  store i64 %i_next, ptr %islot');
+  self.WriteLine('  br label %loop');
+  self.WriteLine('ret_true:');
+  self.WriteLine('  ret i1 true');
+  self.WriteLine('ret_false:');
+  self.WriteLine('  ret i1 false');
+  self.WriteLine('}');
+  self.WriteLine('');
 end;
 
 procedure TLLVMGenerator.EmitFor(stmt: TForStatement);
@@ -3189,6 +4447,13 @@ begin
         result := true;
         Exit;
       end;
+    end
+    else if (e as TIndexExpression).Left is TIndexExpression then
+    begin
+      // v0.7.0 P0a (example52/57): chained index rows[i]['col'] — the inner
+      // read yields a map-Variant box, so the outer expression is a Variant.
+      result := self.IsVariantExpr((e as TIndexExpression).Left);
+      Exit;
     end;
     Exit;
   end;
@@ -3586,6 +4851,7 @@ var
   i: Integer;
   mem: TMemberExpression;
   r: String;
+  isNullR: String;
 begin
   if e.Func is TIdentifier then
   begin
@@ -3625,6 +4891,30 @@ begin
       result := self.EmitStrToFloat(e.Arguments[0]);
       self.LastType := 'double';
       Exit;
+    end;
+    // v0.7.0 P0b: error('msg') → the message string ptr itself; ErrorStr(err)
+    // → null-guarded message (nil = success = null ptr → emptystr).
+    if fname = 'error' then
+    begin
+      if Length(e.Arguments) = 1 then
+      begin
+        result := self.EmitExpr(e.Arguments[0]);
+        self.LastType := 'ptr';
+        Exit;
+      end;
+    end;
+    if fname = 'ErrorStr' then
+    begin
+      if Length(e.Arguments) = 1 then
+      begin
+        r := self.EmitExpr(e.Arguments[0]);
+        isNullR := self.Tmp();
+        self.WriteLine('  ' + isNullR + ' = icmp eq ptr ' + r + ', null');
+        result := self.Tmp();
+        self.WriteLine('  ' + result + ' = select i1 ' + isNullR + ', ptr @__kylix_emptystr, ptr ' + r);
+        self.LastType := 'ptr';
+        Exit;
+      end;
     end;
     // v0.6.9 P3: StrToInt64 / IntToStr64 / ReadFloat / ReadInt (parser.klx's
     // literal helpers) — same libc lowering as their Int/Str counterparts.
@@ -3911,6 +5201,10 @@ function TLLVMGenerator.EmitStdlibCall(seg: String; fname: String; callArgs: arr
 var
   fi, i, nargs: Integer;
   fnameEff, sym, ret, params, argList, r, r2, argReg, pt, argName: String;
+  stReg, bdReg, h, s0, s1: String;
+  dbReg, sqlReg, stmtSlot, stmt, rowsReg, rows64: String;
+  resultSlot, stepRc, isRow, rowLbl, emptyLbl, mergeLbl: String;
+  emptyStr, colText, dup, resPtr: String;
   isMapArg: Boolean;
   argRegs: array of String;
 begin
@@ -3940,6 +5234,104 @@ begin
     self.WriteLine('  ' + r2 + ' = load { ptr, i64, i64 }, ptr ' + r);
     self.LastType := '{ ptr, i64, i64 }';
     result := r2;
+    Exit;
+  end;
+  // v0.7.0 P0a (example41): BootText/BootHTML construct the KylixBoot response
+  // handle {i64 status, ptr body} — the host (emitBootResponseCall) returns a
+  // 16-byte malloc'd handle and `.Body`/`.Status` GEP+load into it. Boot has
+  // no baked IR segment, so inline the handle construction here. The handle
+  // ptrtoint's back to i64 to honor the bootstrap's TResponse→i64 convention
+  // (method rets / result slots / locals are all i64); EmitMember's
+  // TResponse branch inttoptr's it back before the GEP.
+  if (seg = 'boot') and ((fnameEff = 'BootText') or (fnameEff = 'BootHTML')) and (Length(callArgs) >= 2) then
+  begin
+    stReg := self.EmitExpr(callArgs[0]);
+    bdReg := self.EmitExpr(callArgs[1]);
+    h := self.Tmp();
+    self.WriteLine('  ' + h + ' = call ptr @malloc(i64 16)');
+    s0 := self.Tmp();
+    self.WriteLine('  ' + s0 + ' = getelementptr inbounds i8, ptr ' + h + ', i64 0');
+    self.WriteLine('  store i64 ' + stReg + ', ptr ' + s0);
+    s1 := self.Tmp();
+    self.WriteLine('  ' + s1 + ' = getelementptr inbounds i8, ptr ' + h + ', i64 8');
+    self.WriteLine('  store ptr ' + bdReg + ', ptr ' + s1);
+    r2 := self.Tmp();
+    self.WriteLine('  ' + r2 + ' = ptrtoint ptr ' + h + ' to i64');
+    self.LastType := 'i64';
+    result := r2;
+    Exit;
+  end;
+  // v0.7.0 P0a (example52): DbExec / DbQueryScalar are inline on the host
+  // (emitDbExecCall / emitDbQueryScalarCall) so no bodies were baked — lower
+  // them inline here with the same sqlite3 call sequence.
+  if (seg = 'db') and (fnameEff = 'DbExec') and (Length(callArgs) >= 2) then
+  begin
+    self.NeedHashtab := true;
+    dbReg := self.EmitExpr(callArgs[0]);
+    sqlReg := self.EmitExpr(callArgs[1]);
+    stmtSlot := self.Tmp();
+    self.WriteLine('  ' + stmtSlot + ' = alloca ptr, align 8');
+    self.WriteLine('  store ptr null, ptr ' + stmtSlot);
+    self.WriteLine('  call i32 @sqlite3_prepare_v2(ptr ' + dbReg + ', ptr ' + sqlReg + ', i32 -1, ptr ' + stmtSlot + ', ptr null)');
+    stmt := self.Tmp();
+    self.WriteLine('  ' + stmt + ' = load ptr, ptr ' + stmtSlot);
+    for i := 2 to Length(callArgs) - 1 do
+    begin
+      argReg := self.EmitExpr(callArgs[i]);
+      if self.LastType = 'ptr' then
+        self.WriteLine('  call i32 @sqlite3_bind_text(ptr ' + stmt + ', i32 ' + self.IntToStrS(i - 1) + ', ptr ' + argReg + ', i32 -1, i64 -1)')
+      else
+        self.WriteLine('  call i32 @sqlite3_bind_int64(ptr ' + stmt + ', i32 ' + self.IntToStrS(i - 1) + ', i64 ' + argReg + ')');
+    end;
+    self.WriteLine('  call i32 @sqlite3_step(ptr ' + stmt + ')');
+    self.WriteLine('  call i32 @sqlite3_finalize(ptr ' + stmt + ')');
+    rowsReg := self.Tmp();
+    self.WriteLine('  ' + rowsReg + ' = call i32 @sqlite3_changes(ptr ' + dbReg + ')');
+    rows64 := self.Tmp();
+    self.WriteLine('  ' + rows64 + ' = sext i32 ' + rowsReg + ' to i64');
+    self.LastType := 'i64';
+    result := rows64;
+    Exit;
+  end;
+  if (seg = 'db') and (fnameEff = 'DbQueryScalar') and (Length(callArgs) = 2) then
+  begin
+    self.NeedHashtab := true;
+    dbReg := self.EmitExpr(callArgs[0]);
+    sqlReg := self.EmitExpr(callArgs[1]);
+    resultSlot := self.Tmp();
+    self.WriteLine('  ' + resultSlot + ' = alloca ptr, align 8');
+    stmtSlot := self.Tmp();
+    self.WriteLine('  ' + stmtSlot + ' = alloca ptr, align 8');
+    self.WriteLine('  store ptr null, ptr ' + stmtSlot);
+    self.WriteLine('  call i32 @sqlite3_prepare_v2(ptr ' + dbReg + ', ptr ' + sqlReg + ', i32 -1, ptr ' + stmtSlot + ', ptr null)');
+    stmt := self.Tmp();
+    self.WriteLine('  ' + stmt + ' = load ptr, ptr ' + stmtSlot);
+    stepRc := self.Tmp();
+    self.WriteLine('  ' + stepRc + ' = call i32 @sqlite3_step(ptr ' + stmt + ')');
+    isRow := self.Tmp();
+    self.WriteLine('  ' + isRow + ' = icmp eq i32 ' + stepRc + ', 100');
+    rowLbl := self.Label();
+    emptyLbl := self.Label();
+    mergeLbl := self.Label();
+    self.WriteLine('  br i1 ' + isRow + ', label %' + rowLbl + ', label %' + emptyLbl);
+    self.WriteLine(emptyLbl + ':');
+    emptyStr := self.PtrTo(self.AddString(''), 1);
+    self.WriteLine('  store ptr ' + emptyStr + ', ptr ' + resultSlot);
+    self.WriteLine('  call i32 @sqlite3_finalize(ptr ' + stmt + ')');
+    self.WriteLine('  br label %' + mergeLbl);
+    self.WriteLine(rowLbl + ':');
+    colText := self.Tmp();
+    self.WriteLine('  ' + colText + ' = call ptr @sqlite3_column_text(ptr ' + stmt + ', i32 0)');
+    dup := self.Tmp();
+    self.WriteLine('  ' + dup + ' = call ptr @__kylix_htab_strdup(ptr ' + colText + ')');
+    self.WriteLine('  store ptr ' + dup + ', ptr ' + resultSlot);
+    self.WriteLine('  call i32 @sqlite3_finalize(ptr ' + stmt + ')');
+    self.WriteLine('  br label %' + mergeLbl);
+    self.WriteLine(mergeLbl + ':');
+    resPtr := self.Tmp();
+    self.WriteLine('  ' + resPtr + ' = load ptr, ptr ' + resultSlot);
+    self.LastType := 'ptr';
+    result := resPtr;
     Exit;
   end;
   fi := self.StdlibFnIndex(seg, fnameEff);
@@ -4437,6 +5829,27 @@ begin
       result := res;
       Exit;
     end;
+    if method = 'Clear' then
+    begin
+      // v0.7.0 P0a (example53): clear both handle fields (value htab + TTL map)
+      // — mirrors host emitCacheClearCall.
+      if Length(margs) <> 0 then Exit;
+      htabLoc := self.Tmp();
+      self.WriteLine('  ' + htabLoc + ' = getelementptr inbounds i8, ptr ' + recv + ', i64 0');
+      htab := self.Tmp();
+      self.WriteLine('  ' + htab + ' = load ptr, ptr ' + htabLoc);
+      self.WriteLine('  call void @__kylix_htab_clear(ptr ' + htab + ')');
+      ttlLoc := self.Tmp();
+      self.WriteLine('  ' + ttlLoc + ' = getelementptr inbounds i8, ptr ' + recv + ', i64 8');
+      ttl := self.Tmp();
+      self.WriteLine('  ' + ttl + ' = load ptr, ptr ' + ttlLoc);
+      self.WriteLine('  call void @__kylix_htab_clear(ptr ' + ttl + ')');
+      res := self.Tmp();
+      self.WriteLine('  ' + res + ' = add i64 0, 0 ; void call');
+      self.LastType := 'i64';
+      result := res;
+      Exit;
+    end;
     Exit; // other TCache methods: fall through to the stub
   end;
   if classT = 'TDateTime' then
@@ -4547,6 +5960,13 @@ function TLLVMGenerator.EmitIdentLoad(name: String): String;
 var
   r, gname: String;
 begin
+  // v0.7.0 P0a: expression-valued constants first (String/Real/Boolean consts
+  // — the int table has no entry for them).
+  if self.HasConstExpr(name) then
+  begin
+    result := self.EmitExprTyped(self.ConstExpr(name));
+    Exit;
+  end;
   if self.HasConst(name) then
   begin
     result := self.EmitIntConst(self.ConstValue(name));
@@ -4824,6 +6244,19 @@ begin
   buf := self.Tmp();
   self.WriteLine('  ' + buf + ' = call ptr @malloc(i64 4096)');
   self.WriteLine('  store i8 0, ptr ' + buf);
+  // v0.7.0 P0a (example56/57): WriteLn(variantValue) prints by tag (host
+  // emitVariantPrint) — single-arg form dispatches to the baked
+  // __kylix_variant_println helper instead of the string-concat buffer.
+  if Length(args) = 1 then
+  begin
+    if self.IsVariantExpr(args[0]) then
+    begin
+      v := self.EmitExpr(args[0]);
+      self.WriteLine('  call void @__kylix_variant_println(ptr ' + v + ')');
+      result := buf;
+      Exit;
+    end;
+  end;
   for i := 0 to Length(args) - 1 do
   begin
     if i > 0 then
@@ -5079,6 +6512,7 @@ begin
         append(self.VtSlot, self.VtSlot[k]);
         append(self.VtName, self.VtName[k]);
         append(self.VtRet, self.VtRet[k]);
+        append(self.VtRetK, self.VtRetK[k]);
         append(self.VtDef, self.VtDef[k]);
       end;
     end;
@@ -5100,6 +6534,7 @@ begin
           if self.VtSlot[k] = mi then
           begin
             self.VtRet[k] := self.ClassRetType(meth);
+            self.VtRetK[k] := self.ClassRetKylix(meth);
             self.VtDef[k] := cname;
           end;
         end;
@@ -5118,6 +6553,7 @@ begin
       append(self.VtSlot, mi);
       append(self.VtName, meth.Name);
       append(self.VtRet, self.ClassRetType(meth));
+      append(self.VtRetK, self.ClassRetKylix(meth));
       append(self.VtDef, cname);
     end;
   end;
@@ -5140,6 +6576,22 @@ begin
       else out2 := out2 + rt[i:i+1];
     end;
     result := out2;
+  end;
+end;
+
+// v0.7.0 P0a: Kylix-level return type NAME of a method (e.g. 'TResponse') —
+// the LLVM ret (ClassRetType) collapses boot handles to i64, so member access
+// on a call result (`ctrl.ListUsers(nil).Body`) needs the real name to
+// recognize the TResponse handle convention.
+function TLLVMGenerator.ClassRetKylix(meth: TFunctionDecl): String;
+begin
+  result := '';
+  if meth.ReturnType <> nil then
+  begin
+    if meth.ReturnType is TIdentifier then
+      result := (meth.ReturnType as TIdentifier).Value
+    else
+      result := self.TypeExprName(meth.ReturnType);
   end;
 end;
 
@@ -5635,6 +7087,24 @@ begin
   end;
 end;
 
+// v0.7.0 P0a: Kylix ret name for the method at (ci, mi) — see ClassRetKylix.
+function TLLVMGenerator.MethodRetKylixAt(ci, mi: Integer): String;
+var k: Integer;
+begin
+  result := '';
+  for k := 0 to Length(self.VtCls) - 1 do
+  begin
+    if self.VtCls[k] = ci then
+    begin
+      if self.VtSlot[k] = mi then
+      begin
+        result := self.VtRetK[k];
+        Exit;
+      end;
+    end;
+  end;
+end;
+
 function TLLVMGenerator.MethodNameAt(ci, mi: Integer): String;
 var k: Integer;
 begin
@@ -5836,6 +7306,9 @@ var
   r, selfReg, objReg, classT, loaded: String;
   vtableGEP, vtablePtr, fnPtrLoc, fnPtr: String;
   methT: String;
+  genName: String;
+  objEmitted: Boolean;
+  v, res: String;
   ci, idx, fi: Integer;
 begin
   // Constructor pattern: TFoo.Create — fresh heap-allocated instance.
@@ -5852,9 +7325,23 @@ begin
         Exit;
       end;
     end;
+    // v0.7.0 P0a: generic constructor `TStack<Integer>.Create` — the receiver
+    // is a TGenericType; TypeExprName yields the mangled instance class.
+    if member.Obj is TGenericType then
+    begin
+      genName := self.TypeExprName(member.Obj);
+      if self.ClassIndex(genName) >= 0 then
+      begin
+        self.MemberType := 'ptr';
+        self.LastType := 'ptr';
+        result := self.EmitConstructor(genName);
+        Exit;
+      end;
+    end;
   end;
   // resolve receiver's class (self / local / global class-typed variable)
   classT := '';
+  objEmitted := false;
   // v0.6.9 P4 DBG: report receiver resolution for member reads
   if member.Obj is TIdentifier then
   begin
@@ -5933,6 +7420,108 @@ begin
     // through to the normal field-read path below.
     selfReg := self.EmitExpr(member.Obj);
     if self.IsClass(self.LastType) then classT := self.LastType;
+  end
+  else if member.Obj is TCallExpression then
+  begin
+    // v0.7.0 P0a: `Fn(...).Field` / `obj.Method(...).Field` (example41's
+    // ctrl.ListUsers(nil).Body) — emit the call; LastRetKylix (set by
+    // EmitMethodCallWithArgs) reports the result's Kylix type (TResponse
+    // handle or a real class) and the call register becomes the receiver for
+    // the field GEP below.
+    selfReg := self.EmitExpr(member.Obj);
+    if (self.LastRetKylix = 'TResponse') or (self.LastRetKylix = 'BootResponse') or self.IsClass(self.LastRetKylix) then
+    begin
+      classT := self.LastRetKylix;
+      objEmitted := true;
+    end
+    else if self.IsClass(self.LastType) then
+      classT := self.LastType;
+  end;
+  // v0.7.0 P0a: KylixBoot TResponse handle {i64 status, ptr body} (host:
+  // emitBootResponseFieldAccess) — the bootstrap models boot handles as i64
+  // (ptrtoint'd) and TResponse is NOT a registered class, so this must run
+  // before the IsClass(classT) gate and convert the handle back to a pointer.
+  if (classT = 'TResponse') or (classT = 'BootResponse') then
+  begin
+    if member.Obj is TIdentifier then
+    begin
+      if (member.Obj as TIdentifier).Value = 'self' then
+        selfReg := '%self'
+      else
+      begin
+        if self.HasLocal((member.Obj as TIdentifier).Value) then
+          objReg := self.LocalReg((member.Obj as TIdentifier).Value)
+        else
+          objReg := self.GReg((member.Obj as TIdentifier).Value);
+        selfReg := self.Tmp();
+        self.WriteLine('  ' + selfReg + ' = load i64, ptr ' + objReg);
+      end;
+    end
+    else if objEmitted = false then
+      selfReg := self.EmitExpr(member.Obj);
+    // handle provenance: method call results and locals are i64 — convert
+    // to the real pointer before the GEP.
+    if self.LastType = 'i64' then
+    begin
+      r := self.Tmp();
+      self.WriteLine('  ' + r + ' = inttoptr i64 ' + selfReg + ' to ptr');
+      selfReg := r;
+    end;
+    if member.Member = 'Body' then
+    begin
+      r := self.Tmp();
+      self.WriteLine('  ' + r + ' = getelementptr inbounds i8, ptr ' + selfReg + ', i64 8');
+      loaded := self.Tmp();
+      self.WriteLine('  ' + loaded + ' = load ptr, ptr ' + r);
+      self.MemberType := 'ptr';
+      self.LastType := 'ptr';
+      result := loaded;
+      Exit;
+    end;
+    if (member.Member = 'Status') or (member.Member = 'StatusCode') then
+    begin
+      r := self.Tmp();
+      self.WriteLine('  ' + r + ' = getelementptr inbounds i64, ptr ' + selfReg + ', i64 0');
+      loaded := self.Tmp();
+      self.WriteLine('  ' + loaded + ' = load i64, ptr ' + r);
+      self.MemberType := 'i64';
+      self.LastType := 'i64';
+      result := loaded;
+      Exit;
+    end;
+  end;
+  // v0.7.0 P0a (example54): THttpClient field access — c.BaseURL reads the
+  // 32-byte handle's baseURL slot (offset 16, host emitHttpclientFieldAccess);
+  // null → empty string. The wrapper class registers no fields, so this runs
+  // before the IsClass gate.
+  if classT = 'THttpClient' then
+  begin
+    if member.Obj is TIdentifier then
+    begin
+      if self.HasLocal((member.Obj as TIdentifier).Value) then
+        objReg := self.LocalReg((member.Obj as TIdentifier).Value)
+      else
+        objReg := self.GReg((member.Obj as TIdentifier).Value);
+      selfReg := self.Tmp();
+      self.WriteLine('  ' + selfReg + ' = load ptr, ptr ' + objReg);
+    end
+    else if objEmitted = false then
+      selfReg := self.EmitExpr(member.Obj);
+    if member.Member = 'BaseURL' then
+    begin
+      r := self.Tmp();
+      self.WriteLine('  ' + r + ' = getelementptr inbounds i8, ptr ' + selfReg + ', i64 16');
+      loaded := self.Tmp();
+      self.WriteLine('  ' + loaded + ' = load ptr, ptr ' + r);
+      v := self.Tmp();
+      self.WriteLine('  ' + v + ' = icmp eq ptr ' + loaded + ', null');
+      res := self.Tmp();
+      self.WriteLine('  ' + res + ' = select i1 ' + v + ', ptr ' + self.PtrTo(self.AddString(''), 1) + ', ptr ' + loaded);
+      self.MemberType := 'ptr';
+      self.LastType := 'ptr';
+      result := res;
+      Exit;
+    end;
   end;
   if self.IsClass(classT) then
   begin
@@ -5956,7 +7545,7 @@ begin
         end;
       end;
     end
-    else
+    else if objEmitted = false then
     begin
       // e.g. member chain a.b.C
       selfReg := self.EmitExpr(member.Obj);
@@ -6029,6 +7618,7 @@ var
   objName: String;
   nargs: Integer;
   mm: String;
+  genCtorName: String;
 begin
   // v0.6.9 P4: emit recursion circuit breaker. A corrupted/garbage AST node
   // can make the emitter re-emit the same call from inside its own emission
@@ -6059,6 +7649,19 @@ begin
       begin
         self.MemberType := 'ptr';
         result := self.EmitConstructor((member.Obj as TIdentifier).Value);
+        Exit;
+      end;
+    end;
+    // v0.7.0 P0a: generic constructor `TStack<Integer>.Create(...)` — resolve
+    // the mangled instance class and allocate that.
+    if member.Obj is TGenericType then
+    begin
+      genCtorName := self.TypeExprName(member.Obj);
+      ci := self.ClassIndex(genCtorName);
+      if ci >= 0 then
+      begin
+        self.MemberType := 'ptr';
+        result := self.EmitConstructor(genCtorName);
         Exit;
       end;
     end;
@@ -6238,6 +7841,9 @@ begin
     Exit;
   end;
   methT := self.MethodRetAt(ci, fi);
+  // v0.7.0 P0a: remember the Kylix ret name — EmitMember's member-of-call
+  // path (`ctrl.ListUsers(nil).Body`) reads it to recognize boot handles.
+  self.LastRetKylix := self.MethodRetKylixAt(ci, fi);
   if methT = 'variant' then methT := 'ptr';
   // v0.6.9 P4 DBG: catch whichever operand is a runaway (garbage) string
   if Length(selfReg) > 128 then
@@ -6416,7 +8022,7 @@ end;
 
 function TLLVMGenerator.EmitArrayIndex(idx: TIndexExpression; t: String): String;
 var
-  leftName, r: String;
+  leftName, r, boxReg: String;
 begin
   // local/param array var: arr[i]
   if idx.Left is TIdentifier then
@@ -6460,10 +8066,36 @@ begin
       Exit;
     end;
   end;
+  // v0.7.0 P0a (example52/56/57): Variant-map indexing — the indexed
+  // expression evaluates to a Variant box holding a map handle (tag=map):
+  //   row['col']      — Variant local/global (DbQueryRows row / JwtVerify claims)
+  //   rows[i]['col']  — chained index; inner read yields the map box
+  // Lower to @__kylix_variant_map_get(box, key) → value box (pseudo-type ptr;
+  // downstream printing/unboxing dispatches on the tag).
+  if self.IsVariantExpr(idx.Left) then
+  begin
+    boxReg := self.EmitExpr(idx.Left);
+    result := self.EmitVariantMapGet(boxReg, idx.Index);
+    Exit;
+  end;
   // unsupported index target (map / variant — P3)
   self.LastType := 'i64';
   r := self.Tmp();
   self.WriteLine('  ' + r + ' = add i64 0, 0 ; array index (unhandled)');
+  result := r;
+end;
+
+// EmitVariantMapGet — variant-map lookup on an already-computed box register
+// (host emitVariantMapGetReg): `__kylix_variant_map_get(box, key)` → value box.
+function TLLVMGenerator.EmitVariantMapGet(boxReg: String; keyExpr: TExpression): String;
+var
+  keyReg, r: String;
+begin
+  self.NeedHashtab := true;
+  keyReg := self.EmitExpr(keyExpr);
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = call ptr @__kylix_variant_map_get(ptr ' + boxReg + ', ptr ' + keyReg + ')');
+  self.LastType := 'ptr';
   result := r;
 end;
 
@@ -6635,6 +8267,9 @@ var
   idxReg, zeroIdx, dataPtrLoc, dataPtr, dataPtr2, ptr, loaded: String;
   ctypes: array of String;
   elemLLVM: String;
+  // v0.7.0 P0a: static array fields (example21)
+  isDyn, isStatic: Boolean;
+  slot, elemK2, elemT2, adj2, elemPtr2, loaded2: String;
 begin
   result := false;
   mem := idx.Left as TMemberExpression;
@@ -6655,7 +8290,18 @@ begin
   for i := 0 to self.ClassFieldCountAt(ci) - 1 do
     append(ctypes, self.FieldTypeAt(ci,i));
   fieldT := ctypes[fi];
-  if fieldT <> '{ ptr, i64, i64 }' then Exit;
+  // dynamic slice fields AND static `[N x elem]` fields are handled here;
+  // anything else (maps etc.) falls through to the caller's other paths.
+  isDyn := fieldT = '{ ptr, i64, i64 }';
+  isStatic := false;
+  if Length(fieldT) > 2 then
+  begin
+    if fieldT[0:1] = '[' then
+    begin
+      if self.StrContains(fieldT, ' x ') then isStatic := true;
+    end;
+  end;
+  if (isDyn = false) and (isStatic = false) then Exit;
   // resolve self/obj ptr
   if mem.Obj is TIdentifier then
   begin
@@ -6683,6 +8329,41 @@ begin
   end
   else
     selfReg := self.EmitExpr(mem.Obj);
+  // v0.7.0 P0a: static array field — the slot IS the array (no slice struct):
+  // GEP the field slot, then GEP the element (host emitArrayIndex
+  // MemberExpression branch). Lower bound 0 (bootstrap static class fields).
+  if isStatic then
+  begin
+    slot := self.Tmp();
+    self.WriteLine('  ' + slot + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 ' + self.IntToStrS(fi + 1));
+    idxReg := self.EmitExpr(idx.Index);
+    adj2 := self.Tmp();
+    self.WriteLine('  ' + adj2 + ' = add i64 ' + idxReg + ', 0');
+    // element LLVM type mirrors how the '[N x T]' field type was baked
+    elemK2 := self.FieldElemKylixAt(ci, fi);
+    if elemK2 = 'String' then
+      elemT2 := 'ptr'
+    else if (elemK2 <> '') and self.IsClass(elemK2) then
+      elemT2 := 'ptr'
+    else
+      elemT2 := self.LlvmTypeFor(elemK2);
+    elemPtr2 := self.Tmp();
+    self.WriteLine('  ' + elemPtr2 + ' = getelementptr ' + fieldT + ', ptr ' + slot + ', i64 0, i64 ' + adj2);
+    loaded2 := self.Tmp();
+    self.WriteLine('  ' + loaded2 + ' = load ' + elemT2 + ', ptr ' + elemPtr2);
+    self.LastArrayReg := loaded2;
+    if elemT2 = 'ptr' then
+    begin
+      if (elemK2 <> '') and self.IsClass(elemK2) then
+        self.LastType := elemK2
+      else
+        self.LastType := 'ptr';
+    end
+    else
+      self.LastType := elemT2;
+    result := true;
+    Exit;
+  end;
   // data ptr = GEP field slot (index fi+1) → load {ptr,len,cap} → extract 0
   dataPtrLoc := self.Tmp();
   self.WriteLine('  ' + dataPtrLoc + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 ' + self.IntToStrS(fi + 1));
@@ -7199,6 +8880,10 @@ var
   line: String;
   // helper emitter temps
   cSlot, iSlot, eq, condLbl, loopLbl, c, ii, oob, bodyLbl: String;
+  // v0.7.0 P0a: keepSift — compound `and` in the sort loop compiled string `>`
+  // to ptrtoint pointer comparison in bootstrap; nested if + flag walks strcmp
+  keepSift: Boolean;
+  curC: String;
   slot, cvtPtr, cvt, iscur, foundLbl, loopNextLbl: String;
   pvtPtr, par, match, found2Lbl, i1r: String;
   retTrueLbl, retFalseLbl: String;
@@ -7218,11 +8903,28 @@ begin
     tmpC := edgesC[i];
     tmpP := edgesP[i];
     j := i;
-    while (j > 0) and (edgesC[j-1] > tmpC) do
+    // v0.7.0 P0a: nested if instead of compound and — the compound form made
+    // the string `>` compare ptrtoint pointer values instead of strcmp
+    keepSift := true;
+    while keepSift do
     begin
-      edgesC[j] := edgesC[j-1];
-      edgesP[j] := edgesP[j-1];
-      j := j - 1;
+      if j > 0 then
+      begin
+        // v0.7.0 P0a: String local relay — array-element reads don't set
+        // LastType, so `edgesC[j-1] > tmpC` compared pointer values; going
+        // through a String local makes both sides typed ptr → strcmp
+        curC := edgesC[j-1];
+        if curC > tmpC then
+        begin
+          edgesC[j] := edgesC[j-1];
+          edgesP[j] := edgesP[j-1];
+          j := j - 1;
+        end
+        else
+          keepSift := false;
+      end
+      else
+        keepSift := false;
     end;
     edgesC[j] := tmpC;
     edgesP[j] := tmpP;

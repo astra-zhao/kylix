@@ -2,7 +2,7 @@
 # Kylix Compiler Build Script
 
 echo "Building Kylix Compiler..."
-go build -o kylix main.go
+go build -o kylix ./cmd/kylix/
 
 if [ $? -eq 0 ]; then
     echo "✓ Build successful!"

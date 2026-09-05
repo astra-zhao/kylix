@@ -217,6 +217,23 @@ func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 		}
 
 		switch ident.Value {
+		case "error":
+			// v0.7.0 P0b: error('msg') constructs an error value (nil = success).
+			if len(e.Arguments) == 1 {
+				g.imports["errors"] = true
+				g.write("errors.New(")
+				g.generateExpression(e.Arguments[0])
+				g.write(")")
+				return
+			}
+		case "ErrorStr":
+			// v0.7.0 P0b: ErrorStr(err) — nil-safe error message extraction.
+			if len(e.Arguments) == 1 {
+				g.write("func() string { if e := ")
+				g.generateExpression(e.Arguments[0])
+				g.write("; e != nil { return e.Error() }; return \"\" }()")
+				return
+			}
 		case "Ord":
 			if len(e.Arguments) == 1 {
 				// Ord(s) → func() int64 { if len(s)==0 { return 0 }; return int64(s[0]) }()

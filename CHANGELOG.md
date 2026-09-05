@@ -12,6 +12,33 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
+## v0.7.0 (进行中) — web 页面开发 + web 框架
+
+### P0b：error 类型语言特性（host + LLVM + bootstrap 三端）
+
+- **语言设计**（已评审批准）：`error` 内建类型——函数可返回 `(T, error)` 或裸 `error`；`nil` 为成功值；`error('msg')` 构造；`ErrorStr(err)` 内建提取消息（nil 安全返回 `''`）；`err <> nil` 判错。多返回值解构 `(name, err) := FindUser(...)` 复用现有元组机制。
+- **Host Go 后端**：类型表达式 `error` → Go `error` 接口；`error('msg')` → `errors.New`（预扫描补 import——单文件 Generate 路径在 body 前发射 imports，body 期新增会丢失）；`ErrorStr` 内联 nil 守卫闭包。**顺带修复多返回解构赋值**：新增 `declaredVars` 跟踪（var/参数/全局注册），LHS 全部已声明时发 `=`（第二次 `(name, err) := F(...)` 曾重复声明编译错误）。
+- **Host LLVM 后端**：`error` → 可空消息字符串（ptr，nil = null）；`var e: error` alloca 走 `_str` 后缀（emitIdentLoad 按 ptr 加载）；`error('msg')` → 消息字符串 ptr；`ErrorStr` → `select` null→emptystr；`err <> nil` → `icmp ne ptr`（nil 字面量侧不走 strcmp 的既有守卫覆盖）。
+- **Bootstrap emitter 同步**：`LlvmTypeFor` 加 `'error' → 'ptr'`（SuffixFor 自动 `_str`）；EmitCall 派发 `error`/`ErrorStr` 同款 lowering。
+- **验收**：example58（`(String, error)` 多返回 + 裸 error 返回 + `err <> nil` + ErrorStr）**三端输出逐字一致**；16 包 + 51 教程全绿；不动点 fp1 ≡ fp2 保持。
+
+### P0a：bootstrap sweep 假绿破案 + 真实 50 PASS（v0.7.0 前置）
+
+**背景**：v0.6.9 的 sweep 脚本存在假绿（`| tail -1` 吞 rebuild 失败），修复 run_with_timeout 后真实基线为 **35 PASS / 15 DIFF / 1 SKIP**。P0a 把 15 处真实分歧逐一修复至 **50 PASS / 0 FAIL / 1 SKIP**（example33 多文件为 host 端 SKIP）。
+
+**emitter 补缺**（全部在 `src/llvmgen.klx`）：
+- **repeat/case/try-except-finally-raise/lambda/multireturn/泛型单态化/record 全局分配**等 10 类语句级缺口。
+- **member-of-call（example41）**：`Fn(...).Field`——`LastRetKylix` 类型通道（`ClassRetKylix`/`MethodRetKylixAt`/`VtRetK` 并行数组，vtable 注册时同步存 Kylix ret 名）+ TResponse/BootResponse 句柄块（identifier receiver `load i64`→inttoptr，Body=GEP+8/Status=GEP+0）+ BootText/BootHTML 内联（malloc 16B 句柄）。
+- **DbExec/DbQueryScalar 内联（example52）**：host 端为 call-site 内联无烘焙体，bootstrap 在 EmitStdlibCall 镜像 sqlite 序列（prepare/bind/step/finalize/changes）；顺带修 `sqlite3_bind_text` declare 参数表（6 参错版→5 参）。
+- **variant-map 链式索引（example52/56/57）**：`IsVariantExpr` 链式递归 + `EmitVariantMapGet` + `EmitArrayIndex` variant 路径 + `var rows := DbQueryRows(...)` 推断分支 RegisterArray + `WriteLn` 单参 variant 打印。
+- **TCache.Clear（example53）**：htab + ttl 两 slot 各 `__kylix_htab_clear`。
+- **THttpClient.BaseURL（example54）**：GEP+16 load + null→emptystr select。
+
+**EmitClassRuntime classtab 排序 bug（不动点最后一行分歧）**：
+- **根因 1**：排序循环 `while (j > 0) and (edgesC[j-1] > tmpC)` 复合 `and` 中的字符串 `>` 被发射成 `ptrtoint`+`icmp sgt`——**指针值比较**而非 strcmp（复合布尔条件坑的又一形态，坑清单 +1：**复合 and/or 中的字符串比较也会丢 strcmp 路径，一律嵌套 if**）。
+- **根因 2**：嵌套 if 后 LHS 仍走指针比较——**动态数组 String 元素读取（`edgesC[j-1]`）不设 LastType**（emit 通道留 i64），EmitInfix 据此派发数值比较。修复：String 局部变量中转（`curC := edgesC[j-1]; if curC > tmpC then`），两侧 LastType 均为 ptr → strcmp。坑清单 +1：**数组元素读后做字符串比较，须局部变量中转**。
+- 修复后不动点全链复验：**fp1 ≡ fp2 ≡ fp3（~226k 行逐字节）**，gen2 ≡ gen3 行为一致。
+
 ## v0.6.9 (2026-09-04) — bootstrap 无 Go 闭环（stdlib IR 烘焙 + gen2 编译器诞生 + IR 不动点）
 
 > 分两阶段：**P3**（stdlib IR 烘焙 + bootstrap emitter 大规模补缺）与 **P4**（llc 错误驱动的自举闭环冲刺）。全程以 `scripts/test_bootstrap_all.sh` 的 51 教程 bootstrap-vs-host 输出 diff 为回归基线。

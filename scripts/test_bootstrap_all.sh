@@ -29,6 +29,24 @@ KNOWN_FAILS=" example15_lambda example50_jwt_auth "
 mkdir -p "$OUT"
 PASS=0; FAIL=0; SKIP=0; KNOWN=0
 
+# run_with_timeout SECS CMD... — run a command with a wall-clock limit.
+# v0.6.9 post-release fix: on macOS `timeout` (GNU coreutils) is often absent,
+# in which case `$(timeout ...)` fails with rc=127 and captures an EMPTY
+# string — so host_out == boot_out == "" and every example vacuously PASSed
+# without ever diffing real output. Fail loudly when no timeout mechanism
+# exists; prefer `timeout`, then `gtimeout`, then a perl alarm+exec fallback.
+if command -v timeout >/dev/null 2>&1; then
+  run_with_timeout() { timeout "$@"; }
+elif command -v gtimeout >/dev/null 2>&1; then
+  run_with_timeout() { gtimeout "$@"; }
+elif command -v perl >/dev/null 2>&1; then
+  run_with_timeout() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+else
+  echo "ERROR: no timeout/gtimeout/perl available — refusing to run a sweep" \
+       "that cannot actually compare program output (see header comment)." >&2
+  exit 2
+fi
+
 for f in "$TUT"/*/*.klx; do
   name=$(basename "$f" .klx)
   # unit files (no main statements) are not runnable programs — they are
@@ -41,7 +59,7 @@ for f in "$TUT"/*/*.klx; do
     echo "SKIP $name (host build failed)"
     SKIP=$((SKIP+1)); continue
   fi
-  host_out=$(timeout "$TIMEOUT" "$OUT/${name}_host" 2>/dev/null </dev/null)
+  host_out=$(run_with_timeout "$TIMEOUT" "$OUT/${name}_host" 2>/dev/null </dev/null)
   host_rc=$?
 
   # ---- bootstrap pipeline ----
@@ -63,7 +81,7 @@ for f in "$TUT"/*/*.klx; do
     echo "FAIL $name (link)"; head -4 "$OUT/$name.clang.err" | sed 's/^/    /'
     FAIL=$((FAIL+1)); continue
   fi
-  boot_out=$(timeout "$TIMEOUT" "$OUT/${name}_boot" 2>/dev/null </dev/null)
+  boot_out=$(run_with_timeout "$TIMEOUT" "$OUT/${name}_boot" 2>/dev/null </dev/null)
   boot_rc=$?
 
   if [ "$boot_out" == "$host_out" ]; then

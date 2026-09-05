@@ -755,6 +755,10 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 			suffix = "_real"
 		case "string":
 			suffix = "_str"
+		case "error":
+			// v0.7.0 P0b: error slot is a nullable message string (ptr) —
+			// `_str` suffix so emitIdentLoad loads it as ptr.
+			suffix = "_str"
 		}
 	}
 	allocaReg := g.freshVarReg(name, suffix)
