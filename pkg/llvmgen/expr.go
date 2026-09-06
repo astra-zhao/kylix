@@ -276,6 +276,15 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 		return g.emitExpr(constExpr)
 	}
 
+	// v0.7.0 P1: `self` is the receiver *parameter* (ptr %self), not an
+	// alloca holding a value — loading it would dereference the object
+	// header (vtable ptr). Pass the pointer itself (e.g. `Foo(self)`).
+	if name == "self" {
+		if reg, ok := g.locals["self"]; ok && reg == "%self" {
+			return "%self", "ptr", nil
+		}
+	}
+
 	// v0.5.4: check LOCALS before globals — a local variable (e.g. the loop
 	// counter `i` in `for i := 0 to N do stmts[i]`) must shadow a same-named
 	// global (e.g. main's global `i`). Without this, `stmts[i]` loads the

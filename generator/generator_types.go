@@ -119,6 +119,9 @@ func (g *Generator) writeClassReceiverType(className string, typeParams []*ast.T
 // generateClassMethod emits a single method bound to *ClassName.
 func (g *Generator) generateClassMethod(className string, typeParams []*ast.TypeParameter, method *ast.FunctionDecl) {
 	hasReturnType := method.ReturnType != nil || len(method.ReturnTypes) > 0
+	hasMultiReturn := len(method.ReturnTypes) > 1
+	g.multiReturn = hasMultiReturn
+	g.multiReturnN = len(method.ReturnTypes)
 
 	g.write("func (self *")
 	g.writeClassReceiverType(className, typeParams)
@@ -139,6 +142,8 @@ func (g *Generator) generateClassMethod(className string, typeParams []*ast.Type
 			g.generateTypeExpression(method.ReturnTypes[0])
 			g.write("\n")
 		}
+		// Multi-return methods declare no single `result` — `result := (a, b)`
+		// lowers to `return a, b` via the multiReturn flag.
 	}
 
 	for _, local := range method.LocalDecls {
@@ -147,6 +152,16 @@ func (g *Generator) generateClassMethod(className string, typeParams []*ast.Type
 			g.generateLocalVarDecl(d)
 		case *ast.ConstDecl:
 			g.generateLocalConstDecl(d)
+		}
+	}
+
+	// Suppress "declared and not used" for local vars. Must come BEFORE the
+	// body: with multi-return methods the body itself ends in `return a, b`
+	// (via if/else), and a trailing `_ = x` after it would become the final
+	// non-terminating statement — Go then reports "missing return".
+	for _, local := range method.LocalDecls {
+		if vd, ok := local.(*ast.VarDecl); ok && len(vd.Names) == 1 {
+			g.write(fmt.Sprintf("_ = %s\n", vd.Names[0]))
 		}
 	}
 
@@ -160,17 +175,12 @@ func (g *Generator) generateClassMethod(className string, typeParams []*ast.Type
 		g.inReturnFunc = false
 	}
 
-	// Suppress "declared and not used" for local vars.
-	for _, local := range method.LocalDecls {
-		if vd, ok := local.(*ast.VarDecl); ok && len(vd.Names) == 1 {
-			g.write(fmt.Sprintf("_ = %s\n", vd.Names[0]))
-		}
-	}
-
-	if hasReturnType {
+	if hasReturnType && !hasMultiReturn {
 		g.writeLine("return result")
 	}
 	g.clearVarParams() // v0.6.0
+	g.multiReturn = false
+	g.multiReturnN = 0
 
 	g.indent--
 	g.writeLine("}")
@@ -388,6 +398,17 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 		}
 	}
 
+	// v0.7.0 P1: emit unused-var suppressions BEFORE the body for multi-return
+	// functions — a trailing `_ = x` after the final `return a, b` makes the
+	// last statement non-terminating (Go "missing return").
+	if hasMultiReturn {
+		for _, local := range decl.LocalDecls {
+			if vd, ok := local.(*ast.VarDecl); ok && len(vd.Names) == 1 {
+				g.write(fmt.Sprintf("_ = %s\n", vd.Names[0]))
+			}
+		}
+	}
+
 	if decl.Body != nil {
 		g.inFunction = true
 		g.inReturnFunc = hasReturnType
@@ -398,9 +419,11 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 		g.inReturnFunc = false
 	}
 
-	for _, local := range decl.LocalDecls {
-		if vd, ok := local.(*ast.VarDecl); ok && len(vd.Names) == 1 {
-			g.write(fmt.Sprintf("_ = %s\n", vd.Names[0]))
+	if !hasMultiReturn {
+		for _, local := range decl.LocalDecls {
+			if vd, ok := local.(*ast.VarDecl); ok && len(vd.Names) == 1 {
+				g.write(fmt.Sprintf("_ = %s\n", vd.Names[0]))
+			}
 		}
 	}
 
@@ -708,7 +731,9 @@ func (g *Generator) mapBuiltinFunction(name string) string {
 		"ReadLn":    "fmt.Scanln",
 		"Read":      "fmt.Scan",
 		"IntToStr":  "fmt.Sprintf",
-		"StrToInt":  "strconv.ParseInt",
+		// "StrToInt" removed (v0.7.0 P1): it mapped to strconv.ParseInt, which
+		// has two return values — every call site failed to compile. StrToInt
+		// is now handled in generateCallExpression as a single-value wrapper.
 		"Length":    "len",
 		"Copy":      "copy",
 		"Concat":    "fmt.Sprintf",

@@ -1,14 +1,85 @@
 unit template;
 
-// template — HTML/template rendering engine.
+// template — v0.7.0 P1: pure-Kylix template engine (Mustache-style {{}}).
+// Real implementation: stdlib/template_engine.klx (works on Go and LLVM
+// backends and the bootstrap compiler — no Go text/template dependency).
+//
+// Syntax:
+//   {{ name }}            HTML-escaped interpolation
+//   {{{ name }}}          raw interpolation
+//   {{ user.name }}       dotted lookup (flattened keys)
+//   {{ name | upper }}    filter pipeline (| filter[:arg])
+//   {{#each items}} ... {{ . }} ... {{ @index }} ... {{/each}}
+//   {{#if cond}}A{{else}}B{{/if}}
+//   {{! comment }}
+// Filters (12): upper lower capitalize title trim length escape raw
+//               default:<s> truncate:<n> replace:<a>:<b> nl2br
+//
+// Entry point: RenderTemplate(eng, tpl): (String, error).
+// (RenderString returns String only — class-method tuple returns are not
+// supported by the LLVM vtable emitter yet; errors go through ErrorMsg.)
 
 type
   TTemplateEngine = class
-  end;
-  TView = class
+    constructor Create;
+    procedure AddVar(name: String; value: String);
+    procedure AddInt(name: String; value: Integer);
+    procedure BeginList(name: String);
+    procedure AddItem(value: String);
+    procedure BeginItem;
+    procedure ItemField(key: String; value: String);
+    procedure NextItem;
+    procedure EndList;
+    function ListLen(name: String): Integer;
+    function RenderString(tpl: String): String;
+    function ErrorMsg: String;
   end;
 
-function NewTemplateEngine(): TTemplateEngine;
-function NewView(engine: TTemplateEngine; name: String): TView;
+procedure TTemplateEngine.AddVar(name: String; value: String);
+begin
+end;
+
+procedure TTemplateEngine.AddInt(name: String; value: Integer);
+begin
+end;
+
+procedure TTemplateEngine.BeginList(name: String);
+begin
+end;
+
+procedure TTemplateEngine.AddItem(value: String);
+begin
+end;
+
+procedure TTemplateEngine.BeginItem;
+begin
+end;
+
+procedure TTemplateEngine.ItemField(key: String; value: String);
+begin
+end;
+
+procedure TTemplateEngine.NextItem;
+begin
+end;
+
+procedure TTemplateEngine.EndList;
+begin
+end;
+
+function TTemplateEngine.ListLen(name: String): Integer;
+begin
+  result := 0;
+end;
+
+function TTemplateEngine.RenderString(tpl: String): String;
+begin
+  result := '';
+end;
+
+function TTemplateEngine.ErrorMsg: String;
+begin
+  result := '';
+end;
 
 end.

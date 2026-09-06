@@ -91,7 +91,12 @@ func (g *Generator) generateExpressionStatement(s *ast.ExpressionStatement) {
 
 	// Exit → return result (in functions) or return
 	if ident, ok := s.Expression.(*ast.Identifier); ok && ident.Value == "Exit" {
-		if g.inReturnFunc {
+		if g.multiReturn {
+			// v0.7.0 P1: multi-return functions have no `result` var — a
+			// `result := (a, b)` assignment already returns immediately, so a
+			// following `exit` is unreachable; emit nothing (a bare
+			// `return result` would be a Go compile error).
+		} else if g.inReturnFunc {
 			g.write("return result\n")
 		} else {
 			g.write("return\n")
@@ -157,6 +162,13 @@ func (g *Generator) generateLocalVarDecl(decl *ast.VarDecl) {
 			g.generateTypeExpression(decl.Type)
 		} else {
 			g.write("interface{}")
+		}
+		if _, isMap := decl.Type.(*ast.MapType); isMap {
+			// Map vars must be initialized to avoid nil map panics
+			// (same as global var decls).
+			g.write(" = ")
+			g.generateTypeExpression(decl.Type)
+			g.write("{}")
 		}
 		g.write("\n")
 	}

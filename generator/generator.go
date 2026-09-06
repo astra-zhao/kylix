@@ -42,6 +42,7 @@ type Generator struct {
 	classTypes       map[string]bool                 // user-defined class type names
 	classIsBase      map[string]bool                 // true if class is a parent (→ interface{} in type exprs)
 	classFields      map[string][]string             // class name → ordered field names (for constructor mapping)
+	classCtors       map[string]bool                 // v0.7.0 P1: class name → has user-defined Create constructor
 	classTypeParams  map[string][]*ast.TypeParameter // class name → generic type parameters
 	bootRoutes       []bootRoute                     // KylixBoot annotation-generated routes
 	bootComponents   []bootComponent                 // KylixBoot service/component singletons
@@ -54,6 +55,7 @@ type Generator struct {
 	userFuncs        map[string]bool                 // user-defined function names (override built-in mapping)
 	funcParams       map[string][]*ast.Parameter     // v0.6.0: function name → parameter list (for `&` at var-arg call sites)
 	usedModules      map[string]bool                 // modules imported via `uses` clause
+	localUnits       map[string]bool                 // v0.7.0 P1: unit names compiled in this batch (uses → local, not stdlib)
 	usesPolymorphism bool                            // true if any compiled program uses `is`/`as` (→ base classes become interfaces). See v0.5.2.
 }
 
@@ -67,12 +69,14 @@ func New() *Generator {
 		classTypes:       make(map[string]bool),
 		classIsBase:      make(map[string]bool),
 		classFields:      make(map[string][]string),
+		classCtors:       make(map[string]bool),
 		classTypeParams:  make(map[string][]*ast.TypeParameter),
 		validationFields: make(map[string][]validationField),
 		ormEntities:      make(map[string]*ormEntity),
 		userFuncs:        make(map[string]bool),
 		funcParams:       make(map[string][]*ast.Parameter),
 		usedModules:      make(map[string]bool),
+		localUnits:       make(map[string]bool),
 	}
 }
 
@@ -84,6 +88,11 @@ func (g *Generator) CollectClassTypes(p *ast.Program) { g.collectClassTypes(p) }
 
 // ScanImports is the exported pre-scan pass for cross-package use.
 func (g *Generator) ScanImports(p *ast.Program) { g.scanImports(p) }
+
+// SetLocalUnits records the unit names compiled in this batch (v0.7.0 P1):
+// `uses X` where X is one of them resolves to the same-batch unit file, not
+// the Go stdlib package. Callers must invoke it BEFORE ScanImports.
+func (g *Generator) SetLocalUnits(names map[string]bool) { g.localUnits = names }
 
 // ScanForException is the exported pre-scan pass for cross-package use.
 func (g *Generator) ScanForException(p *ast.Program) { g.scanForException(p) }
@@ -216,6 +225,18 @@ func (g *Generator) writeRuntimeHelpers() {
 
 // GenerateMulti compiles multiple Kylix source files into a single Go package.
 func (g *Generator) GenerateMulti(programs []*ast.Program) string {
+	// v0.7.0 P1: units compiled in this batch resolve their own `uses` — a
+	// same-batch unit name must not trigger the kylix/stdlib import (e.g.
+	// `uses template` now resolves to stdlib/template_engine.klx, not the
+	// retired Go text/template wrapper).
+	localUnits := make(map[string]bool)
+	for _, prog := range programs {
+		if prog.IsUnit && prog.UnitName != "" {
+			localUnits[prog.UnitName] = true
+		}
+	}
+	g.localUnits = localUnits
+
 	for _, prog := range programs {
 		g.collectClassTypes(prog)
 	}
@@ -461,6 +482,14 @@ func (g *Generator) collectClassTypes(program *ast.Program) {
 					g.classFields[d.Name] = append(g.classFields[d.Name], name)
 				}
 			}
+			for _, m := range d.Methods {
+				if m.Name == "Create" {
+					// v0.7.0 P1: user-defined constructor — Create() call sites
+					// must invoke it (LLVM backend already does; see class.go
+					// emitConstructor).
+					g.classCtors[d.Name] = true
+				}
+			}
 		case *ast.TypeDecl:
 			if cd, ok := d.Type.(*ast.ClassDecl); ok {
 				g.classTypes[d.Name] = true
@@ -471,6 +500,11 @@ func (g *Generator) collectClassTypes(program *ast.Program) {
 				for _, field := range cd.Fields {
 					for _, name := range field.Names {
 						g.classFields[d.Name] = append(g.classFields[d.Name], name)
+					}
+				}
+				for _, m := range cd.Methods {
+					if m.Name == "Create" {
+						g.classCtors[d.Name] = true
 					}
 				}
 			}
@@ -553,6 +587,10 @@ func (g *Generator) scanImports(program *ast.Program) {
 	// uses clause → stdlib package + record used modules
 	for _, module := range program.Uses {
 		g.usedModules[module] = true
+		if g.localUnits[module] {
+			// v0.7.0 P1: resolved by a unit file in the same build batch.
+			continue
+		}
 		switch module {
 		case "web", "container", "config", "middleware", "validation",
 			"orm", "template", "autoconfig", "sysutil", "jsonutil",
@@ -695,7 +733,7 @@ func (g *Generator) scanExpressionForImports(expr ast.Expression) {
 			g.scanExpressionForImports(arg)
 		}
 		if ident, ok := e.Function.(*ast.Identifier); ok {
-			if ident.Value == "StrToInt64" || ident.Value == "StrToFloat" {
+			if ident.Value == "StrToInt64" || ident.Value == "StrToFloat" || ident.Value == "StrToInt" {
 				g.imports["strconv"] = true
 			}
 			if ident.Value == "error" {
@@ -731,6 +769,10 @@ func (g *Generator) scanExpressionForImports(expr ast.Expression) {
 			}
 		case ast.Expression:
 			g.scanExpressionForImports(body)
+		}
+	case *ast.TupleLiteral:
+		for _, elem := range e.Elements {
+			g.scanExpressionForImports(elem)
 		}
 	case *ast.StringInterpolation:
 		for _, part := range e.Parts {

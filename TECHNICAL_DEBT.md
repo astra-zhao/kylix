@@ -1,10 +1,21 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-08-31
-> 当前版本: v0.6.9 进行中（bootstrap 无 Go 闭环 P3+P4）
+> 最后更新: 2026-09-06
+> 当前版本: v0.7.0 进行中（web 页面开发 + web 框架 P1）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v0.3.1 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
+
+---
+
+## 🚧 v0.7.0 已知问题（2026-09-06）
+
+### emitter / 工具链缺口（P1 模板引擎开发中发现）
+
+- [x] **~~bootstrap 类字段 map 索引崩溃~~（P1 收尾已修，2026-09-06）**：`TryClassFieldMapIndexPut/Get` 把字段槽地址直接传 `__kylix_htab_put/get`（缺 `load`）——htab_find 把表头 `{buckets,count}` 当桶数组（count=1 被当节点指针 → `KERN_INVALID_ADDRESS at 0x1`）、htab_put 的 `size++` 越对象尾写坏堆（lldb 下堆布局不同侥幸不崩，崩溃报告指认 `htab_find+40`）。教程无 `self.MapField[k]` 场景所以 v0.6.9 sweep 从未触发。修为 GEP 后 load 字段槽（镜像 host）；两端 `__kylix_htab_clear` 的循环体内 alloca 同步提到 entry
+- [ ] **LLVM 端类方法多返回不支持**：vtable 槽单 RetType，类方法返回 `(A, B)` 发射成 `call void` + `extractvalue void` → llc 报错（unit-level 函数多返回三端 OK）。规避：拆成单返回方法 + 独立取值方法（如 `RenderString` + `ErrorMsg`）；模板引擎已按此模式编写
+- [ ] **增量编译缓存不感知 emitter 变化**：`.kylix-cache/`（pkg/compiler/cache.go）按源文件内容指纹复用生成的 Go body——**改 generator/llvmgen 后缓存不失效**，回归测试可能测到旧代码。规避：改发射器后 `rm -rf .kylix-cache`；改进方向：缓存指纹加入编译器版本/源码哈希
+- [ ] **htab 约定脆弱（无类型防护）**：htab 系列函数族参数是"表指针"，但类字段/局部变量侧存的是"槽"——历史上两端各缺一次 `load` 的形态都出现过（host 端 emitMapFieldIndexPut 曾在 v0.5.6 修、bootstrap 端 P1 才修）。改进方向：htab_find/put 入口校验 `%t` 指向的头 16 字节是否为合法表（如 magic number），调试期可快速定位此类传参错误
 
 ---
 

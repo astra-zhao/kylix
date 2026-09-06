@@ -14,6 +14,23 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ## v0.7.0 (进行中) — web 页面开发 + web 框架
 
+### P1：纯 Kylix 模板引擎 template_engine.klx
+
+- **`stdlib/template_engine.klx`（~1080 行，unit `template`，纯 Kylix 编写）**：Mustache 风格 `{{}}` 模板引擎，替代已删除的 Go `text/template` 包装（stdlib/template.go，473 行）——Go 后端 / LLVM 后端 / bootstrap 三端同源可用。**全展平字符串数据模型**（`Scalars: map[String]String` 存 `'title'`/`'user.name'`/`'users.0.name'`，`ListLens: map[String]Integer` 存列表长度）规避 Variant/嵌套 map 三端差异；前缀栈（Prefixes/Indexes 槽位复用）实现 each 嵌套作用域。
+- **语法**：`{{ name }}` 自动 HTML 转义 / `{{{ name }}}` raw / `{{ user.name }}` 点号查找 / `{{ name | upper }}` 过滤器管道 / `{{#each list}}`（`{{ . }}` 当前项 + `{{ @index }}` 索引）/ `{{#if cond}}...{{else}}...{{/if}}`（''/'0'/'false' 为假）/ `{{! comment }}` 剥离。**12 过滤器**：upper lower capitalize title trim length escape raw default:N truncate:N replace:a:b nl2br。
+- **API**：数据侧 `AddVar/AddInt/BeginList/AddItem/BeginItem/ItemField/NextItem/EndList/ListLen`；渲染入口 **unit-level `RenderTemplate(eng, tpl): (String, error)`**（多返回复用 P0b error 机制）。`RenderString(tpl): String` + `ErrorMsg(): String` 为方法级底层接口（错误存 LastError）——拆成两个方法是因为 **LLVM vtable 发射器不支持类方法多返回**（vtable 槽单 RetType，`call void` + `extractvalue` 报错；unit-level 函数多返回三端 OK，缺口记入 TECHNICAL_DEBT）。
+- **教程 example59**（22_web_pages）：14 组演示（escape/raw/dots/upper/chain/trunc/deflt/len/each 对象列表/tags 标量列表/if 真值/comment/error），host Go 输出全对。
+- **🎉 bootstrap 端打通（三端闭环）+ 破案 bootstrap 类字段 map 索引崩溃**：example59 bootstrap 管线（`--emit-llvm` → llc → clang，含 -lcrypto/-lsqlite3/-lcurl 链接）与 host Go 输出**逐字一致（BOOTSTRAP OUTPUT IDENTICAL）**。收尾前 bootstrap 端 min 探针稳定 SIGSEGV/SIGBUS（lldb 下反而正常），排查链（memset 降级/GOT 链式 fixup/__stubs section 错位/ASLR 均排除）最终定位真根因——**`TryClassFieldMapIndexPut/Get` 把字段槽地址（GEP 结果）直接传给 `__kylix_htab_put/get`，缺字段槽的 `load`**：htab 约定参数是表指针（find/put 内部 `load %t` 取 buckets），传槽地址使 htab_find 把表头 `{buckets, count}` 当桶数组索引（`count=1` 被当节点指针解引用 → `KERN_INVALID_ADDRESS at 0x1`），htab_put 的 `size++` 越过 16 字节类对象写坏 malloc 堆元数据（lldb 下堆布局不同侥幸不崩）。修为 GEP 后 `load` 字段槽再调用（镜像 host `emitMapFieldIndexPut/Get`——host 端一直正确，教程无 `self.MapField[k]` 场景所以从未触发）。同型缺口修 2 处：`src/llvmgen.klx` TryMapIndexStore 字段分支 + TryClassFieldMapIndexGet。
+- **顺带修复（两端同病）**：`__kylix_htab_clear` 的 `nodeSlot` alloca 在桶循环体内（非 entry 块静态 alloca）——每次迭代新栈分配（256 次/clear，重复调用无界累积）；两端同步提到 entry 块。
+- **清理**：删除 stdlib/template.go + stdlib/template_test.go（旧 Go text/template 包装，473+95 行）；`generator_stdlib.go` 移除 `template` 模块启发式条目（纯 Kylix 多文件编译不再需要 Go 侧实现）；`stdlib/klx/template.klx` 声明改为新 `TTemplateEngine` 类 API（类内 `constructor Create`，klx 解析器不支持类外 constructor）；清理仓库根调试遗留（m.go、web_advanced.go、src/stdlib_ir.ll/.o 构建产物）。
+- **sweep 集成**：`scripts/test_bootstrap_all.sh` 新增 example59 多文件特判（template_engine + example59，镜像 example33 块）。
+- **host 端修复 3 项**（本轮连带）：
+  1. **多返回 unit 函数 suppress 位置**：`_ = x` 未用变量抑制行原挂在 body 之后——`return a, b` 后的 `_ = x` 成为最后非 terminating 语句 → Go "missing return"；修为多返回时抑制行移到 body 之前（与类方法 P1 修法一致）。
+  2. **多返回模式 `exit`**：发 `return result`（多返回无 result 槽）→ Go 编译错误；修为发空（`result := (a,b)` 赋值已立即 return，exit 不可达）。
+  3. **StrToInt 双值 bug 收尾**：builtinMap 已移除 `StrToInt: strconv.ParseInt` 错误映射（ParseInt 返回两值），调用点发单值 `strconv.ParseInt` 包装 + imports 预扫描。
+- **LLVM 端修复 1 项**：**`self` 作为实参传给 unit-level 函数被二次解引用**——emitIdentLoad 把 `self` 当 alloca load（`load ptr, ptr %self` 取出 vtable 指针传入）→ 段错误；修为 `self` 直接返回 `%self` 指针本体。
+- **已验证**：语言探针（类 map 字段/动态数组/多返回解构）+ 最小复现探针（self 传参）host 双端一致；模板引擎 14 项演示 host Go 端全绿；**host LLVM 端 ✅ + bootstrap 端 ✅（example59 三端输出一致，见下）**。
+
 ### P0b：error 类型语言特性（host + LLVM + bootstrap 三端）
 
 - **语言设计**（已评审批准）：`error` 内建类型——函数可返回 `(T, error)` 或裸 `error`；`nil` 为成功值；`error('msg')` 构造；`ErrorStr(err)` 内建提取消息（nil 安全返回 `''`）；`err <> nil` 判错。多返回值解构 `(name, err) := FindUser(...)` 复用现有元组机制。

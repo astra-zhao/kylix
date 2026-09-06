@@ -47,19 +47,19 @@ return min, max
 
 func main() {
 //line example16_multireturn.klx:33
-quotient, remainder := DivMod(17, 5)
+quotient, remainder = DivMod(17, 5)
 //line example16_multireturn.klx:34
 fmt.Println("17 div 5 = ", quotient)
 //line example16_multireturn.klx:35
 fmt.Println("17 mod 5 = ", remainder)
 //line example16_multireturn.klx:37
-minVal, maxVal := MinMax(5, 12, 3)
+minVal, maxVal = MinMax(5, 12, 3)
 //line example16_multireturn.klx:38
 fmt.Println("Min of 5,12,3: ", minVal)
 //line example16_multireturn.klx:39
 fmt.Println("Max of 5,12,3: ", maxVal)
 //line example16_multireturn.klx:42
-q2, r2 := DivMod(100, 7)
+q2, r2 = DivMod(100, 7)
 //line example16_multireturn.klx:43
 fmt.Println("100 div 7 = ", q2, ", remainder = ", r2)
 }

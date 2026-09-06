@@ -568,6 +568,15 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 	gen := generator.New()
 
 	// Global pre-scan must see all programs for correct cross-unit type refs.
+	// v0.7.0 P1: same-batch unit names resolve locally — `uses template` with
+	// stdlib/template_engine.klx in the batch must not import kylix/stdlib.
+	localUnits := make(map[string]bool)
+	for _, prog := range sorted {
+		if prog.IsUnit && prog.UnitName != "" {
+			localUnits[prog.UnitName] = true
+		}
+	}
+	gen.SetLocalUnits(localUnits)
 	for _, prog := range sorted {
 		gen.CollectClassTypes(prog)
 		gen.ScanImports(prog)

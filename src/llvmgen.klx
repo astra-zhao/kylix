@@ -3316,7 +3316,7 @@ end;
 //   - String → ptr directly
 function TLLVMGenerator.TryMapIndexStore(idx: TIndexExpression; value: TExpression): Boolean;
 var
-  leftName, tbl: String;
+  leftName, tbl, tblReg: String;
   i, fi: Integer;
   classT, selfReg, objReg: String;
   mem: TMemberExpression;
@@ -3383,7 +3383,13 @@ begin
       selfReg := self.EmitExpr(objE);
     tbl := self.Tmp();
     self.WriteLine('  ' + tbl + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 ' + self.IntToStrS(fi + 1));
-    self.EmitMapIndexPutTable(tbl, self.FieldMapValueKylix(i, fi), idx.Index, value);
+    // v0.7.0 P1 fix: the field slot holds the htab handle — load it before
+    // calling htab_put (passing the slot itself made htab_find treat the
+    // handle header as the bucket array and htab_put's size++ write past the
+    // class object into the heap). Mirrors host emitMapFieldIndexPut.
+    tblReg := self.Tmp();
+    self.WriteLine('  ' + tblReg + ' = load ptr, ptr ' + tbl);
+    self.EmitMapIndexPutTable(tblReg, self.FieldMapValueKylix(i, fi), idx.Index, value);
     result := true;
   end;
 end;
@@ -5986,6 +5992,15 @@ begin
     result := r;
     Exit;
   end;
+  // v0.7.0 P1: `self` is the receiver *parameter* (ptr %self), not an alloca —
+  // loading it would dereference the object header (vtable ptr) and hand a
+  // garbage pointer to any unit function receiving `self` (host expr.go P1).
+  if name = 'self' then
+  begin
+    self.LastType := 'ptr';
+    result := '%self';
+    Exit;
+  end;
   // P3: LOCALS first, then globals — a for-loop counter (RegisterLocal alloca)
   // must shadow a same-named program/unit global (host expr.go v0.5.4). With the
   // old order, `for i := 1 to 3` loaded the global @__kylix_g_i instead of the
@@ -6182,7 +6197,7 @@ end;
 // per char. Mirrors host emitCall's builtin.
 function TLLVMGenerator.EmitCaseConv(which, arg: TExpression): String;
 var
-  src, n, sizeReg, buf, fn, headerLbl: String;
+  src, n, sizeReg, buf, fn, headerLbl, bodyLbl, exitLbl: String;
   i, icur, cond, srcp, ch, chext, res, resc, dstp, inext, term: String;
 begin
   src := self.EmitExpr(arg);
@@ -6198,15 +6213,21 @@ begin
   i := self.Tmp();
   self.WriteLine('  ' + i + ' = alloca i64, align 8');
   self.WriteLine('  store i64 0, ptr ' + i);
+  // v0.7.0 P1: unique labels — the old fixed names lbl_body/lbl_exit made a
+  // SECOND UpperCase/LowerCase call in the same function redefine the labels
+  // (template filters upper/lower/title hit this; llc then fails verify with
+  // "Terminator found in the middle of a basic block").
   headerLbl := self.Label();
+  bodyLbl := self.Label();
+  exitLbl := self.Label();
   self.WriteLine('  br label %' + headerLbl);
   self.WriteLine(headerLbl + ':');
   icur := self.Tmp();
   self.WriteLine('  ' + icur + ' = load i64, ptr ' + i);
   cond := self.Tmp();
   self.WriteLine('  ' + cond + ' = icmp slt i64 ' + icur + ', ' + n);
-  self.WriteLine('  br i1 ' + cond + ', label %lbl_body, label %lbl_exit');
-  self.WriteLine('lbl_body:');
+  self.WriteLine('  br i1 ' + cond + ', label %' + bodyLbl + ', label %' + exitLbl);
+  self.WriteLine(bodyLbl + ':');
   srcp := self.Tmp();
   self.WriteLine('  ' + srcp + ' = getelementptr inbounds i8, ptr ' + src + ', i64 ' + icur);
   ch := self.Tmp();
@@ -6224,7 +6245,7 @@ begin
   self.WriteLine('  ' + inext + ' = add i64 ' + icur + ', 1');
   self.WriteLine('  store i64 ' + inext + ', ptr ' + i);
   self.WriteLine('  br label %' + headerLbl);
-  self.WriteLine('lbl_exit:');
+  self.WriteLine(exitLbl + ':');
   term := self.Tmp();
   self.WriteLine('  ' + term + ' = getelementptr inbounds i8, ptr ' + buf + ', i64 ' + n);
   self.WriteLine('  store i8 0, ptr ' + term);
@@ -7578,20 +7599,24 @@ begin
     fi := self.MethodIndex(ci, member.Member);
     if fi >= 0 then
     begin
-      selfReg := '%self';
+      // v0.7.0 P1: bare method statement `obj.Foo;` — the receiver register
+      // was already emitted by the field-read path above (selfReg). The old
+      // code hardcoded `ptr %self`, which only worked for `self.Foo;` inside
+      // a method body; any other receiver (e.g. `eng.PopScope;` in a unit
+      // function) emitted an undefined %self → llc verify error.
       methT := self.MethodRetAt(ci, fi);
       if methT = 'variant' then methT := 'ptr';
       if methT = 'void' then
       begin
         vtableGEP := self.Tmp();
-        self.WriteLine('  ' + vtableGEP + ' = getelementptr inbounds %' + classT + ', ptr %self, i32 0, i32 0');
+        self.WriteLine('  ' + vtableGEP + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 0');
         vtablePtr := self.Tmp();
         self.WriteLine('  ' + vtablePtr + ' = load ptr, ptr ' + vtableGEP);
         fnPtrLoc := self.Tmp();
         self.WriteLine('  ' + fnPtrLoc + ' = getelementptr inbounds [' + self.IntToStrS(self.MethodCount(ci)) + ' x ptr], ptr ' + vtablePtr + ', i32 0, i32 ' + self.IntToStrS(fi));
         fnPtr := self.Tmp();
         self.WriteLine('  ' + fnPtr + ' = load ptr, ptr ' + fnPtrLoc);
-        self.WriteLine('  call void ' + fnPtr + '(ptr %self)');
+        self.WriteLine('  call void ' + fnPtr + '(ptr ' + selfReg + ')');
         r := self.Tmp();
         self.WriteLine('  ' + r + ' = add i64 0, 0 ; void call');
         self.MemberType := 'i64';
@@ -8165,7 +8190,7 @@ end;
 function TLLVMGenerator.TryClassFieldMapIndexGet(idx: TIndexExpression; t: String): Boolean;
 var
   mem: TMemberExpression;
-  classT, selfReg, objReg, valueKylix, tbl, keyReg, r, guarded, conv, b, z: String;
+  classT, selfReg, objReg, valueKylix, tbl, tblReg, keyReg, r, guarded, conv, b, z: String;
   ci, fi: Integer;
   ctypes: array of String;
 begin
@@ -8219,10 +8244,15 @@ begin
   // field slot → htab handle
   tbl := self.Tmp();
   self.WriteLine('  ' + tbl + ' = getelementptr inbounds %' + classT + ', ptr ' + selfReg + ', i32 0, i32 ' + self.IntToStrS(fi + 1));
+  // v0.7.0 P1 fix: load the htab handle out of the field slot before calling
+  // htab_get (passing the slot itself made htab_find treat the handle header
+  // as the bucket array). Mirrors host emitMapFieldIndexGet.
+  tblReg := self.Tmp();
+  self.WriteLine('  ' + tblReg + ' = load ptr, ptr ' + tbl);
   self.NeedHashtab := true;
   keyReg := self.EmitExpr(idx.Index);
   r := self.Tmp();
-  self.WriteLine('  ' + r + ' = call ptr @__kylix_htab_get(ptr ' + tbl + ', ptr ' + keyReg + ')');
+  self.WriteLine('  ' + r + ' = call ptr @__kylix_htab_get(ptr ' + tblReg + ', ptr ' + keyReg + ')');
   if self.IsMapArrayValue(valueKylix) then
   begin
     z := self.Tmp();
@@ -8782,6 +8812,10 @@ begin
   self.WriteLine('  ' + buckets + ' = load ptr, ptr %t');
   iSlot := self.Tmp();
   self.WriteLine('  ' + iSlot + ' = alloca i64, align 8');
+  // node slot alloca lives in the entry block: a static alloca inside the
+  // bucket loop body would reserve fresh stack on every iteration.
+  nodeSlot := self.Tmp();
+  self.WriteLine('  ' + nodeSlot + ' = alloca ptr, align 8');
   self.WriteLine('  store i64 0, ptr ' + iSlot);
   condLbl := self.Label();
   bodyLbl := self.Label();
@@ -8796,8 +8830,6 @@ begin
   self.WriteLine(bodyLbl + ':');
   bucketPtr := self.Tmp();
   self.WriteLine('  ' + bucketPtr + ' = getelementptr inbounds ptr, ptr ' + buckets + ', i64 ' + curI);
-  nodeSlot := self.Tmp();
-  self.WriteLine('  ' + nodeSlot + ' = alloca ptr, align 8');
   firstNode := self.Tmp();
   self.WriteLine('  ' + firstNode + ' = load ptr, ptr ' + bucketPtr);
   self.WriteLine('  store ptr ' + firstNode + ', ptr ' + nodeSlot);

@@ -78,6 +78,12 @@ func (g *Generator) generateExpression(expr ast.Expression) {
 		// ClassName.Create / GenericType<T>.Create without args → &ClassName{}
 		if e.Member == "Create" {
 			if ident, ok := e.Object.(*ast.Identifier); ok {
+				if g.classCtors[ident.Value] {
+					// v0.7.0 P1: user-defined constructor — run it after alloc
+					// (matches LLVM emitConstructor which calls X_Create).
+					g.write("func() *" + ident.Value + " { v := &" + ident.Value + "{}; v.Create(); return v }()")
+					return
+				}
 				g.write("&" + ident.Value + "{}")
 				return
 			}
@@ -180,6 +186,21 @@ func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 			typeArgs = gen.TypeParams
 		}
 		if typeName != "" {
+			if g.classCtors[typeName] && len(typeArgs) == 0 {
+				// v0.7.0 P1: user-defined constructor — alloc, map constructor
+				// args onto fields (same as the plain &T{...} form), then run
+				// Create (matches LLVM emitConstructor which calls X_Create).
+				g.write("func() *" + typeName + " { v := &" + typeName + "{}")
+				fields := g.classFields[typeName]
+				for i, arg := range e.Arguments {
+					if i < len(fields) {
+						g.write("; v." + fields[i] + " = ")
+						g.generateExpression(arg)
+					}
+				}
+				g.write("; v.Create(); return v }()")
+				return
+			}
 			g.write("&" + typeName)
 			if len(typeArgs) > 0 {
 				g.write("[")
@@ -217,6 +238,17 @@ func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 		}
 
 		switch ident.Value {
+		case "StrToInt":
+			// v0.7.0 P1: host-side fix — the name map rewrote StrToInt to
+			// strconv.ParseInt (two return values), breaking every caller.
+			// Wrap to a single int64 (matches LLVM EmitStrToInt / atoll).
+			if len(e.Arguments) == 1 {
+				g.imports["strconv"] = true
+				g.write("func() int64 { v, _ := strconv.ParseInt(")
+				g.generateExpression(e.Arguments[0])
+				g.write(", 10, 64); return v }()")
+				return
+			}
 		case "error":
 			// v0.7.0 P0b: error('msg') constructs an error value (nil = success).
 			if len(e.Arguments) == 1 {

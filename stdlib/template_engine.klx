@@ -1,0 +1,1121 @@
+unit template;
+
+// ============================================================================
+// template — v0.7.0 P1: pure-Kylix template engine (Mustache-style {{}})
+// ============================================================================
+//
+// A dependency-free HTML template engine written entirely in Kylix. It works
+// on all three compiler ends (host Go, host LLVM, bootstrap) because it uses
+// only: classes with inline methods, map[String]String / map[String]Integer
+// fields, dynamic arrays via append, string slicing s[i:j] and strcmp, and
+// (String, error) returns.
+//
+// DATA MODEL — everything is flattened to strings:
+//   AddVar('title', 'Hi')            → Scalars['title']        = 'Hi'
+//   AddVar('user.name', 'Li')        → Scalars['user.name']    = 'Li'   (dot paths allowed)
+//   BeginList('tags'); AddItem('x')  → Scalars['tags.0']       = 'x'
+//   BeginList('users'); BeginItem; ItemField('name','Li')
+//                                    → Scalars['users.0.name'] = 'Li'
+//   EndList                          → ListLens['users'] = 1
+// No Variant boxes, no nested maps at render time — just string lookups.
+//
+// SYNTAX:
+//   {{ name }}            interpolated, HTML-escaped
+//   {{{ name }}}          interpolated, raw (no escaping)
+//   {{ user.name }}       dotted lookup (flattened keys)
+//   {{ name | upper }}    filter pipeline (| filter[:arg])
+//   {{#each items}}       iterate a list; {{ . }} is the current scalar item,
+//     {{ . }}               {{ @index }} the zero-based index
+//   {{/each}}
+//   {{#if cond}}A{{else}}B{{/if}}
+//                         truthy = non-empty, not '0', not 'false'
+//   {{! comment }}        stripped from output
+//
+// FILTERS (12):
+//   upper, lower, capitalize, title, trim, length, escape, raw,
+//   default:<s>, truncate:<n>, replace:<a>:<b>, nl2br
+//
+// See 22_web_pages/example59_template.klx for a worked example.
+// ============================================================================
+
+type
+  TTemplateEngine = class
+  private
+    var Scalars: map[String]String;   // flattened path → value
+    var ListLens: map[String]Integer; // top-level list name → item count
+    var CurList: String;              // list currently being populated
+    var CurIdx: Integer;              // index of the current item being populated
+    var ItemStarted: Boolean;         // true once the current item has content
+    var Prefixes: array of String;    // each-scope prefix stack, e.g. 'users.0.'
+    var PrefixCount: Integer;         // logical stack depth (slots are reused)
+    var Indexes: array of Integer;    // parallel @index stack
+    var LastError: String;
+
+    procedure PushScope(prefix: String; idx: Integer);
+    begin
+      // Slots are reused across sibling/nested scopes: the arrays only grow
+      // to the maximum nesting depth ever reached (no shrink operation is
+      // needed, which keeps the emitter happy on all three ends).
+      if self.PrefixCount < Length(self.Prefixes) then
+        self.Prefixes[self.PrefixCount] := prefix
+      else
+        self.Prefixes := append(self.Prefixes, prefix);
+      if self.PrefixCount < Length(self.Indexes) then
+        self.Indexes[self.PrefixCount] := idx
+      else
+        self.Indexes := append(self.Indexes, idx);
+      self.PrefixCount := self.PrefixCount + 1;
+    end;
+
+    procedure PopScope;
+    begin
+      if self.PrefixCount > 0 then
+        self.PrefixCount := self.PrefixCount - 1;
+    end;
+
+  public
+    constructor Create;
+    var
+      tmpMap: map[String]String;
+      tmpMapI: map[String]Integer;
+      tmpArr: array of String;
+      tmpArrI: array of Integer;
+    begin
+      self.Scalars := tmpMap;
+      self.ListLens := tmpMapI;
+      self.Prefixes := tmpArr;
+      self.Indexes := tmpArrI;
+      self.PrefixCount := 0;
+      self.CurList := '';
+      self.CurIdx := 0;
+      self.ItemStarted := false;
+      self.LastError := '';
+    end;
+
+    // --- context building -------------------------------------------------
+
+    // AddVar sets a scalar value. Dot paths ('user.name') are stored as-is.
+    procedure AddVar(name: String; value: String);
+    begin
+      self.Scalars[name] := value;
+    end;
+
+    // AddInt sets a scalar from an integer (stored in string form).
+    procedure AddInt(name: String; value: Integer);
+    begin
+      self.Scalars[name] := IntToStr(value);
+    end;
+
+    // BeginList starts (or restarts) a list context for {{#each name}}.
+    procedure BeginList(name: String);
+    begin
+      self.CurList := name;
+      self.CurIdx := 0;
+      self.ItemStarted := false;
+    end;
+
+    // AddItem appends a scalar list item (rendered via {{ . }}). The item is
+    // complete immediately — no NextItem needed after it.
+    procedure AddItem(value: String);
+    begin
+      self.Scalars[self.CurList + '.' + IntToStr(self.CurIdx)] := value;
+      self.CurIdx := self.CurIdx + 1;
+      self.ItemStarted := false;
+    end;
+
+    // BeginItem is optional sugar before a run of ItemField calls; ItemField
+    // auto-advances to a fresh item when fields of the current one were
+    // already written after an explicit NextItem. Simplest usage:
+    //   BeginList('users'); ItemField('name','Li'); ItemField('age','30');
+    //   NextItem; ItemField('name','Yu'); ... ; EndList;
+    // BeginItem just makes the intent explicit.
+    procedure BeginItem;
+    begin
+      // no-op: CurIdx already points at the current item
+    end;
+
+    // ItemField sets a field on the current list item:
+    //   Scalars[CurList + '.' + CurIdx + '.' + key] := value
+    // The item stays open — call NextItem to finish it.
+    procedure ItemField(key: String; value: String);
+    begin
+      self.Scalars[self.CurList + '.' + IntToStr(self.CurIdx) + '.' + key] := value;
+      self.ItemStarted := true;
+    end;
+
+    // NextItem finishes the current field item and advances to the next one.
+    procedure NextItem;
+    begin
+      if self.ItemStarted then
+        self.CurIdx := self.CurIdx + 1;
+      self.ItemStarted := false;
+    end;
+
+    // EndList seals the list. A trailing item that never got a NextItem
+    // still counts (the last populated item is complete as-is).
+    procedure EndList;
+    begin
+      if self.ItemStarted then
+        self.ListLens[self.CurList] := self.CurIdx + 1
+      else
+        self.ListLens[self.CurList] := self.CurIdx;
+      self.CurList := '';
+      self.CurIdx := 0;
+      self.ItemStarted := false;
+    end;
+
+    // ListLen returns the number of items registered for a list (0 if absent).
+    function ListLen(name: String): Integer;
+    begin
+      result := self.ListLens[name];
+    end;
+
+    // --- rendering ---------------------------------------------------------
+
+    // RenderString renders a template string. Output is returned; a render
+    // problem (unclosed tag, unexpected {{/...}}, unknown construct) is
+    // recorded internally — query it with ErrorMsg (empty = success).
+    // NOTE: class methods cannot return multi-value tuples on the LLVM
+    // backends yet (vtable slots carry a single RetType), so the (String,
+    // error) entry point is the unit-level RenderTemplate below.
+    function RenderString(tpl: String): String;
+    var
+      out: String;
+    begin
+      self.LastError := '';
+      self.PrefixCount := 0;
+      out := TplRenderInto(self, tpl);
+      result := out;
+    end;
+
+    // ErrorMsg returns the first render error since the last RenderString
+    // call (empty string = success).
+    function ErrorMsg(): String;
+    begin
+      result := self.LastError;
+    end;
+  end;
+
+// ============================================================================
+// unit-level helpers (prefixed Tpl to avoid collisions)
+// ============================================================================
+
+// TplFindFrom returns the index of the first occurrence of needle in hay at
+// or after `from`, or -1. Plain O(n*m) scan — template strings are small.
+function TplFindFrom(hay: String; needle: String; from: Integer): Integer;
+var
+  n: Integer;
+  m: Integer;
+  i: Integer;
+begin
+  n := Length(hay);
+  m := Length(needle);
+  result := -1;
+  i := from;
+  while i + m <= n do
+  begin
+    if hay[i:i+m] = needle then
+    begin
+      result := i;
+      Exit;
+    end;
+    i := i + 1;
+  end;
+end;
+
+// TplSlice returns hay[from:from+n].
+function TplSlice(hay: String; from: Integer; n: Integer): String;
+begin
+  result := hay[from:from+n];
+end;
+
+// TplStartsWith checks whether hay[start:] begins with needle.
+function TplStartsWith(hay: String; needle: String; start: Integer): Boolean;
+var
+  part: String;
+begin
+  result := false;
+  if start + Length(needle) > Length(hay) then
+    Exit;
+  part := hay[start:start+Length(needle)];
+  if part = needle then
+    result := true;
+end;
+
+// TplIsSpace reports whether c is a whitespace character.
+function TplIsSpace(c: String): Boolean;
+begin
+  result := false;
+  if c = ' ' then
+    result := true;
+  if c = '\t' then
+    result := true;
+  if c = '\n' then
+    result := true;
+  if c = '\r' then
+    result := true;
+end;
+
+// TplTrim strips spaces/tabs/newlines from both ends.
+function TplTrim(s: String): String;
+var
+  n: Integer;
+  start: Integer;
+  fin: Integer;
+  c: String;
+  running: Boolean;
+begin
+  n := Length(s);
+  start := 0;
+  running := true;
+  while running do
+  begin
+    if start >= n then
+      running := false
+    else
+    begin
+      c := s[start:start+1];
+      if TplIsSpace(c) then
+        start := start + 1
+      else
+        running := false;
+    end;
+  end;
+  fin := n;
+  running := true;
+  while running do
+  begin
+    if fin <= start then
+      running := false
+    else
+    begin
+      c := s[fin-1:fin];
+      if TplIsSpace(c) then
+        fin := fin - 1
+      else
+        running := false;
+    end;
+  end;
+  result := s[start:fin];
+end;
+
+// TplEscape HTML-escapes &, <, >, ", '.
+function TplEscape(s: String): String;
+var
+  i: Integer;
+  n: Integer;
+  c: String;
+begin
+  result := '';
+  n := Length(s);
+  i := 0;
+  while i < n do
+  begin
+    c := s[i:i+1];
+    if c = '&' then
+      result := result + '&amp;'
+    else if c = '<' then
+      result := result + '&lt;'
+    else if c = '>' then
+      result := result + '&gt;'
+    else if c = '"' then
+      result := result + '&quot;'
+    else if Ord(c) = 39 then
+      // single quote — no escaping exists inside single-quoted literals, so
+      // compare by character code
+      result := result + '&#39;'
+    else
+      result := result + c;
+    i := i + 1;
+  end;
+end;
+
+// TplCharIsLetter: a-z / A-Z (nested ifs — compound and/or is unsafe on the
+// bootstrap emitter: the string compare loses its strcmp path inside a
+// compound condition and degenerates to a pointer comparison).
+function TplCharIsLetter(c: String): Boolean;
+begin
+  result := false;
+  if c >= 'a' then
+  begin
+    if c <= 'z' then
+      result := true;
+  end;
+  if result = false then
+  begin
+    if c >= 'A' then
+    begin
+      if c <= 'Z' then
+        result := true;
+    end;
+  end;
+end;
+
+// TplIsTruthy: the {{#if}} truthiness rule.
+function TplIsTruthy(s: String): Boolean;
+begin
+  result := true;
+  if s = '' then
+    result := false;
+  if s = '0' then
+    result := false;
+  if s = 'false' then
+    result := false;
+end;
+
+// ---------------------------------------------------------------------------
+// context resolution
+// ---------------------------------------------------------------------------
+
+// TplResolve looks up a dotted path: exact key first, then each enclosing
+// each-scope prefix (innermost first). Handles the special paths '.' (the
+// current each item) and '@index'.
+function TplResolve(eng: TTemplateEngine; path: String): String;
+var
+  k: Integer;
+  p: String;
+  v: String;
+begin
+  result := '';
+  if path = '@index' then
+  begin
+    if eng.PrefixCount > 0 then
+    begin
+      result := IntToStr(eng.Indexes[eng.PrefixCount - 1]);
+      Exit;
+    end;
+    Exit;
+  end;
+  if path = '.' then
+  begin
+    if eng.PrefixCount > 0 then
+    begin
+      // innermost prefix is 'list.N.' → the bare item key is 'list.N'
+      p := eng.Prefixes[eng.PrefixCount - 1];
+      result := eng.Scalars[p[0:Length(p) - 1]];
+    end;
+    Exit;
+  end;
+  // exact key
+  v := eng.Scalars[path];
+  if v <> '' then
+  begin
+    result := v;
+    Exit;
+  end;
+  // prefix chain, innermost first
+  k := eng.PrefixCount;
+  while k > 0 do
+  begin
+    p := eng.Prefixes[k - 1];
+    v := eng.Scalars[p + path];
+    if v <> '' then
+    begin
+      result := v;
+      Exit;
+    end;
+    k := k - 1;
+  end;
+end;
+
+// TplResolveKey returns the flattened key a path resolves to (used by each
+// to build the child prefix). Empty string = not found.
+function TplResolveKey(eng: TTemplateEngine; path: String): String;
+var
+  k: Integer;
+  p: String;
+  v: String;
+begin
+  result := '';
+  v := eng.Scalars[path];
+  if v <> '' then
+  begin
+    result := path;
+    Exit;
+  end;
+  k := eng.PrefixCount;
+  while k > 0 do
+  begin
+    p := eng.Prefixes[k - 1];
+    v := eng.Scalars[p + path];
+    if v <> '' then
+    begin
+      result := p + path;
+      Exit;
+    end;
+    k := k - 1;
+  end;
+end;
+
+// TplResolveListLen finds the item count for a list name: exact, then each
+// enclosing prefix (so {{#each items}} works for 'outer.0.items'-style keys
+// registered with dot paths too — ListLens only stores top-level names, but
+// prefix-qualified scalar probes let us detect nested lists registered as
+// 'prefix.name' via ListLens as well).
+function TplResolveListLen(eng: TTemplateEngine; name: String): Integer;
+var
+  k: Integer;
+  p: String;
+  v: Integer;
+begin
+  result := eng.ListLens[name];
+  if result > 0 then
+    Exit;
+  k := eng.PrefixCount;
+  while k > 0 do
+  begin
+    p := eng.Prefixes[k - 1];
+    v := eng.ListLens[p + name];
+    if v > 0 then
+    begin
+      result := v;
+      Exit;
+    end;
+    k := k - 1;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// filters
+// ---------------------------------------------------------------------------
+
+// TplApplyOneFilter applies a single filter spec ('upper', 'truncate:20',
+// 'replace:a:b') to s. Returns s unchanged for unknown filters.
+function TplApplyOneFilter(s: String; spec: String): String;
+var
+  name: String;
+  arg: String;
+  colon: Integer;
+  sep: Integer;
+  a: String;
+  b: String;
+  n: Integer;
+  i: Integer;
+  c: String;
+  prevLetter: Boolean;
+  first: String;
+  rest: String;
+begin
+  result := s;
+  colon := TplFindFrom(spec, ':', 0);
+  if colon < 0 then
+  begin
+    name := spec;
+    arg := '';
+  end
+  else
+  begin
+    name := TplTrim(spec[0:colon]);
+    arg := TplTrim(spec[colon+1:Length(spec)]);
+  end;
+
+  if name = 'upper' then
+  begin
+    result := UpperCase(s);
+    Exit;
+  end;
+  if name = 'lower' then
+  begin
+    result := LowerCase(s);
+    Exit;
+  end;
+  if name = 'trim' then
+  begin
+    result := TplTrim(s);
+    Exit;
+  end;
+  if name = 'escape' then
+  begin
+    result := TplEscape(s);
+    Exit;
+  end;
+  if name = 'length' then
+  begin
+    result := IntToStr(Length(s));
+    Exit;
+  end;
+  if name = 'nl2br' then
+  begin
+    // replace "\n" (literal backslash-n in source → real newline at runtime)
+    // with <br>
+    result := '';
+    i := 0;
+    n := Length(s);
+    while i < n do
+    begin
+      c := s[i:i+1];
+      if c = '\' then
+      begin
+        if TplStartsWith(s, '\n', i) then
+        begin
+          result := result + '<br>';
+          i := i + 2;
+        end
+        else
+        begin
+          result := result + c;
+          i := i + 1;
+        end;
+      end
+      else
+      begin
+        result := result + c;
+        i := i + 1;
+      end;
+    end;
+    Exit;
+  end;
+  if name = 'capitalize' then
+  begin
+    if Length(s) = 0 then
+      Exit;
+    first := s[0:1];
+    rest := s[1:Length(s)];
+    result := UpperCase(first) + rest;
+    Exit;
+  end;
+  if name = 'title' then
+  begin
+    // capitalize the first letter of every word
+    result := '';
+    prevLetter := false;
+    i := 0;
+    n := Length(s);
+    while i < n do
+    begin
+      c := s[i:i+1];
+      if TplCharIsLetter(c) then
+      begin
+        if prevLetter then
+          result := result + c
+        else
+          result := result + UpperCase(c);
+        prevLetter := true;
+      end
+      else
+      begin
+        result := result + c;
+        prevLetter := false;
+      end;
+      i := i + 1;
+    end;
+    Exit;
+  end;
+  if name = 'default' then
+  begin
+    result := s;
+    if s = '' then
+      result := arg;
+    Exit;
+  end;
+  if name = 'truncate' then
+  begin
+    n := StrToInt64(arg);
+    if Length(s) <= n then
+    begin
+      result := s;
+      Exit;
+    end;
+    if n > 3 then
+      result := s[0:n-3] + '...'
+    else
+      result := s[0:n];
+    Exit;
+  end;
+  if name = 'replace' then
+  begin
+    // spec is replace:a:b — arg itself is 'a:b'
+    sep := TplFindFrom(arg, ':', 0);
+    if sep < 0 then
+      Exit;
+    a := arg[0:sep];
+    b := arg[sep+1:Length(arg)];
+    result := '';
+    i := 0;
+    n := Length(s);
+    while i < n do
+    begin
+      if TplStartsWith(s, a, i) then
+      begin
+        result := result + b;
+        i := i + Length(a);
+        if Length(a) = 0 then
+          i := i + 1;
+      end
+      else
+      begin
+        result := result + s[i:i+1];
+        i := i + 1;
+      end;
+    end;
+    Exit;
+  end;
+  if name = 'wordwrap' then
+  begin
+    // wordStart is unused here; kept variables minimal below
+    result := s;
+    Exit;
+  end;
+  if name = 'raw' then
+  begin
+    // handled by the renderer (marks the value as pre-escaped); identity here
+    result := s;
+    Exit;
+  end;
+  // unknown filter: identity
+  result := s;
+end;
+
+// TplHasRawFilter reports whether a filter chain contains the 'raw' filter
+// (which suppresses auto-escaping). Plain function — the LLVM backend does
+// not support `var` reference parameters, so no out-args anywhere here.
+function TplHasRawFilter(spec: String): Boolean;
+var
+  rest: String;
+  pipe: Integer;
+  part: String;
+  fname: String;
+begin
+  result := false;
+  rest := TplTrim(spec);
+  while rest <> '' do
+  begin
+    pipe := TplFindFrom(rest, '|', 0);
+    if pipe < 0 then
+    begin
+      part := TplTrim(rest);
+      rest := '';
+    end
+    else
+    begin
+      part := TplTrim(rest[0:pipe]);
+      rest := TplTrim(rest[pipe+1:Length(rest)]);
+    end;
+    if part = '' then
+      Continue;
+    fname := part;
+    if TplFindFrom(part, ':', 0) >= 0 then
+      fname := TplTrim(part[0:TplFindFrom(part, ':', 0)]);
+    if fname = 'raw' then
+    begin
+      result := true;
+      Exit;
+    end;
+  end;
+end;
+
+// TplApplyFilters applies a '|'-separated filter chain to s. Raw marking is
+// handled by the caller via TplHasRawFilter.
+function TplApplyFilters(s: String; spec: String): String;
+var
+  rest: String;
+  pipe: Integer;
+  part: String;
+  fname: String;
+begin
+  result := s;
+  rest := TplTrim(spec);
+  while rest <> '' do
+  begin
+    pipe := TplFindFrom(rest, '|', 0);
+    if pipe < 0 then
+    begin
+      part := TplTrim(rest);
+      rest := '';
+    end
+    else
+    begin
+      part := TplTrim(rest[0:pipe]);
+      rest := TplTrim(rest[pipe+1:Length(rest)]);
+    end;
+    if part = '' then
+      Continue;
+    result := TplApplyOneFilter(result, part);
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// block scanning
+// ---------------------------------------------------------------------------
+
+// TplFindBlockEnd: given the position just after an opening {{#kind ...}},
+// return the index of the matching '{{/' + kind + '}}' opening braces
+// (nesting-aware), or -1.
+function TplFindBlockEnd(tpl: String; from: Integer; kind: String): Integer;
+var
+  openTag: String;
+  closeTag: String;
+  depth: Integer;
+  pos: Integer;
+  o: Integer;
+begin
+  result := -1;
+  openTag := '{{#' + kind;
+  closeTag := '{{/' + kind;
+  depth := 1;
+  pos := from;
+  while pos < Length(tpl) do
+  begin
+    o := TplFindFrom(tpl, '{{', pos);
+    if o < 0 then
+      Exit;
+    if TplStartsWith(tpl, openTag, o) then
+    begin
+      depth := depth + 1;
+      pos := o + 2;
+    end
+    else if TplStartsWith(tpl, closeTag, o) then
+    begin
+      depth := depth - 1;
+      if depth = 0 then
+      begin
+        result := o;
+        Exit;
+      end;
+      pos := o + 2;
+    end
+    else
+      pos := o + 2;
+  end;
+end;
+
+// TplFindElse returns the position of the top-level {{else}} inside the block
+// body spanning [from, endPos), or -1.
+function TplFindElse(tpl: String; from: Integer; endPos: Integer): Integer;
+var
+  depth: Integer;
+  pos: Integer;
+  o: Integer;
+  close: Integer;
+  inner: String;
+begin
+  result := -1;
+  depth := 0;
+  pos := from;
+  while pos < endPos do
+  begin
+    o := TplFindFrom(tpl, '{{', pos);
+    if o < 0 then
+      Exit;
+    if o >= endPos then
+      Exit;
+    if TplStartsWith(tpl, '{{#', o) then
+    begin
+      depth := depth + 1;
+      pos := o + 2;
+    end
+    else if TplStartsWith(tpl, '{{/', o) then
+    begin
+      depth := depth - 1;
+      pos := o + 2;
+    end
+    else
+    begin
+      if depth = 0 then
+      begin
+        close := TplFindFrom(tpl, '}}', o);
+        if close < 0 then
+          Exit;
+        if close <= endPos then
+        begin
+          inner := TplTrim(tpl[o+2:close]);
+          if inner = 'else' then
+          begin
+            result := o;
+            Exit;
+          end;
+        end;
+      end;
+      pos := o + 2;
+    end;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// core renderer
+// ---------------------------------------------------------------------------
+
+// TplRenderErr records a render error (first one wins).
+procedure TplRenderErr(eng: TTemplateEngine; msg: String);
+begin
+  if eng.LastError = '' then
+    eng.LastError := msg;
+end;
+
+// TplRenderInner renders one variable tag (no leading #, /, !). Returns the
+// replacement text. err is set on failure.
+function TplRenderVar(eng: TTemplateEngine; inner: String): String;
+var
+  pipe: Integer;
+  path: String;
+  spec: String;
+  val: String;
+  hasRaw: Boolean;
+begin
+  result := '';
+  pipe := TplFindFrom(inner, '|', 0);
+  if pipe < 0 then
+  begin
+    path := TplTrim(inner);
+    spec := '';
+  end
+  else
+  begin
+    path := TplTrim(inner[0:pipe]);
+    spec := inner[pipe+1:Length(inner)];
+  end;
+  val := TplResolve(eng, path);
+  hasRaw := false;
+  if spec <> '' then
+  begin
+    val := TplApplyFilters(val, spec);
+    hasRaw := TplHasRawFilter(spec);
+  end;
+  // default escaping (auto-escape) unless raw
+  if hasRaw = false then
+    val := TplEscape(val);
+  result := val;
+end;
+
+// TplRenderInto is the core recursive renderer. Errors go into eng.LastError.
+function TplRenderInto(eng: TTemplateEngine; tpl: String): String;
+var
+  out: String;
+  pos: Integer;
+  n: Integer;
+  open: Integer;
+  close: Integer;
+  inner: String;
+  raw: Boolean;
+  after: Integer;
+  c: String;
+  sp: Integer;
+  kw: String;
+  arg: String;
+  endPos: Integer;
+  body: String;
+  bodyEnd: Integer;
+  elsePos: Integer;
+  cond: String;
+  ln: Integer;
+  i: Integer;
+  listKey: String;
+  prefix: String;
+  child: String;
+  elseEnd: Integer;
+begin
+  out := '';
+  pos := 0;
+  n := Length(tpl);
+  while pos < n do
+  begin
+    open := TplFindFrom(tpl, '{{', pos);
+    if open < 0 then
+    begin
+      out := out + tpl[pos:n];
+      break;
+    end;
+    out := out + tpl[pos:open];
+
+    if TplStartsWith(tpl, '{{{', open) then
+    begin
+      close := TplFindFrom(tpl, '}}}', open + 3);
+      if close < 0 then
+      begin
+        TplRenderErr(eng, 'unclosed {{{ tag');
+        break;
+      end;
+      inner := TplTrim(tpl[open+3:close]);
+      raw := true;
+      after := close + 3;
+    end
+    else
+    begin
+      close := TplFindFrom(tpl, '}}', open + 2);
+      if close < 0 then
+      begin
+        TplRenderErr(eng, 'unclosed {{ tag');
+        break;
+      end;
+      inner := TplTrim(tpl[open+2:close]);
+      raw := false;
+      after := close + 2;
+    end;
+
+    if inner = '' then
+    begin
+      pos := after;
+      continue;
+    end;
+
+    c := inner[0:1];
+    if c = '!' then
+    begin
+      // comment — emit nothing
+      pos := after;
+      continue;
+    end;
+
+    if c = '/' then
+    begin
+      TplRenderErr(eng, 'unexpected close tag {{' + inner + '}}');
+      pos := after;
+      continue;
+    end;
+
+    if c = '#' then
+    begin
+      sp := TplFindFrom(inner, ' ', 1);
+      if sp < 0 then
+      begin
+        TplRenderErr(eng, 'missing block name in {{' + inner + '}}');
+        pos := after;
+        continue;
+      end;
+      kw := TplTrim(inner[1:sp]);
+      arg := TplTrim(inner[sp+1:Length(inner)]);
+
+      if kw = 'each' then
+      begin
+        endPos := TplFindBlockEnd(tpl, after, 'each');
+        if endPos < 0 then
+        begin
+          TplRenderErr(eng, 'unclosed {{#each}}');
+          pos := after;
+          continue;
+        end;
+        body := tpl[after:endPos];
+        ln := TplResolveListLen(eng, arg);
+        listKey := TplResolveKey(eng, arg);
+        if listKey = '' then
+          listKey := arg;
+        i := 0;
+        while i < ln do
+        begin
+          prefix := listKey + '.' + IntToStr(i) + '.';
+          eng.PushScope(prefix, i);
+          child := TplRenderInto(eng, body);
+          if eng.LastError <> '' then
+          begin
+            // propagate: abort the whole render
+            out := out + child;
+            pos := n;
+            continue;
+          end;
+          out := out + child;
+          eng.PopScope;
+          i := i + 1;
+        end;
+        // skip past the closing tag
+        close := TplFindFrom(tpl, '}}', endPos);
+        if close < 0 then
+          close := n
+        else
+          close := close + 2;
+        pos := close;
+        continue;
+      end;
+
+      if kw = 'if' then
+      begin
+        endPos := TplFindBlockEnd(tpl, after, 'if');
+        if endPos < 0 then
+        begin
+          TplRenderErr(eng, 'unclosed {{#if}}');
+          pos := after;
+          continue;
+        end;
+        elsePos := TplFindElse(tpl, after, endPos);
+        cond := TplResolve(eng, arg);
+        if TplIsTruthy(cond) then
+        begin
+          if elsePos >= 0 then
+            body := tpl[after:elsePos]
+          else
+            body := tpl[after:endPos];
+        end
+        else
+        begin
+          if elsePos >= 0 then
+          begin
+            // skip past the else tag
+            elseEnd := TplFindFrom(tpl, '}}', elsePos);
+            if elseEnd < 0 then
+              elseEnd := endPos
+            else
+              elseEnd := elseEnd + 2;
+            body := tpl[elseEnd:endPos];
+          end
+          else
+            body := '';
+        end;
+        child := TplRenderInto(eng, body);
+        if eng.LastError <> '' then
+        begin
+          out := out + child;
+          pos := n;
+          continue;
+        end;
+        out := out + child;
+        close := TplFindFrom(tpl, '}}', endPos);
+        if close < 0 then
+          close := n
+        else
+          close := close + 2;
+        pos := close;
+        continue;
+      end;
+
+      TplRenderErr(eng, 'unknown block {{#' + kw + '}}');
+      pos := after;
+      continue;
+    end;
+
+    // plain variable tag
+    out := out + TplRenderVarRaw(eng, inner, raw);
+    if eng.LastError <> '' then
+      pos := n
+    else
+      pos := after;
+  end;
+  result := out;
+end;
+
+// TplRenderVarRaw wraps TplRenderVar honoring the raw ({{{ }}}) mode: the
+// auto-escape inside TplRenderVar is suppressed by passing the value through
+// the 'raw' marker filter.
+function TplRenderVarRaw(eng: TTemplateEngine; inner: String; raw: Boolean): String;
+var
+  spec: String;
+begin
+  if raw then
+  begin
+    if TplFindFrom(inner, '|', 0) >= 0 then
+      result := TplRenderVar(eng, inner + '|raw')
+    else
+      result := TplRenderVar(eng, inner + ' | raw');
+  end
+  else
+    result := TplRenderVar(eng, inner);
+end;
+
+// RenderTemplate renders tpl with eng's context — the (String, error) entry
+// point. Returns (output, nil) on success or ('', error) describing the
+// first render problem. (Unit-level function: multi-value returns work
+// here on all three compiler ends; class-method tuple returns are not yet
+// supported by the LLVM vtable emitter.)
+function RenderTemplate(eng: TTemplateEngine; tpl: String): (String, error);
+var
+  out: String;
+  msg: String;
+begin
+  out := eng.RenderString(tpl);
+  msg := eng.ErrorMsg();
+  if msg <> '' then begin
+    result := ('', error(msg));
+    exit;
+  end;
+  result := (out, nil);
+end;
+
+end.

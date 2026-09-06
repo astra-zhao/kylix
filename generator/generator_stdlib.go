@@ -92,7 +92,8 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"NewRequestIDMiddleware", "GetRequestID", "GetAuthToken",
 	),
 	"validation": strToSet("NewValidator", "NewRequestValidator"),
-	"template":   strToSet("NewTemplateEngine", "NewView"),
+	// v0.7.0 P1: the template unit is now pure Kylix (stdlib/template_engine.klx,
+	// multi-file compile) — no Go-side implementation, so no heuristic entry.
 	"boot": strToSet(
 		"BootRun", "BootGET", "BootPOST", "BootPUT", "BootDELETE",
 		"BootUseLogger", "BootUseRecover", "BootUseCORS", "BootUseRequestID",

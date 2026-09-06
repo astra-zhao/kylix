@@ -1,0 +1,101 @@
+// example59_template.klx — Pure-Kylix template engine (v0.7.0 P1)
+// Demonstrates the `template` unit (stdlib/template_engine.klx):
+//   - {{ var }} interpolation with auto HTML-escaping, {{{ var }}} raw
+//   - dotted lookups ({{ user.name }}) via flattened string keys
+//   - filter pipelines: {{ title | upper }} / truncate / default
+//   - {{#each list}} loops with {{ . }} and {{ @index }}
+//   - {{#if cond}}...{{else}}...{{/if}} blocks
+//   - RenderTemplate returns (String, error) — the v0.7.0 P0b error type
+// Compiled as a multi-file build: this file + stdlib/template_engine.klx.
+
+program TemplateDemo;
+
+uses template;
+
+procedure Show(title: String; tpl: String);
+var
+  eng: TTemplateEngine;
+  out: String;
+  err: error;
+begin
+  eng := TTemplateEngine.Create();
+  eng.AddVar('name', '<b>World</b>');
+  eng.AddVar('title', 'The Kylix Report');
+  eng.AddVar('user.name', 'Li Lei');
+  eng.AddVar('user.email', 'li@kylix.dev');
+  (out, err) := RenderTemplate(eng, tpl);
+  if err <> nil then
+    WriteLn(title, ' ERROR: ', ErrorStr(err))
+  else
+    WriteLn(title, ' [', out, ']');
+end;
+
+var
+  eng: TTemplateEngine;
+  page: String;
+  err: error;
+
+begin
+  // --- 1. interpolation: auto-escaped vs raw ---
+  Show('escape', 'Hello {{ name }}!');
+  Show('raw', 'Hello {{{ name }}}!');
+
+  // --- 2. dotted lookups ---
+  Show('dots', '{{ user.name }} <{{ user.email }}>');
+
+  // --- 3. filter pipelines ---
+  Show('upper', '{{ title | upper }}');
+  Show('chain', '{{ title | lower | capitalize }}');
+  Show('trunc', '{{ title | truncate:11 }}');
+  Show('deflt', '{{ missing | default:N/A }}');
+  Show('len', 'len={{ title | length }}');
+
+  // --- 4. each over object items ---
+  eng := TTemplateEngine.Create();
+  eng.AddVar('title', 'Team');
+  eng.BeginList('users');
+  eng.ItemField('name', 'Li Lei');
+  eng.ItemField('role', 'admin');
+  eng.NextItem;
+  eng.ItemField('name', 'Han Mei');
+  eng.ItemField('role', 'dev');
+  eng.NextItem;
+  eng.ItemField('name', 'Tom');
+  eng.ItemField('role', 'guest');
+  eng.EndList;
+
+  (page, err) := RenderTemplate(eng, '<h1>{{ title }}</h1>{{#each users}}<li>{{ @index }}: {{ name }} ({{ role }})</li>{{/each}}');
+  if err <> nil then
+    WriteLn('each ERROR: ', ErrorStr(err))
+  else
+    WriteLn('each [', page, ']');
+
+  // --- 5. each over scalar items ---
+  eng := TTemplateEngine.Create();
+  eng.BeginList('tags');
+  eng.AddItem('go');
+  eng.AddItem('pascal');
+  eng.AddItem('llvm');
+  eng.EndList;
+  (page, err) := RenderTemplate(eng, 'tags:{{#each tags}} {{ . }}{{/each}}');
+  if err <> nil then
+    WriteLn('tags ERROR: ', ErrorStr(err))
+  else
+    WriteLn('tags [', page, ']');
+
+  // --- 6. if/else truthiness ('' / '0' / 'false' are falsy) ---
+  eng := TTemplateEngine.Create();
+  eng.AddVar('flag', '1');
+  eng.AddVar('zero', '0');
+  (page, err) := RenderTemplate(eng, '{{#if flag}}ON{{else}}OFF{{/if}} {{#if zero}}ON{{else}}OFF{{/if}} {{#if nope}}ON{{else}}OFF{{/if}}');
+  if err <> nil then
+    WriteLn('if ERROR: ', ErrorStr(err))
+  else
+    WriteLn('if [', page, ']');
+
+  // --- 7. comments are stripped ---
+  Show('comment', 'a{{! hidden }}b');
+
+  // --- 8. error reporting: unclosed block ---
+  Show('error', 'broken {{#each users}}');
+end.

@@ -513,6 +513,11 @@ func (g *Generator) emitHashtabClear() {
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %%t", buckets))
 	iSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
+	// node slot alloca lives in the entry block: a static alloca inside the
+	// bucket loop body would reserve fresh stack on every iteration (256 per
+	// clear, unbounded across repeated clears).
+	nodeSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", nodeSlot))
 	g.line(fmt.Sprintf("  store i64 0, ptr %s", iSlot))
 	condLbl := g.label()
 	bodyLbl := g.label()
@@ -527,9 +532,7 @@ func (g *Generator) emitHashtabClear() {
 	g.line(fmt.Sprintf("%s:", bodyLbl))
 	bucketPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds ptr, ptr %s, i64 %s", bucketPtr, buckets, curI))
-	// node lives in an alloca slot (mutated in the inner free loop).
-	nodeSlot := g.tmp()
-	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", nodeSlot))
+	// node lives in the entry-block alloca slot (mutated in the inner free loop).
 	firstNode := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", firstNode, bucketPtr))
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", firstNode, nodeSlot))

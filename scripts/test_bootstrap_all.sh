@@ -18,6 +18,7 @@ LLC=${LLC:-/opt/homebrew/opt/llvm/bin/llc}
 TUT=${TUT:-examples/complete-tutorial}
 OUT=${OUT:-/tmp/boot_tut}
 TIMEOUT=${TIMEOUT:-15}
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Known bootstrap-emitter limitations (v0.6.9 P3), counted separately:
 #  - example15_lambda:  anonymous procedure/function literals (lambda values)
@@ -52,6 +53,11 @@ for f in "$TUT"/*/*.klx; do
   # unit files (no main statements) are not runnable programs — they are
   # exercised via the multi-file test below (math_helper + example33)
   if [ "$name" == "math_helper" ]; then
+    continue
+  fi
+  # example59 uses the template unit (stdlib/template_engine.klx) — exercised
+  # via the second multi-file test below
+  if [ "$name" == "example59_template" ]; then
     continue
   fi
   # ---- host reference ----
@@ -112,6 +118,29 @@ if [ -f "$TUT/11_modules/example33_use_module.klx" ]; then
         echo "PASS $name (multi-file)"; PASS=$((PASS+1))
       else
         echo "DIFF $name (multi-file)"; FAIL=$((FAIL+1))
+      fi
+    else
+      echo "FAIL $name (multi-file pipeline)"; FAIL=$((FAIL+1))
+    fi
+  fi
+fi
+
+# ---- multi-file module test (template_engine + example59) ----
+name=example59_template
+if [ -f "$TUT/22_web_pages/example59_template.klx" ]; then
+  if "$KYLIX" build --backend=llvm -o "$OUT/${name}_host" \
+      "$ROOT/stdlib/template_engine.klx" "$TUT/22_web_pages/$name.klx" >/dev/null 2>&1; then
+    host_out=$("$OUT/${name}_host" 2>/dev/null)
+    if "$BOOT" --emit-llvm "$ROOT/stdlib/template_engine.klx" "$TUT/22_web_pages/$name.klx" \
+        > "$OUT/$name.ll" 2>/dev/null \
+        && "$LLC" -filetype=obj "$OUT/$name.ll" -o "$OUT/$name.o" \
+        && clang "$OUT/$name.o" -o "$OUT/${name}_boot"; then
+      boot_out=$("$OUT/${name}_boot" 2>/dev/null)
+      if [ "$boot_out" == "$host_out" ]; then
+        echo "PASS $name (multi-file)"; PASS=$((PASS+1))
+      else
+        echo "DIFF $name (multi-file)"; FAIL=$((FAIL+1))
+        diff <(echo "$host_out") <(echo "$boot_out") | head -8 | sed 's/^/    /'
       fi
     else
       echo "FAIL $name (multi-file pipeline)"; FAIL=$((FAIL+1))
