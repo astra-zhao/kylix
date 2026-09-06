@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -390,4 +392,131 @@ func TestServer_Construction(t *testing.T) {
 		t.Errorf("Addr=%q", s.Addr)
 	}
 	_ = time.Now() // silence import
+}
+
+// ===== v0.7.0 P2: page rendering API =====
+
+func TestRequest_Form(t *testing.T) {
+	body := "name=Alice&city=New%20York"
+	req := httptest.NewRequest("POST", "/submit", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	br := &Request{Request: req}
+	if got := br.Form("name"); got != "Alice" {
+		t.Errorf("Form(name)=%q, want Alice", got)
+	}
+	if got := br.Form("city"); got != "New York" {
+		t.Errorf("Form(city)=%q, want 'New York' (URL-decoded)", got)
+	}
+	if got := br.Form("missing"); got != "" {
+		t.Errorf("Form(missing)=%q, want empty", got)
+	}
+}
+
+func TestRequest_FormQueryFallback(t *testing.T) {
+	req := httptest.NewRequest("GET", "/page?name=Bob", nil)
+	br := &Request{Request: req}
+	if got := br.Form("name"); got != "Bob" {
+		t.Errorf("Form(name)=%q, want Bob (query fallback)", got)
+	}
+}
+
+func TestRequest_Cookie(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "abc123"})
+	br := &Request{Request: req}
+	if got := br.Cookie("session"); got != "abc123" {
+		t.Errorf("Cookie(session)=%q, want abc123", got)
+	}
+	if got := br.Cookie("nope"); got != "" {
+		t.Errorf("Cookie(nope)=%q, want empty", got)
+	}
+}
+
+func TestResponse_Html(t *testing.T) {
+	res := NewResponse(200, "")
+	if got := res.Html("<h1>hi</h1>"); got != res {
+		t.Fatal("Html should return the receiver")
+	}
+	if res.Body != "<h1>hi</h1>" {
+		t.Errorf("Body=%q", res.Body)
+	}
+	if res.ContentType != "text/html; charset=utf-8" {
+		t.Errorf("ContentType=%q", res.ContentType)
+	}
+}
+
+func TestResponse_WithCookie(t *testing.T) {
+	res := NewResponse(200, "x").WithCookie("session", "abc")
+	res.WithCookie("theme", "dark")
+	if len(res.Cookies) != 2 {
+		t.Fatalf("Cookies=%v, want 2 entries", res.Cookies)
+	}
+	if res.Cookies[0] != "session=abc; Path=/" {
+		t.Errorf("Cookies[0]=%q", res.Cookies[0])
+	}
+	// Cookie must reach the wire as a Set-Cookie header.
+	rt := NewRouter()
+	rt.GET("/c", func(r *Request) *Response { return res })
+	_, _, hdr := doRequest(rt, "GET", "/c")
+	if got := hdr.Get("Set-Cookie"); got != "session=abc; Path=/" {
+		t.Errorf("Set-Cookie=%q", got)
+	}
+}
+
+func TestStaticServing(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "style.css"), []byte("body{color:red}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sub", "page.html"), []byte("<p>hi</p>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rt := NewRouter()
+	rt.SetStaticDir(dir)
+	rt.GET("/api", func(r *Request) *Response { return Text(200, "api") })
+
+	// Known file with MIME type.
+	code, body, hdr := doRequest(rt, "GET", "/static/style.css")
+	if code != 200 || body != "body{color:red}" {
+		t.Errorf("static css: code=%d body=%q", code, body)
+	}
+	if ct := hdr.Get("Content-Type"); ct != "text/css; charset=utf-8" {
+		t.Errorf("Content-Type=%q", ct)
+	}
+	// Nested file.
+	code, body, _ = doRequest(rt, "GET", "/static/sub/page.html")
+	if code != 200 || body != "<p>hi</p>" {
+		t.Errorf("static nested: code=%d body=%q", code, body)
+	}
+	// Missing file falls through to 404.
+	code, _, _ = doRequest(rt, "GET", "/static/nope.css")
+	if code != 404 {
+		t.Errorf("missing static: code=%d, want 404", code)
+	}
+	// Route still wins over static prefix.
+	code, body, _ = doRequest(rt, "GET", "/api")
+	if code != 200 || body != "api" {
+		t.Errorf("route: code=%d body=%q", code, body)
+	}
+}
+
+func TestStaticTraversalBlocked(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ok.txt"), []byte("ok"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(dir, "..", "secret.txt")
+	if err := os.WriteFile(secret, []byte("SECRET"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRouter()
+	rt.SetStaticDir(dir)
+	code, body, _ := doRequest(rt, "GET", "/static/../secret.txt")
+	if code == 200 || body == "SECRET" {
+		t.Errorf("traversal not blocked: code=%d body=%q", code, body)
+	}
 }

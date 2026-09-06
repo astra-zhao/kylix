@@ -63,14 +63,50 @@ func (g *Generator) emitBootRunBody() {
 
 	g.line("define i64 @__kylix_boot_BootRun(i64 %port) {")
 	g.line("entry:")
+	// listener lives in an alloca slot so the bind-failure retry can store a
+	// fresh TcpListen result without breaking SSA (no phi needed).
+	lisSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca ptr", lisSlot))
 	listener := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_net_TcpListen(i64 %%port)", listener))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", listener, lisSlot))
 	loopLbl := g.label()
 	closeLbl := g.label()
-	g.line(fmt.Sprintf("  br label %%%s", loopLbl))
+	listenRetry := g.label()
+	// Port-in-use / bind failure → TcpListen returns null; back off 100ms and
+	// re-try the listen instead of deref-ing null in TcpAccept.
+	listenChk := g.tmp()
+	listenNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", listenChk, lisSlot))
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", listenNull, listenChk))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", listenNull, listenRetry, loopLbl))
+	g.line(fmt.Sprintf("%s:", listenRetry))
+	g.line("  call i32 @usleep(i32 100000)")
+	listener2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_net_TcpListen(i64 %%port)", listener2))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", listener2, lisSlot))
+	listenChk2 := g.tmp()
+	listenNull2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", listenChk2, lisSlot))
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", listenNull2, listenChk2))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", listenNull2, listenRetry, loopLbl))
 	g.line(fmt.Sprintf("%s:", loopLbl))
 	conn := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_net_TcpAccept(ptr %s)", conn, listener))
+	listenerLive := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", listenerLive, lisSlot))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_net_TcpAccept(ptr %s)", conn, listenerLive))
+	// Port-in-use / listener failure → TcpAccept returns null; back off 100ms
+	// (don't hot-spin or deref) so the process stays alive instead of
+	// crashing on a null read.
+	connNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", connNull, conn))
+	retryLbl := g.label()
+	proceedLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", connNull, retryLbl, proceedLbl))
+	g.line(fmt.Sprintf("%s:", retryLbl))
+	g.line("  call i32 @usleep(i32 100000)")
+	g.line(fmt.Sprintf("  br label %%%s", loopLbl))
+	g.line(fmt.Sprintf("%s:", proceedLbl))
 	headers := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_read_headers(ptr %s)", headers, conn))
 	// method/path buffers — from the per-request arena (v0.6.9), so a long
@@ -90,9 +126,17 @@ func (g *Generator) emitBootRunBody() {
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_route_lookup(ptr %s, ptr %s, ptr %s)", handler, methodBuf, pathBuf, req))
 	handlerNull := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", handlerNull, handler))
+	doStaticLbl := g.label()
 	doServeLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", handlerNull, doStaticLbl, doServeLbl))
+
+	// ---- route miss: try static files (v0.7.0 P2) → 404.
+	g.line(fmt.Sprintf("%s:", doStaticLbl))
+	g.enqueueStdlib("boot", "servestatic", "servestatic", 0)
+	handled := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i1 @__kylix_boot_serve_static(ptr %s, ptr %s, ptr %s)", handled, conn, methodBuf, pathBuf))
 	do404Lbl := g.label()
-	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", handlerNull, do404Lbl, doServeLbl))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", handled, closeLbl, do404Lbl))
 
 	// ---- serve: fill headers/body, dispatch, build+send response.
 	g.line(fmt.Sprintf("%s:", doServeLbl))
@@ -111,18 +155,66 @@ func (g *Generator) emitBootRunBody() {
 	body := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", body, bodyField))
 	respBuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 2048)", respBuf))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 8192)", respBuf))
 	g.needArena = true
 	g.line(fmt.Sprintf("  store i8 0, ptr %s", respBuf))
 	g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", respBuf, g.ptrTo(g.addString("HTTP/1.1 "), 10)))
 	g.bootStrcat(respBuf, g.bootIntToStr(status))
 	g.bootStrcat(respBuf, g.ptrTo(g.addString(" "), 2))
 	g.bootStrcat(respBuf, g.bootReasonPhrase(status))
-	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\nContent-Length: "), 19))
+	// Content-Type from the response handle (null → text/html default).
+	ctField := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 16", ctField, res))
+	ct := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", ct, ctField))
+	ctNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", ctNull, ct))
+	ctSel := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", ctSel, ctNull,
+		g.ptrTo(g.addString("text/html; charset=utf-8"), 25), ct))
+	// Header lines are assembled in trailing-CRLF style: each line ends with
+	// "\r\n" and the final terminator before the body is a single extra
+	// "\r\n". WithHeader entries ("k: v\r\n" from the fluent API) fit this
+	// style natively — no separator juggling between optional blocks.
+	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\nContent-Type: "), 17))
+	g.bootStrcat(respBuf, ctSel)
+	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\n"), 3))
+	// Extra headers (WithHeader) — appended verbatim ("k: v\r\n" entries).
+	xhField := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 32", xhField, res))
+	xh := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", xh, xhField))
+	xhNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", xhNull, xh))
+	xhLbl := g.label()
+	xhJoin := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", xhNull, xhJoin, xhLbl))
+	g.line(fmt.Sprintf("%s:", xhLbl))
+	g.bootStrcat(respBuf, xh)
+	g.line(fmt.Sprintf("  br label %%%s", xhJoin))
+	g.line(fmt.Sprintf("%s:", xhJoin))
+	g.bootStrcat(respBuf, g.ptrTo(g.addString("Content-Length: "), 17))
 	bodyLen := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", bodyLen, body))
 	g.bootStrcat(respBuf, g.bootIntToStr(bodyLen))
-	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\n\r\n"), 5))
+	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\n"), 3))
+	// Set-Cookie (WithCookie) — one header line.
+	ckField := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 24", ckField, res))
+	ck := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", ck, ckField))
+	ckNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", ckNull, ck))
+	ckLbl := g.label()
+	ckJoin := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", ckNull, ckJoin, ckLbl))
+	g.line(fmt.Sprintf("%s:", ckLbl))
+	g.bootStrcat(respBuf, g.ptrTo(g.addString("Set-Cookie: "), 13))
+	g.bootStrcat(respBuf, ck)
+	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\n"), 3))
+	g.line(fmt.Sprintf("  br label %%%s", ckJoin))
+	g.line(fmt.Sprintf("%s:", ckJoin))
+	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\n"), 3))
 	g.bootStrcat(respBuf, body)
 	g.emitBootSend(conn, respBuf)
 	g.line(fmt.Sprintf("  br label %%%s", closeLbl))
@@ -130,7 +222,7 @@ func (g *Generator) emitBootRunBody() {
 	// ---- 404
 	g.line(fmt.Sprintf("%s:", do404Lbl))
 	g.line(fmt.Sprintf("  call i32 @send(i32 %s, ptr %s, i64 %d, i32 0)",
-		g.bootConnFd(conn), g.ptrTo(g.addString("HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found"), 52), 52))
+		g.bootConnFd(conn), g.ptrTo(g.addString("HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found"), 54), 54))
 	g.line(fmt.Sprintf("  br label %%%s", closeLbl))
 
 	// ---- close + loop
@@ -692,6 +784,48 @@ func (g *Generator) emitBootRequestMethodCall(req, method string, args []ast.Exp
 		// v0.6.8: req.JSON — parse the request body as JSON into a Variant map
 		// (map[String]Variant), reusing the JsonDecodeMap → box_map pipeline.
 		return g.emitBootReqJSON(req, args)
+	case "Form":
+		// v0.7.0 P2: req.Form(name) — urlencoded body lookup + URL decoding.
+		if len(args) != 1 {
+			return "", "", fmt.Errorf("TRequest.Form expects 1 argument, got %d", len(args))
+		}
+		nameReg, _, err := g.emitExpr(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		bodyField := g.bootReqField(req, 24)
+		body := g.tmp()
+		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", body, bodyField))
+		g.enqueueStdlib("boot", "formget", "formget", 0)
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_form_get(ptr %s, ptr %s)", r, body, nameReg))
+		rNull := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", rNull, r))
+		empty := g.ptrTo(g.addString(""), 1)
+		rSel := g.tmp()
+		g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", rSel, rNull, empty, r))
+		return rSel, "ptr", nil
+	case "Cookie":
+		// v0.7.0 P2: req.Cookie(name) — Cookie header pair lookup.
+		if len(args) != 1 {
+			return "", "", fmt.Errorf("TRequest.Cookie expects 1 argument, got %d", len(args))
+		}
+		nameReg, _, err := g.emitExpr(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		hdrField := g.bootReqField(req, 16)
+		hdrs := g.tmp()
+		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", hdrs, hdrField))
+		g.enqueueStdlib("boot", "cookieget", "cookieget", 0)
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_cookie_get(ptr %s, ptr %s)", r, hdrs, nameReg))
+		rNull := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", rNull, r))
+		empty := g.ptrTo(g.addString(""), 1)
+		rSel := g.tmp()
+		g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", rSel, rNull, empty, r))
+		return rSel, "ptr", nil
 	default:
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; TRequest.%s stub", r, method))

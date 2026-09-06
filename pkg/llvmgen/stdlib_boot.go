@@ -91,6 +91,26 @@ func (g *Generator) emitBootCall(funcName string, args []ast.Expression) (string
 		// [Authenticated] route exists (emitBootWrapper calls it regardless).
 		g.enqueueStdlib("boot", "BootEnforceAuth", "BootEnforceAuth", 0)
 		return "0", "void", nil
+	case "BootStatic":
+		// v0.7.0 P2: enable static file serving under /static/. The dir argument
+		// is stored into @__kylix_boot_static_dir by the define; BootRun's
+		// route-miss path consults it (GET + /static/ prefix → file response).
+		if len(args) < 1 {
+			return "", "", fmt.Errorf("boot.BootStatic expects a directory, got %d", len(args))
+		}
+		dirReg, _, err := g.emitExpr(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		for _, a := range args[1:] {
+			if _, _, err := g.emitExpr(a); err != nil {
+				return "", "", err
+			}
+		}
+		g.enqueueStdlib("boot", "BootStatic", "BootStatic", 0)
+		g.enqueueStdlib("boot", "servestatic", "servestatic", 0)
+		g.line(fmt.Sprintf("  call void @__kylix_boot_BootStatic(ptr %s)", dirReg))
+		return "0", "void", nil
 	default:
 		retType, ok := bootStubReturnTypes[funcName]
 		if !ok {
@@ -138,6 +158,14 @@ func (g *Generator) emitBootBody(funcName string) {
 	switch funcName {
 	case "BootText", "BootJSON", "BootHTML":
 		g.emitBootResponseBody(funcName)
+	case "BootStatic":
+		g.emitBootStaticBody()
+	case "formget":
+		g.emitBootFormGetBody()
+	case "cookieget":
+		g.emitBootCookieGetBody()
+	case "servestatic":
+		g.emitBootServeStaticBody()
 	case "BootGET", "BootPOST", "BootPUT", "BootDELETE":
 		// v0.6.6: real route registration — store {method, path, handler} in
 		// the module route table for @__kylix_boot_BootRun to dispatch.
@@ -182,20 +210,41 @@ func (g *Generator) emitBootBody(funcName string) {
 	}
 }
 
-// emitBootResponseBody emits a {i64 status, ptr body} response handle:
+// emitBootResponseBody emits the response handle:
 //
-//	%h = malloc(16); store status @ 0; store body @ 8; ret %h
+//	%h = malloc(40); {i64 status, ptr body, ptr ctype, ptr cookie, ptr xhdrs}
+//	store status @ 0; body @ 8; ctype @ 16; null cookie @ 24; null xhdrs @ 32
+//
+// v0.7.0 P2: extended from 16 bytes with a Content-Type slot (set by the
+// constructor: text/plain / text/html / application/json) plus cookie and
+// extra-headers slots that WithCookie/WithHeader fill in.
 func (g *Generator) emitBootResponseBody(funcName string) {
+	ctype := "text/plain; charset=utf-8"
+	switch funcName {
+	case "BootHTML":
+		ctype = "text/html; charset=utf-8"
+	case "BootJSON":
+		ctype = "application/json"
+	}
 	g.line(fmt.Sprintf("define ptr @__kylix_boot_%s(i64 %%status, ptr %%body) {", funcName))
 	g.line("entry:")
 	h := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 16)", h))
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 40)", h))
 	s := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i64, ptr %s, i64 0", s, h))
 	g.line(fmt.Sprintf("  store i64 %%status, ptr %s", s))
 	b := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", b, h))
 	g.line(fmt.Sprintf("  store ptr %%body, ptr %s", b))
+	c := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 16", c, h))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", g.ptrTo(g.addString(ctype), len(ctype)), c))
+	k := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 24", k, h))
+	g.line("  store ptr null, ptr " + k)
+	x := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 32", x, h))
+	g.line("  store ptr null, ptr " + x)
 	g.line(fmt.Sprintf("  ret ptr %s", h))
 	g.line("}")
 }

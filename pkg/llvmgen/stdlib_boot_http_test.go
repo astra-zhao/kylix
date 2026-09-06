@@ -114,8 +114,8 @@ func TestBoot_ArenaPerRequest(t *testing.T) {
 	assertIRContains(t, ir, "@__kylix_arena = internal global [1048576 x i8]")
 	assertIRContains(t, ir, "define ptr @__kylix_arena_alloc(i64 %size)")
 	assertIRContains(t, ir, "call void @__kylix_arena_reset()")
-	assertIRContains(t, ir, "call ptr @__kylix_arena_alloc(i64 2048)")
-	if contains(t, ir, "@malloc(i64 2048)") {
+	assertIRContains(t, ir, "call ptr @__kylix_arena_alloc(i64 8192)")
+	if contains(t, ir, "@malloc(i64 8192)") {
 		t.Errorf("response buffer still uses plain malloc (should be arena)\nIR:\n%s", ir)
 	}
 }

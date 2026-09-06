@@ -1,12 +1,41 @@
 unit web;
 
 // web — HTTP server for Kylix programs (stdlib wrapper around net/http).
+//
+// v0.7.0 P2: page-rendering API on TRequest/TResponse. The methods below are
+// dispatched by the compiler (TRequest/TResponse map to the boot runtime
+// handles); the declarations exist for LSP completion and documentation.
 
 type
   TRequest = class
+    // Param returns a URL path parameter value ("/users/:id" → req.Param('id')).
+    function Param(name: String): String;
+    // Query returns a URL query string value (?name=value).
+    function Query(name: String): String;
+    // Header returns a request header value.
+    function Header(name: String): String;
+    // Body returns the raw request body (NUL-terminated string).
+    function Body: String;
+    // Form returns a value from an urlencoded form body (HTML <form> posts),
+    // falling back to the URL query string. %XX and '+' are URL-decoded.
+    function Form(name: String): String;
+    // Cookie returns a request cookie value ("Cookie: a=1; b=2"), or ''.
+    function Cookie(name: String): String;
   end;
+
   TResponse = class
+    // Html replaces the body with an HTML page (text/html).
+    function Html(body: String): TResponse;
+    // Send replaces the body as plain text.
+    function Send(body: String): TResponse;
+    // StatusCode replaces the response status code.
+    function StatusCode(status: Integer): TResponse;
+    // WithHeader appends a response header (fluent).
+    function WithHeader(key: String; value: String): TResponse;
+    // WithCookie appends a Set-Cookie header "name=value; Path=/" (fluent).
+    function WithCookie(name: String; value: String): TResponse;
   end;
+
   TServer = class
   end;
 

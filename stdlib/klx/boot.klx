@@ -28,6 +28,12 @@ function BootText(status: Integer; body: String): Variant;
 function BootJSON(status: Integer; value: Variant): Variant;
 function BootHTML(status: Integer; body: String): Variant;
 
+// ===== Static files (v0.7.0 P2) =====
+// Enable static file serving from the given directory. GET requests under
+// /static/ are served from it (MIME type from extension); misses fall
+// through to the normal 404 path.
+procedure BootStatic(dir: String);
+
 // ===== Configuration =====
 procedure BootConfigSet(key: String; value: Variant);
 function BootConfigGetString(key: String; fallback: String): String;

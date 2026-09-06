@@ -86,6 +86,12 @@ func BootHTML(status int64, body string) *boot.Response {
 	return boot.HTML(int(status), body)
 }
 
+// BootStatic enables static file serving under the /static/ URL prefix.
+// v0.7.0 P2.
+func BootStatic(dir string) {
+	boot.SetStaticDir(dir)
+}
+
 // BootConfigSet stores a key/value pair in the default config.
 func BootConfigSet(key string, value interface{}) {
 	boot.SetConfig(key, value)

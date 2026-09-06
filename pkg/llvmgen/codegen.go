@@ -101,6 +101,19 @@ type Generator struct {
 	// verifies `Authorization: Bearer <token>` against it (v0.6.8).
 	bootJwtSecretConst string
 
+	// bootStaticDirConst is the string constant for BootStatic(dir) — the
+	// static file root served under /static/. When set, emitBootGlobals emits
+	// `@__kylix_boot_static_dir = global ptr <const>` and BootRun's route-miss
+	// path serves files from it (v0.7.0 P2).
+	bootStaticDirConst string
+
+	// bootStaticDirDeclared guards the `@__kylix_boot_static_dir = global ptr
+	// null` declaration: BootRun's route-miss path always references the
+	// global (serve_static), so it must be declared even when the program
+	// never calls BootStatic — emitBootStaticBody and emitBootServeStaticBody
+	// both route through this guard (v0.7.0 P2).
+	bootStaticDirDeclared bool
+
 	// base64TableEmitted guards the @__kylix_b64_table global (emitted once
 	// per module, on first Base64Encode/Decode use).
 	base64TableEmitted bool
@@ -622,6 +635,8 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare double @strtod(ptr noundef, ptr noundef)")
 	g.line("declare double @fabs(double)")
 	g.line("declare ptr @strchr(ptr noundef, i32)")
+	// v0.7.0 P2: static file MIME lookup (boot serve_static).
+	g.line("declare ptr @strrchr(ptr noundef, i32)")
 	g.line("declare ptr @strstr(ptr noundef, ptr noundef)")
 	// v0.6.6: strncmp (boot route path matching).
 	g.line("declare i32 @strncmp(ptr noundef, ptr noundef, i64 noundef)")
@@ -629,6 +644,8 @@ func (g *Generator) emitRuntimeDecls() {
 	// granularity). gettimeofday is POSIX and works on macOS/Linux; the
 	// CLOCK_MONOTONIC constant differs by platform (1 on Linux, 6 on macOS).
 	g.line("declare i32 @gettimeofday(ptr, ptr)")
+	// v0.7.0 P2: BootRun accept-null backoff (port in use → don't hot-spin).
+	g.line("declare i32 @usleep(i32 noundef)")
 	g.line("; ===== Exception handling runtime (setjmp/longjmp) =====")
 	g.line("declare i32 @setjmp(ptr)")
 	// v0.6.2: Windows UCRT exposes _setjmp/_longjmp (setjmp is a macro).

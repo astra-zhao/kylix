@@ -106,6 +106,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"BootRegisterAuth": true, "BootRegisterRoles": true,
 		"BootEnforceAuth": true, "BootEnforceRole": true,
 		"BootReadJSON": true,
+		"BootStatic": true,
 	},
 	"httpclient": {
 		"NewHttpClient": true, "HttpGet": true, "HttpPost": true,

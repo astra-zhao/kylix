@@ -1,7 +1,7 @@
 # Kylix 技术债务与后续开发清单
 
 > 最后更新: 2026-09-06
-> 当前版本: v0.7.0 进行中（web 页面开发 + web 框架 P1）
+> 当前版本: v0.7.0 进行中（web 页面开发 + web 框架 P2）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v0.3.1 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
@@ -9,6 +9,13 @@
 ---
 
 ## 🚧 v0.7.0 已知问题（2026-09-06）
+
+### P2 页面渲染 API 限制（LLVM boot server）
+
+- [ ] **单 Set-Cookie 槽**：TResponse handle 只有 1 个 cookie 槽（40B @24），多次 `WithCookie` 覆盖（Go 端 []string 无此限制）——多 cookie 需扩为逗号串或数组槽
+- [ ] **自定义头 1024 字节上限**：xhdrs 槽 malloc 1024，多/长 header 会截断——需按需 realloc 或改链表
+- [ ] **响应 handle / xhdrs 每请求 malloc 不回收**：预存在行为（无 free），长运行服务缓慢泄漏——per-request arena 已覆盖响应 buffer，handle 分配尚未纳入
+- [ ] **静态文件仅限 /static/ 前缀 + 文本 MIME 完整性**：send 体按 ftell 长度二进制安全，但读入 buffer 后含 NUL 的文件内容经 strlen 发头长度正确、体内容完整（已验证路径）；若未来加目录列表/Range 需重审
 
 ### emitter / 工具链缺口（P1 模板引擎开发中发现）
 

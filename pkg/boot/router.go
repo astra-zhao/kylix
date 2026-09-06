@@ -4,6 +4,9 @@ package boot
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -68,6 +71,7 @@ type Router struct {
 	routes      []*Route
 	middlewares []Middleware
 	notFound    Handler
+	StaticDir   string // directory served under /static/ (v0.7.0 P2)
 }
 
 // NewRouter creates an empty router.
@@ -111,12 +115,85 @@ func (r *Router) SetNotFound(h Handler) {
 	r.notFound = h
 }
 
+// SetStaticDir enables static file serving under the /static/ URL prefix
+// (e.g. SetStaticDir("./static") serves ./static/style.css at
+// /static/style.css). URL paths are cleaned to prevent ".." traversal.
+// v0.7.0 P2.
+func (r *Router) SetStaticDir(dir string) {
+	r.StaticDir = dir
+}
+
+// staticPrefix is the reserved URL prefix for static files.
+const staticPrefix = "/static/"
+
+// mimeFor returns the Content-Type for a file extension ("" = unknown →
+// application/octet-stream).
+func mimeFor(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".html", ".htm":
+		return "text/html; charset=utf-8"
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".js", ".mjs":
+		return "application/javascript; charset=utf-8"
+	case ".json":
+		return "application/json; charset=utf-8"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".svg":
+		return "image/svg+xml"
+	case ".ico":
+		return "image/x-icon"
+	case ".txt":
+		return "text/plain; charset=utf-8"
+	case ".xml":
+		return "application/xml"
+	case ".pdf":
+		return "application/pdf"
+	case ".woff":
+		return "font/woff"
+	case ".woff2":
+		return "font/woff2"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// serveStatic maps a /static/... URL path to a file under StaticDir and
+// returns the file response, or nil when the file does not exist.
+func (r *Router) serveStatic(urlPath string) *Response {
+	if r.StaticDir == "" || !strings.HasPrefix(urlPath, staticPrefix) {
+		return nil
+	}
+	rel := strings.TrimPrefix(urlPath, staticPrefix)
+	rel = path.Clean("/" + rel) // leading "/" forces absolute clean → no ".." escape
+	if rel == "/" || rel == "" {
+		return nil
+	}
+	full := filepath.Join(r.StaticDir, rel)
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return nil
+	}
+	return &Response{
+		Status:      200,
+		Body:        string(data),
+		ContentType: mimeFor(filepath.Ext(full)),
+		Headers:     map[string]string{},
+	}
+}
+
 // dispatch finds the matching route and runs the full middleware chain.
 func (r *Router) dispatch(req *Request) *Response {
 	r.mu.RLock()
 	routes := r.routes
 	middlewares := r.middlewares
 	notFound := r.notFound
+	staticDir := r.StaticDir
 	r.mu.RUnlock()
 
 	for _, route := range routes {
@@ -131,6 +208,12 @@ func (r *Router) dispatch(req *Request) *Response {
 				h = middlewares[i](h)
 			}
 			return h(req)
+		}
+	}
+	// Route miss → static files (v0.7.0 P2) → notFound.
+	if staticDir != "" && req.Request.Method == http.MethodGet {
+		if resp := r.serveStatic(req.Request.URL.Path); resp != nil {
+			return resp
 		}
 	}
 	return notFound(req)
@@ -150,6 +233,9 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	for k, v := range resp.Headers {
 		w.Header().Set(k, v)
+	}
+	for _, c := range resp.Cookies {
+		w.Header().Add("Set-Cookie", c)
 	}
 	if resp.Status == 0 {
 		resp.Status = 200

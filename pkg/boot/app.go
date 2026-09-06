@@ -47,6 +47,10 @@ func PATCH(p string, h Handler, mws ...Middleware)  { Default.Router.PATCH(p, h,
 // Use adds a global middleware to the default app.
 func Use(mw Middleware) { Default.Router.Use(mw) }
 
+// SetStaticDir enables static file serving on the default app
+// (served under the /static/ URL prefix). v0.7.0 P2.
+func SetStaticDir(dir string) { Default.Router.SetStaticDir(dir) }
+
 // Register binds a singleton to the default DI container.
 func Register(name string, factory func(*Container) interface{}) {
 	Default.Container.Register(name, factory)

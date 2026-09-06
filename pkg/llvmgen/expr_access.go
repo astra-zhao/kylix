@@ -227,6 +227,15 @@ func (g *Generator) emitMethodCall(member *ast.MemberExpression, args []ast.Expr
 		}
 		return g.emitBootRequestMethodCall(objReg, member.Member, args)
 	}
+	// TResponse (KylixBoot response handle, v0.7.0 P2): resp.Html/WithCookie/
+	// WithHeader/Send/StatusCode — fluent mutators on the 40-byte handle.
+	if typeName == "TResponse" || typeName == "BootResponse" {
+		objReg, _, err := g.emitExpr(member.Object)
+		if err != nil {
+			return "", "", err
+		}
+		return g.emitBootResponseMethodCall(objReg, member.Member, args)
+	}
 
 	if kind == "" {
 		// Unknown receiver type — evaluate it to check if it's a stdlib

@@ -18,6 +18,7 @@ package boot
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 )
 
 // ===== Request / Response =====
@@ -77,12 +78,40 @@ func (r *Request) JSON(out interface{}) error {
 	return json.Unmarshal(r.Body(), out)
 }
 
+// Form returns a value from an application/x-www-form-urlencoded body
+// (HTML <form method="POST"> submissions). Falls back to the URL query
+// string when the body is not form-encoded or the key is absent.
+// v0.7.0 P2.
+func (r *Request) Form(name string) string {
+	body := string(r.Body())
+	if vals, err := url.ParseQuery(body); err == nil {
+		if v := vals.Get(name); v != "" {
+			return v
+		}
+	}
+	return r.Query(name)
+}
+
+// Cookie returns a request cookie value ("Cookie: a=1; b=2" headers),
+// or "" when the cookie is absent. v0.7.0 P2.
+func (r *Request) Cookie(name string) string {
+	if r.Request == nil {
+		return ""
+	}
+	c, err := r.Request.Cookie(name)
+	if err != nil {
+		return ""
+	}
+	return c.Value
+}
+
 // Response is a builder-style HTTP response.
 type Response struct {
 	Status      int
 	Headers     map[string]string
 	Body        string
 	ContentType string
+	Cookies     []string // raw Set-Cookie values (v0.7.0 P2)
 }
 
 // NewResponse creates a basic Response with given status and body.
@@ -148,6 +177,26 @@ func (r *Response) Send(body string) *Response {
 // StatusCode mutates the response status code.
 func (r *Response) StatusCode(status int) *Response {
 	r.Status = status
+	return r
+}
+
+// Html mutates the response body to an HTML page (v0.7.0 P2).
+// Typical use with the template engine:
+//
+//	Result := resp.Html(eng.RenderString('home'));
+func (r *Response) Html(body string) *Response {
+	if r.Headers == nil {
+		r.Headers = map[string]string{}
+	}
+	r.Body = body
+	r.ContentType = "text/html; charset=utf-8"
+	return r
+}
+
+// WithCookie appends a Set-Cookie header (fluent API, v0.7.0 P2).
+// Sent as "name=value; Path=/".
+func (r *Response) WithCookie(name, value string) *Response {
+	r.Cookies = append(r.Cookies, name+"="+value+"; Path=/")
 	return r
 }
 

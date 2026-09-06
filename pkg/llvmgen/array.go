@@ -488,6 +488,14 @@ func (g *Generator) callReturnKylixType(call *ast.CallExpression) string {
 				return meth.RetKylixType
 			}
 		}
+		// v0.7.0 P2: fluent boot response chains — every Html/Send/StatusCode/
+		// WithHeader/WithCookie call returns the TResponse handle, so a chain
+		// like BootText(...).Html(...).WithCookie(...) keeps resolving the
+		// receiver type through each link (the receiver itself is a call whose
+		// Kylix type came back as "TResponse" from the recursion below).
+		if tn == "TResponse" || tn == "BootResponse" {
+			return "TResponse"
+		}
 		return ""
 	}
 	// Identifier func: top-level function (e.g. NewLexer) — funcSigs.
@@ -498,6 +506,13 @@ func (g *Generator) callReturnKylixType(call *ast.CallExpression) string {
 		// stdlib one-shot helpers returning a THttpResponse handle (v0.6.1).
 		if ident.Value == "HttpDoGet" || ident.Value == "HttpDoPost" {
 			return "THttpResponse"
+		}
+		// v0.7.0 P2: boot response builders return a TResponse handle — this is
+		// what lets `BootText(...).Html(...)` resolve its receiver (the inner
+		// call's Kylix type) and dispatch through the TResponse gate in
+		// emitMethodCall instead of falling to the unsupported-receiver stub.
+		if ident.Value == "BootText" || ident.Value == "BootHTML" || ident.Value == "BootJSON" {
+			return "TResponse"
 		}
 	}
 	return ""
