@@ -98,6 +98,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"BootRun", "BootGET", "BootPOST", "BootPUT", "BootDELETE",
 		"BootUseLogger", "BootUseRecover", "BootUseCORS", "BootUseRequestID",
 		"BootText", "BootJSON", "BootHTML",
+		"BootStatic", "BootNotFoundPage", "BootErrorPage", "BootReadJSON", // v0.7.0 P2/P3 page framework
 		"BootConfigSet", "BootConfigGetString", "BootConfigGetInt",
 		"BootRegisterInstance", "BootResolve",
 		"BootRegisterAuth", "BootRegisterRoles", "BootEnforceAuth", "BootEnforceRole",

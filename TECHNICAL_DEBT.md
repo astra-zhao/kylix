@@ -1,7 +1,7 @@
 # Kylix 技术债务与后续开发清单
 
 > 最后更新: 2026-09-06
-> 当前版本: v0.7.0 进行中（web 页面开发 + web 框架 P3）
+> 当前版本: v0.7.0 已发布（2026-09-06，web 页面开发 + web 框架）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v0.3.1 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
@@ -15,6 +15,7 @@
 - [ ] **bootstrap 端 boot server / Redirect / 错误页不支持**：bootstrap emitter 的 boot 系列仅 BootText/BootHTML stub（P2 BootStatic 同），BootRun 无真体——KylixBoot 无 Go E2E 仅 host LLVM 端可用。若未来 bootstrap 需 boot server，需把 stdlib_boot_http.go 的 BootRun/read_headers/parse_request/route_lookup/serve_static 全套发射逻辑移植进 src/llvmgen.klx（或烘焙进 stdlib_ir.klx）
 - [ ] **v0.5.x Go 自繁殖路径（gen1.go → go build）已腐化**：host Go 后端对 `X as TBlockStatement`（操作数静态类型已是具体类，如 src/llvmgen.klx PreEmitAllocas 的 ifst.Consequence，v0.6.9 P4 新增）发射类型断言 `.(*TBlockStatement)` → Go 编译错误。v0.6.9 起 bootstrap 闭环是 Go-free 的（gen1 = host LLVM 后端产出的 BOOT），此路径不再参与验证——若恢复 Go 自繁殖验证需先修 `as` 发射（操作数类型已知具体时发直赋值）
 - [ ] **LLVM 端 Redirect 后 body 保留**：`Redirect` 只改 status + Location，body 原样保留（与 Go 端一致，curl 语义正确）——如需 303/307 或绝对 URL 改写另行扩展
+- [ ] **boot/stdlib 函数"三处名单"同步陷阱（已三次踩坑，工程性改进项）**：新增 Boot*/stdlib 函数需同步 (1) host Go `generator/generator_stdlib.go` stdlibModules 启发式名单、(2) host LLVM `pkg/llvmgen/stdlib.go` 模块名单、(3) `pkg/llvmgen` emitBootCall switch——漏任何一处即该端 `undefined` / 裸 `@Name` 调用。P2/P3 曾漏 Go 端名单（example60 教程首暴露，P5 修复）。建议：单一来源表生成三份名单，或加交叉一致性单测
 
 ### P2 页面渲染 API 限制（LLVM boot server）
 

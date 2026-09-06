@@ -1,9 +1,11 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-09-04  
-> 当前版本: v0.6.9（已发布——bootstrap 无 Go 闭环）  
+> 最后更新: 2026-09-06  
+> 当前版本: v0.7.0（已发布——web 页面开发 + web 框架）  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
+
+**✅ v0.7.0 已发布！** web 页面开发 + web 框架：(1) **P0 `error` 类型语言特性**——`(T, error)` 多返回 + 裸 error + `ErrorStr`，host/LLVM/bootstrap 三端；(2) **P1 纯 Kylix 模板引擎**——`stdlib/template_engine.klx`（Mustache 风格 `{{}}`，12 过滤器 + each/if），三端同源可用；(3) **P2 页面渲染 API**——`res.HTML`/`req.Form`/`req.Cookie`/`static/` 静态资源，Go 与 LLVM 双端同步；(4) **P3 页面框架完善**——`res.Redirect`（302）+ 自定义 404/500 错误页 + 模板上下文（`AddVariant`/`SetContext`）；(5) **P5 教程接入**——example60 真实 BootRun server E2E（launch + curl + kill），Go/LLVM 54/54。**v0.6.9 bootstrap 无 Go 闭环与 IR 不动点保持**。**下一步 → v0.7.1 net Winsock / regex pcre2（Windows 真机）**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 **✅ v0.6.9 已发布！** bootstrap 无 Go 闭环达成：(1) **stdlib IR 烘焙**——host 生成的 stdlib IR 按 13 段烘焙进 `src/stdlib_ir.klx`（免手写 15.5k 行 Go 移植），bootstrap 只做 call-site dispatch + wrapper 类方法；(2) **gen2 编译器诞生 + IR 不动点**——9 文件自举 IR（~220k 行）通过 llc 并链接出 gen2（纯原生无 Go），**gen1 ≡ gen2 ≡ gen3 逐字节一致（真正不动点）**；P4.10/P4.11 破案两大根因（for 计数器全局槽污染、`array of Boolean` 写读 stride 不一致）。**bootstrap emitter 补缺 20+ 项**（dot-name 方法/链式成员/record 类型系统/epilogue 重排/嵌套循环/alloca hoisting/构造函数 calloc 等，详见 CHANGELOG）。**教程 sweep 50/51 PASS**（bootstrap-vs-host 逐字 diff，`scripts/test_bootstrap_all.sh`；example15 lambda / example50 jwt 已于 P4.12 修复，example33 为 host 端 SKIP）。**下一步 → v0.7.0 web 框架**。详见 [CHANGELOG.md](CHANGELOG.md)。
 

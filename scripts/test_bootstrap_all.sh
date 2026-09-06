@@ -60,6 +60,15 @@ for f in "$TUT"/*/*.klx; do
   if [ "$name" == "example59_template" ]; then
     continue
   fi
+  # example60 is a real BootRun HTTP server — the bootstrap compiler does not
+  # support the boot server (v0.7.0 P3 limitation, see TECHNICAL_DEBT.md), and
+  # a server never exits so the host reference would hang until timeout.
+  # Exercised end-to-end by the tutorial test scripts (curl + kill) instead.
+  if [ "$name" == "example60_web_framework" ]; then
+    echo "SKIP example60_web_framework (boot server E2E — not supported by bootstrap)"
+    SKIP=$((SKIP+1))
+    continue
+  fi
   # ---- host reference ----
   if ! "$KYLIX" build --backend=llvm -o "$OUT/${name}_host" "$f" >/dev/null 2>&1; then
     echo "SKIP $name (host build failed)"

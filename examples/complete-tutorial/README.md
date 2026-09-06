@@ -112,6 +112,10 @@ Kylix is a modern Pascal compiler: by default it transpiles to readable Go code 
 - `example56_variant.klx` - Variant scalars and arrays (type-tagged runtime values)
 - `example57_variant_map.klx` - `map[String]Variant` with type-tagged values (`row['col']` style access)
 
+### 21. Web Pages (2 examples) - `22_web_pages/` (v0.7.0)
+- `example59_template.klx` - Pure-Kylix template engine: `{{ var }}` escaping, dotted lookups, filter pipelines, `{{#each}}`/`{{#if}}` blocks (multi-file build with `stdlib/template_engine.klx`; see also [TEMPLATE_GUIDE.md](../../docs/TEMPLATE_GUIDE.md))
+- `example60_web_framework.klx` - KylixBoot web framework end-to-end: annotation routing, `BootHTML` + fluent `res.Redirect`, custom 404/500 error pages, panic recovery. Runs a **real HTTP server** — never exits, so the test scripts launch it, curl four endpoints (200 / 302+Location / 404 page / 500 page), and kill it (see [WEB_FRAMEWORK.md](../../docs/WEB_FRAMEWORK.md))
+
 ## How to Run Examples
 
 ### Single File
@@ -388,6 +392,7 @@ kylix run hello.klx
 | HTTP Client | 1 | ✅ Works |
 | WebSocket | 1 | ✅ Works |
 | Variant (scalars/arrays + map) | 2 | ✅ All work |
-| **Total** | **50 + unit + smoke** | **Go 51/51 · LLVM 51/51 · bootstrap 50+1 SKIP** |
+| Web Pages (template engine + web framework E2E) | 2 | ✅ All work (example60 via launch+curl+kill E2E) |
+| **Total** | **53 + unit + smoke** | **Go 54/54 · LLVM 54/54 · bootstrap 52 PASS + 2 SKIP** |
 
 Happy coding with Kylix! 🚀

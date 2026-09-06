@@ -12,7 +12,18 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
-## v0.7.0 (进行中) — web 页面开发 + web 框架
+## v0.7.0 (2026-09-06) — web 页面开发 + web 框架
+
+### P5：教程 22_web_pages 接入 + v0.7.0 发布
+
+- **example60_web_framework.klx（22_web_pages）**：真实 BootRun HTTP server 教程——`[Controller]/[Get]` 注解路由 + `BootHTML` 响应 + `result.Redirect`（302+Location）+ `BootNotFoundPage`/`BootErrorPage` 自定义错误页 + handler panic（raise）恢复进 500 页。server 永不退出，标准 compile+run harness 无法运行——由测试脚本特判 E2E：后台启动 → curl 四场景断言（200 页 / 302+`Location: /api/new` / Custom 404 / Custom 500）→ kill。
+- **test_all.sh / test_all_llvm.sh 接入 22_web_pages**（`run_web_pages_test`，双端镜像）：(1) **example59 多文件特判**（`stdlib/template_engine.klx` + example59，镜像 11_modules 先例）——此前 22_web_pages 只被 bootstrap sweep 覆盖，host 双端脚本从未跑过；(2) **example60 E2E runner**（Go 端 `kylix build` + `go build` 出二进制；LLVM 端 `--backend=llvm` 原生二进制）。curl 依赖：GitHub runner 与 macOS 均预装。
+- **sweep 集成**：`scripts/test_bootstrap_all.sh` example60 显式 SKIP（bootstrap 端 boot server 不支持——P3 已知限制；且 server 永不退出 host 参照会挂到 timeout）。
+- **host Go 后端修复：boot 函数名单补 4 项**（`generator_stdlib.go`）——`BootStatic`/`BootNotFoundPage`/`BootErrorPage`/`BootReadJSON` 在 P2/P3 只加了 LLVM 端双表（emitBootCall switch + stdlib.go 名单），Go 端 stdlib 模块启发式名单漏加，生成 Go 代码 `undefined: BootNotFoundPage`。教程是唯一走全链路的回归面。
+- **文档**：docs/WEB_FRAMEWORK.md + docs/TEMPLATE_GUIDE.md（P0-P3 已交付）；教程 README 表补 22_web_pages 行。
+- **验证**：16 包全绿；**Go 54/54 + LLVM 54/54**（example60 双端 E2E 全过）；bootstrap sweep **52 PASS + 0 FAIL + 2 SKIP**；IR 不动点不受影响（本轮全为 host 侧改动，src/*.klx 未动）。
+- **发布**：CLI 版本 bump 0.7.0；CLAUDE.md / README / ROADMAP 状态同步。
+
 
 ### P1：纯 Kylix 模板引擎 template_engine.klx
 

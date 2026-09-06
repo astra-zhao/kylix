@@ -85,7 +85,65 @@ for dir in \
     run_single_file_dir "$dir"
 done
 
+# 22_web_pages needs two special cases (v0.7.0 P5):
+#   - example59 uses the template unit — multi-file build with stdlib/template_engine.klx
+#   - example60 starts a real BootRun HTTP server — never exits, so it is
+#     compiled, launched in the background, curl-checked on four endpoints,
+#     and killed (real end-to-end coverage of redirect + error pages).
+run_web_pages_test() {
+    echo "Testing 22_web_pages..."
+    cd "$ROOT/22_web_pages" 2>/dev/null || return 0
+
+    # ---- example59: template engine (multi-file with stdlib unit) ----
+    TOTAL=$((TOTAL + 1))
+    if $KYLIX build "$ROOT/../../stdlib/template_engine.klx" example59_template.klx 2>&1 | grep -q "✓ Compiled"; then
+        if go run main.go >/dev/null 2>&1; then
+            echo "  ✓ example59_template"
+            PASS=$((PASS + 1))
+        else
+            echo "  ✗ example59_template (go run failed)"
+            FAIL=$((FAIL + 1))
+        fi
+    else
+        echo "  ✗ example59_template (compile failed)"
+        FAIL=$((FAIL + 1))
+    fi
+
+    # ---- example60: web framework E2E (launch server + curl + kill) ----
+    TOTAL=$((TOTAL + 1))
+    local ok=1 tries=0
+    if ! $KYLIX build example60_web_framework.klx 2>&1 | grep -q "✓ Compiled" \
+            || ! go build -o /tmp/kylix_web_e2e example60_web_framework.go 2>/dev/null; then
+        echo "  ✗ example60_web_framework (compile failed)"
+        FAIL=$((FAIL + 1))
+        return 0
+    fi
+    /tmp/kylix_web_e2e >/dev/null 2>&1 &
+    local pid=$!
+    while [ $tries -lt 25 ]; do
+        curl -s -o /dev/null http://127.0.0.1:8077/api/new && break
+        sleep 0.2
+        tries=$((tries + 1))
+    done
+    [ "$(curl -s http://127.0.0.1:8077/api/new)" = "you made it" ] || ok=0
+    curl -si http://127.0.0.1:8077/api/old | head -1 | grep -q "^HTTP/1.1 302" || ok=0
+    curl -si http://127.0.0.1:8077/api/old | grep -qi "^Location: /api/new" || ok=0
+    curl -s http://127.0.0.1:8077/api/missing | grep -q "Custom 404" || ok=0
+    curl -s http://127.0.0.1:8077/api/boom | grep -q "Custom 500" || ok=0
+    kill -9 $pid 2>/dev/null
+    wait $pid 2>/dev/null
+    if [ "$ok" = 1 ]; then
+        echo "  ✓ example60_web_framework (E2E)"
+        PASS=$((PASS + 1))
+    else
+        echo "  ✗ example60_web_framework (E2E mismatch)"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
 run_module_test
+
+run_web_pages_test
 
 echo ""
 echo "================================"

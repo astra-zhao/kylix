@@ -1,0 +1,47 @@
+// example60_web_framework.klx — KylixBoot web framework end-to-end (v0.7.0 P5)
+// A REAL HTTP server (BootRun) exercising the v0.7.0 page-framework features:
+//   - [Controller]/[Get] annotation routing
+//   - BootHTML response builder + fluent res.Redirect (302 + Location)
+//   - BootNotFoundPage / BootErrorPage custom error pages
+//   - handler panic (raise) recovered into the custom 500 page
+// Not run by the plain compile+run harness (a server never exits) — the
+// test scripts launch it in the background, curl four endpoints, and kill it:
+//   GET /api/new     -> 200 "you made it"
+//   GET /api/old     -> 302 + Location: /api/new
+//   GET /api/missing -> 404 custom page
+//   GET /api/boom    -> 500 custom page
+
+program WebFramework;
+
+uses boot;
+
+[Controller('/api')]
+type
+  TWebController = class
+    [Get('/new')]
+    function NewPage(req: TRequest): TResponse;
+    begin
+      result := BootHTML(200, 'you made it');
+    end;
+
+    [Get('/old')]
+    function OldPage(req: TRequest): TResponse;
+    begin
+      result := BootHTML(200, 'old page');
+      result := result.Redirect('/api/new');
+    end;
+
+    [Get('/boom')]
+    function BoomPage(req: TRequest): TResponse;
+    begin
+      result := BootHTML(200, 'never');
+      raise Exception.Create('handler blew up');
+    end;
+  end;
+
+begin
+  BootNotFoundPage('<html><body><h1>Custom 404</h1></body></html>');
+  BootErrorPage('<html><body><h1>Custom 500</h1></body></html>');
+  WriteLn('web framework demo on :8077');
+  BootRun(8077);
+end.
