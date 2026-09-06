@@ -300,6 +300,17 @@ func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 				g.write(")")
 				return
 			}
+		case "VariantToStr":
+			// v0.7.0 P3: VariantToStr(v) → fmt.Sprintf("%v", box) — %v on an
+			// interface{} prints the dynamic value (int/str/bool/float), which
+			// matches the LLVM variant_as_str tag dispatch for the common cases.
+			if len(e.Arguments) == 1 {
+				g.imports["fmt"] = true
+				g.write(`fmt.Sprintf("%v", `)
+				g.generateExpression(e.Arguments[0])
+				g.write(")")
+				return
+			}
 		case "StrToInt64":
 			if len(e.Arguments) == 1 {
 				g.imports["strconv"] = true

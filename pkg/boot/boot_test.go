@@ -520,3 +520,67 @@ func TestStaticTraversalBlocked(t *testing.T) {
 		t.Errorf("traversal not blocked: code=%d body=%q", code, body)
 	}
 }
+
+// ===== v0.7.0 P3: Redirect + custom error pages =====
+
+func TestResponse_Redirect(t *testing.T) {
+	res := NewResponse(200, "")
+	if got := res.Redirect("/login"); got != res {
+		t.Fatal("Redirect should return the receiver")
+	}
+	if res.Status != 302 {
+		t.Errorf("Status=%d, want 302", res.Status)
+	}
+	if res.Headers["Location"] != "/login" {
+		t.Errorf("Location=%q, want /login", res.Headers["Location"])
+	}
+}
+
+func TestRouter_NotFoundPage(t *testing.T) {
+	r := NewRouter()
+	r.SetNotFoundPage("<h1>404 custom</h1>")
+	status, body, ct := doRequest(r, "GET", "/missing")
+	if status != 404 {
+		t.Errorf("status=%d, want 404", status)
+	}
+	if body != "<h1>404 custom</h1>" {
+		t.Errorf("body=%q", body)
+	}
+	if !strings.Contains(ct.Get("Content-Type"), "text/html") {
+		t.Errorf("Content-Type=%q, want text/html", ct.Get("Content-Type"))
+	}
+}
+
+func TestRouter_NotFoundPage_DefaultWhenUnset(t *testing.T) {
+	r := NewRouter()
+	status, body, _ := doRequest(r, "GET", "/missing")
+	if status != 404 || !strings.HasPrefix(body, "404 Not Found") {
+		t.Errorf("status=%d body=%q, want default 404", status, body)
+	}
+}
+
+func TestRouter_ErrorPage_PanicRecover(t *testing.T) {
+	r := NewRouter()
+	r.SetErrorPage("<h1>500 custom</h1>")
+	r.GET("/boom", func(req *Request) *Response {
+		panic("boom")
+	})
+	status, body, _ := doRequest(r, "GET", "/boom")
+	if status != 500 {
+		t.Errorf("status=%d, want 500", status)
+	}
+	if body != "<h1>500 custom</h1>" {
+		t.Errorf("body=%q", body)
+	}
+}
+
+func TestRouter_ErrorPage_DefaultWhenUnset(t *testing.T) {
+	r := NewRouter()
+	r.GET("/boom", func(req *Request) *Response {
+		panic("boom")
+	})
+	status, body, _ := doRequest(r, "GET", "/boom")
+	if status != 500 || body != "500 Internal Server Error" {
+		t.Errorf("status=%d body=%q, want default 500", status, body)
+	}
+}

@@ -1,10 +1,10 @@
 package main
 
 import (
-	"kylix/stdlib"
-	"fmt"
 	"strings"
 	"regexp"
+	"kylix/stdlib"
+	"fmt"
 )
 
 type TCreateUser struct {

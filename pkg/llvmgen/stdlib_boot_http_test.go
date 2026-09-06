@@ -182,3 +182,52 @@ end.`)
 	// auth machinery — proving this is not the old unconditional pass stub.
 	assertIRContains(t, ir, "ret ptr null")
 }
+
+// ===== v0.7.0 P3: Redirect + custom error pages =====
+
+const bootErrorPageProgram = `program p;
+uses boot;
+[Controller('/api')]
+type
+  TApiController = class
+    [Get('/old')]
+    function Old(req: TRequest): TResponse;
+    begin
+      result := BootHTML(200, 'old page');
+      result := result.Redirect('/new');
+    end;
+  end;
+begin
+  BootNotFoundPage('<h1>404</h1>');
+  BootErrorPage('<h1>500</h1>');
+  BootRun(8095);
+end.`
+
+func TestBoot_ErrorPageGlobalsAndSetters(t *testing.T) {
+	ir := generateIR(t, bootErrorPageProgram)
+	// Page globals declared once, setters store the HTML into them.
+	assertIRContains(t, ir, "@__kylix_boot_404_page = global ptr null")
+	assertIRContains(t, ir, "@__kylix_boot_500_page = global ptr null")
+	assertIRContains(t, ir, "define void @__kylix_boot_BootNotFoundPage(ptr %html)")
+	assertIRContains(t, ir, "define void @__kylix_boot_BootErrorPage(ptr %html)")
+	// BootRun reads the 404 page on the route-miss path (null → built-in).
+	assertIRContains(t, ir, "load ptr, ptr @__kylix_boot_404_page")
+}
+
+func TestBoot_RunArmsSetjmp500Handler(t *testing.T) {
+	ir := generateIR(t, bootErrorPageProgram)
+	// BootRun arms a setjmp handler per request: a raise during
+	// read/parse/handler lands in the catch block, which restores the outer
+	// jmpbuf and sends the 500 page (or the built-in response).
+	assertIRContains(t, ir, "call i32 @setjmp(ptr")
+	assertIRContains(t, ir, "load ptr, ptr @__kylix_boot_500_page")
+	assertIRContains(t, ir, "500 Internal Server Error")
+}
+
+func TestBoot_RedirectMethod(t *testing.T) {
+	ir := generateIR(t, bootErrorPageProgram)
+	// resp.Redirect('/new'): status 302 + "Location: /new\r\n" xhdr entry.
+	// (\r\n appears escape-encoded in the IR string constants.)
+	assertIRContains(t, ir, "store i64 302")
+	assertIRContains(t, ir, "Location: %s\\0D\\0A")
+}

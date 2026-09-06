@@ -51,6 +51,13 @@ func Use(mw Middleware) { Default.Router.Use(mw) }
 // (served under the /static/ URL prefix). v0.7.0 P2.
 func SetStaticDir(dir string) { Default.Router.SetStaticDir(dir) }
 
+// SetNotFoundPage sets a custom HTML 404 page on the default app. v0.7.0 P3.
+func SetNotFoundPage(html string) { Default.Router.SetNotFoundPage(html) }
+
+// SetErrorPage sets a custom HTML 500 page on the default app (served when a
+// handler panics). v0.7.0 P3.
+func SetErrorPage(html string) { Default.Router.SetErrorPage(html) }
+
 // Register binds a singleton to the default DI container.
 func Register(name string, factory func(*Container) interface{}) {
 	Default.Container.Register(name, factory)

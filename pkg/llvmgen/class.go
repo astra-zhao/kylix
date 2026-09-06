@@ -530,6 +530,18 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 		g.line(fmt.Sprintf("  %%result = alloca %s, align 8", retType))
 		g.locals["result"] = "%result"
 		g.resultLLVMType = retType // v0.5.4
+		// v0.7.0 P3: register the result slot's Kylix type so receiverKind
+		// (and the chained-method dispatch) resolves fluent calls on the
+		// result of boot-handle types — `result := result.Redirect('/new')`
+		// previously fell through to "unsupported receiver" because boot
+		// handles are not in g.classes. Mirrors stmt.go's class/record
+		// registration.
+		if method.ReturnType != nil {
+			retKylix := typeExprName(method.ReturnType)
+			if _, isClass := g.classes[retKylix]; isClass || isBootHandleType(retKylix) {
+				g.localTypes["result"] = retKylix
+			}
+		}
 		if g.debugInfo {
 			g.emitDbgDeclare("result", method.Token.Line, retType, "%result")
 		}
@@ -869,13 +881,25 @@ func (g *Generator) emitVirtualCall(className, objReg, methodName string, argReg
 		// resolve the receiver). Coerce to the LLVM type (ptr for classes) so
 		// the call instruction is well-typed.
 		at := argTypes[i]
-		// v0.6.3: a Variant box's real IR type is ptr — the "variant"
-		// pseudo-type must never appear in a call's arg list.
-		if at == variantT {
+		// v0.7.0 P3: a Variant method param receives a BOX — plain scalars
+		// (int/float/bool/string) must be boxed at the call site; only then is
+		// the pseudo-type demoted to ptr. Previously a scalar slipped through
+		// unboxed and the indirect call crashed IR verification
+		// (`call (ptr,ptr,ptr) f(..., i64 %x)`).
+		if i < len(meth.ParamKylixTypes) && isVariantTypeName(meth.ParamKylixTypes[i]) {
+			if at != variantT {
+				r = g.emitVariantBox(r, at)
+			}
 			at = "ptr"
-		}
-		if _, isClass := g.classes[at]; isClass {
-			at = "ptr"
+		} else {
+			// v0.6.3: a Variant box's real IR type is ptr — the "variant"
+			// pseudo-type must never appear in a call's arg list.
+			if at == variantT {
+				at = "ptr"
+			}
+			if _, isClass := g.classes[at]; isClass {
+				at = "ptr"
+			}
 		}
 		callArgs = append(callArgs, at+" "+r)
 	}
@@ -961,7 +985,11 @@ func (g *Generator) emitInherited(s *ast.InheritedStatement) error {
 		if i < len(meth.Params) && meth.Params[i] != t {
 			// v0.6.3: a Variant method param receives the box as-is — coercing
 			// variant→ptr would as_str it. The Kylix name disambiguates "ptr".
-			if i < len(meth.ParamKylixTypes) && isVariantTypeName(meth.ParamKylixTypes[i]) && t == variantT {
+			// v0.7.0 P3: a plain scalar passed to a Variant param is boxed here.
+			if i < len(meth.ParamKylixTypes) && isVariantTypeName(meth.ParamKylixTypes[i]) {
+				if t != variantT {
+					r = g.emitVariantBox(r, t)
+				}
 				t = "ptr"
 			} else {
 				r, t = g.coerceValue(r, t, meth.Params[i])

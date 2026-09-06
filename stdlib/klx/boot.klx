@@ -34,6 +34,12 @@ function BootHTML(status: Integer; body: String): Variant;
 // through to the normal 404 path.
 procedure BootStatic(dir: String);
 
+// ===== Error pages (v0.7.0 P3) =====
+// BootNotFoundPage sets a custom HTML 404 page (shown on route/static miss).
+procedure BootNotFoundPage(html: String);
+// BootErrorPage sets a custom HTML 500 page (shown when a handler raises).
+procedure BootErrorPage(html: String);
+
 // ===== Configuration =====
 procedure BootConfigSet(key: String; value: Variant);
 function BootConfigGetString(key: String; fallback: String): String;

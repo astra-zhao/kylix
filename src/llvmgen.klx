@@ -4892,6 +4892,30 @@ begin
       self.LastType := 'ptr';
       Exit;
     end;
+    if fname = 'VariantToStr' then
+    begin
+      // v0.7.0 P3: VariantToStr(v) — string form of a Variant (plain scalars
+      // are boxed first). @__kylix_variant_as_str lives in the unconditional
+      // baked runtime segment of stdlib_ir.klx. An identifier typed Variant
+      // (local or param) already holds a box — LastType maps variant→ptr, so
+      // detect via LocalKylix like the host does via localTypes.
+      r := self.EmitExprTyped(e.Arguments[0]);
+      // No compound `and` here — the bootstrap emits `call @(i1)` for those.
+      if self.LastType <> 'variant' then
+      begin
+        if e.Arguments[0] is TIdentifier then
+        begin
+          if self.LocalKylix((e.Arguments[0] as TIdentifier).Value) <> 'Variant' then
+            r := self.BoxScalar(r, self.LastType);
+        end
+        else
+          r := self.BoxScalar(r, self.LastType);
+      end;
+      result := self.Tmp();
+      self.WriteLine('  ' + result + ' = call ptr @__kylix_variant_as_str(ptr ' + r + ')');
+      self.LastType := 'ptr';
+      Exit;
+    end;
     if fname = 'StrToFloat' then
     begin
       result := self.EmitStrToFloat(e.Arguments[0]);

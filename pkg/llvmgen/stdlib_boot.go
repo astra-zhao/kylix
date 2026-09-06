@@ -52,10 +52,20 @@ var bootStubReturnTypes = map[string]string{
 	"BootRegisterInstance": "void",
 	"BootRegisterAuth":     "void",
 	"BootRegisterRoles":    "void",
+	"BootNotFoundPage":     "void",
+	"BootErrorPage":        "void",
 }
 
-func (g *Generator) emitBootCall(funcName string, args []ast.Expression) (string, string, error) {
-	switch funcName {
+// isBootHandleType reports whether name is an opaque KylixBoot handle type
+// (TRequest/TResponse, v0.6.6/v0.7.0 P3) — not registered in g.classes but
+// dispatched by name in the chained-method emitter. Used to register result
+// slots so `result := result.Redirect(...)` resolves its receiver type.
+func isBootHandleType(name string) bool {
+	return name == "TRequest" || name == "TResponse" ||
+		name == "BootRequest" || name == "BootResponse"
+}
+
+func (g *Generator) emitBootCall(funcName string, args []ast.Expression) (string, string, error) {	switch funcName {
 	case "BootText", "BootJSON", "BootHTML":
 		// Real response handle {i64 status, ptr body}.
 		return g.emitBootResponseCall(funcName, args)
@@ -111,6 +121,24 @@ func (g *Generator) emitBootCall(funcName string, args []ast.Expression) (string
 		g.enqueueStdlib("boot", "servestatic", "servestatic", 0)
 		g.line(fmt.Sprintf("  call void @__kylix_boot_BootStatic(ptr %s)", dirReg))
 		return "0", "void", nil
+	case "BootNotFoundPage", "BootErrorPage":
+		// v0.7.0 P3: custom 404/500 HTML pages — stored into module globals
+		// that BootRun's error paths consult (null = built-in response).
+		if len(args) < 1 {
+			return "", "", fmt.Errorf("boot.%s expects an html string, got %d", funcName, len(args))
+		}
+		htmlReg, _, err := g.emitExpr(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		for _, a := range args[1:] {
+			if _, _, err := g.emitExpr(a); err != nil {
+				return "", "", err
+			}
+		}
+		g.enqueueStdlib("boot", funcName, funcName, 0)
+		g.line(fmt.Sprintf("  call void @__kylix_boot_%s(ptr %s)", funcName, htmlReg))
+		return "0", "void", nil
 	default:
 		retType, ok := bootStubReturnTypes[funcName]
 		if !ok {
@@ -160,6 +188,10 @@ func (g *Generator) emitBootBody(funcName string) {
 		g.emitBootResponseBody(funcName)
 	case "BootStatic":
 		g.emitBootStaticBody()
+	case "BootNotFoundPage":
+		g.emitBootErrorPageBody("BootNotFoundPage", boot404PageGlobal)
+	case "BootErrorPage":
+		g.emitBootErrorPageBody("BootErrorPage", boot500PageGlobal)
 	case "formget":
 		g.emitBootFormGetBody()
 	case "cookieget":

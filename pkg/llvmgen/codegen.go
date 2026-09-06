@@ -114,6 +114,12 @@ type Generator struct {
 	// both route through this guard (v0.7.0 P2).
 	bootStaticDirDeclared bool
 
+	// bootErrorPagesDeclared guards the `@__kylix_boot_404_page` /
+	// `@__kylix_boot_500_page = global ptr null` declarations: BootRun's
+	// 404/500 paths always reference them, so they must be declared even when
+	// the program never calls BootNotFoundPage/BootErrorPage (v0.7.0 P3).
+	bootErrorPagesDeclared bool
+
 	// base64TableEmitted guards the @__kylix_b64_table global (emitted once
 	// per module, on first Base64Encode/Decode use).
 	base64TableEmitted bool

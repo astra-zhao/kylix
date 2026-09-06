@@ -200,6 +200,17 @@ func (r *Response) WithCookie(name, value string) *Response {
 	return r
 }
 
+// Redirect returns a 302 response pointing at url (fluent API, v0.7.0 P3).
+// Typical handler use: Result := res.Redirect('/login');
+func (r *Response) Redirect(url string) *Response {
+	r.Status = 302
+	if r.Headers == nil {
+		r.Headers = map[string]string{}
+	}
+	r.Headers["Location"] = url
+	return r
+}
+
 // ===== Handler types =====
 
 // Handler is the canonical handler signature for KylixBoot routes.

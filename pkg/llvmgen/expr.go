@@ -330,7 +330,16 @@ func (g *Generator) emitIdentLoad(name string) (string, string, error) {
 		}
 		// Determine type from alloca name convention: %v_name_TYPE
 		llvmT := "i64" // default
-		if strings.HasSuffix(allocaReg, "_bool") {
+		// v0.7.0 P3: a Variant param (or local whose alloca name lost the _var
+		// suffix — method params suffix by LLVM type, and Variant lowers to
+		// ptr → _str) carries a box pointer. localTypes holds the Kylix type
+		// name, which is authoritative here: return the "variant" pseudo-type
+		// so downstream dispatch (compare/arith/VariantToStr/WriteLn) boxes and
+		// unboxes correctly instead of treating the box as a plain string. IR
+		// shape is unchanged (llvmLoadType(variantT) == ptr).
+		if kylixT, ok := g.localTypes[name]; ok && isVariantTypeName(kylixT) {
+			llvmT = variantT
+		} else if strings.HasSuffix(allocaReg, "_bool") {
 			llvmT = "i1"
 		} else if strings.HasSuffix(allocaReg, "_real") {
 			llvmT = "double"
@@ -876,6 +885,19 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		return g.emitFloatToStr(e.Arguments[0])
 	}
 
+	// v0.7.0 P3: VariantToStr(v) — string form of a Variant (plain scalars
+	// are boxed first; the helper dispatches on the box tag: int→%lld,
+	// float→%.15g, bool→true/false, str→raw, nil→""). Go side emits
+	// fmt.Sprintf("%v", ...) — same output for the int/str/bool cases.
+	if funcName == "VariantToStr" && len(e.Arguments) == 1 {
+		v, vt, err := g.emitExpr(e.Arguments[0])
+		if err != nil {
+			return "", "", err
+		}
+		box := g.emitVariantBox(v, vt)
+		return g.emitVariantAsStr(box), "ptr", nil
+	}
+
 	// v0.7.0 P0b: error('msg') → the message string ptr itself. LLVM error
 	// values are nullable message strings (nil lowers to a null ptr).
 	if funcName == "error" && len(e.Arguments) == 1 {
@@ -1006,10 +1028,14 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 			// coercing variant→ptr here would as_str it and pass a plain string
 			// to a Variant param (crashing the callee's `<> nil`). GetVar() and
 			// stdlib calls (e.g. JwtVerify) return "variant"; both must stay boxed.
+			// v0.7.0 P3: a plain scalar passed to a Variant param is boxed here.
 			if isVariantType(sig.Parameters[i].Type) {
 				// The box's real IR type is ptr; the "variant" pseudo-type is
 				// codegen-only and would emit an invalid `call f(variant %x)`.
 				if t == variantT {
+					t = "ptr"
+				} else {
+					r = g.emitVariantBox(r, t)
 					t = "ptr"
 				}
 			} else {

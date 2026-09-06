@@ -3314,6 +3314,15 @@ type
           self.Write(')');
           Exit;
         end;
+        if ident.Value = 'VariantToStr' then
+        begin
+          // v0.7.0 P3: VariantToStr(v) → fmt.Sprintf("%v", box) — %v on an
+          // interface{} prints the dynamic value, matching host Go backend.
+          self.Write('fmt.Sprintf("%v", ');
+          self.GenerateExpression(call.Arguments[0]);
+          self.Write(')');
+          Exit;
+        end;
         if ident.Value = 'Ord' then
         begin
           self.Write('func() int64 { if len(');

@@ -34,6 +34,9 @@ type
     function WithHeader(key: String; value: String): TResponse;
     // WithCookie appends a Set-Cookie header "name=value; Path=/" (fluent).
     function WithCookie(name: String; value: String): TResponse;
+    // Redirect sets the response to 302 with a Location header (fluent).
+    // Typical handler use: Result := res.Redirect('/login');
+    function Redirect(url: String): TResponse;
   end;
 
   TServer = class

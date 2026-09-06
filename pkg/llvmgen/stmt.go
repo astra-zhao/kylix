@@ -333,8 +333,10 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 			// receiverKind(result) resolves it for `result.Field := x` on
 			// class/record return types (e.g. TLexer.ReadNumber returns TToken,
 			// and `result.TokenType := tokType` needs to GEP into TToken).
+			// v0.7.0 P3: boot-handle returns (TResponse etc.) register too —
+			// fluent calls like result.Redirect(...) dispatch on the type name.
 			retKylix := typeExprName(decl.ReturnType)
-			if _, isClass := g.classes[retKylix]; isClass {
+			if _, isClass := g.classes[retKylix]; isClass || isBootHandleType(retKylix) {
 				g.localTypes["result"] = retKylix
 				// v0.5.5: for record/class return types, malloc the struct and
 				// store its pointer into %result so `result.Field := x` GEPs

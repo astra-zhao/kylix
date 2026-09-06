@@ -106,6 +106,33 @@ type
       self.Scalars[name] := IntToStr(value);
     end;
 
+    // AddVariant sets a scalar from a Variant — the box is stringified via
+    // the VariantToStr builtin (tag dispatch: int/float/bool/string/nil), so
+    // call sites can pass heterogeneous values (DB rows, JSON maps) without
+    // pre-converting. v0.7.0 P3.
+    procedure AddVariant(name: String; value: Variant);
+    begin
+      self.Scalars[name] := VariantToStr(value);
+    end;
+
+    // SetContext bulk-loads a map of dot-path keys as the scalar table
+    // (replaces the previous contents; list lengths live in ListLens and are
+    // unaffected). Keys follow the same dot-path convention as AddVar, so a
+    // pre-built context map can feed the engine in one call. v0.7.0 P3.
+    procedure SetContext(m: map[String]String);
+    begin
+      self.Scalars := m;
+    end;
+
+    // AddListLen registers an item count for a list without building the
+    // items — mirrors what EndList records, for contexts whose lists were
+    // counted elsewhere (e.g. a SetContext map carrying '<name>#len' keys,
+    // which TplResolveListLen also probes). v0.7.0 P3.
+    procedure AddListLen(name: String; count: Integer);
+    begin
+      self.ListLens[name] := count;
+    end;
+
     // BeginList starts (or restarts) a list context for {{#each name}}.
     procedure BeginList(name: String);
     begin
@@ -457,10 +484,21 @@ var
   k: Integer;
   p: String;
   v: Integer;
+  s: String;
 begin
   result := eng.ListLens[name];
   if result > 0 then
     Exit;
+  // v0.7.0 P3: SetContext-provided contexts carry list lengths as scalar
+  // keys '<name>#len' (a plain map can't be probed for lengths). Fall back
+  // to the scalar probe — exact, then each enclosing prefix — before
+  // declaring the list empty.
+  s := eng.Scalars[name + '#len'];
+  if s <> '' then
+  begin
+    result := StrToInt64(s);
+    Exit;
+  end;
   k := eng.PrefixCount;
   while k > 0 do
   begin
@@ -469,6 +507,12 @@ begin
     if v > 0 then
     begin
       result := v;
+      Exit;
+    end;
+    s := eng.Scalars[p + name + '#len'];
+    if s <> '' then
+    begin
+      result := StrToInt64(s);
       Exit;
     end;
     k := k - 1;

@@ -61,12 +61,26 @@ func (g *Generator) emitBootRunBody() {
 	g.enqueueStdlib("boot", "parsereq", "parsereq", 0)
 	g.enqueueStdlib("boot", "routelookup", "routelookup", 0)
 
+	// v0.7.0 P3: BootRun's 404/500 paths read the error-page globals directly,
+	// so they must be declared at module level regardless of whether the
+	// program ever calls BootNotFoundPage/BootErrorPage (null = built-in).
+	g.bootDeclareErrorPageGlobals()
 	g.line("define i64 @__kylix_boot_BootRun(i64 %port) {")
 	g.line("entry:")
 	// listener lives in an alloca slot so the bind-failure retry can store a
 	// fresh TcpListen result without breaking SSA (no phi needed).
 	lisSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca ptr", lisSlot))
+	// v0.7.0 P3: 500 handler — setjmp buffer + saved outer jmpbuf. The allocas
+	// live in the entry block: they must dominate the catch path AND must not
+	// re-allocate per loop iteration (BootRun never returns, so an alloca in
+	// the loop body would grow the stack without bound).
+	jbBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [%d x i8], align 16", jbBuf, g.excJmpBufSize()))
+	jbPtr := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr [%d x i8], ptr %s, i64 0, i64 0", jbPtr, g.excJmpBufSize(), jbBuf))
+	jbOld := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", jbOld))
 	listener := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_net_TcpListen(i64 %%port)", listener))
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", listener, lisSlot))
@@ -107,6 +121,23 @@ func (g *Generator) emitBootRunBody() {
 	g.line("  call i32 @usleep(i32 100000)")
 	g.line(fmt.Sprintf("  br label %%%s", loopLbl))
 	g.line(fmt.Sprintf("%s:", proceedLbl))
+	// v0.7.0 P3: arm the 500 handler — install the jmpbuf, then dispatch the
+	// request. A raise anywhere in read/parse/handler longjmps back here
+	// (setjmp returns non-zero) into catch500, which restores the outer
+	// handler and sends the 500 error page. The next loop iteration re-arms.
+	oldJB := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr @__kylix_jmpbuf", oldJB))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", oldJB, jbOld))
+	g.line(fmt.Sprintf("  store ptr %s, ptr @__kylix_jmpbuf", jbPtr))
+	g.line("  store i1 false, ptr @__kylix_exc_active")
+	setjmpRC := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 %s(ptr %s)", setjmpRC, g.setjmpFunc(), jbPtr))
+	isHandler := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ne i32 %s, 0", isHandler, setjmpRC))
+	catch500Lbl := g.label()
+	doHeadersLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isHandler, catch500Lbl, doHeadersLbl))
+	g.line(fmt.Sprintf("%s:", doHeadersLbl))
 	headers := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_read_headers(ptr %s)", headers, conn))
 	// method/path buffers — from the per-request arena (v0.6.9), so a long
@@ -217,12 +248,53 @@ func (g *Generator) emitBootRunBody() {
 	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\n"), 3))
 	g.bootStrcat(respBuf, body)
 	g.emitBootSend(conn, respBuf)
+	// v0.7.0 P3: pop the 500 handler on the normal path — the outer jmpbuf
+	// (saved at arm time) becomes current again before the connection closes.
+	restoredJB := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", restoredJB, jbOld))
+	g.line(fmt.Sprintf("  store ptr %s, ptr @__kylix_jmpbuf", restoredJB))
+	g.line("  store i1 false, ptr @__kylix_exc_active")
 	g.line(fmt.Sprintf("  br label %%%s", closeLbl))
 
-	// ---- 404
+	// ---- 404 (v0.7.0 P3: custom page when BootNotFoundPage was set)
 	g.line(fmt.Sprintf("%s:", do404Lbl))
+	page404 := g.bootLoadPtr(boot404PageGlobal)
+	p404Null := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", p404Null, page404))
+	def404Lbl := g.label()
+	cust404Lbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", p404Null, def404Lbl, cust404Lbl))
+	g.line(fmt.Sprintf("%s:", def404Lbl))
 	g.line(fmt.Sprintf("  call i32 @send(i32 %s, ptr %s, i64 %d, i32 0)",
-		g.bootConnFd(conn), g.ptrTo(g.addString("HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found"), 54), 54))
+		g.bootConnFd(conn), g.ptrTo(g.addString(boot404DefaultResp), len(boot404DefaultResp)), len(boot404DefaultResp)))
+	g.line(fmt.Sprintf("  br label %%%s", closeLbl))
+	g.line(fmt.Sprintf("%s:", cust404Lbl))
+	g.emitBootSendErrorPage(conn, page404, "404 Not Found")
+	g.line(fmt.Sprintf("  br label %%%s", closeLbl))
+
+	// ---- 500 (v0.7.0 P3: a raise during read/parse/handler longjmps back to
+	// the setjmp armed at proceedLbl — send the custom error page, or the
+	// built-in "500 Internal Server Error" when BootErrorPage was not set).
+	g.line(fmt.Sprintf("%s:", catch500Lbl))
+	// Pop the handler: restore the outer jmpbuf and clear the active flag so
+	// the exception runtime is back to its pre-request state.
+	restoredJB2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", restoredJB2, jbOld))
+	g.line(fmt.Sprintf("  store ptr %s, ptr @__kylix_jmpbuf", restoredJB2))
+	g.line("  store i1 false, ptr @__kylix_exc_active")
+	g.needArena = true
+	page500 := g.bootLoadPtr(boot500PageGlobal)
+	p500Null := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", p500Null, page500))
+	def500Lbl := g.label()
+	cust500Lbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", p500Null, def500Lbl, cust500Lbl))
+	g.line(fmt.Sprintf("%s:", def500Lbl))
+	g.line(fmt.Sprintf("  call i32 @send(i32 %s, ptr %s, i64 %d, i32 0)",
+		g.bootConnFd(conn), g.ptrTo(g.addString(boot500DefaultResp), len(boot500DefaultResp)), len(boot500DefaultResp)))
+	g.line(fmt.Sprintf("  br label %%%s", closeLbl))
+	g.line(fmt.Sprintf("%s:", cust500Lbl))
+	g.emitBootSendErrorPage(conn, page500, "500 Internal Server Error")
 	g.line(fmt.Sprintf("  br label %%%s", closeLbl))
 
 	// ---- close + loop
@@ -252,6 +324,31 @@ func (g *Generator) emitBootSend(conn, buf string) {
 	g.line(fmt.Sprintf("  call i64 @send(i32 %s, ptr %s, i64 %s, i32 0)", fd, buf, ln))
 }
 
+// Default error responses (v0.7.0 P3) — used when the custom page global is
+// null. Lengths are consumed via len() at the call sites.
+const (
+	boot404DefaultResp = "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found"
+	boot500DefaultResp = "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 21\r\n\r\nInternal Server Error"
+)
+
+// emitBootSendErrorPage sends a custom HTML error page over conn: the header
+// (status line + Content-Type + computed Content-Length) is assembled in a
+// per-request arena buffer, then the page body follows as a second send.
+func (g *Generator) emitBootSendErrorPage(conn, page, status string) {
+	hdr := g.tmp()
+	g.needArena = true
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 256)", hdr))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", hdr))
+	pageLen := g.bootStrlen(page)
+	fmtStr := "HTTP/1.1 " + status + "\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %lld\r\n\r\n"
+	fmtPtr := g.ptrTo(g.addString(fmtStr), len(fmtStr))
+	g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 256, ptr %s, i64 %s)",
+		hdr, fmtPtr, pageLen))
+	g.emitBootSend(conn, hdr)
+	fd := g.bootConnFd(conn)
+	g.line(fmt.Sprintf("  call i64 @send(i32 %s, ptr %s, i64 %s, i32 0)", fd, page, pageLen))
+}
+
 // bootReqField returns the address of TRequest handle field at byte offset.
 func (g *Generator) bootReqField(req string, off int) string {
 	p := g.tmp()
@@ -260,19 +357,25 @@ func (g *Generator) bootReqField(req string, off int) string {
 }
 
 // bootReasonPhrase maps a status code to its HTTP reason phrase (200 → "OK",
-// 404 → "Not Found", everything else → "OK").
+// 302 → "Found" (Redirect, v0.7.0 P3), 401 → "Unauthorized", 404 → "Not
+// Found", everything else → "OK").
 func (g *Generator) bootReasonPhrase(status string) string {
 	is404 := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 404", is404, status))
 	is401 := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 401", is401, status))
+	is302 := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 302", is302, status))
 	okPtr := g.ptrTo(g.addString("OK"), 3)
 	nfPtr := g.ptrTo(g.addString("Not Found"), 10)
 	uaPtr := g.ptrTo(g.addString("Unauthorized"), 13)
+	fdPtr := g.ptrTo(g.addString("Found"), 6)
 	sel404 := g.tmp()
 	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", sel404, is404, nfPtr, okPtr))
+	sel302 := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", sel302, is302, fdPtr, sel404))
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", r, is401, uaPtr, sel404))
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", r, is401, uaPtr, sel302))
 	return r
 }
 

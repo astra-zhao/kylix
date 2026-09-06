@@ -26,6 +26,14 @@ import (
 // serve_static reads. Declared once per module.
 const bootStaticDirGlobal = "@__kylix_boot_static_dir"
 
+// Error-page globals (v0.7.0 P3). BootNotFoundPage/BootErrorPage store the
+// custom HTML into these; BootRun's 404/500 paths fall back to the built-in
+// responses when they are null (the default).
+const (
+	boot404PageGlobal = "@__kylix_boot_404_page"
+	boot500PageGlobal = "@__kylix_boot_500_page"
+)
+
 // Response content-type constants (mirrors pkg/boot/types.go).
 const (
 	bootCTHtml = "text/html; charset=utf-8"
@@ -54,6 +62,31 @@ func (g *Generator) bootDeclareStaticDirGlobal() {
 	}
 	g.bootStaticDirDeclared = true
 	g.line(fmt.Sprintf("%s = global ptr null", bootStaticDirGlobal))
+}
+
+// emitBootErrorPageBody — void @__kylix_boot_BootNotFoundPage(ptr %html) /
+// void @__kylix_boot_BootErrorPage(ptr %html): store the custom page into
+// the module global (v0.7.0 P3). BootRun reads these on the 404/500 paths;
+// null = built-in response, the default.
+func (g *Generator) emitBootErrorPageBody(fn string, global string) {
+	g.bootDeclareErrorPageGlobals()
+	g.line(fmt.Sprintf("define void @__kylix_boot_%s(ptr %%html) {", fn))
+	g.line("entry:")
+	g.line(fmt.Sprintf("  store ptr %%html, ptr %s", global))
+	g.line("  ret void")
+	g.line("}")
+}
+
+// bootDeclareErrorPageGlobals emits the 404/500 page globals once per module.
+// BootRun always references them (same pattern as the static dir), so the
+// declaration is not gated on the setters having been called.
+func (g *Generator) bootDeclareErrorPageGlobals() {
+	if g.bootErrorPagesDeclared {
+		return
+	}
+	g.bootErrorPagesDeclared = true
+	g.line(fmt.Sprintf("%s = global ptr null", boot404PageGlobal))
+	g.line(fmt.Sprintf("%s = global ptr null", boot500PageGlobal))
 }
 
 // --- small IR helpers shared by the defines below ---
@@ -240,6 +273,39 @@ func (g *Generator) emitBootResponseMethodCall(handle, method string, args []ast
 		fmtPtr := g.ptrTo(fmtStr, 10)
 		g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 %s, ptr %s, ptr %s, ptr %s)",
 			entry, cap, fmtPtr, argRegs[0], argRegs[1]))
+		g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", xh2, entry))
+		return handle, "ptr", nil
+
+	case "Redirect":
+		// resp.Redirect(url): status = 302 and append "Location: url\r\n"
+		// to xhdrs (v0.7.0 P3; mirrors Go Response.Redirect).
+		if len(argRegs) < 1 {
+			return "", "", fmt.Errorf("TResponse.Redirect expects 1 argument, got %d", len(argRegs))
+		}
+		g.line(fmt.Sprintf("  store i64 302, ptr %s", field(0)))
+		xh := g.bootLoadPtr(field(32))
+		xhNull := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", xhNull, xh))
+		allocLbl := g.label()
+		joinLbl := g.label()
+		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", xhNull, allocLbl, joinLbl))
+		g.line(fmt.Sprintf("%s:", allocLbl))
+		fresh := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 1024)", fresh))
+		g.line(fmt.Sprintf("  store i8 0, ptr %s", fresh))
+		storePtr(fresh, 32)
+		g.line(fmt.Sprintf("  br label %%%s", joinLbl))
+		g.line(fmt.Sprintf("%s:", joinLbl))
+		xh2 := g.bootLoadPtr(field(32))
+		uLen := g.bootStrlen(argRegs[0])
+		cap := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, 16", cap, uLen))
+		entry := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", entry, cap))
+		fmtStr := g.addString("Location: %s\r\n")
+		fmtPtr := g.ptrTo(fmtStr, 14)
+		g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 %s, ptr %s, ptr %s)",
+			entry, cap, fmtPtr, argRegs[0]))
 		g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", xh2, entry))
 		return handle, "ptr", nil
 

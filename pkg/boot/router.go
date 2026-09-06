@@ -67,11 +67,13 @@ func (r *Route) match(method, path string) (map[string]string, bool) {
 
 // Router is the registry of routes + middleware chain.
 type Router struct {
-	mu          sync.RWMutex
-	routes      []*Route
-	middlewares []Middleware
-	notFound    Handler
-	StaticDir   string // directory served under /static/ (v0.7.0 P2)
+	mu            sync.RWMutex
+	routes        []*Route
+	middlewares   []Middleware
+	notFound      Handler
+	notFoundPage  string // custom 404 HTML page (v0.7.0 P3)
+	errorPage     string // custom 500 HTML page (v0.7.0 P3)
+	StaticDir     string // directory served under /static/ (v0.7.0 P2)
 }
 
 // NewRouter creates an empty router.
@@ -113,6 +115,18 @@ func (r *Router) PATCH(p string, h Handler, mws ...Middleware)  { r.Handle("PATC
 // SetNotFound overrides the default 404 handler.
 func (r *Router) SetNotFound(h Handler) {
 	r.notFound = h
+}
+
+// SetNotFoundPage sets a custom HTML 404 page (v0.7.0 P3). When non-empty it
+// takes precedence over the default notFound handler.
+func (r *Router) SetNotFoundPage(html string) {
+	r.notFoundPage = html
+}
+
+// SetErrorPage sets a custom HTML 500 page (v0.7.0 P3). When a handler panics,
+// dispatch recovers and serves this page instead of crashing.
+func (r *Router) SetErrorPage(html string) {
+	r.errorPage = html
 }
 
 // SetStaticDir enables static file serving under the /static/ URL prefix
@@ -194,6 +208,8 @@ func (r *Router) dispatch(req *Request) *Response {
 	middlewares := r.middlewares
 	notFound := r.notFound
 	staticDir := r.StaticDir
+	notFoundPage := r.notFoundPage
+	errorPage := r.errorPage
 	r.mu.RUnlock()
 
 	for _, route := range routes {
@@ -207,7 +223,25 @@ func (r *Router) dispatch(req *Request) *Response {
 			for i := len(middlewares) - 1; i >= 0; i-- {
 				h = middlewares[i](h)
 			}
-			return h(req)
+			// v0.7.0 P3: recover a panicking handler and serve the custom
+			// (or default) 500 page instead of crashing the server.
+			return func() (resp *Response) {
+				defer func() {
+					if rec := recover(); rec != nil {
+						body := errorPage
+						if body == "" {
+							body = "500 Internal Server Error"
+						}
+						resp = &Response{
+							Status:      500,
+							Body:        body,
+							ContentType: "text/html; charset=utf-8",
+							Headers:     map[string]string{},
+						}
+					}
+				}()
+				return h(req)
+			}()
 		}
 	}
 	// Route miss → static files (v0.7.0 P2) → notFound.
@@ -215,6 +249,10 @@ func (r *Router) dispatch(req *Request) *Response {
 		if resp := r.serveStatic(req.Request.URL.Path); resp != nil {
 			return resp
 		}
+	}
+	// v0.7.0 P3: custom 404 page takes precedence over the default handler.
+	if notFoundPage != "" {
+		return HTML(404, notFoundPage)
 	}
 	return notFound(req)
 }

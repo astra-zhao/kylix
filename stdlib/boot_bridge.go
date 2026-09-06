@@ -92,6 +92,17 @@ func BootStatic(dir string) {
 	boot.SetStaticDir(dir)
 }
 
+// BootNotFoundPage sets a custom HTML 404 page. v0.7.0 P3.
+func BootNotFoundPage(html string) {
+	boot.SetNotFoundPage(html)
+}
+
+// BootErrorPage sets a custom HTML 500 page (served when a handler panics).
+// v0.7.0 P3.
+func BootErrorPage(html string) {
+	boot.SetErrorPage(html)
+}
+
 // BootConfigSet stores a key/value pair in the default config.
 func BootConfigSet(key string, value interface{}) {
 	boot.SetConfig(key, value)
