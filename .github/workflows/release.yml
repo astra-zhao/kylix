@@ -64,8 +64,15 @@ jobs:
       - name: Install LLVM toolchain (Linux)
         if: runner.os == 'Linux'
         run: |
+          # apt's LLVM 18 miscompiles the ~220k-line bootstrap IR (main_self
+          # segfaults at startup; string constants garbled — see
+          # TECHNICAL_DEBT.md). The bootstrap is validated on LLVM 19+;
+          # macOS CI uses brew's current LLVM and is unaffected.
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor --yes -o /etc/apt/trusted.gpg.d/llvm.gpg
+          echo "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-19 main" | sudo tee /etc/apt/sources.list.d/llvm19.list
           sudo apt-get update
-          sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev
+          sudo apt-get install -y clang-19 llvm-19 libsqlite3-dev libcurl4-openssl-dev libssl-dev
+          echo "/usr/lib/llvm-19/bin" >> "$GITHUB_PATH"
 
       - name: Install LLVM toolchain (macOS)
         if: runner.os == 'macOS'
@@ -105,6 +112,15 @@ jobs:
           ./main_self examples/complete-tutorial/01_basics/example01_hello.klx > hello_gen.go || true
           wc -c hello_gen.go || true
           head -20 hello_gen.go || true
+
+      - name: Diagnostic (smoke failure artifacts)
+        if: failure()
+        run: |
+          wc -c hello.ll || true
+          head -5 hello.ll || true
+          file main_self || true
+          ls -la main_self hello.ll hello.o hello_native 2>/dev/null || true
+          /usr/lib/llvm-19/bin/llc --version 2>/dev/null | head -2 || llc --version | head -2
 
       - name: Package
         run: |
