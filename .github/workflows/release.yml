@@ -49,6 +49,7 @@ jobs:
     name: Bootstrap compiler (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - { os: ubuntu-latest, name: linux-amd64 }
@@ -86,6 +87,8 @@ jobs:
       - name: Smoke test (bootstrap → Go code → run)
         run: |
           ./main_self examples/complete-tutorial/01_basics/example01_hello.klx > hello_gen.go
+          echo "exit=$? size=$(wc -c < hello_gen.go)"
+          head -20 hello_gen.go
           go run hello_gen.go
 
       - name: Package

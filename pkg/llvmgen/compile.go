@@ -340,6 +340,14 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 			appendHomebrewLib(&clangArgs, "curl")
 		}
 	}
+	// Linux: glibc's libm is a separate DSO — any IR that lowers to math
+	// library calls (pow/floor/fmod via llvm intrinsics, FloatToStr %.Ng
+	// probing, crypto helpers) fails at link with "DSO missing from command
+	// line". libm is harmless when unused; always link it on Linux. v0.7.0
+	// (surfaced by the ubuntu-24.04 CI runner's stricter default linker).
+	if targetOS == "linux" {
+		clangArgs = append(clangArgs, "-lm")
+	}
 	clangCmd := exec.Command(llvmPaths.Clang, clangArgs...)
 	if out, err := clangCmd.CombinedOutput(); err != nil {
 		// v0.6.2: cross-compiling on a host that lacks the target's CRT/libc
