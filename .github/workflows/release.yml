@@ -71,7 +71,7 @@ jobs:
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor --yes -o /etc/apt/trusted.gpg.d/llvm.gpg
           echo "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-19 main" | sudo tee /etc/apt/sources.list.d/llvm19.list
           sudo apt-get update
-          sudo apt-get install -y clang-19 llvm-19 libsqlite3-dev libcurl4-openssl-dev libssl-dev
+          sudo apt-get install -y clang-19 llvm-19 gdb libsqlite3-dev libcurl4-openssl-dev libssl-dev
           echo "/usr/lib/llvm-19/bin" >> "$GITHUB_PATH"
 
       - name: Install LLVM toolchain (macOS)
@@ -96,7 +96,11 @@ jobs:
       # v0.6.9 — see the diagnostic step below and TECHNICAL_DEBT.md.)
       - name: Smoke test (bootstrap IR → native binary → run)
         run: |
-          ./main_self --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx > hello.ll
+          # ulimit: rule out the 8MB main-thread stack first; gdb: if it still
+          # segfaults, batch mode prints the full backtrace into the log.
+          ulimit -s unlimited
+          gdb -batch -ex "run > hello.ll" -ex bt -ex "info registers rip rsp"             --args ./main_self --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx
+          wc -c hello.ll
           llc -filetype=obj hello.ll -o hello.o
           clang hello.o -no-pie -lm -o hello_native
           ./hello_native
