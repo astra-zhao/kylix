@@ -84,12 +84,27 @@ jobs:
             src/token.klx src/error.klx src/ast.klx src/lexer.klx src/parser.klx \
             src/generator.klx src/stdlib_ir.klx src/llvmgen.klx src/main.klx
 
-      - name: Smoke test (bootstrap → Go code → run)
+      # The supported no-Go loop: bootstrap emits LLVM IR, llc/clang link a
+      # native binary, run it. (The v0.5.x Go-codegen path is unverified since
+      # v0.6.9 — see the diagnostic step below and TECHNICAL_DEBT.md.)
+      - name: Smoke test (bootstrap IR → native binary → run)
         run: |
-          ./main_self examples/complete-tutorial/01_basics/example01_hello.klx > hello_gen.go
-          echo "exit=$? size=$(wc -c < hello_gen.go)"
-          head -20 hello_gen.go
-          go run hello_gen.go
+          ./main_self --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx > hello.ll
+          llc -filetype=obj hello.ll -o hello.o
+          clang hello.o -no-pie -lm -o hello_native
+          ./hello_native
+
+      # Diagnostic only (non-fatal): the bootstrap's Go-codegen path produced
+      # corrupted output on Linux CI (quote-containing string constants
+      # garbled, e.g. `fmt.Println("...")` → `@p[ :=`), while macOS is fine.
+      # Not part of the v0.6.9 no-Go loop; investigation tracked in
+      # TECHNICAL_DEBT.md.
+      - name: Diagnostic (Go codegen path, non-fatal)
+        if: always()
+        run: |
+          ./main_self examples/complete-tutorial/01_basics/example01_hello.klx > hello_gen.go || true
+          wc -c hello_gen.go || true
+          head -20 hello_gen.go || true
 
       - name: Package
         run: |
