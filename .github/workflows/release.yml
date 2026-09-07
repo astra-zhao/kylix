@@ -94,13 +94,32 @@ jobs:
       # The supported no-Go loop: bootstrap emits LLVM IR, llc/clang link a
       # native binary, run it. (The v0.5.x Go-codegen path is unverified since
       # v0.6.9 — see the diagnostic step below and TECHNICAL_DEBT.md.)
+      # Smoke test, three probes in one round:
+      #   1. plain run with unlimited stack — answers "is the run-3/4 segfault
+      #      just the 8MB main-thread stack?" without gdb interference;
+      #   2. on success the full no-Go loop continues (llc → clang → run);
+      #   3. on failure, gdb with the args passed INSIDE `run` (gdb's `run >f`
+      #      REPLACES the --args list — run 5 accidentally executed main_self
+      #      with zero args, hence the misleading "default file list" output).
       - name: Smoke test (bootstrap IR → native binary → run)
         run: |
-          # ulimit: rule out the 8MB main-thread stack first; gdb: if it still
-          # segfaults, batch mode prints the full backtrace into the log.
-          ulimit -s unlimited
-          gdb -batch -ex "run > hello.ll" -ex bt -ex "info registers rip rsp"             --args ./main_self --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx
+          ulimit -s unlimited 2>/dev/null || true  # macOS hard limit forbids it; fine — smoke passes there at 8MB
+          set +e
+          ./main_self --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx > hello.ll
+          rc=$?
+          set -e
+          echo "plain run exit=$rc"
           wc -c hello.ll
+          if [ "$rc" -ne 0 ] || [ ! -s hello.ll ]; then
+            echo "::group::gdb backtrace (args passed inside run)"
+            gdb -batch \
+              -ex "run --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx > hello.ll" \
+              -ex bt -ex "info registers rip rsp" \
+              ./main_self
+            echo "::endgroup::"
+            wc -c hello.ll
+            head -3 hello.ll || true
+          fi
           llc -filetype=obj hello.ll -o hello.o
           clang hello.o -no-pie -lm -o hello_native
           ./hello_native
