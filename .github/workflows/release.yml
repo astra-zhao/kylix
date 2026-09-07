@@ -45,9 +45,83 @@ jobs:
           name: kylix-${{ matrix.target.os }}-${{ matrix.target.arch }}
           path: kylix-${{ matrix.target.os }}-${{ matrix.target.arch }}*
 
+  bootstrap:
+    name: Bootstrap compiler (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, name: linux-amd64 }
+          - { os: macos-latest,  name: macos-arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Install LLVM toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev
+
+      - name: Install LLVM toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+
+      - name: Build host CLI
+        run: go build -o kylix-host ./cmd/kylix/
+
+      # The bootstrap compiler: host-built once via the LLVM backend, then it is
+      # a pure native binary with no Go dependency at runtime (v0.6.9 no-Go loop).
+      - name: Build bootstrap compiler (main_self)
+        run: |
+          ./kylix-host build --backend=llvm -o main_self \
+            src/token.klx src/error.klx src/ast.klx src/lexer.klx src/parser.klx \
+            src/generator.klx src/stdlib_ir.klx src/llvmgen.klx src/main.klx
+
+      - name: Smoke test (bootstrap → Go code → run)
+        run: |
+          ./main_self examples/complete-tutorial/01_basics/example01_hello.klx > hello_gen.go
+          go run hello_gen.go
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp main_self dist/
+          cp docs/BOOTSTRAP_USAGE.md dist/USAGE.md
+          tar -czf kylix-bootstrap-${{ matrix.name }}.tar.gz -C dist .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kylix-bootstrap-${{ matrix.name }}
+          path: kylix-bootstrap-${{ matrix.name }}.tar.gz
+
+  windows-toolchain:
+    name: Windows LLVM toolchain (llvm-mingw UCRT)
+    runs-on: ubuntu-latest
+    steps:
+      # Repackage mstorsjo/llvm-mingw's native-Windows toolchain as a release
+      # asset: gives Windows users a working LLVM backend (llc/opt/clang +
+      # mingw-w64 sysroot incl. ws2_32) with zero installation — bundles with
+      # kylix.exe per FindLLVM's executable-adjacent llvm/bin lookup.
+      - name: Fetch llvm-mingw (UCRT, runs on Windows x86_64)
+        run: |
+          curl -fL -o llvm-mingw-ucrt-x86_64.zip \
+            https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip
+          ls -la llvm-mingw-ucrt-x86_64.zip
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-mingw-ucrt-x86_64
+          path: llvm-mingw-ucrt-x86_64.zip
+
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build, bootstrap, windows-toolchain]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
