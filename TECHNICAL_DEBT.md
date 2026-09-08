@@ -1,6 +1,6 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-09-06
+> 最后更新: 2026-09-08
 > 当前版本: v0.7.0 已发布（2026-09-06，web 页面开发 + web 框架）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
@@ -13,8 +13,9 @@
 ### P3 页面框架完善限制
 
 - [ ] **bootstrap 端 boot server / Redirect / 错误页不支持**：bootstrap emitter 的 boot 系列仅 BootText/BootHTML stub（P2 BootStatic 同），BootRun 无真体——KylixBoot 无 Go E2E 仅 host LLVM 端可用。若未来 bootstrap 需 boot server，需把 stdlib_boot_http.go 的 BootRun/read_headers/parse_request/route_lookup/serve_static 全套发射逻辑移植进 src/llvmgen.klx（或烘焙进 stdlib_ir.klx）
-- [ ] **v0.5.x Go 自繁殖路径（gen1.go → go build）已腐化**：host Go 后端对 `X as TBlockStatement`（操作数静态类型已是具体类，如 src/llvmgen.klx PreEmitAllocas 的 ifst.Consequence，v0.6.9 P4 新增）发射类型断言 `.(*TBlockStatement)` → Go 编译错误。v0.6.9 起 bootstrap 闭环是 Go-free 的（gen1 = host LLVM 后端产出的 BOOT），此路径不再参与验证——若恢复 Go 自繁殖验证需先修 `as` 发射（操作数类型已知具体时发直赋值）
-- [ ] **bootstrap Go codegen 路径（main_self 无 --emit-llvm）在 Linux 上输出损坏**（v0.7.0 release CI 发现）：Linux（ubuntu-24.04，apt llvm-18 + bfd ld）构建的 main_self 对 hello.klx 生成 Go 代码时，**含引号的字符串常量全部损坏**（`fmt.Println("Hello")` → `@p[ :=` 三份、`"fmt"` import 行丢失），无引号骨架（package main / import ( / func main() {）完好；macOS（llvm-22）同一路径完全正常。且该路径自 v0.6.9 起不再参与验证（无 Go 闭环走 --emit-llvm），疑似 Linux llc-18/链接器对自举 IR 的个别字符串常量 codegen 差异。**候选怀疑**：自举源码中含 `"` 的字符串常量在 Linux 目标上的 addString/重定位链。若需恢复 Go 自繁殖（或 Linux 分发 bootstrap 的 Go 路径）需先在 Linux 复现并定位；release.yml 的 bootstrap job 已把 smoke 改为 --emit-llvm → llc → clang → 运行的受支持链路，Go 路径为非致命诊断输出
+- [ ] **v0.5.x Go 自繁殖路径（gen1.go → go build）已腐化（平台无关，CI fixpoint job 09-04 起持续红）**：host Go 后端对 9 文件清单（含 v0.6.9 新增的 stdlib_ir.klx）生成 Go 代码编译不过，本地 macOS 与 CI Linux 错误逐字一致（2026-09-08 实测）：(1) `StdIrInit` undefined——stdlib_ir.klx 是烘焙 IR 数据单元，Go 后端不产其 Init；(2) 多态 gate 不一致 7 处——`ifst.Consequence (variable of type *TBlockStatement) is not an interface`（v0.6.9 P4 新增的 `X as TBlockStatement` 发射类型断言，操作数静态类型已是具体类）。v0.6.9 起 bootstrap 闭环是 Go-free 的（gen1 = host LLVM 后端产出的 BOOT），此路径不再参与验证——CI 的 Self-reproduction fixpoint job 仍走 Go 路径所以持续失败；若恢复需 (a) Go 路径跳过/适配 stdlib_ir.klx (b) 修 `as` 发射（操作数类型已知具体时发直赋值），或把 fixpoint job 改走 --emit-llvm 链
+- [ ] **bootstrap Go codegen 路径（main_self 无 --emit-llvm）在 Linux 上输出损坏**（v0.7.0 release CI 发现，CI 为 llvm-19.1.7 非 llc-18）：Linux（ubuntu-24.04）构建的 main_self 对 hello.klx 生成 Go 代码时，**含引号的字符串常量全部损坏**（`fmt.Println("Hello")` → `@p[ :=` 三份、`"fmt"` import 行丢失），无引号骨架（package main / import ( / func main() {）完好；macOS（llvm-22）同一路径完全正常。且该路径自 v0.6.9 起不再参与验证（无 Go 闭环走 --emit-llvm），疑似 Linux llc-19/链接器对自举 IR 的个别字符串常量 codegen 差异。**候选怀疑**：自举源码中含 `"` 的字符串常量在 Linux 目标上的 addString/重定位链。若需恢复 Go 自繁殖（或 Linux 分发 bootstrap 的 Go 路径）需先在 Linux 复现并定位；release.yml 的 bootstrap job 已把 smoke 改为 --emit-llvm → llc → clang → 运行的受支持链路，Go 路径为非致命诊断输出
+- [x] **~~Linux release smoke 段错误：ELF 零尺寸 vtable 同址致 `is` 恒真~~（2026-09-08 破案并修复，commit 441b103）**：`__kylix_class_is_a` 全程 vtable 指针相等判定，而 v0.6.1 起无方法类/record 的 vtable 发射 `[0 x ptr]`——**零尺寸全局在 ELF 上共用同一地址**（实测 67 个空 vtable 全落 0x100；Mach-O 地址不同所以 macOS 从未暴露；Linux 从未跑过 main_self，release smoke 首跑即崩）。崩溃链：TCallExpression(48B) 过 `is TFunctionDecl` → 越界读 offset 72 ReturnType → 垃圾 0x70 → LlvmTypeOfExpr `if e is TArrayType` 解引用 SIGSEGV。修复：空 vtable 改 `[1 x ptr] [ ptr null ]`（命名全局不合并、8B 保证地址唯一、空 vtable 无方法不存在下标访问），pkg/llvmgen/class.go + src/llvmgen.klx 双端同步；不动点 gen1≡gen2 保持、sweep 52 PASS、教程 54/54。**教训：vtable 形态改动必须在 ELF 上验地址唯一性**（本地 `llc -mtriple=x86_64-unknown-linux-gnu -filetype=obj` + llvm-nm 即可，无需 Linux）
 - [ ] **LLVM 端 Redirect 后 body 保留**：`Redirect` 只改 status + Location，body 原样保留（与 Go 端一致，curl 语义正确）——如需 303/307 或绝对 URL 改写另行扩展
 - [ ] **boot/stdlib 函数"三处名单"同步陷阱（已三次踩坑，工程性改进项）**：新增 Boot*/stdlib 函数需同步 (1) host Go `generator/generator_stdlib.go` stdlibModules 启发式名单、(2) host LLVM `pkg/llvmgen/stdlib.go` 模块名单、(3) `pkg/llvmgen` emitBootCall switch——漏任何一处即该端 `undefined` / 裸 `@Name` 调用。P2/P3 曾漏 Go 端名单（example60 教程首暴露，P5 修复）。建议：单一来源表生成三份名单，或加交叉一致性单测
 

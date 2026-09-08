@@ -1368,8 +1368,12 @@ procedure TLLVMGenerator.EmitHeader;
 begin
   self.WriteLine('; Kylix LLVM IR');
   self.WriteLine('source_filename = "kylix.klx"');
-  self.WriteLine('target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"');
-  self.WriteLine('target triple = "arm64-apple-macosx15.0.0"');
+  // v0.7.0: no target datalayout / target triple lines — the old hardcoded
+  // "arm64-apple-macosx15.0.0" made llc emit a Mach-O arm64 object on any
+  // other machine (CI Linux: "hello.o: file format not recognized"). A module
+  // without them is valid IR: llc falls back to the running machine's default
+  // target, which is exactly what a portable bootstrap binary wants. The host
+  // backend (pkg/llvmgen) still emits explicit triples — it knows its target.
   self.WriteLine('');
 end;
 
