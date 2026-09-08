@@ -87,7 +87,9 @@ jobs:
       # a pure native binary with no Go dependency at runtime (v0.6.9 no-Go loop).
       - name: Build bootstrap compiler (main_self)
         run: |
-          ./kylix-host build --backend=llvm -o main_self \
+          # -g: DWARF symbols so the crash probe's backtrace maps to Kylix
+          # source lines (run 6 gave bare function names only).
+          ./kylix-host build --backend=llvm -g -o main_self \
             src/token.klx src/error.klx src/ast.klx src/lexer.klx src/parser.klx \
             src/generator.klx src/stdlib_ir.klx src/llvmgen.klx src/main.klx
 
@@ -123,6 +125,26 @@ jobs:
           llc -filetype=obj hello.ll -o hello.o
           clang hello.o -no-pie -lm -o hello_native
           ./hello_native
+
+      # Crash probe (runs only when the smoke segfaulted): valgrind needs no
+      # rebuild and reports the invalid access with the allocation site;
+      # the -g build makes gdb's backtrace show Kylix source lines.
+      - name: Crash probe (valgrind + gdb)
+        if: failure()
+        run: |
+          set +e
+          sudo apt-get install -y valgrind >/dev/null 2>&1
+          echo "::group::valgrind (invalid access + allocation site)"
+          valgrind --track-origins=yes \
+            ./main_self --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx > /dev/null
+          echo "valgrind exit=$?"
+          echo "::endgroup::"
+          echo "::group::gdb with DWARF source lines"
+          gdb -batch \
+            -ex "run --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx > /dev/null" \
+            -ex bt -ex "info registers" \
+            ./main_self
+          echo "::endgroup::"
 
       # Diagnostic only (non-fatal): the bootstrap's Go-codegen path produced
       # corrupted output on Linux CI (quote-containing string constants
