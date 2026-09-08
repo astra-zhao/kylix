@@ -294,7 +294,13 @@ func (g *Generator) emitRecordDecl(name string, rec *ast.RecordType) error {
 	// v0.6.1: records also get an empty vtable constant (v0.5.5: emitFunctionDecl
 	// stores it for record return types so `is` checks work; emitConstructor
 	// stores @X_vtable unconditionally).
-	g.line(fmt.Sprintf("@%s_vtable = constant [0 x ptr] []", name))
+	// v0.7.0: [1 x ptr] not [0 x ptr] — a zero-size global gets the SAME
+	// address as every other zero-size global on ELF (all 67 empty vtables
+	// landed at 0x100 in the CI crash), which made __kylix_class_is_a's
+	// pointer-equality walk return true for EVERY class pair on Linux. One
+	// null slot keeps the address unique; nothing indexes slot 0 of a
+	// method-less vtable (no virtual dispatch exists for it).
+	g.line(fmt.Sprintf("@%s_vtable = constant [1 x ptr] [ ptr null ]", name))
 	g.line("")
 	return nil
 }
@@ -320,8 +326,11 @@ func (g *Generator) emitVtable(info *ClassInfo, decl *ast.ClassDecl) {
 	// (breaking the bootstrap compiler's `decl is TTypeDecl` dispatch, which
 	// then hits a `continue` and spins forever). @X_vtable is referenced by
 	// emitConstructor unconditionally.
+	// v0.7.0: [1 x ptr] not [0 x ptr] — see the record-site comment above
+	// (zero-size globals share one address on ELF → `is` true for every
+	// class pair on Linux; one null slot makes the address unique).
 	if len(info.Methods) == 0 {
-		g.line(fmt.Sprintf("@%s_vtable = constant [0 x ptr] []", info.Name))
+		g.line(fmt.Sprintf("@%s_vtable = constant [1 x ptr] [ ptr null ]", info.Name))
 		return
 	}
 	// Build vtable in vtable-index order.

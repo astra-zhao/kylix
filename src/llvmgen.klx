@@ -1756,10 +1756,18 @@ begin
     append(fieldTypes, cflds[i]);
   self.WriteLine('%' + cd.Name + ' = type { ' + self.JoinStr(fieldTypes, ', ') + ' }');
   // vtable constant (vtable-index order)
+  // v0.7.0: [1 x ptr] not [0 x ptr] when the class has no methods — zero-size
+  // globals share one address on ELF, which made the pointer-equality `is`
+  // walk return true for every class pair on Linux (CI release smoke crash).
+  // One null slot keeps the address unique; nothing indexes slot 0 of a
+  // method-less vtable.
   slots := [];
   for i := 0 to self.MethodCount(ci) - 1 do
     append(slots, 'ptr @' + self.DefClassAt(ci, i) + '_' + self.MethodNameAt(ci, i));
-  self.WriteLine('@' + cd.Name + '_vtable = constant [' + self.IntToStrS(self.MethodCount(ci)) + ' x ptr] [ ' + self.JoinStr(slots, ', ') + ' ]');
+  if self.MethodCount(ci) = 0 then
+    self.WriteLine('@' + cd.Name + '_vtable = constant [1 x ptr] [ ptr null ]')
+  else
+    self.WriteLine('@' + cd.Name + '_vtable = constant [' + self.IntToStrS(self.MethodCount(ci)) + ' x ptr] [ ' + self.JoinStr(slots, ', ') + ' ]');
   // method defines (with bodies)
   for i := 0 to Length(cd.Methods) - 1 do
   begin
@@ -2090,7 +2098,9 @@ begin
   for i := 0 to Length(cflds) - 1 do
     append(fieldTypes, cflds[i]);
   self.WriteLine('%' + rname + ' = type { ' + self.JoinStr(fieldTypes, ', ') + ' }');
-  self.WriteLine('@' + rname + '_vtable = constant [0 x ptr] []');
+  // v0.7.0: [1 x ptr] not [0 x ptr] — zero-size globals share one address on
+  // ELF, breaking the pointer-equality `is` walk on Linux (see class site).
+  self.WriteLine('@' + rname + '_vtable = constant [1 x ptr] [ ptr null ]');
 end;
 
 procedure TLLVMGenerator.EmitGlobalVarDecl(vd: TVarDecl);
