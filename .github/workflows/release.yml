@@ -136,6 +136,7 @@ jobs:
           sudo apt-get install -y valgrind >/dev/null 2>&1
           echo "::group::duplicate defined symbols (vtable global collision?)"
           nm --defined-only main_self | awk '{print $NF}' | sort | uniq -d | head -20
+          echo "vtable symbols in binary: $(nm --defined-only main_self | grep -c '_vtable$')  (IR defines 72)"
           echo "::endgroup::"
           echo "::group::valgrind (invalid access + allocation site)"
           valgrind --track-origins=yes --num-callers=25 \
@@ -158,7 +159,8 @@ jobs:
             -ex "continue" \
             -ex "end" \
             -ex bt \
-            ./main_self --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx
+            -ex continue \
+            --args ./main_self --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx
           echo "::endgroup::"
 
       # Diagnostic only (non-fatal): the bootstrap's Go-codegen path produced
