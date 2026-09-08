@@ -134,16 +134,31 @@ jobs:
         run: |
           set +e
           sudo apt-get install -y valgrind >/dev/null 2>&1
+          echo "::group::duplicate defined symbols (vtable global collision?)"
+          nm --defined-only main_self | awk '{print $NF}' | sort | uniq -d | head -20
+          echo "::endgroup::"
           echo "::group::valgrind (invalid access + allocation site)"
-          valgrind --track-origins=yes \
+          valgrind --track-origins=yes --num-callers=25 \
             ./main_self --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx > /dev/null
           echo "valgrind exit=$?"
           echo "::endgroup::"
-          echo "::group::gdb with DWARF source lines"
+          echo "::group::gdb: walk the Statements loop, dump each node + its vtable global"
+          # DWARF attributed these source lines to stdlib_ir.klx (merge quirk);
+          # line numbers match llvmgen.klx:1144-1160.
           gdb -batch \
-            -ex "run --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx > /dev/null" \
-            -ex bt -ex "info registers" \
-            ./main_self
+            -ex "break stdlib_ir.klx:1147" \
+            -ex run \
+            -ex "commands 1" \
+            -ex "silent" \
+            -ex "printf \"== pi=%d i=%d\\n\", pi, i" \
+            -ex "p p" \
+            -ex "p decl" \
+            -ex "x/10gx decl" \
+            -ex "info symbol *(void **)decl" \
+            -ex "continue" \
+            -ex "end" \
+            -ex bt \
+            ./main_self --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx
           echo "::endgroup::"
 
       # Diagnostic only (non-fatal): the bootstrap's Go-codegen path produced
