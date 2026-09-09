@@ -12,6 +12,8 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go or to native 
 >
 > 🚀 **v0.7.0**: **Web page development + web framework.** A pure-Kylix Mustache-style template engine (`stdlib/template_engine.klx`, three backends from one source), page-render APIs (`res.HTML`/`Redirect`, `req.Form`/`Cookie`, custom 404/500 error pages, `static/` assets, real `BootRun` HTTP server on both Go and LLVM backends), a first-class `error` type, and the **example60 web-framework tutorial runs as a real end-to-end HTTP server test** (launch + curl + kill). The bootstrap no-Go loop from v0.6.9 (byte-identical IR fixed point, gen1 ≡ gen2 ≡ gen3) remains intact. See [CHANGELOG.md](CHANGELOG.md).
 >
+> 🚀 **v0.6.9**: **The bootstrap compiler fully escapes Go.** The compiler's own source (`src/*.klx`, 9 files) emits LLVM IR via `--emit-llvm` and links into a zero-Go-dependency native `gen2` compiler, with **gen1 ≡ gen2 ≡ gen3 byte-identical (~220k lines — a true IR fixed point)**. The stdlib enters the bootstrap as baked IR data (`src/stdlib_ir.klx`), avoiding a hand-written 15.5k-line Go port. Tutorial sweep: **52 PASS + 2 SKIP** (bootstrap-vs-host byte diff). See [CHANGELOG.md](CHANGELOG.md).
+>
 > 🚀 **v0.6.8**: boot server enhancements + stdlib completion + JetBrains plugin polish. `BootRun` reads POST bodies (`req.Body()`), `req.JSON()` binds JSON to a `map[String]Variant`, `BootRegisterJwtAuth` really validates `Authorization: Bearer` (HS256); stdlib adds `Base64URLEncode/Decode` + nested-object JSON; the JetBrains plugin gains a `.klx` file icon, a Kylix run configuration (`kylix run`), and undefined-identifier warnings. See [CHANGELOG.md](CHANGELOG.md).
 >
 > 🚀 **v0.6.7**: **JetBrains plugin** — a full Gradle Kotlin project (`jetbrains-plugin/`): TextMate syntax highlighting, LSP4IJ bridge to `kylix lsp` (completion/navigation/rename/formatting), 25 live templates, plus a complete install & usage manual. ROADMAP #9 ✅. See [CHANGELOG.md](CHANGELOG.md).
@@ -87,6 +89,23 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go or to native 
 - **Annotation Diagnostics**: KLX207–KLX213 framework contract errors (v0.3.2)
 
 ## Installation
+
+### Option 1: Download a prebuilt binary (GitHub Release)
+
+Every release ships prebuilt binaries for linux/amd64, linux/arm64,
+darwin/amd64, darwin/arm64 and windows/amd64, plus a **bootstrap tarball**
+(the self-hosted native compiler `main_self`, no Go required) per platform:
+
+```bash
+gh release download v0.7.0          # or download from the Releases page
+chmod +x kylix-*                    # rename to `kylix`, put on PATH
+```
+
+Notes: the `kylix` binary bundles the LLVM backend's IR generation, but
+linking still needs `llc` + `clang` locally (see below); the bootstrap
+tarball additionally needs `libcrypto`/`libsqlite3`/`libcurl` at runtime.
+
+### Option 2: Build from source
 
 ```bash
 # Clone the repository
@@ -1139,7 +1158,8 @@ Recent releases (see [CHANGELOG.md](CHANGELOG.md) for the full history):
 
 | Version | Highlights |
 |---------|------------|
-| v0.6.9 | Bootstrap no-Go loop: stdlib IR baking, gen2 native compiler, IR fixed point (gen1≡gen2≡gen3), tutorials 50/51 |
+| v0.7.0 | Web page development + web framework: `error` type, pure-Kylix template engine, page-render APIs, Redirect + custom error pages, example60 server E2E; tutorials 54/54 on both backends |
+| v0.6.9 | Bootstrap no-Go loop: stdlib IR baking, gen2 native compiler, IR fixed point (gen1≡gen2≡gen3), tutorial sweep 52 PASS |
 | v0.6.8 | Boot server hardening (POST body / req.JSON / real JWT validation) + stdlib completion + JetBrains polish |
 | v0.6.7 | JetBrains plugin (TextMate + LSP4IJ + live templates) + install manual — ROADMAP #9 done |
 | v0.6.6 | Boot HTTP server (real HTTP/1.1, no Go needed) + stdlib: JWT claims, cache TTL, HttpGetJSON, UrlEncode |

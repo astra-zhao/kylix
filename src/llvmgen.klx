@@ -993,7 +993,6 @@ begin
     append(self.FlElem, '');
     append(self.FlMap, '0');
   end;
-  self.WriteLine('  ; dbg programs=' + self.IntToStrS(Length(progs)));
   StdIrInit();
   // NOTE: uses collection for EmitPrograms is done inside EmitDecl loops via
   // CollectUse below (see CollectProgramUses) — chained progs[pi].Uses[i]
@@ -1147,7 +1146,6 @@ begin
       if decl is TFunctionDecl then
       begin
         hasBody := (decl as TFunctionDecl).Body <> nil;
-        self.WriteLine('  ; dbg p1stmtfn hasBody=' + self.BoolStr1(hasBody) + ' nfn=' + self.IntToStrS(Length(self.FNames)));
         if hasBody then
         begin
           if self.StrContains((decl as TFunctionDecl).Name, '.') then
@@ -2882,7 +2880,6 @@ var
   rowsCall: TCallExpression;
   rowsFn: TIdentifier;
 begin
-  self.WriteLine('  ; dbg varDecl names=' + self.IntToStrS(Length(vd.Names)) + ' inferred=' + self.BoolStr1(vd.Inferred));
   if Length(vd.Names) = 0 then Exit;
   if (vd.VarType = nil) and (vd.Value <> nil) and vd.Inferred then
   begin
@@ -4522,7 +4519,6 @@ begin
   lt := self.LastType;
   rv := self.EmitExprTyped(e.Right);
   rt := self.LastType;
-  self.WriteLine('  ; dbg infix op=' + e.Operator + ' lt=' + lt + ' rt=' + rt);
   // v0.6.9 P3: class/record-typed operands compare as pointers (mirrors the
   // host's classes[lt] normalization) — `self.CurToken = before` on TToken.
   if self.IsClass(lt) then lt := 'ptr';
@@ -5061,7 +5057,6 @@ var
   retType, r, argList, pt, n, callSig: String;
   i, fi, li: Integer;
 begin
-  self.WriteLine('  ; dbg pc ' + fname + ' nfn=' + self.IntToStrS(Length(self.FNames)));
   // v0.6.9 P4: WriteOut(s) — unbounded stdout write (matches host).
   if fname = 'WriteOut' then
   begin

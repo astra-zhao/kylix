@@ -2,7 +2,7 @@
 
 > This tutorial walks through 5 tested Kylix examples, from Hello World to classes and objects, introducing the core features of the language one step at a time.
 >
-> **Requirements**: Kylix compiler installed (v0.6.9 or later)
+> **Requirements**: Kylix compiler installed (v0.7.0 or later)
 >
 > **How to run**: `kylix run example.klx` (auto-detects the Go/LLVM backend; falls back to LLVM when no Go toolchain is present)
 
@@ -276,5 +276,5 @@ kylix test myfile_test.klx
 
 ---
 
-**Version**: applies to Kylix v0.6.9
-**Last updated**: 2026-09-04
+**Version**: applies to Kylix v0.7.0
+**Last updated**: 2026-09-06

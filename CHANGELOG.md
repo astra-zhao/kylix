@@ -24,6 +24,14 @@ All notable changes to the Kylix compiler are documented in this file.
 - **验证**：16 包全绿；**Go 54/54 + LLVM 54/54**（example60 双端 E2E 全过）；bootstrap sweep **52 PASS + 0 FAIL + 2 SKIP**；IR 不动点不受影响（本轮全为 host 侧改动，src/*.klx 未动）。
 - **发布**：CLI 版本 bump 0.7.0；CLAUDE.md / README / ROADMAP 状态同步。
 
+### P6：GitHub Release 工作流打通（2026-09-08 补录）——Linux bootstrap 两连破案
+
+- **🎉 Release 工作流全绿**：tag `v0.7.0` 触发 `.github/workflows/release.yml`——4 平台二进制（linux/darwin amd64+arm64 + windows amd64）+ 双平台 bootstrap tarball + llvm-mingw UCRT 工具链包 8 项资产自动发布（run 10，此前 9 轮全败于 linux-amd64 bootstrap smoke）。
+- **破案一：ELF 零尺寸 vtable 同址致 `is` 恒真（commit 441b103）**——`__kylix_class_is_a` 全程 vtable 指针相等判定，而 v0.6.1 起无方法类/record 的 vtable 发射 `[0 x ptr]` **零尺寸全局**，ELF 上 67 个空 vtable 全落同一地址（实测 0x100；Mach-O 地址不同所以 macOS 八轮 CI 前从未暴露）→ Linux 上任何 `is X` 对任何类恒真 → TCallExpression(48B) 过 `is TFunctionDecl` 越界读 ReturnType → 垃圾 0x70 → `LlvmTypeOfExpr` 解引用 SIGSEGV。修复：空 vtable 改 `[1 x ptr] [ ptr null ]`（命名全局不合并、8B 地址唯一、空 vtable 无方法不会被下标访问），`pkg/llvmgen/class.go` + `src/llvmgen.klx` 双端同步。**教训：vtable 形态改动必须本地 `llc -mtriple=x86_64-unknown-linux-gnu -filetype=obj` + llvm-nm 验 ELF 地址唯一性，无需 Linux 机器**。
+- **破案二：自举 IR 硬编码 target triple（commit fbb6509）**——`src/llvmgen.klx EmitHeader` 硬编码 `target triple = "arm64-apple-macosx15.0.0"` + arm64 datalayout，Linux 上 main_self 产的 IR 让 llc 按 triple 推断发 Mach-O arm64 .o → `file format not recognized`。修复：自举 IR 不再发 triple/datalayout 两行——无 triple IR 合法，llc 落**运行机器**默认 target（可移植 bootstrap 语义，分发的 Linux main_self 产的 IR 同步变正确）；host 后端照常显式发 triple。
+- **调试基建沉淀**：release.yml smoke 三级探针（直跑/gdb/valgrind）+ `--track-origins` 定位 48B 越界读；gdb batch 坑清单（`run >f` 会替换 `--args` 参数列表、`commands...end` 后需顶层 continue）。诊断结论：Linux Go codegen 路径垃圾输出与 CI fixpoint job 红（`StdIrInit` undefined + 多态 interface 不一致，**平台无关** v0.6.9 回归）均记入 TECHNICAL_DEBT.md 单独追踪。
+- **探针残留清理**：`src/llvmgen.klx` 5 处 `; dbg` WriteLine（v0.6.9 探针网清理漏网）移除；gen1≡gen2≡gen3 不动点复验、sweep 52 PASS + 2 SKIP 复验通过。
+
 
 ### P1：纯 Kylix 模板引擎 template_engine.klx
 

@@ -5,6 +5,12 @@ source** (`src/*.klx`, 9 files) through the LLVM backend — a pure native
 binary with **no Go dependency at runtime** (v0.6.9 no-Go closed loop;
 gen1 ≡ gen2 ≡ gen3 byte-identical IR fixed point).
 
+## Where to get it
+
+Prebuilt per-platform bootstrap tarballs ship with every GitHub Release
+(since v0.7.0) — `gh release download v0.7.0` or the Releases page. To
+build it yourself, see `docs/SELFHOSTING_DEV_GUIDE.md`.
+
 ## What's in the archive
 
 - `main_self` — the bootstrap compiler (native binary)

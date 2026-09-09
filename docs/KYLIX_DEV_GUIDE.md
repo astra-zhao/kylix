@@ -625,7 +625,7 @@ echo "All tests passed!"
 
 ## 路线图
 
-早期 Phase 1–5（基础编译器、IDE 工具、Web 框架、语言增强、标准库）已全部完成 —— 泛型、异常、接口、多态、模式匹配、lambda/async、完整 stdlib（文件 I/O、网络、JSON、日期时间、正则、加密、db、websocket、jwt）均已落地。当前状态 **v0.6.9**（bootstrap 无 Go 闭环达成，gen1 ≡ gen2 ≡ gen3 逐字节 IR 不动点），下一站 v0.7.0（web 页面开发 + web 框架）。
+早期 Phase 1–5（基础编译器、IDE 工具、Web 框架、语言增强、标准库）已全部完成 —— 泛型、异常、接口、多态、模式匹配、lambda/async、完整 stdlib（文件 I/O、网络、JSON、日期时间、正则、加密、db、websocket、jwt）均已落地。当前状态 **v0.7.0**（web 页面开发 + web 框架：error 类型、纯 Kylix 模板引擎、页面渲染 API、Redirect/错误页、example60 server E2E）；v0.6.9 bootstrap 无 Go 闭环（gen1 ≡ gen2 ≡ gen3 逐字节 IR 不动点）保持。下一站 v0.7.1（net Winsock / regex pcre2 真实现）。
 
 完整路线图见 [ROADMAP.md](ROADMAP.md)，版本历史见 [CHANGELOG.md](CHANGELOG.md)。
 

@@ -1,14 +1,35 @@
 # Kylix 开发任务清单
 
-> 最后更新: 2026-08-31  
-> 当前版本: v0.6.9-dev（bootstrap 无 Go 闭环 P3+P4）  
+> 最后更新: 2026-09-06  
+> 当前版本: v0.7.0（web 页面开发 + web 框架，已发布）  
 > 关联文档: [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) · [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)
 
 ---
 
-## 🚧 v0.6.9 bootstrap 无 Go 闭环（进行中）
+## 🚧 v0.7.1 net Winsock / regex pcre2 真实现（进行中）
 
-### ✅ 已完成（P3+P4，2026-08-31）
+- [x] P2 regex Is* 纯手写字符类（删 POSIX regcomp，三平台零依赖，Go/LLVM 25 项 parity）
+- [ ] P1 FindLLVM llvm-mingw + `--target windows` 交叉链接
+- [ ] P3 net Winsock 真实现（需 Windows 真机验证）
+- [ ] P4 CI llvm-windows job
+
+---
+
+## ✅ v0.7.0 web 页面开发 + web 框架（2026-09-06 发布）
+
+- [x] **P0 `error` 类型语言特性**（三端）：`(T, error)` 多返回 + 裸 error + `error('msg')` 构造 + `ErrorStr` 内建；顺带修多返回解构 `:=`/`=` 判定（declaredVars 跟踪）
+- [x] **P1 纯 Kylix 模板引擎**：`stdlib/template_engine.klx`（Mustache 风格 `{{}}`、12 过滤器、each/if 块、点号查找）——Go/LLVM/bootstrap 三端同源；顺带破案 bootstrap 类字段 map 索引崩溃；example59 三端输出逐字一致
+- [x] **P2 页面渲染 API**：Go 端 `Request.Form/Cookie` + `Response.Html/WithCookie` + `Router.StaticDir`（防 `..` 遍历 + MIME 表）；LLVM 端 TResponse handle 升级 + fluent 方法 + `__kylix_boot_form_get/cookie_get` + BootStatic；端到端 curl 六场景全过
+- [x] **P3 页面框架完善**：`Response.Redirect`（302）+ `SetNotFoundPage/SetErrorPage`（LLVM 端 500 setjmp handler）+ 模板上下文（AddVariant/SetContext/AddListLen）+ `result.Redirect` receiver 修复 + VariantToStr 四端贯通
+- [x] **P5 教程接入 + 发布**：example60 真实 BootRun server E2E（脚本特判 launch+curl+kill）；host Go boot 名单补 4 项
+- [x] 验证：16 包全绿；Go/LLVM 54/54；bootstrap sweep 52 PASS + 2 SKIP；IR 不动点保持（gen1 ≡ gen2）
+- [x] **P6 GitHub Release 工作流打通（2026-09-08 补录）**：tag 触发 CI 全绿 + Release 自动创建（5 平台二进制 + 双平台 bootstrap tarball + llvm-mingw 工具链）；顺带破案修复两个 Linux 潜伏 bug——ELF 零尺寸 vtable 同址致 `is` 恒真（commit 441b103）+ 自举 IR 硬编码 arm64 triple 致 Linux llc 产 Mach-O（commit fbb6509）
+
+---
+
+## ✅ v0.6.9 bootstrap 无 Go 闭环（2026-09-04 发布）
+
+### ✅ 已完成（P3+P4+P4.12，2026-08-31 → 09-04）
 - [x] `scripts/extract_stdlib_ir.py` — stdlib IR 烘焙提取器（13 段 / 139 签名 / @kstr 去重 / declare 差集）
 - [x] `src/stdlib_ir.klx` — 烘焙数据单元（AUTO-GENERATED）
 - [x] bootstrap stdlib dispatch — TryStdlibModuleCall / TryStdlibBareCall / EmitStdlibCall / MarkStdSeg / EmitStdlibSegments + 段依赖闭包
@@ -16,15 +37,14 @@
 - [x] main-program var 全局化 + 数组元数据注册（arr[i] / append / Length 对全局数组可用）
 - [x] emitter 补缺 20+ 项 — 数组写路径 / not/负号 / float 字面量 / Variant 比较 / 调用参数类型化 / dot-name 方法 / 链式成员+receiver / record 类型系统 / ClassName↔ptr coerce / epilogue 重排 / 嵌套循环 LoopBreak / alloca hoisting / calloc 构造 / FloatToStr·StrToFloat·StrToInt64 / 元组返回类型转义 / main argc+argv
 - [x] parser — uses 记录 / tkUses 软关键字 / 块迭代上限 20000（host+bootstrap 同步）
-- [x] **gen2 诞生** — 8 文件自举 IR（147k 行）过 llc → 链接 gen2（814KB）→ 启动/读文件/进 parser
-- [x] `scripts/test_bootstrap_all.sh` — 51 教程 bootstrap-vs-host 全量回归（**48 PASS** + example33 多文件）
+- [x] **gen2 诞生 + IR 不动点** — 自举 IR 过 llc/clang → gen2（纯原生无 Go）；P4.10 破案 for 全局槽污染、P4.11 破案 Boolean 数组 stride → **gen1 ≡ gen2 ≡ gen3 逐字节一致（~220k 行）**
+- [x] gen2 lexer NextToken 崩溃修复（见 CHANGELOG P4 链）
+- [x] O(n²) 性能疑虑实测排除（自举 emit 9 文件 ~4.8s；性能五项后 bootstrap -O0 11.5s→0.381s）
+- [x] 教程 15（lambda 字面量）/50（jwt domination）— P4.12 收尾修复（Pass 2.5 静态分发 / JwtSign alloca 提升）
+- [x] `scripts/test_bootstrap_all.sh` — 51 教程 bootstrap-vs-host 全量回归 → **52 PASS + 2 SKIP**（0 FAIL）
+- [x] CHANGELOG/CLAUDE/ROADMAP/TECHNICAL_DEBT/TASKS 文档定稿
 
-### 🚧 剩余（v0.6.9 发布门槛）
-- [ ] gen2 lexer NextToken 崩溃修复（crash→修循环，见 TECHNICAL_DEBT.md）
-- [ ] gen2 完整跑通：编译一个教程程序 → 输出正确 → 编译自身（IR 不动点）
-- [ ] llvmgen.klx 自举 emit 性能（O(n²) 逗号串扫描 → 索引式）
-- [ ] 教程 15（lambda 字面量）/50（jwt domination）——可延后记 limitation
-- [ ] CHANGELOG/CLAUDE/ROADMAP/TECHNICAL_DEBT/TASKS 文档定稿（本次一并提交）
+---
 
 ---
 

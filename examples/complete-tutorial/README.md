@@ -15,7 +15,7 @@ Kylix is a modern Pascal compiler: by default it transpiles to readable Go code 
 
 ## Prerequisites
 
-- Kylix compiler (v0.6.9 or later)
+- Kylix compiler (v0.7.0 or later)
 - Either **Go 1.18+** (Go backend) or **LLVM** (`llc`/`clang`, native backend). Run `kylix doctor` to preflight the LLVM environment.
 - Native backend links against system libraries for some stdlib modules (openssl, sqlite3, curl) as needed.
 

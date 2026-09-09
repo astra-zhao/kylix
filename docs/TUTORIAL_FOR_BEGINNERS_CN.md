@@ -1,6 +1,6 @@
 # Kylix 上手指南 —— 写给第一次接触 Kylix 的你
 
-> 适用版本：v0.6.9（2026-09-04） · 无需任何 Pascal 或编译器知识，会用命令行即可跟着走完全文。**本文所有示例均经过实测可运行。**
+> 适用版本：v0.7.0（2026-09-06） · 无需任何 Pascal 或编译器知识，会用命令行即可跟着走完全文。**本文所有示例均经过实测可运行。**
 
 ---
 
@@ -71,7 +71,7 @@ Kylix 的编译器本体用 Go 写（这部分叫 **host 编译器**），但它
 git clone https://github.com/astra-zhao/kylix.git
 cd kylix
 go build -o /usr/local/bin/kylix ./cmd/kylix/
-kylix --version        # 应显示 kylix version 0.6.9
+kylix --version        # 应显示 kylix version 0.7.0
 kylix doctor           # 体检：检查 Go/LLVM 环境是否就绪
 ```
 
@@ -613,10 +613,10 @@ A: 装 LLVM（`brew install llvm` / `apt install llvm clang`），或先用默�
 A: 可以，Kylix 对关键字大小写不敏感（惯例是小写）。
 
 **Q: 教程在哪？跑不通怎么办？**
-A: `examples/complete-tutorial/` 有 51 个由浅入深的示例（01_basics 到 21_variant，每个可独立编译运行）。跑不通先 `kylix doctor`。
+A: `examples/complete-tutorial/` 有 54 个由浅入深的示例（01_basics 到 22_web_pages，每个可独立编译运行；example60 为 server E2E 由测试脚本特判运行）。跑不通先 `kylix doctor`。
 
 **Q: 生产能用吗？**
-A: v0.6.9 已达成编译器自举闭环 + 双后端全教程回归，但仍在 pre-1.0 快速迭代中（下一步 v0.7.0 是 Web 页面框架）。适合学习、原型与内部工具；上生产请锁定版本并自行评估。
+A: v0.6.9 已达成编译器自举闭环，v0.7.0 落地 web 页面框架 + 双后端全教程回归，但仍在 pre-1.0 快速迭代中（下一步 v0.7.1 是 net Winsock / regex pcre2 真实现）。适合学习、原型与内部工具；上生产请锁定版本并自行评估。
 
 ---
 

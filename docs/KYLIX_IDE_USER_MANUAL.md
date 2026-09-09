@@ -37,7 +37,7 @@ kylix version
 
 输出示例：
 ```
-Kylix 0.6.9
+Kylix 0.7.0
 ```
 
 ---

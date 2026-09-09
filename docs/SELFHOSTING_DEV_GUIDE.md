@@ -1,6 +1,6 @@
 # 自举编译器开发指南 (Self-Hosting Development Guide)
 
-> 版本: v0.6.9 (2026-09-04)
+> 版本: v0.7.0 (2026-09-06)
 > 关联: [KYLIX_DEV_GUIDE.md](KYLIX_DEV_GUIDE.md) · [ROADMAP.md](../ROADMAP.md) · [TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md)
 
 本指南详细记录 Kylix 自举编译器的设计、构建流程、当前状态与后续开发方法。这是仓库中**最权威**的自举工作参考——动手改 `src/*.klx` 或 Go 后端多态 codegen 前，请先读本文档。

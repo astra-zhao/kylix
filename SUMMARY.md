@@ -2,7 +2,7 @@
 
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
-[![版本](https://img.shields.io/badge/version-0.6.9-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.7.0-blue.svg)](CHANGELOG.md)
 [![许可证](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-IR%20%E4%B8%8D%E5%8A%A8%E7%82%B9-brightgreen.svg)](docs/SELFHOSTING_DEV_GUIDE.md)
 
@@ -10,13 +10,13 @@
 
 Kylix 是一个现代化的 Pascal 编译器：默认把 Kylix 源码转译为可读的 Go 代码（`go build` 编译运行）；也可以通过 **LLVM 原生后端**（`--backend=llvm`）直接产出 LLVM IR 并链接为原生二进制——**运行时完全不依赖 Go 工具链**。它结合了 Pascal 的清晰性和简洁性，同时添加了现代语言特性，并配备完整的 IDE 工具链、编辑器集成与无 Go 自举闭环。
 
-**当前版本**：v0.6.9（2026-09-04 发布）
+**当前版本**：v0.7.0（2026-09-06 发布）
 
 **项目地址**：https://github.com/astra-zhao/kylix
 
 **官方网站**：https://kylix.top
 
-> 🔥 **重大里程碑 (v0.6.9)**：**bootstrap 无 Go 闭环达成**——自举编译器（`src/*.klx`，9 文件）经 LLVM 后端编译为原生二进制 gen2（纯原生、无 Go），gen2 输出与 gen1 **逐字节一致（~220k 行 IR 不动点）**，gen3 ≡ gen2；stdlib IR 烘焙免手写 15.5k 行 Go 移植；51 教程 Go/LLVM 双后端全绿，自举 sweep 50 PASS + 1 SKIP。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🔥 **重大里程碑 (v0.7.0)**：**web 页面开发 + web 框架**——一等公民 `error` 类型（三端）、纯 Kylix 编写的 Mustache 风格模板引擎（`stdlib/template_engine.klx`，Go/LLVM/bootstrap 三端同源）、页面渲染 API（`res.HTML`/`Redirect`、`req.Form`/`Cookie`、自定义 404/500 错误页、静态资源）、example60 web 框架教程以真实端到端 HTTP server 测试运行。v0.6.9 的 bootstrap 无 Go 闭环（IR 不动点 gen1 ≡ gen2 ≡ gen3）保持不变；Go/LLVM 教程 54/54、bootstrap sweep 52 PASS。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -25,7 +25,10 @@ Kylix 是一个现代化的 Pascal 编译器：默认把 Kylix 源码转译为�
 ### 安装
 
 ```bash
-# 克隆仓库
+# 方式一：下载预编译二进制（GitHub Release，5 平台 + bootstrap tarball）
+gh release download v0.7.0
+
+# 方式二：源码构建
 git clone https://github.com/astra-zhao/kylix.git
 cd kylix
 
@@ -105,14 +108,14 @@ kylix version           # 显示版本信息
 
 ---
 
-## 测试状态（v0.6.9）
+## 测试状态（v0.7.0）
 
 | 项目 | 结果 |
 |------|------|
 | Go 单元测试 | ✅ 16 包全绿 |
-| 教程 sweep（Go 后端） | ✅ 51/51 |
-| 教程 sweep（LLVM 后端） | ✅ 51/51（原生二进制） |
-| 自举 sweep（无 Go） | ✅ 50 PASS + 1 SKIP |
+| 教程 sweep（Go 后端） | ✅ 54/54（含 example60 server E2E） |
+| 教程 sweep（LLVM 后端） | ✅ 54/54（原生二进制） |
+| 自举 sweep（无 Go） | ✅ 52 PASS + 2 SKIP |
 | 自举 IR 不动点 | ✅ gen1 ≡ gen2 ≡ gen3（~220k 行逐字节） |
 
 ---
@@ -122,20 +125,20 @@ kylix version           # 显示版本信息
 ### 编译器核心 ✅
 - 词法/语法（Pratt）/AST/代码生成完整管线
 - 传统 Pascal 特性：强类型、函数/过程、控制结构、record/enum、异常处理（try/except/finally）
-- 现代特性：类型推断、lambda/闭包、多返回值元组解构、map[K]V、动态数组、Variant 动态类型（boxed {tag, payload} 运行时）、泛型类单态化、字符串插值、match、properties
+- 现代特性：类型推断、lambda/闭包、多返回值元组解构、map[K]V、动态数组、Variant 动态类型（boxed {tag, payload} 运行时）、泛型类单态化、字符串插值、match、properties、**error 类型**（v0.7.0：`(T, error)` 多返回 + `error('msg')` 构造 + ErrorStr）
 - 面向对象：类/继承/vtable 虚方法/inherited、接口胖指针、多态基类
 - 模块系统：`unit`/`uses`、多文件编译、包管理器
 
 ### 双后端 ✅
-- **Go 后端**：可读代码生成 + 智能导入 + 增量编译缓存（55× 加速）
+- **Go 后端**：可读代码生成 + 智能导入 + 增量编译缓存（55× 加速）+ 纯 Kylix 模板引擎（v0.7.0）
 - **LLVM 后端**：完整 stdlib IR 实现（crypto AES/SHA、httpclient libcurl、websocket RFC 6455、sqlite3 数据库、JWT HS256、boot HTTP server、Variant 运行时、DWARF 调试）+ DCE 优化 + 跨平台
 
 ### KylixBoot 框架 ✅
 - `[Controller]`/`[Get]`/`[Post]` 路由自动装配、`[Service]`/`[Inject]` DI、`[Required]`/`[Email]` 等字段校验、`[Authenticated]`/`[Role]` 安全守卫、`[Entity]`/`[Repository]`/`[Query]` ORM 注解、`[Body(TEntity)]` 请求体绑定、JWT 一键接入、OpenAPI 3.1 自动生成
 
-### 自举编译器 ✅（v0.5.2 → v0.6.9）
+### 自举编译器 ✅（v0.5.2 → v0.7.0）
 - `src/*.klx`（token/error/ast/lexer/parser/generator/llvmgen + stdlib IR 烘焙）9 文件
-- v0.5.2 构建打通 → v0.5.3 round-trip + 自繁殖 → v0.5.6 LLVM self-host 51/51 → v0.5.7 self-reproduction 不动点 → **v0.6.9 无 Go 闭环**（stdlib IR 烘焙 + emitter 补缺 20+ 项 + gen2 诞生 + IR 不动点）
+- v0.5.2 构建打通 → v0.5.3 round-trip + 自繁殖 → v0.5.6 LLVM self-host 51/51 → v0.5.7 self-reproduction 不动点 → **v0.6.9 无 Go 闭环**（stdlib IR 烘焙 + emitter 补缺 20+ 项 + gen2 诞生 + IR 不动点）→ v0.7.0 模板引擎三端同源 + Release 工作流（预编译二进制 + bootstrap tarball）
 
 ### IDE 工具链 ✅
 - CLI 完整命令集（new/build/run/check/fmt/test/bench/doc/debug/add/install/remove/doctor/repl/lsp）

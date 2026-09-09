@@ -64,4 +64,4 @@ bash benchmarks/compile_time.sh
 
 ---
 
-**Last Updated**: 2026-09-04 (v0.6.9)
+**Last Updated**: 2026-09-06 (v0.7.0)

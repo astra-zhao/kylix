@@ -15,7 +15,7 @@ Kylix 是现代 Pascal 编译器：默认转译为可读的 Go 代码（`go buil
 
 ## 前置要求
 
-- Kylix 编译器（v0.6.9 或更高版本）
+- Kylix 编译器（v0.7.0 或更高版本）
 - **Go 1.18+**（Go 后端）或 **LLVM**（`llc`/`clang`，原生后端）二者其一。可用 `kylix doctor` 预检 LLVM 环境。
 - 原生后端按需链接系统库（openssl、sqlite3、curl）。
 

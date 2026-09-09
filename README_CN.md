@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-0.6.9-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.7.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后端编译为原生二进制。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
+>
+> 🚀 **v0.7.0**: **web 页面开发 + web 框架。** 纯 Kylix 编写的 Mustache 风格模板引擎（`stdlib/template_engine.klx`，Go/LLVM/bootstrap 三端同源）、页面渲染 API（`res.HTML`/`Redirect`、`req.Form`/`Cookie`、自定义 404/500 错误页、`static/` 静态资源、双后端真实 `BootRun` HTTP server）、一等公民 `error` 类型，以及 **example60 web 框架教程以真实端到端 HTTP server 测试运行**（launch + curl + kill）。v0.6.9 的 bootstrap 无 Go 闭环（逐字节 IR 不动点，gen1 ≡ gen2 ≡ gen3）保持不变。GitHub Release 现已附带预编译二进制与 bootstrap tarball（linux/darwin/windows）。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
 > 🚀 **v0.6.9**: **bootstrap 编译器彻底摆脱 Go。** 编译器自身源码（`src/*.klx`，9 文件）经 `--emit-llvm` 产出 LLVM IR，链接成零 Go 依赖的原生 `gen2` 编译器，且 **gen1 ≡ gen2 ≡ gen3 逐字节一致（~220k 行 IR——真正的不动点）**。stdlib 以烘焙 IR 数据（`src/stdlib_ir.klx`）进入 bootstrap，免手写 15.5k 行 Go 移植。无捕获 lambda 与 JwtSign 修复补齐教程 sweep：**50/51 PASS**（bootstrap-vs-host 输出逐字 diff）。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
@@ -89,6 +91,19 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后�
 - **国际化**: 通过 `KYLIX_LANG=zh` 切换中文错误消息 (v0.2.3)
 
 ## 安装
+
+### 方式一：下载预编译二进制（GitHub Release）
+
+每个 Release 附带 linux/amd64、linux/arm64、darwin/amd64、darwin/arm64、windows/amd64 预编译二进制，以及各平台的 **bootstrap tarball**（自举原生编译器 `main_self`，无需 Go）：
+
+```bash
+gh release download v0.7.0          # 或到 Releases 页面下载
+chmod +x kylix-*                    # 重命名为 kylix，放入 PATH
+```
+
+说明：`kylix` 二进制内置 LLVM 后端的 IR 生成，但链接仍需本机 `llc` + `clang`（见下）；bootstrap tarball 运行时另需 `libcrypto`/`libsqlite3`/`libcurl`。
+
+### 方式二：源码构建
 
 ```bash
 # 克隆仓库
@@ -1041,7 +1056,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 
 ## 路线图
 
-当前状态：**v0.6.9**（2026-09-04）—— bootstrap 无 Go 闭环达成（stdlib IR 烘焙、gen2 原生编译器、逐字节 IR 不动点、教程 sweep 50/51 PASS）。下一步：v0.7.0 web 页面开发 + web 框架（模板引擎、页面渲染、静态资源、表单/Cookie）+ net Winsock / regex pcre2 真实现。完整路线图见 [ROADMAP.md](ROADMAP.md)。
+当前状态：**v0.7.0**（2026-09-06）—— web 页面开发 + web 框架（`error` 类型、纯 Kylix 模板引擎、页面渲染 API、Redirect/错误页、example60 server E2E）；v0.6.9 bootstrap 无 Go 闭环（IR 不动点 gen1≡gen2≡gen3）保持。下一步：v0.7.1 net Winsock / regex pcre2 真实现（Windows 真机）。完整路线图见 [ROADMAP.md](ROADMAP.md)。
 
 ## 跨平台编译
 
@@ -1096,7 +1111,7 @@ kylix build --wasm --tinygo main.klx  # TinyGo (~30 KB)
 | WebAssembly | wasm | `--wasm` (含可选 `--tinygo`) |
 | WASI | wasip1/wasm | `--wasi` (含可选 `--tinygo`) |
 
-### LLVM 原生后端 (v0.3.0-alpha → v0.6.9)
+### LLVM 原生后端 (v0.3.0-alpha → v0.7.0)
 
 Kylix 现在有实验性 LLVM 后端，直接从 AST 生成原生二进制，绕过 Go 工具链。
 
@@ -1132,7 +1147,7 @@ end.
 
 自 Milestone 2 起,LLVM 后端还覆盖了接口（fat pointer）、泛型类单态化、异常、lambda/闭包、Variant、DWARF 调试信息与 KylixBoot 注解自动装配 —— 详见 `docs/` 下的 LLVM 后端文档。
 
-### LLVM stdlib（真实 IR 实现，v0.4.2 → v0.6.9）
+### LLVM stdlib（真实 IR 实现，v0.4.2 → v0.7.0）
 
 LLVM 后端现在可以**无需 Go** 编译 stdlib 密集型程序。已有真实 IR 实现的模块：
 
@@ -1164,7 +1179,8 @@ WsClose(ws);
 
 | 版本 | 亮点 |
 |------|------|
-| v0.6.9 | bootstrap 无 Go 闭环：stdlib IR 烘焙、gen2 原生编译器、IR 不动点（gen1≡gen2≡gen3）、教程 50/51 |
+| v0.7.0 | web 页面开发 + web 框架：error 类型、纯 Kylix 模板引擎、页面渲染 API、Redirect/错误页、example60 server E2E；教程 54/54 双后端 |
+| v0.6.9 | bootstrap 无 Go 闭环：stdlib IR 烘焙、gen2 原生编译器、IR 不动点（gen1≡gen2≡gen3）、教程 sweep 52 PASS |
 | v0.6.8 | boot server 补强（POST body / req.JSON / JWT 真校验）+ stdlib 补全 + JetBrains 完善 |
 | v0.6.7 | JetBrains 插件（TextMate + LSP4IJ + Live Templates）+ 安装手册 —— ROADMAP #9 完成 |
 | v0.6.6 | boot HTTP server（真 HTTP/1.1,无 Go 可用）+ stdlib：JWT claims、cache TTL、HttpGetJSON、UrlEncode |

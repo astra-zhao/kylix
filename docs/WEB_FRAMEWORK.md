@@ -827,9 +827,11 @@ components:
 
 ---
 
-## v0.7.0 Web 页面开发规划（HTML 页面 + 框架补强）
+## v0.7.0 Web 页面开发规划（HTML 页面 + 框架补强）✅ 已完成（2026-09-06 发布）
 
 KylixBoot 已有 REST API（JSON/路由/中间件/静态文件）。v0.7.0 补齐 **HTML 页面开发**能力，让 Kylix 能开发完整 web 应用（页面 + API），框架 API 对齐 Spring Boot/Go `html/template` 风格。
+
+> **落地说明（v0.7.0 实际交付）**：模板引擎未走 Go `html/template` 封装，而是**纯 Kylix 编写**（`stdlib/template_engine.klx`，Mustache 风格 `{{}}` + 12 过滤器 + each/if 块 + 点号查找），Go / LLVM / bootstrap 三端同源；页面 API 为 `res.HTML`/`res.Redirect`/`req.Form`/`req.Cookie`/`Router.StaticDir` + `SetNotFoundPage/SetErrorPage`；教程落地为 **example59（模板引擎）与 example60（web 框架 server E2E）**。以下规划内容保留为设计记录。
 
 ### 1. 模板引擎（HTML 渲染）
 
