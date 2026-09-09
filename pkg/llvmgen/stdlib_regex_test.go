@@ -18,20 +18,12 @@ func TestRegexIsEmail(t *testing.T) {
 	if !strings.Contains(ir, "define i1 @__kylix_regex_IsEmail(ptr %str)") {
 		t.Fatal("missing IsEmail function definition")
 	}
-	// Check regcomp call with REG_EXTENDED | REG_NOSUB (9)
-	if !strings.Contains(ir, "call i32 @regcomp(ptr") {
-		t.Fatal("missing regcomp call")
+	// v0.7.1: hand-written char-class scan — email char helper + strchr '@'
+	if !strings.Contains(ir, "call i1 @__kylix_regex_isemailchar(i8") {
+		t.Fatal("missing isemailchar char-class call")
 	}
-	if !strings.Contains(ir, ", i32 9)") {
-		t.Fatal("regcomp should use cflags=9 (REG_EXTENDED|REG_NOSUB)")
-	}
-	// Check regexec call
-	if !strings.Contains(ir, "call i32 @regexec(ptr") {
-		t.Fatal("missing regexec call")
-	}
-	// Check regfree call
-	if !strings.Contains(ir, "call void @regfree(ptr") {
-		t.Fatal("missing regfree call")
+	if !strings.Contains(ir, "call ptr @strchr(ptr") {
+		t.Fatal("missing strchr '@' scan")
 	}
 	// Check main calls IsEmail
 	if !strings.Contains(ir, "call i1 @__kylix_regex_IsEmail(ptr") {
@@ -51,14 +43,12 @@ func TestRegexIsURL(t *testing.T) {
 	if !strings.Contains(ir, "define i1 @__kylix_regex_IsURL(ptr %str)") {
 		t.Fatal("missing IsURL function definition")
 	}
-	if !strings.Contains(ir, "call i32 @regcomp(ptr") {
-		t.Fatal("missing regcomp call")
+	// v0.7.1: prefix match + url-start/char-class helpers
+	if !strings.Contains(ir, "call i1 @__kylix_regex_isurlstart(i8") {
+		t.Fatal("missing isurlstart char-class call")
 	}
-	if !strings.Contains(ir, "call i32 @regexec(ptr") {
-		t.Fatal("missing regexec call")
-	}
-	if !strings.Contains(ir, "call void @regfree(ptr") {
-		t.Fatal("missing regfree call")
+	if !strings.Contains(ir, "call i1 @__kylix_regex_isspace(i8") {
+		t.Fatal("missing isspace char-class call")
 	}
 }
 
@@ -74,12 +64,6 @@ func TestRegexIsNumeric(t *testing.T) {
 	if !strings.Contains(ir, "define i1 @__kylix_regex_IsNumeric(ptr %str)") {
 		t.Fatal("missing IsNumeric function definition")
 	}
-	if !strings.Contains(ir, "call i32 @regcomp(ptr") {
-		t.Fatal("missing regcomp call")
-	}
-	if !strings.Contains(ir, "call i32 @regexec(ptr") {
-		t.Fatal("missing regexec call")
-	}
 }
 
 // TestRegexIsAlpha verifies IR generation for IsAlpha(str) -> i1
@@ -93,9 +77,6 @@ func TestRegexIsAlpha(t *testing.T) {
 	`)
 	if !strings.Contains(ir, "define i1 @__kylix_regex_IsAlpha(ptr %str)") {
 		t.Fatal("missing IsAlpha function definition")
-	}
-	if !strings.Contains(ir, "call i32 @regcomp(ptr") {
-		t.Fatal("missing regcomp call")
 	}
 }
 
@@ -111,9 +92,6 @@ func TestRegexIsAlphaNumeric(t *testing.T) {
 	if !strings.Contains(ir, "define i1 @__kylix_regex_IsAlphaNumeric(ptr %str)") {
 		t.Fatal("missing IsAlphaNumeric function definition")
 	}
-	if !strings.Contains(ir, "call i32 @regcomp(ptr") {
-		t.Fatal("missing regcomp call")
-	}
 }
 
 // TestRegexIsIP verifies IR generation for IsIP(str) -> i1
@@ -127,9 +105,6 @@ func TestRegexIsIP(t *testing.T) {
 	`)
 	if !strings.Contains(ir, "define i1 @__kylix_regex_IsIP(ptr %str)") {
 		t.Fatal("missing IsIP function definition")
-	}
-	if !strings.Contains(ir, "call i32 @regcomp(ptr") {
-		t.Fatal("missing regcomp call")
 	}
 }
 
