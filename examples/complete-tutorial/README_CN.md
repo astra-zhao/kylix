@@ -1,12 +1,12 @@
 # Kylix 完全教程（中文）
 
-欢迎使用 Kylix 完全教程！本教程涵盖 Kylix **v0.6.9** 的全部可用特性，全部经过测试、可直接运行——**20 个章节共 50 个编号示例**，外加 `math_helper.klx` 单元配套文件与 `test.klx` 冒烟文件。
+欢迎使用 Kylix 完全教程！本教程涵盖 Kylix **v0.7.1-dev** 的全部可用特性，全部经过测试、可直接运行——**22 个章节共 54 个编号示例**，外加 `math_helper.klx` 单元配套文件与 `test.klx` 冒烟文件。
 
-测试状态（v0.6.9）：
+测试状态（v0.7.1-dev）：
 
-- ✅ Go 后端 sweep：**51/51**（`examples/complete-tutorial/test_all.sh`）
-- ✅ LLVM 后端 sweep：**51/51**（`examples/complete-tutorial/test_all_llvm.sh`，原生二进制，运行时无 Go）
-- ✅ 自举（无 Go）sweep：**50 PASS + 1 SKIP**（`scripts/test_bootstrap_all.sh`；example33 多文件为 host 端验证）
+- ✅ Go 后端 sweep：**55/55**（`examples/complete-tutorial/test_all.sh`；example60 为 launch+curl+kill E2E）
+- ✅ LLVM 后端 sweep：**55/55**（`examples/complete-tutorial/test_all_llvm.sh`，原生二进制，运行时无 Go）
+- ✅ 自举（无 Go）sweep：**53 PASS + 2 SKIP**（`scripts/test_bootstrap_all.sh`；example33/59/61 走多文件测试，example60 为 host 端 server E2E）
 - ✅ 编译器本身用 Kylix 编写，达到 IR 不动点（gen1 ≡ gen2 ≡ gen3）
 
 ## Kylix 是什么？
@@ -134,6 +134,15 @@ Kylix 是现代 Pascal 编译器：默认转译为可读的 Go 代码（`go buil
 - `example56_variant.klx` — Variant 标量与数组（带类型标签的运行时值）
 - `example57_variant_map.klx` — `map[String]Variant` 类型标签 map（`row['col']` 式访问）
 
+### 21. Web 页面 (2 个示例) - `22_web_pages/` (v0.7.0)
+
+- `example59_template.klx` — 纯 Kylix 模板引擎：`{{ var }}` 转义、点号查找、过滤器管道、`{{#each}}`/`{{#if}}` 块（多文件构建接 `stdlib/template_engine.klx`；另见 [TEMPLATE_GUIDE.md](../../docs/TEMPLATE_GUIDE.md)）
+- `example60_web_framework.klx` — KylixBoot web 框架端到端：注解路由、`BootHTML` + 链式 `res.Redirect`、自定义 404/500 错误页、panic 恢复。会启动**真实 HTTP server**（不退出），测试脚本 launch + curl 四端点 + kill（另见 [WEB_FRAMEWORK.md](../../docs/WEB_FRAMEWORK.md)）
+
+### 22. Regex 引擎 (1 个示例) - `23_regex/` (v0.7.1)
+
+- `example61_regex_engine.klx` — 纯 Kylix regex 引擎：`RegexMatch`/`RegexFind`/`RegexFindAll`/`RegexReplace`/`RegexSplit`（回溯 VM；字面量/`.`/字符类与 `\d\w\s\D\W\S` 转义、量词 `* + ? {n} {n,} {n,m}` + lazy 变体、锚点、分组、alternation）。33 个场景在 host Go、host LLVM、bootstrap 三端逐字一致，并与 Go `regexp`（RE2）包对照一致（多文件构建接 `stdlib/regex_engine.klx`）
+
 ---
 
 ## 🚀 如何运行示例
@@ -176,10 +185,10 @@ done
 ### 全量回归
 
 ```bash
-# Go 后端（51/51）
+# Go 后端（55/55）
 KYLIX=/path/to/kylix bash examples/complete-tutorial/test_all.sh
 
-# LLVM 后端（51/51，原生二进制）
+# LLVM 后端（55/55，原生二进制）
 bash examples/complete-tutorial/test_all_llvm.sh
 ```
 
@@ -415,11 +424,13 @@ end.
 | HTTP 客户端 | 1 | ✅ 通过 |
 | WebSocket | 1 | ✅ 通过 |
 | Variant（标量/数组 + map） | 2 | ✅ 全部通过 |
-| **合计** | **50 + 单元 + 冒烟** | **Go 51/51 · LLVM 51/51 · 自举 50+1 SKIP** |
+| Web 页面（模板引擎 + web 框架 E2E） | 2 | ✅ 全部通过（60 由脚本 launch+curl+kill E2E） |
+| Regex 引擎（纯 Kylix 回溯 VM） | 1 | ✅ 通过（多文件接 stdlib/regex_engine.klx，三端 parity） |
+| **合计** | **54 + 单元 + 冒烟** | **Go 55/55 · LLVM 55/55 · 自举 53 PASS + 2 SKIP** |
 
 ---
 
-**最后更新**: 2026-09-04  
-**版本**: v0.6.9
+**最后更新**: 2026-09-09  
+**版本**: v0.7.1-dev
 
 用 Kylix 愉快编码！🚀

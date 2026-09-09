@@ -179,7 +179,8 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 | 20_websocket | 1 | ✅ v4.0 |
 | 21_variant | 2 | ✅ v5.0/v5.1 |
 | 22_web_pages | 2（59 模板 / 60 web 框架 E2E） | ✅ 全部通过（60 由脚本特判 E2E） |
-| **合计** | **53 编号示例 + unit** | **Go 54/54 · LLVM 54/54 · bootstrap 52 PASS + 2 SKIP** |
+| 23_regex | 1（61 regex 引擎，多文件接 stdlib/regex_engine.klx） | ✅ v0.7.1 P0b 三端 parity |
+| **合计** | **54 编号示例 + unit** | **Go 55/55 · LLVM 55/55 · bootstrap 53 PASS + 2 SKIP** |
 
 ## v0.5.7 里程碑：LLVM 后端 self-reproduction 不动点（2026-07-29）
 
@@ -199,6 +200,8 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - **v0.6.8 — boot server 补强 + stdlib 补全 + JetBrains 插件完善** ✅（2026-08-23 发布）：boot server（POST body 读取 + `req.JSON` 绑定 + `BootRegisterJwtAuth` 真校验 + BootText Variant coerce + 401 reason）；stdlib（encoding Base64URL + httpclient JSON 嵌套对象 + JsonGetMap map-box 直通）；JetBrains 插件（`.klx` 图标 + Run 配置 + LSP undefined warning / SymbolTable 补全）。16 包 + 51 教程（Go+LLVM）+ boot 端到端 + buildPlugin 全绿。详见 CHANGELOG。
 - **v0.6.9 — bootstrap 无 Go 闭环** ✅（2026-09-04 发布）：内存管理（arena 推广 ✅）、LLVM 端 Variant 嵌套链式索引 coerce 收尾 ✅、**bootstrap 无 Go 闭环达成**——stdlib IR 烘焙（`scripts/extract_stdlib_ir.py` → `src/stdlib_ir.klx`）+ emitter 补缺 20+ 项 + **gen2 诞生**（自举 IR 过 llc 链接成编译器）+ **IR 不动点**（gen1 ≡ gen2 ≡ gen3，~220k 行逐字节）+ 教程 sweep 50/51（example15 lambda / example50 jwt 于 P4.12 收尾修复）；O(n²) 性能疑虑实测排除。详见 CHANGELOG。
 - **v0.7.0 — web 页面开发 + web 框架** ✅（2026-09-06 发布）：P0 error 类型 + P1 纯 Kylix 模板引擎 + P2 页面渲染 API + P3 页面框架完善（Redirect/错误页）+ P5 教程 22_web_pages 接入（example60 server E2E）+ 文档（docs/WEB_FRAMEWORK.md、docs/TEMPLATE_GUIDE.md）。
-- **v0.7.1 — net Winsock / regex pcre2 真实现**：Windows 平台 net/regex（当前 stub），需 Windows 真机验证。
-- **1.0.0**：v0.6.9 + v0.7.0 全部完成后发布正式版 1.0.0。
-- **后续**：跨平台（Linux/Windows/ARM64 CI 稳定）、自举 stdlib（.klx 编写→bootstrap 编译→自包含）。
+- **v0.7.1 — Windows 一等公民**（进行中，详细规划见 ROADMAP.md）：**P0 regex ✅（2026-09-09）**——Is\* 字符类 + 纯 Kylix `stdlib/regex_engine.klx`（~870 行回溯 VM：显式栈 + visited memo，字符类/量词+lazy/锚点/分组/alternation；RE2 语义对齐：leftmost-first + FindAll prevMatchEnd 规则；**设计转向：多文件构建同源三端，非 stdlib_ir.klx 烘焙**）+ example61 教程三端接入（33 场景，Go/LLVM/bootstrap/Go-regexp 四方逐字一致）+ 三 sweep 回归（Go/LLVM 55/55、bootstrap 53 PASS + 2 SKIP）+ 不动点保持；host Go codegen 三限制记 TECHNICAL_DEBT（多返回 result 即 return / exit 失效 / 零参调用丢括号）。剩余：P1 net Winsock 真实现 + P2 `--target windows` 交叉链接（llvm-mingw）+ P3 CI llvm-windows job + P4 工程债快赢（缓存指纹/名单单测）。
+- **v0.7.2 — CI 全绿 + 稳定性还债**：fixpoint job 改走 --emit-llvm 链、Lint job、Linux Go codegen 垃圾输出、LLVM 类方法多返回、三处名单单一来源化。
+- **v0.8.0 — 自举 stdlib（真自包含）**：纯 Kylix stdlib 模块扩展（.klx → 烘焙 → 三端同源）、内存管理（arena 推广 + htab 防护）、boot server 多 cookie/xhdrs realloc。
+- **v0.9.0 — 1.0.0-rc**：三平台 CI 稳定全绿、性能基线入 CI、API 稳定性审查（语法/CLI/stdlib 冻结承诺）。
+- **1.0.0**：v0.7.1–v0.9.0 gate 全过后发布正式版。

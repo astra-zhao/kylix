@@ -1,12 +1,12 @@
 # Kylix Complete Tutorial
 
-Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix **v0.6.9** with tested, runnable examples — **50 numbered examples across 20 chapters**, plus the `math_helper.klx` unit companion and a `test.klx` smoke file.
+Welcome to the complete Kylix tutorial! This tutorial covers all working features in Kylix **v0.7.1-dev** with tested, runnable examples — **54 numbered examples across 22 chapters**, plus the `math_helper.klx` unit companion and a `test.klx` smoke file.
 
-Test status (v0.6.9):
+Test status (v0.7.1-dev):
 
-- ✅ Go backend sweep: **51/51** (`examples/complete-tutorial/test_all.sh`)
-- ✅ LLVM backend sweep: **51/51** (`examples/complete-tutorial/test_all_llvm.sh`, native binaries, no Go at runtime)
-- ✅ Bootstrap (self-hosted, no-Go) sweep: **50 PASS + 1 SKIP** (`scripts/test_bootstrap_all.sh`; example33 is multi-file and verified host-side)
+- ✅ Go backend sweep: **55/55** (`examples/complete-tutorial/test_all.sh`; example60 via launch+curl+kill E2E)
+- ✅ LLVM backend sweep: **55/55** (`examples/complete-tutorial/test_all_llvm.sh`, native binaries, no Go at runtime)
+- ✅ Bootstrap (self-hosted, no-Go) sweep: **53 PASS + 2 SKIP** (`scripts/test_bootstrap_all.sh`; example33/59/61 run as multi-file tests, example60 is a server E2E host-side only)
 - ✅ The compiler itself is written in Kylix and reaches an IR fixed point (gen1 ≡ gen2 ≡ gen3)
 
 ## What is Kylix?
@@ -116,6 +116,9 @@ Kylix is a modern Pascal compiler: by default it transpiles to readable Go code 
 - `example59_template.klx` - Pure-Kylix template engine: `{{ var }}` escaping, dotted lookups, filter pipelines, `{{#each}}`/`{{#if}}` blocks (multi-file build with `stdlib/template_engine.klx`; see also [TEMPLATE_GUIDE.md](../../docs/TEMPLATE_GUIDE.md))
 - `example60_web_framework.klx` - KylixBoot web framework end-to-end: annotation routing, `BootHTML` + fluent `res.Redirect`, custom 404/500 error pages, panic recovery. Runs a **real HTTP server** — never exits, so the test scripts launch it, curl four endpoints (200 / 302+Location / 404 page / 500 page), and kill it (see [WEB_FRAMEWORK.md](../../docs/WEB_FRAMEWORK.md))
 
+### 22. Regex Engine (1 example) - `23_regex/` (v0.7.1)
+- `example61_regex_engine.klx` - Pure-Kylix regex engine: `RegexMatch`/`RegexFind`/`RegexFindAll`/`RegexReplace`/`RegexSplit` over a backtracking VM (literals, `.` classes with escapes `\d\w\s\D\W\S`, quantifiers `* + ? {n} {n,} {n,m}` + lazy variants, anchors, grouping, alternation). 33 scenarios verified byte-identical across host Go, host LLVM, and the bootstrap compiler — and against Go's `regexp` (RE2) package (multi-file build with `stdlib/regex_engine.klx`)
+
 ## How to Run Examples
 
 ### Single File
@@ -156,10 +159,10 @@ done
 ### Full Sweep
 
 ```bash
-# Go backend (51/51)
+# Go backend (55/55)
 KYLIX=/path/to/kylix bash examples/complete-tutorial/test_all.sh
 
-# LLVM backend (51/51, native binaries)
+# LLVM backend (55/55, native binaries)
 bash examples/complete-tutorial/test_all_llvm.sh
 ```
 
@@ -393,6 +396,7 @@ kylix run hello.klx
 | WebSocket | 1 | ✅ Works |
 | Variant (scalars/arrays + map) | 2 | ✅ All work |
 | Web Pages (template engine + web framework E2E) | 2 | ✅ All work (example60 via launch+curl+kill E2E) |
-| **Total** | **53 + unit + smoke** | **Go 54/54 · LLVM 54/54 · bootstrap 52 PASS + 2 SKIP** |
+| Regex Engine (pure-Kylix backtracking VM) | 1 | ✅ All work (multi-file with stdlib/regex_engine.klx, three-end parity) |
+| **Total** | **54 + unit + smoke** | **Go 55/55 · LLVM 55/55 · bootstrap 53 PASS + 2 SKIP** |
 
 Happy coding with Kylix! 🚀

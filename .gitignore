@@ -46,3 +46,7 @@ kylix_bin
 /extmethod.go
 /extmethod2.go
 self_gen*.go
+
+# LLVM 中间产物（IR / mem2reg 输出 / 目标码）——sweep 的 .ll/.o 均写入 /tmp 或被 clean_artifacts 清理，不入库
+*.ll
+*.o

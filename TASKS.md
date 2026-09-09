@@ -6,12 +6,16 @@
 
 ---
 
-## 🚧 v0.7.1 net Winsock / regex pcre2 真实现（进行中）
+## 🚧 v0.7.1 Windows 一等公民（进行中）
 
-- [x] P2 regex Is* 纯手写字符类（删 POSIX regcomp，三平台零依赖，Go/LLVM 25 项 parity）
-- [ ] P1 FindLLVM llvm-mingw + `--target windows` 交叉链接
-- [ ] P3 net Winsock 真实现（需 Windows 真机验证）
-- [ ] P4 CI llvm-windows job
+> 详细规划见 [ROADMAP.md § v0.7.1](ROADMAP.md)；后续版本（v0.7.2 → 1.0.0）规划同步在 ROADMAP。
+
+- [x] P0a regex Is\* 纯手写字符类（删 POSIX regcomp，三平台零依赖，Go/LLVM 25 项 parity）——已完成待提交
+- [x] P0b regex 引擎 ✅（2026-09-09）：纯 Kylix `stdlib/regex_engine.klx`（~870 行回溯 VM + visited memo；Match/Find/FindAll/Replace/Split；RE2 语义对齐）。**设计转向：多文件构建三端同源（与 template_engine 同模式），不做 stdlib_ir.klx 烘焙**。example61 教程接入三 sweep（Go/LLVM 55/55、bootstrap 53 PASS + 2 SKIP）、33 场景对 Go regexp 逐字一致、不动点保持；host Go codegen 三限制记 TECHNICAL_DEBT
+- [ ] P1 net Winsock 真实现（stdlib_net.go Windows 分支 stub → 真 IR：WSAStartup/socket/connect/send/recv…；需 Windows 真机验收）
+- [ ] P2 FindLLVM llvm-mingw + `--target windows` 交叉链接（任意平台直出 .exe）
+- [ ] P3 CI llvm-windows job（windows runner + 捆绑 llvm-mingw zip 绕开安装难题）
+- [ ] P4 工程债快赢：缓存指纹加编译器哈希 + 三处名单一致性单测
 
 ---
 

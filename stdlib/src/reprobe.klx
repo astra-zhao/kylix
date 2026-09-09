@@ -1,0 +1,97 @@
+unit reprobe;
+
+// Probe: language constructs the regex engine needs, verified on all three
+// backends (host Go, host LLVM, bootstrap --emit-llvm) before the engine is
+// written. Kept in stdlib/src/ as a permanent regression canary.
+
+// 3-tuple multi-return (parser threading: frag, ranges, cursor)
+function Parse3(s: String; i: Integer): (String, String, Integer);
+begin
+  result := (s, 'rg', i + 1);
+end;
+
+// 2-tuple multi-return
+function Parse2(s: String): (String, Integer);
+begin
+  result := (s + '!', Length(s) + 1);
+end;
+
+// Local dynamic Integer array grown via append (memo table shape)
+function MemoProbe(n: Integer): Integer;
+var
+  memo: array of Integer;
+  i: Integer;
+begin
+  memo := append(memo, 0);
+  i := 1;
+  while i < n do
+  begin
+    memo := append(memo, i * 3);
+    i := i + 1;
+  end;
+  result := memo[n - 1];
+end;
+
+// Local dynamic array of String grown via append (result lists)
+function StrArrProbe(n: Integer): Integer;
+var
+  arr: array of String;
+begin
+  arr := append(arr, 'a');
+  arr := append(arr, 'bb');
+  arr := append(arr, 'ccc');
+  result := Length(arr[0]) + Length(arr[1]) + Length(arr[2]) + n;
+end;
+
+// Zero-arg unit function call (host Go codegen lost the parens once)
+function ZeroArg: Integer;
+begin
+  result := 42;
+end;
+
+// Ord on slice chars + string building via concat in a loop
+function BuildProbe(s: String): String;
+var
+  out: String;
+  i: Integer;
+begin
+  out := '';
+  i := 0;
+  while i < Length(s) do
+  begin
+    if Ord(s[i:i+1]) >= Ord('a') then
+      out := out + s[i:i+1];
+    i := i + 1;
+  end;
+  result := out;
+end;
+
+// Boolean and/or of comparisons (non-short-circuit safe: no side effects)
+function BoolProbe(c: Integer): Boolean;
+begin
+  result := (c > 1) and (c < 9) or (c = 100);
+end;
+
+// Explicit-stack VM shape: two parallel Integer arrays as a stack
+function StackProbe(n: Integer): Integer;
+var
+  spc, spos: array of Integer;
+  sp, v, i: Integer;
+begin
+  i := 0;
+  while i < n do
+  begin
+    spc := append(spc, 0);
+    spos := append(spos, 0);
+    i := i + 1;
+  end;
+  sp := 0;
+  spc[sp] := 1;
+  spos[sp] := 2;
+  sp := sp + 1;
+  sp := sp - 1;
+  v := spc[sp] + spos[sp];
+  result := v;
+end;
+
+end.

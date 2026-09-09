@@ -1,0 +1,998 @@
+unit regexengine;
+
+// regexengine.klx — v0.7.1 P0b: pure-Kylix backtracking regex engine.
+//
+// One source, three backends: the host Go backend and the host LLVM backend
+// compile this unit directly (multi-file build, same pattern as
+// stdlib/template_engine.klx), and the bootstrap compiles it through the
+// self-hosted emitter. No Go regexp, no pcre2, no libc regex — the same
+// engine runs everywhere, so outputs are byte-identical across backends.
+//
+// Supported subset:
+//   literals, '.', character classes [a-z0-9^] with escapes,
+//   \d \D \w \W \s \S \n \t \r \f \v \0 \<punct>, quantifiers * + ? {n}
+//   {n,} {n,m} with lazy '?' variants, anchors ^ $, grouping (…),
+//   alternation |. Leftmost-first (Perl-like) semantics via priority-ordered
+//   DFS. Byte (ASCII) semantics, like the rest of the Kylix runtime.
+//   NOT supported: backreferences, lookaround, quantified {n,m} whose body
+//   contains jumps (groups/alternation under {n,m}), escaped range bounds
+//   inside classes, counts > 200.
+//
+// Design:
+//   - The pattern is compiled to fixed 9-byte instructions carried in a
+//     string: [op nibble][a: 4 nibbles][b: 4 nibbles]. Strings are the one
+//     container that behaves identically on every backend. Character-class
+//     ranges live in a second string, 4 nibbles per [lo,hi] range; CLASS
+//     instructions reference (offset, count) into it.
+//   - The parser is an accumulator class (fields Frag/Ranges/I/Failed, all
+//     procedures) because class methods cannot return multi-value tuples on
+//     the LLVM end, and methods may call each other regardless of order
+//     (the parser recurses atom → group → alternation).
+//   - The VM is an explicit-stack backtracking matcher with a failure memo
+//     keyed on (pc, pos): "instruction pc cannot reach MATCH from position
+//     pos" is path-independent, so memoizing failures is exact. It makes
+//     matching O(pc * len) and terminates empty-width loops like (a*)*
+//     without changing which match is found first (priority order is
+//     preserved, so semantics stay leftmost-first).
+//
+// Empty-match behavior: Match/Find report empty matches; FindAll includes
+// them (advancing by one); Replace/Split skip them while advancing the
+// search (deterministic; Go's RE2 differs slightly here — documented).
+
+// ============================ nibble helpers ============================
+
+// REHexNib returns the hex digit character for 0..15.
+function REHexNib(v: Integer): String;
+var
+  tab: String;
+begin
+  tab := '0123456789abcdef';
+  result := tab[v:v+1];
+end;
+
+// REValNib returns the value 0..15 of one hex digit character.
+function REValNib(c: String): Integer;
+var
+  o: Integer;
+begin
+  o := Ord(c);
+  if o <= Ord('9') then
+    result := o - Ord('0')
+  else
+    result := o - Ord('a') + 10;
+end;
+
+// REEnc packs 0..65535 into 4 hex nibble characters.
+function REEnc(v: Integer): String;
+var
+  r: Integer;
+begin
+  r := v;
+  result := REHexNib((r div 4096) mod 16) + REHexNib((r div 256) mod 16) + REHexNib((r div 16) mod 16) + REHexNib(r mod 16);
+end;
+
+// REDec unpacks 4 hex nibble characters into 0..65535.
+function REDec(s4: String): Integer;
+begin
+  result := REValNib(s4[0:1]) * 4096 + REValNib(s4[1:2]) * 256 + REValNib(s4[2:3]) * 16 + REValNib(s4[3:4]);
+end;
+
+// Instructions are 9 bytes: [op][a a a a][b b b b]. Instruction index i
+// occupies byte range [i*9, i*9+9).
+// Ops: 0 CHAR(a) 1 CLASS(a=off,b=n) 2 CLASSNEG(a,b) 3 ANY 4 MATCH
+//      5 JMP(a) 6 SPLIT(a,b) 7 BOL(^) 8 EOL($)
+
+function REEncOp(op, a, b: Integer): String;
+begin
+  result := REHexNib(op) + REEnc(a) + REEnc(b);
+end;
+
+function REGetOp(prog: String; i: Integer): Integer;
+begin
+  result := REValNib(prog[i*9:i*9+1]);
+end;
+
+function REGetA(prog: String; i: Integer): Integer;
+begin
+  result := REDec(prog[i*9+1:i*9+5]);
+end;
+
+function REGetB(prog: String; i: Integer): Integer;
+begin
+  result := REDec(prog[i*9+5:i*9+9]);
+end;
+
+// REReplaceInstr rewrites instruction i in place (slicing; strings small).
+function REReplaceInstr(f: String; i, op, a, b: Integer): String;
+begin
+  if i*9+9 >= Length(f) then
+    result := f[0:i*9] + REEncOp(op, a, b)
+  else
+    result := f[0:i*9] + REEncOp(op, a, b) + f[i*9+9:Length(f)];
+end;
+
+// RERebaseJumps adds delta to the targets of every JMP/SPLIT in instruction
+// range [fromI, toI). Used after inserting an instruction before a
+// sub-fragment whose internal jumps are absolute.
+function RERebaseJumps(f: String; fromI, toI, delta: Integer): String;
+var
+  k, op: Integer;
+begin
+  result := f;
+  k := fromI;
+  while k < toI do
+  begin
+    op := REGetOp(result, k);
+    if op = 5 then
+      result := REReplaceInstr(result, k, 5, REGetA(result, k) + delta, 0)
+    else if op = 6 then
+      result := REReplaceInstr(result, k, 6, REGetA(result, k) + delta, REGetB(result, k) + delta);
+    k := k + 1;
+  end;
+end;
+
+// REHasJumps reports whether frag contains JMP/SPLIT.
+function REHasJumps(frag: String): Boolean;
+var
+  k, cnt: Integer;
+begin
+  result := false;
+  cnt := Length(frag) div 9;
+  k := 0;
+  while k < cnt do
+  begin
+    if (REGetOp(frag, k) = 5) or (REGetOp(frag, k) = 6) then
+    begin
+      result := true;
+      exit;
+    end;
+    k := k + 1;
+  end;
+end;
+
+// ============================ classes ============================
+
+// REAddRange appends one [lo,hi] range to a ranges string (4 nibbles).
+function REAddRange(ranges: String; lo, hi: Integer): String;
+begin
+  result := ranges + REEnc(lo) + REEnc(hi);
+end;
+
+// REInRanges reports whether code c is inside n ranges starting at range
+// index `off` (each range is 8 nibbles: 4 for lo, 4 for hi).
+function REInRanges(ranges: String; off, n, c: Integer): Boolean;
+var
+  k, lo, hi: Integer;
+begin
+  result := false;
+  k := 0;
+  while k < n do
+  begin
+    lo := REDec(ranges[(off+k)*8:(off+k)*8+4]);
+    hi := REDec(ranges[(off+k)*8+4:(off+k)*8+8]);
+    if (c >= lo) and (c <= hi) then
+    begin
+      result := true;
+      exit;
+    end;
+    k := k + 1;
+  end;
+end;
+
+// REEscRanges returns the ranges for a Perl class escape body (\d \w \s).
+// Negated forms reuse the same ranges with a CLASSNEG instruction.
+function REEscRanges(kind: String): String;
+begin
+  if kind = 'd' then
+    result := REAddRange('', Ord('0'), Ord('9'))
+  else if kind = 'w' then
+    result := REAddRange(REAddRange(REAddRange(REAddRange('', Ord('0'), Ord('9')), Ord('A'), Ord('Z')), Ord('_'), Ord('_')), Ord('a'), Ord('z'))
+  else
+    // 's': \t \n \v \f \r space
+    result := REAddRange(REAddRange(REAddRange(REAddRange(REAddRange('', 9, 9), 10, 10), 11, 11), 12, 12), 13, 13) + REAddRange('', Ord(' '), Ord(' '));
+end;
+
+// ============================ parser ============================
+// Accumulator class: methods append instructions to self.Frag and ranges to
+// self.Ranges, advance self.I over self.Pat, and set self.Failed on error.
+// All methods are procedures (class methods cannot return tuples on LLVM).
+
+type
+  TRegexParser = class
+    var Pat: String;      // pattern being parsed
+    var I: Integer;       // cursor into Pat
+    var Frag: String;     // accumulated bytecode (9 bytes per instruction)
+    var Ranges: String;   // accumulated class ranges (4 nibbles per range)
+    var Failed: Boolean;  // sticky parse-error flag
+
+    procedure Fail;
+    begin
+      self.Failed := true;
+    end;
+
+    // ParseClassAtom parses '[' items ']' and emits CLASS/CLASSNEG with the
+    // absolute range offset known at emission time.
+    procedure ParseClassAtom;
+    var
+      neg: Boolean;
+      off, cnt, code: Integer;
+      ch, c2, c3: String;
+    begin
+      self.I := self.I + 1;  // past '['
+      neg := false;
+      if (self.I < Length(self.Pat)) and (self.Pat[self.I:self.I+1] = '^') then
+      begin
+        neg := true;
+        self.I := self.I + 1;
+      end;
+      if (self.I >= Length(self.Pat)) or (self.Pat[self.I:self.I+1] = ']') then
+      begin
+        self.Fail;  // empty class
+        exit;
+      end;
+      off := Length(self.Ranges) div 8;
+      cnt := 0;
+      while self.I < Length(self.Pat) do
+      begin
+        ch := self.Pat[self.I:self.I+1];
+        if ch = ']' then
+        begin
+          self.Frag := self.Frag + REEncOp(1, off, cnt);
+          if neg then
+            self.Frag := REReplaceInstr(self.Frag, Length(self.Frag) div 9 - 1, 2, off, cnt);
+          self.I := self.I + 1;
+          exit;
+        end;
+        if ch = '\' then
+        begin
+          if self.I + 1 >= Length(self.Pat) then
+          begin
+            self.Fail;
+            exit;
+          end;
+          c2 := self.Pat[self.I+1:self.I+2];
+          if (c2 = 'd') or (c2 = 'w') or (c2 = 's') then
+          begin
+            self.Ranges := self.Ranges + REEscRanges(c2);
+            cnt := cnt + 1;
+          end
+          else
+          begin
+            if c2 = 'n' then code := 10
+            else if c2 = 't' then code := 9
+            else if c2 = 'r' then code := 13
+            else if c2 = 'f' then code := 12
+            else if c2 = 'v' then code := 11
+            else code := Ord(c2);
+            self.Ranges := REAddRange(self.Ranges, code, code);
+            cnt := cnt + 1;
+          end;
+          self.I := self.I + 2;
+        end
+        else
+        begin
+          code := Ord(ch);
+          // range?  lo '-' hi  with hi not ']' and not escaped
+          if (self.I + 2 < Length(self.Pat)) and (self.Pat[self.I+1:self.I+2] = '-') and (self.Pat[self.I+2:self.I+3] <> ']') then
+          begin
+            c3 := self.Pat[self.I+2:self.I+3];
+            if c3 = '\' then
+            begin
+              self.Fail;  // escaped range bound unsupported
+              exit;
+            end;
+            if Ord(c3) < code then
+            begin
+              self.Fail;  // reversed range
+              exit;
+            end;
+            self.Ranges := REAddRange(self.Ranges, code, Ord(c3));
+            self.I := self.I + 3;
+          end
+          else
+          begin
+            self.Ranges := REAddRange(self.Ranges, code, code);
+            self.I := self.I + 1;
+          end;
+          cnt := cnt + 1;
+        end;
+      end;
+      self.Fail;  // unterminated class
+    end;
+
+    // ParseAtom parses one atom and appends its instructions.
+    procedure ParseAtom;
+    var
+      ch, nxt: String;
+      code, off, n: Integer;
+    begin
+      if self.Failed then
+        exit;
+      if self.I >= Length(self.Pat) then
+      begin
+        self.Fail;  // atom expected
+        exit;
+      end;
+      ch := self.Pat[self.I:self.I+1];
+
+      if ch = '(' then
+      begin
+        // plain (non-capturing) group: alt inside parens
+        self.I := self.I + 1;
+        self.ParseAlt;
+        if self.Failed then
+          exit;
+        if (self.I >= Length(self.Pat)) or (self.Pat[self.I:self.I+1] <> ')') then
+        begin
+          self.Fail;  // unbalanced '('
+          exit;
+        end;
+        self.I := self.I + 1;
+        exit;
+      end;
+
+      if ch = '[' then
+      begin
+        self.ParseClassAtom;
+        exit;
+      end;
+
+      if ch = '.' then
+      begin
+        // [^\n]
+        off := Length(self.Ranges) div 8;
+        self.Ranges := REAddRange(self.Ranges, 10, 10);
+        self.Frag := self.Frag + REEncOp(2, off, 1);
+        self.I := self.I + 1;
+        exit;
+      end;
+
+      if ch = '^' then
+      begin
+        self.Frag := self.Frag + REEncOp(7, 0, 0);
+        self.I := self.I + 1;
+        exit;
+      end;
+      if ch = '$' then
+      begin
+        self.Frag := self.Frag + REEncOp(8, 0, 0);
+        self.I := self.I + 1;
+        exit;
+      end;
+
+      if ch = '\' then
+      begin
+        if self.I + 1 >= Length(self.Pat) then
+        begin
+          self.Fail;  // trailing backslash
+          exit;
+        end;
+        nxt := self.Pat[self.I+1:self.I+2];
+        if (nxt = 'd') or (nxt = 'w') or (nxt = 's') or (nxt = 'D') or (nxt = 'W') or (nxt = 'S') then
+        begin
+          off := Length(self.Ranges) div 8;
+          if nxt = 'd' then self.Ranges := self.Ranges + REEscRanges('d')
+          else if nxt = 'w' then self.Ranges := self.Ranges + REEscRanges('w')
+          else if nxt = 's' then self.Ranges := self.Ranges + REEscRanges('s')
+          else if nxt = 'D' then self.Ranges := self.Ranges + REEscRanges('d')
+          else if nxt = 'W' then self.Ranges := self.Ranges + REEscRanges('w')
+          else self.Ranges := self.Ranges + REEscRanges('s');
+          n := Length(self.Ranges) div 8 - off;
+          if (nxt = 'D') or (nxt = 'W') or (nxt = 'S') then
+            self.Frag := self.Frag + REEncOp(2, off, n)
+          else
+            self.Frag := self.Frag + REEncOp(1, off, n);
+          self.I := self.I + 2;
+          exit;
+        end;
+        if nxt = 'n' then code := 10
+        else if nxt = 't' then code := 9
+        else if nxt = 'r' then code := 13
+        else if nxt = 'f' then code := 12
+        else if nxt = 'v' then code := 11
+        else if nxt = '0' then code := 0
+        else code := Ord(nxt);
+        self.Frag := self.Frag + REEncOp(0, code, 0);
+        self.I := self.I + 2;
+        exit;
+      end;
+
+      // metacharacters that cannot start an atom
+      if (ch = '|') or (ch = ')') or (ch = '*') or (ch = '+') or (ch = '?') then
+      begin
+        self.Fail;
+        exit;
+      end;
+
+      // literal char
+      self.Frag := self.Frag + REEncOp(0, Ord(ch), 0);
+      self.I := self.I + 1;
+    end;
+
+    // ParseRep parses atom + optional quantifier. The atom's instructions
+    // start at index `base`; quantifiers wrap or extend that slice.
+    procedure ParseRep;
+    var
+      base, bodyCnt, cnt, m2, k, cur, closeI: Integer;
+      q: String;
+      hasJ, hasM: Boolean;
+      body: String;
+    begin
+      if self.Failed then
+        exit;
+      base := Length(self.Frag) div 9;
+      self.ParseAtom;
+      if self.Failed then
+        exit;
+      bodyCnt := Length(self.Frag) div 9 - base;
+      if self.I >= Length(self.Pat) then
+        exit;
+      q := self.Pat[self.I:self.I+1];
+
+      if (q = '*') or (q = '+') or (q = '?') then
+      begin
+        hasM := false;  // reused here as the lazy flag
+        if (self.I + 1 < Length(self.Pat)) and (self.Pat[self.I+1:self.I+2] = '?') then
+        begin
+          hasM := true;
+          self.I := self.I + 1;
+        end;
+        self.I := self.I + 1;
+
+        if q = '*' then
+        begin
+          // insert SPLIT(body, exit) before body, then JMP back to the split
+          self.Frag := self.Frag[0:base*9] + REEncOp(6, base + 1, base + bodyCnt + 2) + self.Frag[base*9:Length(self.Frag)];
+          self.Frag := RERebaseJumps(self.Frag, base + 1, base + bodyCnt + 1, 1);
+          self.Frag := self.Frag + REEncOp(5, base, 0);
+          if hasM then
+            self.Frag := REReplaceInstr(self.Frag, base, 6, base + bodyCnt + 2, base + 1);
+        end
+        else if q = '+' then
+        begin
+          // body already emitted; append SPLIT(body, exit)
+          self.Frag := self.Frag + REEncOp(6, base, base + bodyCnt + 1);
+          if hasM then
+            self.Frag := REReplaceInstr(self.Frag, base + bodyCnt, 6, base + bodyCnt + 1, base);
+        end
+        else
+        begin
+          // '?': insert SPLIT(body, exit) before body (no JMP follows, so
+          // the exit target is directly past the body)
+          self.Frag := self.Frag[0:base*9] + REEncOp(6, base + 1, base + 1 + bodyCnt) + self.Frag[base*9:Length(self.Frag)];
+          self.Frag := RERebaseJumps(self.Frag, base + 1, base + bodyCnt + 1, 1);
+          if hasM then
+            self.Frag := REReplaceInstr(self.Frag, base, 6, base + 1 + bodyCnt, base + 1);
+        end;
+        exit;
+      end;
+
+      if q = '{' then
+      begin
+        // try {n} {n,} {n,m}; malformed → literal '{'
+        k := self.I + 1;
+        cnt := 0;
+        while (k < Length(self.Pat)) and (Ord(self.Pat[k:k+1]) >= Ord('0')) and (Ord(self.Pat[k:k+1]) <= Ord('9')) do
+        begin
+          cnt := cnt * 10 + (Ord(self.Pat[k:k+1]) - Ord('0'));
+          k := k + 1;
+        end;
+        if k = self.I + 1 then
+        begin
+          // no digits: literal '{'
+          self.Frag := self.Frag + REEncOp(0, Ord('{'), 0);
+          self.I := self.I + 1;
+          exit;
+        end;
+        body := self.Frag[base*9:Length(self.Frag)];
+        hasJ := REHasJumps(body);
+        if hasJ or (cnt > 200) then
+        begin
+          self.Fail;  // {n,m} over jumps unsupported / count too large
+          exit;
+        end;
+        if (k < Length(self.Pat)) and (self.Pat[k:k+1] = '}') then
+        begin
+          // {n}: n copies of the atom ({0} drops the atom entirely)
+          closeI := k;
+          if cnt = 0 then
+            self.Frag := self.Frag[0:base*9];
+          k := 1;
+          while k < cnt do
+          begin
+            self.Frag := self.Frag + body;
+            k := k + 1;
+          end;
+          self.I := closeI + 1;
+          exit;
+        end;
+        if (k < Length(self.Pat)) and (self.Pat[k:k+1] = ',') then
+        begin
+          k := k + 1;
+          m2 := 0;
+          hasM := false;
+          while (k < Length(self.Pat)) and (Ord(self.Pat[k:k+1]) >= Ord('0')) and (Ord(self.Pat[k:k+1]) <= Ord('9')) do
+          begin
+            m2 := m2 * 10 + (Ord(self.Pat[k:k+1]) - Ord('0'));
+            k := k + 1;
+            hasM := true;
+          end;
+          if (k < Length(self.Pat)) and (self.Pat[k:k+1] = '}') then
+          begin
+            if (m2 < cnt) or (cnt + m2 > 400) then
+            begin
+              self.Fail;
+              exit;
+            end;
+            closeI := k;
+            if cnt = 0 then
+              self.Frag := self.Frag[0:base*9];  // {0,m}: drop the atom
+            // mandatory copies (cnt-1 more; one already emitted)
+            k := 1;
+            while k < cnt do
+            begin
+              self.Frag := self.Frag + body;
+              k := k + 1;
+            end;
+            cur := base + cnt * bodyCnt;
+            if hasM then
+            begin
+              // {n,m}: (m-n) optional copies, each SPLIT(copy, exit)
+              k := 0;
+              while k < m2 - cnt do
+              begin
+                self.Frag := self.Frag + REEncOp(6, cur + 1, cur + 1 + bodyCnt) + body;
+                cur := cur + 1 + bodyCnt;
+                k := k + 1;
+              end;
+            end
+            else
+            begin
+              // {n,}: star over one more copy (SPLIT exit is past the JMP)
+              self.Frag := self.Frag + REEncOp(6, cur + 1, cur + bodyCnt + 2) + body + REEncOp(5, cur, 0);
+            end;
+            self.I := closeI + 1;
+            exit;
+          end;
+        end;
+        // malformed {..}: literal '{'
+        self.Frag := self.Frag + REEncOp(0, Ord('{'), 0);
+        self.I := self.I + 1;
+      end;
+    end;
+
+    // ParseCat parses a concatenation of repeated atoms until a delimiter
+    // ('|' or ')') or end of pattern. An empty concat emits MATCH.
+    procedure ParseCat;
+    var
+      c0: Integer;
+    begin
+      if self.Failed then
+        exit;
+      c0 := Length(self.Frag) div 9;
+      while not self.Failed do
+      begin
+        if self.I >= Length(self.Pat) then
+          break;
+        if (self.Pat[self.I:self.I+1] = '|') or (self.Pat[self.I:self.I+1] = ')') then
+          break;
+        self.ParseRep;
+      end;
+      if self.Failed then
+        exit;
+      if Length(self.Frag) div 9 = c0 then
+        self.Frag := self.Frag + REEncOp(4, 0, 0);  // empty concat
+    end;
+
+    // ParseAlt parses alternation: cat ('|' cat)*. On the first '|', a
+    // SPLIT is inserted before the left cat, a JMP after it leads past the
+    // right side, and the right side is parsed recursively.
+    procedure ParseAlt;
+    var
+      a0, c1, jIdx: Integer;
+    begin
+      if self.Failed then
+        exit;
+      a0 := Length(self.Frag) div 9;
+      self.ParseCat;
+      if self.Failed then
+        exit;
+      if (self.I < Length(self.Pat)) and (self.Pat[self.I:self.I+1] = '|') then
+      begin
+        self.I := self.I + 1;
+        c1 := Length(self.Frag) div 9 - a0;
+        // insert SPLIT(cat1, alt2) before cat1; cat1's internal jumps shift
+        self.Frag := self.Frag[0:a0*9] + REEncOp(6, a0 + 1, a0 + c1 + 2) + self.Frag[a0*9:Length(self.Frag)];
+        self.Frag := RERebaseJumps(self.Frag, a0 + 1, a0 + c1 + 1, 1);
+        // JMP(end) placeholder after cat1
+        jIdx := a0 + c1 + 1;
+        self.Frag := self.Frag + REEncOp(5, 0, 0);
+        self.ParseAlt;
+        if self.Failed then
+          exit;
+        self.Frag := REReplaceInstr(self.Frag, jIdx, 5, Length(self.Frag) div 9, 0);
+      end;
+    end;
+  end;
+
+// RECompile compiles a pattern into (prog, ranges). Empty prog = error.
+// NOTE (multi-return codegen): in tuple-returning functions every
+// `result := (a, b)` lowers to an unconditional return and `exit` is a
+// no-op, so this function assigns result exactly once at the end and
+// guards everything with nested ifs.
+function RECompile(pattern: String): (String, String);
+var
+  p: TRegexParser;
+  prog, rr: String;
+begin
+  prog := '';
+  rr := '';
+  if Length(pattern) > 0 then
+  begin
+    p := TRegexParser.Create;
+    p.Pat := pattern;
+    p.I := 0;
+    p.Frag := '';
+    p.Ranges := '';
+    p.Failed := false;
+    p.ParseAlt;
+    if p.Failed then
+    begin
+      // parse error
+    end
+    else
+    begin
+      if p.I < Length(pattern) then
+      begin
+        // trailing garbage (e.g. unbalanced ')')
+      end
+      else
+      begin
+        prog := p.Frag + REEncOp(4, 0, 0);  // final MATCH
+        rr := p.Ranges;
+      end;
+    end;
+  end;
+  result := (prog, rr);
+end;
+
+// ============================ VM ============================
+
+// REFindAt searches for a match STARTING exactly at position start; returns
+// (matchStart, matchEnd) with matchStart < 0 when nothing matches.
+// Explicit-stack backtracking with a (pc,pos) failure memo — see the unit
+// comment for why memoized failure is exact and preserves leftmost-first.
+// Same single-assignment discipline as RECompile (multi-return codegen).
+function REFindAt(prog, ranges, s: String; start: Integer): (Integer, Integer);
+var
+  n, pcCnt, sp, pc, pos, op, a, b, midx, me: Integer;
+  alive, hit: Boolean;
+  stkPC, stkPos, memo: array of Integer;
+begin
+  me := -1;
+  n := Length(s);
+  if start <= n then
+  begin
+  pcCnt := Length(prog) div 9;
+  stkPC := append(stkPC, 0);
+  stkPos := append(stkPos, start);
+  sp := 0;
+  while (sp >= 0) and (me < 0) do
+  begin
+    pc := stkPC[sp];
+    pos := stkPos[sp];
+    sp := sp - 1;
+    alive := true;
+    while alive do
+    begin
+      if (pc >= pcCnt) or (pos > n) then
+      begin
+        alive := false;
+      end
+      else
+      begin
+        midx := pc * (n + 1) + pos;
+        while Length(memo) <= midx do
+          memo := append(memo, 0);
+        if memo[midx] = 1 then
+        begin
+          alive := false;
+        end
+        else
+        begin
+          // visited memo: every (pc,pos) expands at most once. With this
+          // instruction set (no side effects) the continuation from (pc,pos)
+          // is deterministic, so a revisit can never reach MATCH if the
+          // first expansion didn't — pruning is exact and preserves
+          // priority order. It also terminates empty-width loops like
+          // (a*)*, whose threads never fail and would otherwise spin.
+          memo[midx] := 1;
+          op := REGetOp(prog, pc);
+          if op = 0 then
+          begin
+            // CHAR
+            if (pos < n) and (Ord(s[pos:pos+1]) = REGetA(prog, pc)) then
+            begin
+              pos := pos + 1;
+              pc := pc + 1;
+            end
+            else
+            begin
+              memo[midx] := 1;
+              alive := false;
+            end;
+          end
+          else if op = 1 then
+          begin
+            // CLASS
+            a := REGetA(prog, pc);
+            b := REGetB(prog, pc);
+            hit := false;
+            if pos < n then
+              hit := REInRanges(ranges, a, b, Ord(s[pos:pos+1]));
+            if hit then
+            begin
+              pos := pos + 1;
+              pc := pc + 1;
+            end
+            else
+            begin
+              memo[midx] := 1;
+              alive := false;
+            end;
+          end
+          else if op = 2 then
+          begin
+            // CLASSNEG
+            a := REGetA(prog, pc);
+            b := REGetB(prog, pc);
+            hit := true;
+            if pos < n then
+              hit := not REInRanges(ranges, a, b, Ord(s[pos:pos+1]));
+            if hit then
+            begin
+              pos := pos + 1;
+              pc := pc + 1;
+            end
+            else
+            begin
+              memo[midx] := 1;
+              alive := false;
+            end;
+          end
+          else if op = 3 then
+          begin
+            // ANY (defensive; '.' lowers to CLASSNEG)
+            if pos < n then
+            begin
+              pos := pos + 1;
+              pc := pc + 1;
+            end
+            else
+            begin
+              memo[midx] := 1;
+              alive := false;
+            end;
+          end
+          else if op = 4 then
+          begin
+            // MATCH
+            me := pos;
+            alive := false;
+          end
+          else if op = 5 then
+          begin
+            // JMP
+            pc := REGetA(prog, pc);
+          end
+          else if op = 6 then
+          begin
+            // SPLIT: prefer a, push b
+            b := REGetB(prog, pc);
+            sp := sp + 1;
+            while Length(stkPC) <= sp do
+            begin
+              stkPC := append(stkPC, 0);
+              stkPos := append(stkPos, 0);
+            end;
+            stkPC[sp] := b;
+            stkPos[sp] := pos;
+            pc := REGetA(prog, pc);
+          end
+          else if op = 7 then
+          begin
+            // ^ : start of text
+            if pos = 0 then
+              pc := pc + 1
+            else
+            begin
+              memo[midx] := 1;
+              alive := false;
+            end;
+          end
+          else if op = 8 then
+          begin
+            // $ : end of text
+            if pos = n then
+              pc := pc + 1
+            else
+            begin
+              memo[midx] := 1;
+              alive := false;
+            end;
+          end
+          else
+          begin
+            memo[midx] := 1;
+            alive := false;
+          end;
+        end;
+      end;
+    end;
+  end;
+  end;
+  if me >= 0 then
+    result := (start, me)
+  else
+    result := (-1, -1);
+end;
+
+// RESearch finds the leftmost match at or after `from`: it tries each start
+// position in turn (leftmost-first).
+function RESearch(prog, ranges, s: String; from: Integer): (Integer, Integer);
+var
+  st, ms, me: Integer;
+begin
+  ms := -1;
+  me := -1;
+  st := from;
+  while (st <= Length(s)) and (ms < 0) do
+  begin
+    (ms, me) := REFindAt(prog, ranges, s, st);
+    if ms < 0 then
+      st := st + 1;
+  end;
+  result := (ms, me);
+end;
+
+// ============================ public API ============================
+
+// RegexMatch reports whether pattern matches anywhere in s.
+function RegexMatch(pattern, s: String): Boolean;
+var
+  prog, ranges: String;
+  ms, me: Integer;
+begin
+  result := false;
+  (prog, ranges) := RECompile(pattern);
+  if Length(prog) = 0 then
+    exit;
+  (ms, me) := RESearch(prog, ranges, s, 0);
+  result := (ms >= 0) and (me >= 0);
+end;
+
+// RegexFind returns the leftmost match, or '' when nothing matches.
+function RegexFind(pattern, s: String): String;
+var
+  prog, ranges: String;
+  ms, me: Integer;
+begin
+  result := '';
+  (prog, ranges) := RECompile(pattern);
+  if Length(prog) = 0 then
+    exit;
+  (ms, me) := RESearch(prog, ranges, s, 0);
+  if ms >= 0 then
+    result := s[ms:me];
+end;
+
+// RegexFindAll returns every match, including empty ones — except an empty
+// match at the end position of the previous match is rejected, matching Go's
+// RE2 semantics (prevMatchEnd rule).
+function RegexFindAll(pattern, s: String): array of String;
+var
+  prog, ranges: String;
+  ms, me, pos, prevEnd: Integer;
+  arr: array of String;
+begin
+  result := arr;
+  (prog, ranges) := RECompile(pattern);
+  if Length(prog) = 0 then
+    exit;
+  pos := 0;
+  prevEnd := -1;
+  while pos <= Length(s) do
+  begin
+    (ms, me) := RESearch(prog, ranges, s, pos);
+    if ms < 0 then
+      break;
+    if (me = ms) and (ms = prevEnd) then
+    begin
+      // empty match at the previous match's end: skip it
+      prevEnd := me;
+      pos := ms + 1;
+    end
+    else
+    begin
+      arr := append(arr, s[ms:me]);
+      prevEnd := me;
+      if me = ms then
+        pos := ms + 1
+      else
+        pos := me;
+    end;
+  end;
+  result := arr;
+end;
+
+// RegexReplace replaces every (non-empty) match with repl. Empty matches
+// are skipped while the search advances (documented deviation from Go).
+function RegexReplace(pattern, s, repl: String): String;
+var
+  prog, ranges: String;
+  ms, me, pos: Integer;
+  out: String;
+begin
+  result := s;
+  (prog, ranges) := RECompile(pattern);
+  if Length(prog) = 0 then
+    exit;
+  out := '';
+  pos := 0;
+  while pos <= Length(s) do
+  begin
+    (ms, me) := RESearch(prog, ranges, s, pos);
+    if ms < 0 then
+      break;
+    if me > ms then
+    begin
+      out := out + s[pos:ms] + repl;
+      pos := me;
+    end
+    else
+    begin
+      // empty match: keep looking past it
+      pos := ms + 1;
+    end;
+  end;
+  result := out + s[pos:Length(s)];
+end;
+
+// RegexSplit splits s around every (non-empty) match; empty matches are
+// skipped while the search advances (documented deviation from Go).
+function RegexSplit(pattern, s: String): array of String;
+var
+  prog, ranges: String;
+  ms, me, pos, searchFrom: Integer;
+  arr: array of String;
+begin
+  result := arr;
+  (prog, ranges) := RECompile(pattern);
+  if Length(prog) = 0 then
+  begin
+    result := append(result, s);
+    exit;
+  end;
+  pos := 0;
+  searchFrom := 0;
+  while searchFrom <= Length(s) do
+  begin
+    (ms, me) := RESearch(prog, ranges, s, searchFrom);
+    if ms < 0 then
+      break;
+    if me > ms then
+    begin
+      arr := append(arr, s[pos:ms]);
+      pos := me;
+      searchFrom := me;
+    end
+    else
+    begin
+      searchFrom := ms + 1;
+    end;
+  end;
+  arr := append(arr, s[pos:Length(s)]);
+  result := arr;
+end;
+
+end.

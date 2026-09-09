@@ -69,7 +69,7 @@
 | **v0.6.8** | boot server 补强（POST body/req.JSON/JWT 真校验）+ stdlib 补全 + 插件完善 | ✅ 完成 | 2026-08-23 |
 | **v0.6.9** | bootstrap 无 Go 闭环（stdlib IR 烘焙 + gen2 编译器 + IR 不动点 + 教程 sweep 50/51） | ✅ 完成 | 2026-09-04 |
 | **v0.7.0** | web 页面开发 + web 框架（error 类型 + 纯 Kylix 模板引擎 + 页面渲染 API + Redirect/错误页 + example60 server E2E）+ GitHub Release 工作流 | ✅ 完成 | 2026-09-06 |
-| **v0.7.1** | net Winsock / regex pcre2 真实现（regex Is* 字符类已先行落地） | 🚧 进行中 | — |
+| **v0.7.1** | Windows 一等公民：net Winsock 真实现 + regex 引擎（纯 Kylix 烘焙）+ --target windows 交叉链接 + CI llvm-windows job | 🚧 进行中 | — |
 
 ---
 
@@ -142,6 +142,67 @@ IntelliJ IDEA / GoLand 插件（语法高亮 + LSP 集成）。VS Code 插件已
 
 ### #10: JsonEncode 双端 parity
 Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serializer。确保两端输出逐字节一致。
+
+---
+
+## v0.7.1 — Windows 一等公民（net/regex 真实现 + 交叉链接 + CI）
+
+> 目标：Windows 从"尽力而为"升级为一等公民——net/regex 在 Windows 真实可用，任意平台可交叉产出 Windows 原生 .exe，CI 覆盖 Windows 链路。
+
+### P0 — regex 收尾 ✅（2026-09-09 完成）
+- [x] **Is\* 六验证器纯手写字符类**：删 POSIX regcomp（UCRT 无 `<regex.h>`，Windows 不可用），六个 Is* 逐字节扫描 + 字符类 helper（icmp range/or 链，零 libc 调用）——同一份 IR 三平台链接，Go/LLVM 25 项 parity
+- [x] **RegexMatch / RegexFind / RegexFindAll / RegexReplace / RegexSplit**：纯 Kylix 编写 `stdlib/regex_engine.klx`（~870 行，回溯 VM：显式栈 + visited memo 防 `(a*)*` 空宽循环；字符类/`* + ? {n} {n,} {n,m}`+lazy/锚点/分组/alternation；9 字节定长指令字节码）。**设计转向**：不做 stdlib_ir.klx 烘焙——引擎是普通 Kylix unit，教程/程序以多文件构建方式引用（与 template_engine.klx 同模式），三端（host Go / host LLVM / bootstrap `--emit-llvm`）免费同源，无需烘焙管线。语义对齐 Go RE2：leftmost-first 优先序 + FindAll prevMatchEnd 空匹配规则（Replace/Split 跳过空匹配，文档化偏差）
+- [x] **教程/测试**：`23_regex/example61_regex_engine.klx`（33 场景）三端接入 sweep（test_all.sh / test_all_llvm.sh / test_bootstrap_all.sh 多文件特判段）；33 场景与 Go `regexp` 包（RE2）对照逐字一致；**Go 55/55 · LLVM 55/55 · bootstrap sweep 53 PASS + 2 SKIP · 不动点 gen1≡gen2 保持（227k 行）**
+
+### P1 — net Winsock 真实现（LLVM 端）
+- [ ] `stdlib_net.go` Windows 分支：stub → 真 IR（`WSAStartup/WSACleanup/socket/closesocket/connect/bind/listen/accept/send/recv/WSAGetLastError`，SOCKET=UINT_PTR、`SOCKET_ERROR=~-1`、ioctlsocket 阻塞模式）
+- [ ] unix 分支不动；教程 net TCP echo 双平台冒烟
+- [ ] Windows 真机验收（WSAStartup 版本协商 / closesocket / 错误码）
+
+### P2 — `--target windows` 交叉链接
+- [ ] FindLLVM 识别捆绑 llvm-mingw（`llvm/` 目录含 lld + mingw CRT）
+- [ ] `kylix build --backend=llvm --target=windows/amd64` 在 mac/linux 直出 .exe（系统库表按 targetOS 走 Winsock 分支，不再链接 -lcrypto/-lsqlite3/-lcurl 的 unix 形态）
+- [ ] Release 资产补 .exe 交叉产物冒烟（release.yml 可选步骤）
+
+### P3 — CI llvm-windows job
+- [ ] windows-2025 runner：解压 llvm-mingw zip（Release 已附带）→ PATH → `kylix doctor` → hello.klx 编译运行 → net/regex 模块编译测试
+- [ ] v6.2 教训规避：choco/winget 装不上 LLVM 的问题用捆绑 zip 绕开
+
+### P4 — 工程债快赢（搭车）
+- [ ] 增量缓存指纹加入编译器源码哈希（`.kylix-cache` 不感知 emitter 变化——改发射器必须清缓存的坑）
+- [ ] "三处名单"一致性单测（host Go stdlibModules / host LLVM stdlib.go / emitBootCall switch 交叉校验）
+
+### 验证门槛
+16 包全绿 · Go+LLVM 教程 55/55 · bootstrap sweep 53 PASS + 2 SKIP · IR 不动点 gen1≡gen2 保持 · CI llvm-windows job 绿 · Windows 真机 net/regex 冒烟通过
+
+---
+
+## 后续版本规划（v0.7.2 → 1.0.0）
+
+### v0.7.2 — CI 全绿 + 稳定性还债
+- [ ] **CI fixpoint job 修复**（09-04 起红）：首选改走 `--emit-llvm` 链（gen1 ≡ gen2 真验证）；备选修 Go 路径（StdIrInit 适配 + `as` 操作数类型已知具体时发直赋值）
+- [ ] CI Lint job 修复（早于 v0.7.0 存在）
+- [ ] Linux Go codegen 垃圾输出破案（bootstrap 无 --emit-llvm 路径字符串常量损坏）或显式移除该路径 + 运行时报错
+- [ ] LLVM 端类方法多返回支持（vtable 单 RetType 限制解除，模板引擎 RenderString/ErrorMsg 绕行模式可退役）
+- [ ] boot/stdlib "三处名单"单一来源化（一份表生成三份名单）
+
+### v0.8.0 — 自举 stdlib（真自包含）
+- [ ] 纯 Kylix stdlib 扩展（`template_engine.klx` 为范本）：encoding/jsonutil/字符串工具等可纯 Kylix 表达的模块迁到 `.klx`（host 编译 → 烘焙 → 三端同源）
+- [ ] 内存管理：per-request arena 推广（响应 handle/xhdrs 纳入，消 malloc 泄漏）；htab 入口 magic 校验（传"槽"当"表指针"类 bug 快速定位）
+- [ ] LLVM boot server：多 cookie 槽 + 自定义头 realloc（1024 上限解除）
+- [ ] bootstrap 端 boot server 评估（BootRun/read_headers/parse_request 移植或烘焙）
+
+### v0.9.0 — 1.0.0-rc 打磨
+- [ ] 三平台 CI 稳定全绿（linux/darwin/windows × amd64/arm64）
+- [ ] 性能回归基线（compile-time benchmark 入 CI 门禁）
+- [ ] API 稳定性审查：语言语法 / CLI / stdlib 冻结承诺 + 弃用标记
+- [ ] 文档与官网同步（README 双语 / kylix.top / 教程）
+
+### 1.0.0 — 正式版（gate）
+- [ ] v0.7.1–v0.9.0 全部完成
+- [ ] 三平台 CI 全绿 + bootstrap 无 Go 闭环 + IR 不动点 + 教程三端全绿
+- [ ] Release 资产完整（5 平台二进制 + bootstrap tarball + llvm-mingw 工具链）
+- [ ] SECURITY/UPGRADING 文档 + 版本化承诺（1.x 向后兼容）
 
 ---
 

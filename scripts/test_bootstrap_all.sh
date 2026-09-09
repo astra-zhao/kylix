@@ -60,6 +60,11 @@ for f in "$TUT"/*/*.klx; do
   if [ "$name" == "example59_template" ]; then
     continue
   fi
+  # example61 uses the pure-Kylix regex engine unit (stdlib/regex_engine.klx) —
+  # exercised via the third multi-file test below
+  if [ "$name" == "example61_regex_engine" ]; then
+    continue
+  fi
   # example60 is a real BootRun HTTP server — the bootstrap compiler does not
   # support the boot server (v0.7.0 P3 limitation, see TECHNICAL_DEBT.md), and
   # a server never exits so the host reference would hang until timeout.
@@ -141,6 +146,29 @@ if [ -f "$TUT/22_web_pages/example59_template.klx" ]; then
       "$ROOT/stdlib/template_engine.klx" "$TUT/22_web_pages/$name.klx" >/dev/null 2>&1; then
     host_out=$("$OUT/${name}_host" 2>/dev/null)
     if "$BOOT" --emit-llvm "$ROOT/stdlib/template_engine.klx" "$TUT/22_web_pages/$name.klx" \
+        > "$OUT/$name.ll" 2>/dev/null \
+        && "$LLC" -filetype=obj "$OUT/$name.ll" -o "$OUT/$name.o" \
+        && clang "$OUT/$name.o" -o "$OUT/${name}_boot"; then
+      boot_out=$("$OUT/${name}_boot" 2>/dev/null)
+      if [ "$boot_out" == "$host_out" ]; then
+        echo "PASS $name (multi-file)"; PASS=$((PASS+1))
+      else
+        echo "DIFF $name (multi-file)"; FAIL=$((FAIL+1))
+        diff <(echo "$host_out") <(echo "$boot_out") | head -8 | sed 's/^/    /'
+      fi
+    else
+      echo "FAIL $name (multi-file pipeline)"; FAIL=$((FAIL+1))
+    fi
+  fi
+fi
+
+# ---- multi-file module test (regex_engine + example61) ----
+name=example61_regex_engine
+if [ -f "$TUT/23_regex/$name.klx" ]; then
+  if "$KYLIX" build --backend=llvm -o "$OUT/${name}_host" \
+      "$ROOT/stdlib/regex_engine.klx" "$TUT/23_regex/$name.klx" >/dev/null 2>&1; then
+    host_out=$("$OUT/${name}_host" 2>/dev/null)
+    if "$BOOT" --emit-llvm "$ROOT/stdlib/regex_engine.klx" "$TUT/23_regex/$name.klx" \
         > "$OUT/$name.ll" 2>/dev/null \
         && "$LLC" -filetype=obj "$OUT/$name.ll" -o "$OUT/$name.o" \
         && clang "$OUT/$name.o" -o "$OUT/${name}_boot"; then

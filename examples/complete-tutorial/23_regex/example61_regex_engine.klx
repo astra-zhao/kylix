@@ -1,0 +1,118 @@
+// example61_regex_engine.klx — Pure-Kylix regex engine (v0.7.1 P0b)
+// Demonstrates the `regexengine` unit (stdlib/regex_engine.klx):
+//   - RegexMatch / RegexFind: leftmost-first (Perl-like) matching
+//   - RegexFindAll: every match, Go RE2 prevMatchEnd empty-match rule
+//   - RegexReplace / RegexSplit: literal replacement, non-empty-match split
+//   - supported subset: literals, '.', [a-z0-9^] classes with escapes,
+//     \d \D \w \W \s \S \n \t \r, quantifiers * + ? {n} {n,} {n,m} (lazy
+//     '?' variants), anchors ^ $, grouping, alternation
+// The engine is written entirely in Kylix (backtracking VM with a visited
+// memo — linear time, no (a*)* blowup) and compiles to identical output on
+// all three ends: host Go, host LLVM, and the bootstrap compiler.
+// Compiled as a multi-file build: this file + stdlib/regex_engine.klx.
+
+program RegexEngineDemo;
+
+uses regexengine;
+
+procedure ShowMatch(pat, s: String);
+var
+  f: String;
+begin
+  if RegexMatch(pat, s) then
+  begin
+    f := RegexFind(pat, s);
+    WriteLn('T ' + pat + ' | ' + s + ' | ' + f);
+  end
+  else
+    WriteLn('F ' + pat + ' | ' + s);
+end;
+
+procedure ShowFindAll(pat, s: String);
+var
+  a: array of String;
+  i: Integer;
+  out: String;
+begin
+  a := RegexFindAll(pat, s);
+  out := '[';
+  i := 0;
+  while i < Length(a) do
+  begin
+    if i > 0 then
+      out := out + ',';
+    out := out + a[i];
+    i := i + 1;
+  end;
+  WriteLn('A ' + pat + ' | ' + s + ' | ' + out + ']');
+end;
+
+procedure ShowReplace(pat, s, repl: String);
+begin
+  WriteLn('R ' + pat + ' | ' + s + ' | ' + RegexReplace(pat, s, repl));
+end;
+
+procedure ShowSplit(pat, s: String);
+var
+  a: array of String;
+  i: Integer;
+  out: String;
+begin
+  a := RegexSplit(pat, s);
+  out := '[';
+  i := 0;
+  while i < Length(a) do
+  begin
+    if i > 0 then
+      out := out + ',';
+    out := out + a[i];
+    i := i + 1;
+  end;
+  WriteLn('S ' + pat + ' | ' + s + ' | ' + out + ']');
+end;
+
+begin
+  // literals, dot, character classes
+  ShowMatch('abc', 'xxabcyy');
+  ShowMatch('a.c', 'abc');
+  ShowMatch('a[0-9]c', 'a7c');
+  // anchors
+  ShowMatch('^ab', 'xab');
+  ShowMatch('^ab', 'abx');
+  ShowMatch('ab$', 'abx');
+  ShowMatch('ab$', 'xab');
+  // Perl class escapes
+  ShowMatch('\d\d\d', 'ab123');
+  ShowMatch('\w\w\w', 'ab1');
+  ShowMatch('\D\D', '12ab');
+  ShowMatch('\s', 'ab c');
+  // alternation and grouping
+  ShowMatch('cat|dog', 'hotdog');
+  ShowMatch('cat|dog', 'hotbird');
+  ShowMatch('(ab)+', 'xababab');
+  // the classic (a|b)*abb and the (a*)* memo stress test
+  ShowMatch('(a|b)*abb', 'babb');
+  ShowMatch('(a|b)*abb', 'abxa');
+  ShowMatch('(a*)*b', 'aaab');
+  // counted and optional quantifiers
+  ShowMatch('a{2,3}', 'aaaa');
+  ShowMatch('a{2}', 'a');
+  ShowMatch('colou?r', 'color');
+  ShowMatch('colou?r', 'colour');
+  // lazy quantifier
+  ShowMatch('a+?', 'aaa');
+  // negated class
+  ShowMatch('[a-c]+', 'zabcd');
+  ShowMatch('[^a-c]+', 'abcz12');
+  // find-all
+  ShowFindAll('\d+', 'a1b22c333');
+  ShowFindAll('\w+', 'hello world foo');
+  ShowFindAll('[a-c]+', 'abcdc');
+  ShowFindAll('a*', 'bab');
+  // replace and split
+  ShowReplace('\d+', 'a1b22c333', '#');
+  ShowReplace('cat', 'hotcat concat', 'dog');
+  ShowSplit(',', 'a,b,c');
+  ShowSplit('\s+', 'a b  c');
+  WriteLn('done');
+end.

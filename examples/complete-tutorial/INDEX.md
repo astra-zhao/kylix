@@ -7,8 +7,8 @@
 - **QUICKSTART.md** — 5-minute getting started guide
 - **SUMMARY.md** — Historical creation summary (see its header note)
 - **INDEX.md** — This file
-- **test_all.sh** — Go backend automated sweep (51/51)
-- **test_all_llvm.sh** — LLVM backend automated sweep (51/51)
+- **test_all.sh** — Go backend automated sweep (55/55)
+- **test_all_llvm.sh** — LLVM backend automated sweep (55/55)
 
 ---
 
@@ -165,14 +165,27 @@
 | example56_variant.klx | Variant scalars and arrays (type-tagged) | ✅ |
 | example57_variant_map.klx | `map[String]Variant` type-tagged map | ✅ |
 
+### 22_web_pages/ (2 examples) ✅ (v0.7.0)
+
+| Example | Description | Status |
+|---------|-------------|--------|
+| example59_template.klx | Pure-Kylix template engine (`{{ }}`, filters, each/if blocks) | ✅ (multi-file with `stdlib/template_engine.klx`) |
+| example60_web_framework.klx | KylixBoot web framework E2E (real HTTP server) | ✅ (launch + curl + kill E2E; SKIP in bootstrap sweep) |
+
+### 23_regex/ (1 example) ✅ (v0.7.1)
+
+| Example | Description | Status |
+|---------|-------------|--------|
+| example61_regex_engine.klx | Pure-Kylix regex engine: Match/Find/FindAll/Replace/Split, RE2-aligned semantics | ✅ (multi-file with `stdlib/regex_engine.klx`) |
+
 ---
 
 ## 📊 Statistics
 
-- **Numbered examples**: 50 across 20 chapters (plus `math_helper.klx` unit and `test.klx` smoke file)
-- **Go backend sweep**: 51/51 (`test_all.sh`)
-- **LLVM backend sweep**: 51/51 (`test_all_llvm.sh`, native binaries)
-- **No-Go bootstrap sweep**: 50 PASS + 1 SKIP (`scripts/test_bootstrap_all.sh`; example33 verified host-side)
+- **Numbered examples**: 54 across 22 chapters (plus `math_helper.klx` unit and `test.klx` smoke file)
+- **Go backend sweep**: 55/55 (`test_all.sh`; example60 via launch+curl+kill E2E)
+- **LLVM backend sweep**: 55/55 (`test_all_llvm.sh`, native binaries)
+- **No-Go bootstrap sweep**: 53 PASS + 2 SKIP (`scripts/test_bootstrap_all.sh`; example33/59/61 via multi-file tests, example60 SKIP)
 - **Compiler self-hosting**: IR fixed point reached (gen1 ≡ gen2 ≡ gen3)
 
 ---
@@ -195,5 +208,5 @@
 
 ---
 
-**Last updated**: 2026-09-04  
-**Tutorial version**: v0.6.9 (50 numbered examples, all passing)
+**Last updated**: 2026-09-09  
+**Tutorial version**: v0.7.1-dev (54 numbered examples, all passing)

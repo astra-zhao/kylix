@@ -145,6 +145,30 @@ run_module_test
 
 run_web_pages_test
 
+# 23_regex (v0.7.1 P0b): example61 uses the pure-Kylix regex engine unit —
+# multi-file build with stdlib/regex_engine.klx (no Go regexp dependency).
+run_regex_test() {
+    echo "Testing 23_regex..."
+    cd "$ROOT/23_regex" 2>/dev/null || return 0
+    TOTAL=$((TOTAL + 1))
+    if $KYLIX build "$ROOT/../../stdlib/regex_engine.klx" example61_regex_engine.klx 2>&1 | grep -q "✓ Compiled"; then
+        local out
+        out=$(go run main.go 2>&1)
+        if [ "$(echo "$out" | tail -1)" = "done" ] && [ "$(echo "$out" | wc -l | tr -d ' ')" = "33" ]; then
+            echo "  ✓ example61_regex_engine"
+            PASS=$((PASS + 1))
+        else
+            echo "  ✗ example61_regex_engine (run output mismatch)"
+            FAIL=$((FAIL + 1))
+        fi
+    else
+        echo "  ✗ example61_regex_engine (compile failed)"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+run_regex_test
+
 echo ""
 echo "================================"
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"
