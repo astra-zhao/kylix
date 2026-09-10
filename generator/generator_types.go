@@ -725,12 +725,12 @@ func (g *Generator) mapType(kylixType string) string {
 // which import packages are needed.
 func (g *Generator) mapBuiltinFunction(name string) string {
 	builtinMap := map[string]string{
-		"Args":      "os.Args[1:]",
-		"WriteLn":   "fmt.Println",
-		"Write":     "fmt.Print",
-		"ReadLn":    "fmt.Scanln",
-		"Read":      "fmt.Scan",
-		"IntToStr":  "fmt.Sprintf",
+		"Args":     "os.Args[1:]",
+		"WriteLn":  "fmt.Println",
+		"Write":    "fmt.Print",
+		"ReadLn":   "fmt.Scanln",
+		"Read":     "fmt.Scan",
+		"IntToStr": "fmt.Sprintf",
 		// "StrToInt" removed (v0.7.0 P1): it mapped to strconv.ParseInt, which
 		// has two return values — every call site failed to compile. StrToInt
 		// is now handled in generateCallExpression as a single-value wrapper.

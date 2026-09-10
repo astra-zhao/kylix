@@ -196,7 +196,7 @@ jobs:
           wait $lpid
 
   selfrepro:
-    name: Self-reproduction fixpoint
+    name: Self-reproduction IR fixpoint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -208,22 +208,45 @@ jobs:
           go-version: '1.25'
           cache: true
 
+      # LLVM 19 from apt.llvm.org — the distro LLVM 18 miscompiles the
+      # ~220k-line bootstrap IR (same reason as the release.yml bootstrap
+      # job; see TECHNICAL_DEBT.md).
+      - name: Install LLVM 19 toolchain + stdlib native libs
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor --yes -o /etc/apt/trusted.gpg.d/llvm.gpg
+          echo "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-19 main" | sudo tee /etc/apt/sources.list.d/llvm19.list
+          sudo apt-get update
+          sudo apt-get install -y clang-19 llvm-19 libsqlite3-dev libcurl4-openssl-dev libssl-dev
+          echo "/usr/lib/llvm-19/bin" >> "$GITHUB_PATH"
+
       - name: Build CLI
         run: go build -o kylix ./cmd/kylix/
 
-      - name: Bootstrap chain + fixpoint check
+      # v0.7.2: the fixpoint job validates the v0.6.9 no-Go IR loop
+      # (gen1 ≡ gen2, byte-identical ~227k-line IR) instead of the old
+      # Go-codegen chain. The Go path is unverified since v0.6.9 — the
+      # bootstrap main.go it produced no longer compiles (interface
+      # coercion gaps in the Go emitter), see TECHNICAL_DEBT.md.
+      - name: Bootstrap IR fixpoint check (gen1 ≡ gen2)
         run: |
           set -e
-          # 1. Host compiler compiles src/*.klx → main.go → kylix_selfA
-          ./kylix build src/*.klx
-          go build -o kylix_selfA main.go
-          # 2. kylix_selfA compiles src/*.klx → self_gen2.go → kylix_selfB
-          ./kylix_selfA src/*.klx > self_gen2.go
-          go build -o kylix_selfB ./self_gen2.go
-          # 3. kylix_selfB compiles src/*.klx → self_gen3.go
-          ./kylix_selfB src/*.klx > self_gen3.go
-          # 4. Fixpoint: self_gen2 ≡ self_gen3 (byte-identical)
-          cmp self_gen2.go self_gen3.go && echo "self-reproduction fixpoint OK"
+          FILES="src/token.klx src/error.klx src/ast.klx src/lexer.klx src/parser.klx src/generator.klx src/stdlib_ir.klx src/llvmgen.klx src/main.klx"
+          # gen1: host compiler (LLVM backend) builds the bootstrap compiler
+          ./kylix build --backend=llvm -o main_self $FILES
+          # gen1 emits IR for the bootstrap sources (token-first order —
+          # mem2reg is only clean in that order, see v0.7.1 notes)
+          ./main_self --emit-llvm $FILES > fp1.ll
+          # gen2: mem2reg → llc → clang link → native compiler (no Go)
+          opt -passes=mem2reg fp1.ll -S -o fp1_opt.ll
+          llc -filetype=obj fp1_opt.ll -o fp1.o
+          libs=""
+          grep -q "@__kylix_crypto_\|@EVP_\|@SHA256\|@MD5\|@PKCS5" fp1.ll && libs="$libs -lcrypto" || true
+          grep -q "@sqlite3_" fp1.ll && libs="$libs -lsqlite3" || true
+          grep -q "@curl_" fp1.ll && libs="$libs -lcurl" || true
+          clang fp1.o -o gen2 $libs
+          # gen2 emits IR for the same sources — must be byte-identical
+          ./gen2 --emit-llvm $FILES > fp2.ll
+          cmp fp1.ll fp2.ll && echo "self-reproduction IR fixpoint OK (gen1 ≡ gen2)"
 
   lint:
     name: Lint

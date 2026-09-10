@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"kylix/ast"
+	"kylix/internal/bootapi"
 )
 
 // stdlib.go — stdlib module-function dispatch for the LLVM backend.
@@ -19,6 +20,16 @@ import (
 // keys. Only modules with an LLVM IR implementation are wired up here; others
 // fall through to the method-call path (and produce an unsupported-receiver
 // stub, same as before).
+
+// bootSet builds the boot module's function set from the single source of
+// truth (internal/bootapi), shared with the Go host's stdlib heuristic.
+func bootSet() map[string]bool {
+	m := make(map[string]bool, len(bootapi.BootFunctions))
+	for _, n := range bootapi.BootFunctions {
+		m[n] = true
+	}
+	return m
+}
 
 // knownStdlibModules lists stdlib module names that the LLVM backend has an IR
 // implementation for. A `module.Func()` call is dispatched here only when the
@@ -92,23 +103,10 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"JsonArrayLen": true, "JsonArrayGetString": true,
 		"JsonHasKey": true, "JsonEncode": true, "JsonEncodePretty": true,
 	},
-	"boot": {
-		// v0.6.1: full KylixBoot API surface. Most are no-op stubs (see
-		// stdlib_boot.go) since there is no HTTP server in the LLVM backend —
-		// enough for the tutorial examples to compile, register routes and run.
-		"BootText": true, "BootJSON": true, "BootHTML": true,
-		"BootRegisterJwtAuth": true, "BootRun": true,
-		"BootGET": true, "BootPOST": true, "BootPUT": true, "BootDELETE": true,
-		"BootUseLogger": true, "BootUseRecover": true, "BootUseCORS": true,
-		"BootUseRequestID": true,
-		"BootConfigSet":    true, "BootConfigGetString": true, "BootConfigGetInt": true,
-		"BootRegisterInstance": true, "BootResolve": true,
-		"BootRegisterAuth": true, "BootRegisterRoles": true,
-		"BootEnforceAuth": true, "BootEnforceRole": true,
-		"BootReadJSON": true,
-		"BootStatic": true,
-		"BootNotFoundPage": true, "BootErrorPage": true,
-	},
+	// v0.7.2: the boot list is the single source of truth in
+	// internal/bootapi (shared with the Go host's stdlib heuristic) — see
+	// bootSet() below.
+	"boot": bootSet(),
 	"httpclient": {
 		"NewHttpClient": true, "HttpGet": true, "HttpPost": true,
 		"HttpPut": true, "HttpDelete": true,
@@ -118,6 +116,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"jwt": {
 		"JwtSign": true, "JwtVerify": true, "JwtSubject": true,
 		"JwtGetString": true, "JwtGetInt": true,
+		bootapi.BootRegisterJwtAuth: true, // shared with the boot module list
 	},
 	"websocket": {
 		// v0.6.4: RFC 6455 minimal client + server (text frames, ping/pong).

@@ -319,9 +319,11 @@ func (g *Generator) emitDbQueryScalarCall(args []ast.Expression) (string, string
 // an htab (map[String]Variant): column name → value box (v0.6.4).
 //
 // Kylix consumer:
-//   var rows := DbQueryRows(db, 'SELECT name FROM u');
-//   var row  := rows[0];
-//   WriteLn(row['name']);
+//
+//	var rows := DbQueryRows(db, 'SELECT name FROM u');
+//	var row  := rows[0];
+//	WriteLn(row['name']);
+//
 // rows[i] reads a box (IsVariant array index); row['col'] lowers to
 // @__kylix_variant_map_get (array.go emitVariantMapIndex). v0.6.4.
 func (g *Generator) emitDbQueryRowsCall(args []ast.Expression) (string, string, error) {
@@ -411,10 +413,10 @@ func (g *Generator) emitDbQueryRowsBody() {
 	nilLbl := g.label()
 	mergeLbl := g.label()
 	g.line(fmt.Sprintf("  switch i32 %s, label %%%s [", ctype, nilLbl))
-	g.line(fmt.Sprintf("    i32 1, label %%%s", intLbl)) // SQLITE_INTEGER
+	g.line(fmt.Sprintf("    i32 1, label %%%s", intLbl))   // SQLITE_INTEGER
 	g.line(fmt.Sprintf("    i32 2, label %%%s", floatLbl)) // SQLITE_FLOAT
-	g.line(fmt.Sprintf("    i32 3, label %%%s", strLbl))  // SQLITE_TEXT
-	g.line(fmt.Sprintf("    i32 4, label %%%s", strLbl))  // SQLITE_BLOB → as text
+	g.line(fmt.Sprintf("    i32 3, label %%%s", strLbl))   // SQLITE_TEXT
+	g.line(fmt.Sprintf("    i32 4, label %%%s", strLbl))   // SQLITE_BLOB → as text
 	g.line(fmt.Sprintf("  ]"))
 	// int → box_int
 	g.line(fmt.Sprintf("%s:", intLbl))

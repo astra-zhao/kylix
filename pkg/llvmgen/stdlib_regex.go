@@ -224,9 +224,11 @@ func (g *Generator) emitClassScan(fnName, classFn string) {
 	g.line("")
 }
 
-func (g *Generator) emitRegexIsNumeric()      { g.emitClassScan("IsNumeric", "@__kylix_regex_isdigit") }
-func (g *Generator) emitRegexIsAlpha()        { g.emitClassScan("IsAlpha", "@__kylix_regex_isalpha") }
-func (g *Generator) emitRegexIsAlphaNumeric() { g.emitClassScan("IsAlphaNumeric", "@__kylix_regex_isalnum") }
+func (g *Generator) emitRegexIsNumeric() { g.emitClassScan("IsNumeric", "@__kylix_regex_isdigit") }
+func (g *Generator) emitRegexIsAlpha()   { g.emitClassScan("IsAlpha", "@__kylix_regex_isalpha") }
+func (g *Generator) emitRegexIsAlphaNumeric() {
+	g.emitClassScan("IsAlphaNumeric", "@__kylix_regex_isalnum")
+}
 
 // emitPrefixCmp emits byte-exact comparisons of str[0..len(bytes)) against a
 // literal prefix (given as byte values) and returns the AND-accumulated

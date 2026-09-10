@@ -424,6 +424,20 @@ func (g *Generator) registerGlobalsInScope() {
 	}
 }
 
+// unwrapClassDecl returns the ClassDecl behind decl — class declarations
+// appear in Program.Declarations either bare or wrapped in a TypeDecl.
+func unwrapClassDecl(decl ast.Node) (*ast.ClassDecl, bool) {
+	if cd, ok := decl.(*ast.ClassDecl); ok {
+		return cd, true
+	}
+	if td, ok := decl.(*ast.TypeDecl); ok {
+		if cd, ok := td.Type.(*ast.ClassDecl); ok {
+			return cd, true
+		}
+	}
+	return nil, false
+}
+
 func (g *Generator) emitProgram(prog *ast.Program) error {
 	g.program = prog
 	g.emitHeader()
@@ -456,6 +470,30 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 				}
 				g.multiRetTypes[fd.Name] = llvmTypes
 				g.line(fmt.Sprintf("%%__ret_%s = type { %s }", fd.Name, strings.Join(llvmTypes, ", ")))
+			}
+		} else if cd, ok := unwrapClassDecl(decl); ok {
+			// v0.7.2: multi-return methods — declare the %__ret_<Class>_<Method>
+			// aggregate and register its element types under the method's
+			// internal symbol so `result := (a, b)` inside the method body
+			// (emitTupleBuild, keyed on g.funcName) and the destructuring
+			// assignment `(a, b) := obj.Method()` (emitTupleDestructure) both
+			// resolve. Registered in the pre-scan so the named struct type is
+			// declared before any define/call that references it. Classes may
+			// appear bare or wrapped in a TypeDecl — unwrap both.
+			for _, m := range cd.Methods {
+				if m.IsExternal || len(m.ReturnTypes) == 0 {
+					continue
+				}
+				sym := cd.Name + "_" + m.Name
+				if _, exists := g.multiRetTypes[sym]; exists {
+					continue
+				}
+				var llvmTypes []string
+				for _, rt := range m.ReturnTypes {
+					llvmTypes = append(llvmTypes, LLVMType(typeExprName(rt)))
+				}
+				g.multiRetTypes[sym] = llvmTypes
+				g.line(fmt.Sprintf("%%__ret_%s = type { %s }", sym, strings.Join(llvmTypes, ", ")))
 			}
 		}
 		// v0.5.4: register enum constants so `tkProgram` etc. resolve to their

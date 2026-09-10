@@ -41,13 +41,18 @@ type FieldInfo struct {
 
 // MethodInfo describes a class method in the vtable.
 type MethodInfo struct {
-	Name          string
-	VtableIdx     int
-	RetType       string
-	RetKylixType  string   // v0.5.4: original Kylix return type name (for type inference on `x := obj.Method()`)
-	Params        []string // LLVM param types
+	Name            string
+	VtableIdx       int
+	RetType         string
+	RetKylixType    string   // v0.5.4: original Kylix return type name (for type inference on `x := obj.Method()`)
+	Params          []string // LLVM param types
 	ParamKylixTypes []string // v0.6.3: Kylix param type names — to recognize a Variant param ("ptr" is ambiguous with String/class)
-	DefiningClass string // class where this method's implementation lives (for vtable emit)
+	DefiningClass   string   // class where this method's implementation lives (for vtable emit)
+	// MultiRetTypes is non-nil for multi-return methods — the LLVM types of
+	// each tuple element (v0.7.2). RetType then holds the aggregate
+	// %__ret_<DefiningClass>_<Method> named struct; the vtable slot returns
+	// that struct and call sites destructure it with extractvalue.
+	MultiRetTypes []string
 }
 
 // emitClassDecl generates LLVM type + vtable + method definitions for a class.
@@ -177,6 +182,9 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 					Params:        pm.Params,
 					DefiningClass: pm.DefiningClass, // inherited — still points to original definer
 				}
+				if len(pm.MultiRetTypes) > 0 {
+					mi.MultiRetTypes = append([]string(nil), pm.MultiRetTypes...)
+				}
 				info.Methods = append(info.Methods, mi)
 			}
 		}
@@ -184,7 +192,18 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 	for _, m := range decl.Methods {
 		retType := "void"
 		retKylix := ""
-		if m.ReturnType != nil {
+		var multiRet []string
+		if len(m.ReturnTypes) > 0 {
+			// v0.7.2: multi-return method — the vtable slot returns the
+			// %__ret_<Class>_<Method> aggregate (declared + registered in the
+			// pre-scan, see EmitPrograms). Inherited/overridden slots reuse
+			// the defining class's aggregate.
+			sym := decl.Name + "_" + m.Name
+			for _, rt := range m.ReturnTypes {
+				multiRet = append(multiRet, LLVMType(typeExprName(rt)))
+			}
+			retType = fmt.Sprintf("%%__ret_%s", sym)
+		} else if m.ReturnType != nil {
 			// v0.5.5: use llvmTypeOfExpr (not llvmTypeFor) so array-of-T / map
 			// return types get the correct LLVM type ({ptr,i64,i64} / ptr).
 			// Previously this returned i64 for `array of T`, mismatching
@@ -217,6 +236,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 				info.Methods[i].Params = paramTypes
 				info.Methods[i].ParamKylixTypes = paramKylixTypes
 				info.Methods[i].DefiningClass = decl.Name
+				info.Methods[i].MultiRetTypes = multiRet
 				overrode = true
 				break
 			}
@@ -230,6 +250,7 @@ func (g *Generator) buildClassInfo(decl *ast.ClassDecl) *ClassInfo {
 				Params:          paramTypes,
 				ParamKylixTypes: paramKylixTypes,
 				DefiningClass:   decl.Name,
+				MultiRetTypes:   multiRet,
 			})
 		}
 	}
@@ -369,7 +390,15 @@ func normalizeParams(params []*ast.Parameter) []*ast.Parameter {
 func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error {
 	method.Parameters = normalizeParams(method.Parameters) // v0.5.4: `level, msg: String`
 	retType := "void"
-	if method.ReturnType != nil {
+	isMultiRet := false
+	if len(method.ReturnTypes) > 0 {
+		// v0.7.2: multi-return method — return the %__ret_<Class>_<Method>
+		// aggregate (declared in the pre-scan). The `result` slot below gets
+		// the aggregate's type; emitTupleBuild stores into it and the shared
+		// epilogue loads + rets it, exactly like a multi-return function.
+		retType = fmt.Sprintf("%%__ret_%s_%s", className, method.Name)
+		isMultiRet = true
+	} else if method.ReturnType != nil {
 		retType = g.llvmTypeOfExpr(method.ReturnType)
 	}
 
@@ -387,15 +416,18 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 			params = append(params, fmt.Sprintf("%s %%%s", llvmT, p.Name))
 		}
 		g.line(fmt.Sprintf("define %s @%s_%s(%s) {", retType, className, method.Name, strings.Join(params, ", ")))
-		switch retType {
-		case "void":
+		switch {
+		case retType == "void":
 			g.line("  ret void")
-		case "ptr":
+		case isMultiRet:
+			// v0.7.2: aggregate return — zero value.
+			g.line(fmt.Sprintf("  ret %s zeroinitializer", retType))
+		case retType == "ptr":
 			emptyStr := g.addString("")
 			g.line(fmt.Sprintf("  ret ptr %s", g.ptrTo(emptyStr, 1)))
-		case "i1":
+		case retType == "i1":
 			g.line("  ret i1 false")
-		case "double":
+		case retType == "double":
 			g.line("  ret double 0.0")
 		default:
 			if strings.HasPrefix(retType, "{") || strings.HasPrefix(retType, "[") {
@@ -539,6 +571,12 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 		g.line(fmt.Sprintf("  %%result = alloca %s, align 8", retType))
 		g.locals["result"] = "%result"
 		g.resultLLVMType = retType // v0.5.4
+		if isMultiRet {
+			// v0.7.2: mark the result slot as a tuple so `result := (a, b)`
+			// routes to emitTupleBuild (insertvalue chain), same flag
+			// emitFunctionDecl sets for multi-return functions.
+			g.localTypes["result"] = "__tuple__"
+		}
 		// v0.7.0 P3: register the result slot's Kylix type so receiverKind
 		// (and the chained-method dispatch) resolves fluent calls on the
 		// result of boot-handle types — `result := result.Redirect('/new')`
@@ -587,7 +625,7 @@ func (g *Generator) emitMethod(className string, method *ast.FunctionDecl) error
 	g.locals = savedLocals
 	g.localTypes = savedTypes
 	g.varNameSeq = savedVarSeq
-	g.varParams = nil    // v0.6.10
+	g.varParams = nil     // v0.6.10
 	g.varParamTypes = nil // v0.6.10
 	g.funcName = savedFunc
 	g.curClassName = savedClass
@@ -925,6 +963,9 @@ func (g *Generator) emitVirtualCall(className, objReg, methodName string, argReg
 	}
 	result := g.tmp()
 	g.line(fmt.Sprintf("  %s = call %s %s(%s)", result, fnType, fnPtr, strings.Join(callArgs, ", ")))
+	// v0.7.2: multi-return methods return the %__ret_<DefiningClass>_<Method>
+	// aggregate — the caller destructures it with extractvalue
+	// (emitTupleDestructure resolves the element types from this type name).
 	return result, meth.RetType, nil
 }
 

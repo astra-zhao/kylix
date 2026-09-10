@@ -65,7 +65,8 @@ func isBootHandleType(name string) bool {
 		name == "BootRequest" || name == "BootResponse"
 }
 
-func (g *Generator) emitBootCall(funcName string, args []ast.Expression) (string, string, error) {	switch funcName {
+func (g *Generator) emitBootCall(funcName string, args []ast.Expression) (string, string, error) {
+	switch funcName {
 	case "BootText", "BootJSON", "BootHTML":
 		// Real response handle {i64 status, ptr body}.
 		return g.emitBootResponseCall(funcName, args)

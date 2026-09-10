@@ -67,13 +67,13 @@ func (r *Route) match(method, path string) (map[string]string, bool) {
 
 // Router is the registry of routes + middleware chain.
 type Router struct {
-	mu            sync.RWMutex
-	routes        []*Route
-	middlewares   []Middleware
-	notFound      Handler
-	notFoundPage  string // custom 404 HTML page (v0.7.0 P3)
-	errorPage     string // custom 500 HTML page (v0.7.0 P3)
-	StaticDir     string // directory served under /static/ (v0.7.0 P2)
+	mu           sync.RWMutex
+	routes       []*Route
+	middlewares  []Middleware
+	notFound     Handler
+	notFoundPage string // custom 404 HTML page (v0.7.0 P3)
+	errorPage    string // custom 500 HTML page (v0.7.0 P3)
+	StaticDir    string // directory served under /static/ (v0.7.0 P2)
 }
 
 // NewRouter creates an empty router.

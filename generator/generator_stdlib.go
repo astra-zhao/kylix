@@ -9,6 +9,7 @@ package generator
 
 import (
 	"kylix/ast"
+	"kylix/internal/bootapi"
 )
 
 // stdlibModuleFuncs maps module name → set of exported function names.
@@ -94,19 +95,13 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"validation": strToSet("NewValidator", "NewRequestValidator"),
 	// v0.7.0 P1: the template unit is now pure Kylix (stdlib/template_engine.klx,
 	// multi-file compile) — no Go-side implementation, so no heuristic entry.
-	"boot": strToSet(
-		"BootRun", "BootGET", "BootPOST", "BootPUT", "BootDELETE",
-		"BootUseLogger", "BootUseRecover", "BootUseCORS", "BootUseRequestID",
-		"BootText", "BootJSON", "BootHTML",
-		"BootStatic", "BootNotFoundPage", "BootErrorPage", "BootReadJSON", // v0.7.0 P2/P3 page framework
-		"BootConfigSet", "BootConfigGetString", "BootConfigGetInt",
-		"BootRegisterInstance", "BootResolve",
-		"BootRegisterAuth", "BootRegisterRoles", "BootEnforceAuth", "BootEnforceRole",
-		"BootRegisterJwtAuth",
-	),
+	// v0.7.2: the boot list is the single source of truth in
+	// internal/bootapi (shared with the LLVM backend's module list) — do
+	// not add Boot* names here directly.
+	"boot": strToSet(bootapi.BootFunctions...),
 	"jwt": strToSet(
 		"JwtSign", "JwtVerify", "JwtSubject", "JwtGetString", "JwtGetInt",
-		"BootRegisterJwtAuth",
+		bootapi.BootRegisterJwtAuth,
 	),
 }
 
@@ -179,7 +174,7 @@ var stdlibErrorFuncs = map[string]bool{
 	"HttpDoGet": true, "HttpDoPost": true,
 	"WsDial": true, "WsAccept": true, "WsRecv": true,
 	"WsDialConnect": true, // v0.6.5 two-phase handshake (WsDialFinish returns bool, not error)
-	"JsonDecode": true, "JsonDecodeMap": true, "JsonDecodeArray": true,
+	"JsonDecode":    true, "JsonDecodeMap": true, "JsonDecodeArray": true,
 	"JsonReadFile": true,
 	"AesEncrypt":   true, "AesDecrypt": true,
 	"BCryptHash": true, "RandomBytes": true, "RandomToken": true,

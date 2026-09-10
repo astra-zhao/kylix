@@ -185,11 +185,11 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 ## 后续版本规划（v0.7.2 → 1.0.0）
 
 ### v0.7.2 — CI 全绿 + 稳定性还债
-- [ ] **CI fixpoint job 修复**（09-04 起红）：首选改走 `--emit-llvm` 链（gen1 ≡ gen2 真验证）；备选修 Go 路径（StdIrInit 适配 + `as` 操作数类型已知具体时发直赋值）
-- [ ] CI Lint job 修复（早于 v0.7.0 存在）
-- [ ] Linux Go codegen 垃圾输出破案（bootstrap 无 --emit-llvm 路径字符串常量损坏）或显式移除该路径 + 运行时报错
-- [ ] LLVM 端类方法多返回支持（vtable 单 RetType 限制解除，模板引擎 RenderString/ErrorMsg 绕行模式可退役）
-- [ ] boot/stdlib "三处名单"单一来源化（一份表生成三份名单）
+- [x] **CI fixpoint job 修复**（09-04 起红）：✅ 改走 `--emit-llvm` IR 链（gen1 ≡ gen2 逐字节真验证，~227k 行；LLVM 19 apt.llvm.org——发行版 18 错译 bootstrap IR）；Go 自繁殖路径随 bootstrap main.klx 退役
+- [x] CI Lint job 修复（早于 v0.7.0 存在）：13 文件 gofmt 格式化归零
+- [x] Linux Go codegen 垃圾输出：随路径退役处置——bootstrap `src/main.klx` 非 `--emit-llvm` 调用显式报错（`Go-codegen path is retired`），release.yml 诊断步骤改验证报错行为
+- [x] LLVM 端类方法多返回支持：vtable 槽聚合返回 `%__ret_<Class>_<Method>`（预扫描注册 + MethodInfo.MultiRetTypes + emitTupleBuild/destructure 打通）——`(q, r) := obj.M()` 与 `var q, r := obj.M()` 两形式与 host 输出一致；模板引擎 RenderString/ErrorMsg 绕行模式可退役
+- [x] boot/stdlib "三处名单"单一来源化：`internal/bootapi.BootFunctions` 单源表，Go host + LLVM 两端 import；顺带修复 LLVM jwt 名单缺 BootRegisterJwtAuth 漂移残留；dispatch 侧由 TestBootNames_Dispatchable 守护
 
 ### v0.8.0 — 自举 stdlib（真自包含）
 - [ ] 纯 Kylix stdlib 扩展（`template_engine.klx` 为范本）：encoding/jsonutil/字符串工具等可纯 Kylix 表达的模块迁到 `.klx`（host 编译 → 烘焙 → 三端同源）

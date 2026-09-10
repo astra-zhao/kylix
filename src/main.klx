@@ -7,10 +7,7 @@ var
   SourceCode: String;
   Lex: TLexer;
   Par: TParser;
-  Gen: TGenerator;
   IRGen: TLLVMGenerator;
-  Prog: TProgram;
-  GoCode: String;
   IRText: String;
   ErrList: TErrorList;
   i: Integer;
@@ -101,9 +98,13 @@ begin
     end
     else
     begin
-      Gen := TGenerator.Create;
-      GoCode := Gen.GenerateMulti(Programs);
-      WriteLn(GoCode);
+      // v0.7.2: the Go-codegen path is retired in the bootstrap compiler —
+      // its output no longer compiles (interface coercion gaps in the Go
+      // emitter, see TECHNICAL_DEBT.md). The --emit-llvm no-Go loop is the
+      // only supported bootstrap path; fail loudly instead of emitting a
+      // broken main.go.
+      WriteLn('error: the bootstrap Go-codegen path is retired; use --emit-llvm');
+      exit;
     end;
   end
   else

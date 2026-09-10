@@ -250,6 +250,41 @@ func (g *Generator) emitTupleBuild(tuple *ast.TupleLiteral) error {
 	return nil
 }
 
+// multiRetElemTypes resolves the element types of a multi-return call whose
+// emitExpr result type is the %__ret_<Symbol> aggregate (the symbol — plain
+// function name or Class_Method — is registered in the pre-scan).
+func (g *Generator) multiRetElemTypes(structType string) []string {
+	if strings.HasPrefix(structType, "%__ret_") {
+		return g.multiRetTypes[strings.TrimPrefix(structType, "%__ret_")]
+	}
+	return nil
+}
+
+// destructureElem extracts element i of a multi-return aggregate and stores
+// it into `name` (auto-declaring the local if needed). Shared by the tuple
+// destructure form `(a, b) := call` and the var-decl form `var a, b := call`.
+func (g *Generator) destructureElem(name, structType, structVal string, i int, elemT string) {
+	extracted := g.tmp()
+	g.line(fmt.Sprintf("  %s = extractvalue %s %s, %d", extracted, structType, structVal, i))
+
+	allocaReg, exists := g.locals[name]
+	if !exists {
+		suffix := "_int"
+		switch elemT {
+		case "i1":
+			suffix = "_bool"
+		case "double":
+			suffix = "_real"
+		case "ptr":
+			suffix = "_str"
+		}
+		allocaReg = g.freshVarReg(name, suffix)
+		g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, elemT))
+		g.locals[name] = allocaReg
+	}
+	g.line(fmt.Sprintf("  store %s %s, ptr %s", elemT, extracted, allocaReg))
+}
+
 // emitTupleDestructure handles `(a, b, ...) := Expr` where Expr is a call to
 // a multi-return function. Evaluates the call (which yields a struct value),
 // extracts each field via extractvalue, and stores into the corresponding
@@ -260,13 +295,9 @@ func (g *Generator) emitTupleDestructure(tuple *ast.TupleLiteral, rhs ast.Expres
 		return err
 	}
 
-	call, isCall := rhs.(*ast.CallExpression)
-	var elemTypes []string
-	if isCall {
-		if fnIdent, ok := call.Function.(*ast.Identifier); ok {
-			elemTypes = g.multiRetTypes[fnIdent.Value]
-		}
-	}
+	// v0.7.2: resolve via the aggregate's type name — covers plain functions
+	// (%__ret_<Name>) and methods alike (%__ret_<Class>_<Method>).
+	elemTypes := g.multiRetElemTypes(structType)
 
 	for i, elem := range tuple.Elements {
 		ident, ok := elem.(*ast.Identifier)
@@ -277,25 +308,7 @@ func (g *Generator) emitTupleDestructure(tuple *ast.TupleLiteral, rhs ast.Expres
 		if i < len(elemTypes) {
 			elemT = elemTypes[i]
 		}
-		extracted := g.tmp()
-		g.line(fmt.Sprintf("  %s = extractvalue %s %s, %d", extracted, structType, structVal, i))
-
-		allocaReg, exists := g.locals[ident.Value]
-		if !exists {
-			suffix := "_int"
-			switch elemT {
-			case "i1":
-				suffix = "_bool"
-			case "double":
-				suffix = "_real"
-			case "ptr":
-				suffix = "_str"
-			}
-			allocaReg = g.freshVarReg(ident.Value, suffix)
-			g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, elemT))
-			g.locals[ident.Value] = allocaReg
-		}
-		g.line(fmt.Sprintf("  store %s %s, ptr %s", elemT, extracted, allocaReg))
+		g.destructureElem(ident.Value, structType, structVal, i, elemT)
 	}
 	return nil
 }

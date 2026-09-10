@@ -909,14 +909,14 @@ func (g *Generator) emitVariantAsBoolBody() {
 
 // emitVariantArithBody emits the runtime arithmetic helper for op
 // (+,-,*,/,div,mod). All return a fresh Variant box. Dispatch:
-//   +    : either str → str concat; both int → int add; else → double add
+//   - : either str → str concat; both int → int add; else → double add
 //   - ,* : both int → int op; else → double op
-//   /    : always double (real division)
-//   div  : both int → int sdiv; else → double division (Pascal integer div
-//          keyword; matches the non-Variant emitInfix semantics where `/` and
-//          `div` do sdiv on ints and fdiv on floats — Variant `/` stays
-//          always-double per v5.0 design)
-//   mod  : both int → int srem; else → double remainder (frem)
+//     /    : always double (real division)
+//     div  : both int → int sdiv; else → double division (Pascal integer div
+//     keyword; matches the non-Variant emitInfix semantics where `/` and
+//     `div` do sdiv on ints and fdiv on floats — Variant `/` stays
+//     always-double per v5.0 design)
+//     mod  : both int → int srem; else → double remainder (frem)
 func (g *Generator) emitVariantArithBody(op string) {
 	sym := map[string]string{"+": "add", "-": "sub", "*": "mul", "/": "div", "div": "idiv", "mod": "mod"}[op]
 	g.line(fmt.Sprintf("define ptr @__kylix_variant_%s(ptr %%a, ptr %%b) {", sym))

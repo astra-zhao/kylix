@@ -12,7 +12,37 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
-## v0.7.1 (开发中) — Windows 一等公民
+## v0.7.2 — CI 全绿 + 稳定性还债 ✅（2026-09-10）
+
+### CI 修复（两个长期红 job）
+
+- **selfrepro fixpoint job 改走 `--emit-llvm` IR 链（ci.yml）**：旧 job 走 Go 自繁殖链（host `build src/*.klx` → main.go → go build），而该路径自 v0.6.9 起腐化（`StdIrInit` undefined + 多态 gate 7 处 `*TBlockStatement is not an interface`）——本地 macOS 与 CI 错误逐字一致，09-04 起持续红。新 job 验证 **v0.6.9 无 Go 闭环的真不动点**：`kylix build --backend=llvm` 构建 main_self（gen1）→ `--emit-llvm` 9 自举文件 → fp1.ll → `opt -passes=mem2reg` → `llc` → `clang -lcrypto -lsqlite3 -lcurl` 链接出 gen2（纯原生编译器）→ gen2 `--emit-llvm` 同 9 文件 → `cmp fp1.ll fp2.ll` **逐字节一致**。LLVM 19 走 apt.llvm.org（发行版 18 错译 ~220k 行 bootstrap IR，同 release.yml bootstrap job）。
+- **Lint job 修复**：13 个漂移文件 gofmt 格式化归零（generator_stdlib/types、pkg/boot/router、pkg/llvmgen 9 文件）。
+
+### bootstrap Go-codegen 路径显式退役
+
+- **`src/main.klx`**：非 `--emit-llvm` 调用从「静默输出编译不过的 main.go」改为显式报错 `error: the bootstrap Go-codegen path is retired; use --emit-llvm` + early return；删除不再使用的 Gen/GoCode 声明。`src/generator.klx` Go emitter 代码保留（自举编译器组成部分），只是不再被调用。
+- **release.yml**：bootstrap job 的「Diagnostic (Go codegen path, non-fatal)」步骤（原打印损坏输出）改为「Verify retired Go codegen path fails loudly」——断言 main_self 裸调用输出含 retired 错误消息。
+- Linux 上字符串常量损坏（`fmt.Println("Hello")` → `@p[ :=`）的排查债务随路径退役一并关闭（TECHNICAL_DEBT.md）。
+
+### LLVM 端类方法多返回支持 ✅
+
+- **vtable 槽聚合返回**：类方法 `function F(...): (A, B)` 完整支持，解除 v0.7.0 起「拆成单返回方法对」的绕行限制。五处打通（pkg/llvmgen）：
+  1. **预扫描注册**（codegen.go）：`%__ret_<Class>_<Method> = type { ... }` 命名 struct 声明 + `multiRetTypes` 键注册（类可裸出现或包在 TypeDecl 内——`unwrapClassDecl` helper）；类型声明先于一切 define/call 引用。
+  2. **MethodInfo.MultiRetTypes**（class.go）：继承拷贝 + override 更新；RetType 持聚合名。
+  3. **emitMethod**：多返回分支 define 聚合签名 + Body==nil stub `ret <agg> zeroinitializer` + `result` 槽 alloca 聚合类型并标 `localTypes["result"]="__tuple__"`（方法体内 `result := (a, b)` 走 emitTupleBuild insertvalue 链）。
+  4. **emitVirtualCall**：间接调用返回聚合值，类型字符串 `%__ret_<Class>_<Method>` 传给调用方。
+  5. **解构两形式**：`(q, r) := obj.M()`（emitTupleDestructure，`multiRetElemTypes` 从聚合类型名反推元素类型，函数/方法统一）+ **`var q, r := obj.M()`（emitVarDecl 新增多返回感知，与 host v0.7.0 P0 语义 parity）**——共享 `destructureElem` helper（extractvalue + auto-declare + store）。
+- **验证**：临时程序（DivMod/NameAndLen）双形式 LLVM 运行输出与 host Go 后端逐字一致（3/2 + hello/5）；新单测 `method_multiret_test.go` 5 项（类型声明先于 define / insertvalue 链 / 聚合 ret / 两种解构形式 / vtable 槽签名）；16 包 + Go sweep 55/55 + LLVM sweep 55/55 + bootstrap sweep 53 PASS + 2 SKIP + **IR 不动点保持**。
+- **顺带发现新债（TECHNICAL_DEBT.md）**：类内签名 + 类外实现（Pascal 经典风格）在 LLVM 端 emitMethod stub 与 emitFunctionDecl 双 `@Class_Method` define 冲突——单返回同样存在，教程全用类内直接实现所以从未暴露；规避：方法体写类内。
+
+### "三处名单"单一来源化 ✅
+
+- **新包 `internal/bootapi`**：`BootFunctions`（26 名，字母序）为 KylixBoot API surface 单一来源——host Go（generator_stdlib.go 的 `"boot": strToSet(bootapi.BootFunctions...)`）与 LLVM（stdlib.go 的 `bootSet()` 从 slice 构建）两端 import 同一份表，**名单漂移从运行时 bug 降级为编译错误**。`BootRegisterJwtAuth` 常量供 jwt 模块名单交叉引用。
+- **顺带修复漂移残留**：LLVM 端 jwt 模块名单缺 `BootRegisterJwtAuth`（host 端有）——`uses jwt` + `BootRegisterJwtAuth(...)` 在 LLVM 端会解析失败；补齐（dispatch case 已有覆盖）。
+- **单测重写（generator/stdlib_boot_names_test.go）**：`TestBootNameLists_Converged`（host-vs-LLVM 源文本对比）随单源化退役，改为 `TestBootNames_Sane`（无重复/Boot 前缀/字母序/jwt 交叉项在列）+ `TestBootNames_Dispatchable`（改从 bootapi 拿名单，检查 emitBootCall case 或 bootStubReturnTypes 覆盖）。
+
+## v0.7.1 — Windows 一等公民 ✅（2026-09-10 发布）
 
 ### P4：工程债快赢 ✅（2026-09-10）
 

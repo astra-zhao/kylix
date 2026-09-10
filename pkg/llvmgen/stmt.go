@@ -462,8 +462,8 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 	g.locals = savedLocals
 	g.localTypes = savedTypes
 	g.varNameSeq = savedVarSeq
-	g.varParams = nil    // v0.6.10
-	g.varParamTypes = nil // v0.6.10
+	g.varParams = nil               // v0.6.10
+	g.varParamTypes = nil           // v0.6.10
 	g.funcExitLabel = savedFuncExit // v0.5.6
 	// Leaving this function: clear the debug scope + position so subsequent
 	// module-level code (other functions, stdlib defines, metadata) doesn't
@@ -526,6 +526,21 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 		valReg, llvmType, err := g.emitExpr(s.Value)
 		if err != nil {
 			return err
+		}
+
+		// v0.7.2: multi-return destructure `var a, b := Func(...)` /
+		// `var a, b := obj.Method(...)` — the RHS yields the %__ret_* aggregate;
+		// declare one slot per name and extractvalue into each (parity with the
+		// host Go backend's `a, b := ...` emission, v0.7.0 P0).
+		if strings.HasPrefix(llvmType, "%__ret_") {
+			if elemTypes := g.multiRetElemTypes(llvmType); len(elemTypes) == len(s.Names) && len(elemTypes) > 0 {
+				for i, name := range s.Names {
+					g.destructureElem(name, llvmType, valReg, i, elemTypes[i])
+				}
+				return nil
+			}
+			// name/element count mismatch — fall through to the single-value
+			// path below (same error surface as the host backend).
 		}
 
 		// Constructor inference: `var x := TFoo.Create` or `var x := TFoo.Create()`

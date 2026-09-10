@@ -1,9 +1,9 @@
 package main
 
 import (
+	"regexp"
 	"fmt"
 	"strings"
-	"regexp"
 )
 
 type TCreateUser struct {

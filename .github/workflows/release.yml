@@ -163,17 +163,16 @@ jobs:
             --args ./main_self --emit-llvm examples/complete-tutorial/01_basics/example01_hello.klx
           echo "::endgroup::"
 
-      # Diagnostic only (non-fatal): the bootstrap's Go-codegen path produced
-      # corrupted output on Linux CI (quote-containing string constants
-      # garbled, e.g. `fmt.Println("...")` → `@p[ :=`), while macOS is fine.
-      # Not part of the v0.6.9 no-Go loop; investigation tracked in
-      # TECHNICAL_DEBT.md.
-      - name: Diagnostic (Go codegen path, non-fatal)
+      # v0.7.2: the bootstrap's Go-codegen path is retired (its output no
+      # longer compiles — interface coercion gaps; see TECHNICAL_DEBT.md).
+      # The compiler must now refuse the bare (non---emit-llvm) invocation
+      # with an explicit error instead of emitting a broken main.go.
+      - name: Verify retired Go codegen path fails loudly
         if: always()
         run: |
-          ./main_self examples/complete-tutorial/01_basics/example01_hello.klx > hello_gen.go || true
-          wc -c hello_gen.go || true
-          head -20 hello_gen.go || true
+          out=$(./main_self examples/complete-tutorial/01_basics/example01_hello.klx)
+          echo "$out" | grep -q "Go-codegen path is retired" \
+            && echo "retired path error message OK"
 
       - name: Diagnostic (smoke failure artifacts)
         if: failure()

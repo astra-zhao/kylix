@@ -1,31 +1,31 @@
 package generator_test
 
-// stdlib_boot_names_test.go — "three name lists" consistency check (v0.7.1
-// P4). The Boot* API surface is declared in two independent hand-maintained
-// lists — the Go host's stdlib heuristic (generator_stdlib.go, decides which
-// calls resolve to the stdlib Go package) and the LLVM backend's module list
-// (pkg/llvmgen/stdlib.go) — and dispatched in emitBootCall /
-// bootStubReturnTypes (pkg/llvmgen/stdlib_boot.go). When the lists drift
-// apart, one backend compiles a program the other rejects with
-// `undefined: BootNotFoundPage` (the exact v0.7.0 release-week bug). These
-// tests parse the source lists and fail on any asymmetric drift.
+// stdlib_boot_names_test.go — Boot* API surface guards (v0.7.1 P4, reworked
+// in v0.7.2). The function list itself lives in internal/bootapi as the
+// single source of truth imported by both backends (generator_stdlib.go and
+// pkg/llvmgen/stdlib.go), so list drift is now a compile error and the old
+// host-vs-LLVM source-parsing comparison is gone.
 //
-// Parsing the source text (instead of reflecting on the unexported maps)
-// keeps the check honest: regexes against hand-edited list literals are
-// exactly the drift surface being guarded.
+// What still needs a test: the *dispatch* side. emitBootCall cases and
+// bootStubReturnTypes (pkg/llvmgen/stdlib_boot.go) are hand-maintained — a
+// name present in bootapi but absent from both still links yet types as i64
+// by accident. TestBootNames_Dispatchable catches that.
 
 import (
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
+
+	"kylix/internal/bootapi"
 )
 
 var identRe = regexp.MustCompile(`"([A-Za-z_][A-Za-z0-9_]*)"`)
 
 // extractList finds `anchor` in src, skips whitespace and // comments to the
-// first bracket ('(' for strToSet, '{' for map literals), and returns every
-// quoted identifier in the balanced literal.
+// first bracket ('(' or '{'), and returns every quoted identifier in the
+// balanced literal.
 func extractList(t *testing.T, src, anchor string) map[string]bool {
 	t.Helper()
 	i := strings.Index(src, anchor)
@@ -93,42 +93,42 @@ func readSrc(t *testing.T, path string) string {
 	return string(data)
 }
 
-// TestBootNameLists_Converged: the Go host and LLVM backend boot lists must
-// be identical sets. Only the boot module is compared — the other modules'
-// heuristics legitimately differ between backends.
-func TestBootNameLists_Converged(t *testing.T) {
-	goHost := extractList(t, readSrc(t, "generator_stdlib.go"), `"boot": strToSet`)
-	llvm := extractList(t, readSrc(t, "../pkg/llvmgen/stdlib.go"), `"boot": {`)
-
-	var missingGo, missingLLVM []string
-	for name := range llvm {
-		if !goHost[name] {
-			missingGo = append(missingGo, name)
+// TestBootNames_Sane guards the single source of truth itself: no
+// duplicates, every name carries the Boot prefix, and the jwt cross-listing
+// constant is part of the surface.
+func TestBootNames_Sane(t *testing.T) {
+	seen := map[string]bool{}
+	for _, n := range bootapi.BootFunctions {
+		if seen[n] {
+			t.Fatalf("duplicate name in bootapi.BootFunctions: %q", n)
+		}
+		seen[n] = true
+		if !strings.HasPrefix(n, "Boot") {
+			t.Fatalf("bootapi.BootFunctions entry without Boot prefix: %q", n)
 		}
 	}
-	for name := range goHost {
-		if !llvm[name] {
-			missingLLVM = append(missingLLVM, name)
+	if len(seen) < 20 {
+		t.Fatalf("boot surface suspiciously small (%d names) — list truncated?", len(seen))
+	}
+	if !seen[bootapi.BootRegisterJwtAuth] {
+		t.Fatalf("jwt cross-listing constant %q missing from bootapi.BootFunctions", bootapi.BootRegisterJwtAuth)
+	}
+	sorted := append([]string(nil), bootapi.BootFunctions...)
+	sort.Strings(sorted)
+	for i := range sorted {
+		if sorted[i] != bootapi.BootFunctions[i] {
+			t.Fatalf("bootapi.BootFunctions must stay sorted alphabetically; first disorder at %q (got %q, want %q)",
+				bootapi.BootFunctions[i], bootapi.BootFunctions[i], sorted[i])
 		}
-	}
-	if len(missingGo) > 0 || len(missingLLVM) > 0 {
-		t.Fatalf("boot name lists drifted (the v0.7.0 `undefined: Boot*` bug class):\n"+
-			"  in LLVM list, missing from Go host generator_stdlib.go: %v\n"+
-			"  in Go host list, missing from pkg/llvmgen/stdlib.go:    %v\n"+
-			"add the names to BOTH lists — go build passes on one backend and fails on the other otherwise",
-			missingGo, missingLLVM)
-	}
-	if len(goHost) < 20 {
-		t.Fatalf("boot list suspiciously small (%d names) — anchor matched the wrong literal?", len(goHost))
 	}
 }
 
-// TestBootNames_Dispatchable: every boot name in the LLVM list must be
-// handled by the LLVM backend — either an explicit case in emitBootCall or a
-// bootStubReturnTypes entry (the generic stub path keys its return type on
-// it; a name absent from both still links but types as i64 by accident).
+// TestBootNames_Dispatchable: every name in the single-source boot surface
+// must be handled by the LLVM backend — either an explicit case in
+// emitBootCall or a bootStubReturnTypes entry (the generic stub path keys
+// its return type on it; a name absent from both still links but types as
+// i64 by accident).
 func TestBootNames_Dispatchable(t *testing.T) {
-	llvm := extractList(t, readSrc(t, "../pkg/llvmgen/stdlib.go"), `"boot": {`)
 	boot := readSrc(t, "../pkg/llvmgen/stdlib_boot.go")
 
 	stubs := extractList(t, boot, "bootStubReturnTypes = map[string]string{")
@@ -142,13 +142,13 @@ func TestBootNames_Dispatchable(t *testing.T) {
 	}
 
 	var unhandled []string
-	for name := range llvm {
+	for _, name := range bootapi.BootFunctions {
 		if !handled[name] && !stubs[name] {
 			unhandled = append(unhandled, name)
 		}
 	}
 	if len(unhandled) > 0 {
-		t.Fatalf("boot names in the LLVM stdlib list with no emitBootCall case and no bootStubReturnTypes entry: %v\n"+
-			"add a case in stdlib_boot.go or a bootStubReturnTypes entry (return type defaults to i64)", unhandled)
+		t.Fatalf("boot names in internal/bootapi with no emitBootCall case and no bootStubReturnTypes entry: %v\n"+
+			"add a case in pkg/llvmgen/stdlib_boot.go or a bootStubReturnTypes entry (return type defaults to i64)", unhandled)
 	}
 }

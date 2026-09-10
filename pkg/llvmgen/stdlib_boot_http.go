@@ -567,6 +567,7 @@ func (g *Generator) emitBootReadBodyBody() {
 	g.line("}")
 	g.line("")
 }
+
 // ptr %methodSlot, ptr %pathSlot). Copies "METHOD" into methodSlot and the
 // request-target into pathSlot (up to the next space or EOL).
 func (g *Generator) emitBootParseRequestBody() {
