@@ -154,10 +154,13 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] **RegexMatch / RegexFind / RegexFindAll / RegexReplace / RegexSplit**：纯 Kylix 编写 `stdlib/regex_engine.klx`（~870 行，回溯 VM：显式栈 + visited memo 防 `(a*)*` 空宽循环；字符类/`* + ? {n} {n,} {n,m}`+lazy/锚点/分组/alternation；9 字节定长指令字节码）。**设计转向**：不做 stdlib_ir.klx 烘焙——引擎是普通 Kylix unit，教程/程序以多文件构建方式引用（与 template_engine.klx 同模式），三端（host Go / host LLVM / bootstrap `--emit-llvm`）免费同源，无需烘焙管线。语义对齐 Go RE2：leftmost-first 优先序 + FindAll prevMatchEnd 空匹配规则（Replace/Split 跳过空匹配，文档化偏差）
 - [x] **教程/测试**：`23_regex/example61_regex_engine.klx`（33 场景）三端接入 sweep（test_all.sh / test_all_llvm.sh / test_bootstrap_all.sh 多文件特判段）；33 场景与 Go `regexp` 包（RE2）对照逐字一致；**Go 55/55 · LLVM 55/55 · bootstrap sweep 53 PASS + 2 SKIP · 不动点 gen1≡gen2 保持（227k 行）**
 
-### P1 — net Winsock 真实现（LLVM 端）
-- [ ] `stdlib_net.go` Windows 分支：stub → 真 IR（`WSAStartup/WSACleanup/socket/closesocket/connect/bind/listen/accept/send/recv/WSAGetLastError`，SOCKET=UINT_PTR、`SOCKET_ERROR=~-1`、ioctlsocket 阻塞模式）
-- [ ] unix 分支不动；教程 net TCP echo 双平台冒烟
-- [ ] Windows 真机验收（WSAStartup 版本协商 / closesocket / 错误码）
+### P1 — net Winsock 真实现（LLVM 端）✅（2026-09-10 完成）
+- [x] **wrapper 架构**：7 个公开 TCP 函数（TcpDial/TcpWrite/TcpRead/TcpClose/TcpListenerClose/TcpListen/TcpAccept）体 OS 无关化（handle 统一 i64 存 8 字节堆 cell、错误统一 i64 -1）+ 9 个 `__kylix_net_*` OS 原语 wrapper（socket/connect/bind/listen/accept/send/recv/closeh/reuse）按 targetOS 发射 unix BSD sockets / Windows Winsock2 两套 define——同一份公开函数体双端共享
+- [x] **Windows Winsock2 真实现**：WSAStartup-once（MAKEWORD(2,2)=514 + 512B WSADATA 全局）+ SOCKET=UINT_PTR(i64) + closesocket + ioctlsocket 阻塞模式（FIONBIO）+ send/recv i64→i32 trunc/sext（SOCKET_ERROR 保号）+ 链接 `-lws2_32`（IR 扫描自动加）；unix 分支 `fd sext/trunc i64` 保持
+- [x] **顺带修复 SO_REUSEADDR 常量不可移植潜伏 bug**：Linux SOL_SOCKET=1/SO_REUSEADDR=2，但 macOS/BSD/Windows 都是 0xffff/4——旧代码统一用 1/2 导致 macOS 上 setsockopt 静默无效（正常退出 TIME_WAIT 30s 内 rebind EADDRINUSE）；现按 targetOS 选常量
+- [x] **websocket Windows 分支 typed stub**（IR 形态合法：helper 依赖 unix 签名，Windows target 下短路返回）；DNS/UDP 仍 stub（挂 TECHNICAL_DEBT）
+- [x] **测试**：`stdlib_net_test.go` 重写（unix wrapper 断言 10 项 + Windows 6 项 + 跨目标一致性）；unix 双进程 echo 实测 10/10（含 TIME_WAIT 立即重绑）；Windows IR 交叉检查 `llc -mtriple=x86_64-w64-mingw32` 产合法 COFF + Winsock 符号正确未解析；16 包 + Go sweep 55/55 全绿
+- [ ] Windows 真机验收（WSAStartup 版本协商 / closesocket / 错误码）——需用户配合，记 TODO
 
 ### P2 — `--target windows` 交叉链接
 - [ ] FindLLVM 识别捆绑 llvm-mingw（`llvm/` 目录含 lld + mingw CRT）

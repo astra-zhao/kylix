@@ -1,7 +1,7 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-09-09
-> 当前版本: v0.7.0 已发布（2026-09-06，web 页面开发 + web 框架）；v0.7.1 开发中（P0b regex 引擎已完成）
+> 最后更新: 2026-09-10
+> 当前版本: v0.7.0 已发布（2026-09-06，web 页面开发 + web 框架）；v0.7.1 开发中（P0b regex + P1 net Winsock 已完成）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v0.3.1 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
@@ -9,6 +9,15 @@
 ---
 
 ## 🚧 v0.7.1 已知问题（2026-09-09，P0b regex 引擎开发中发现）
+
+- [x] **~~bootstrap 自编译 example61 非确定性段错误~~（2026-09-10 已修）**：`--emit-llvm stdlib/regex_engine.klx example61` 约 35% 崩溃（P0b sweep 侥幸通过；A/B 对 407ddf7 构建 BOOT 同样 7/20 崩，与 P1 改动无关）。根因三环：(1) `EmitCall` 参数表达式含嵌套调用时重入并重置共享字段 `self.LastArgTypes`，外层继续 append 导致长度与 `args` 错配；(2) `EmitPlainCall` 的 coerce 检查写成**复合 `and`**（bootstrap 不短路，坑清单明令禁止的模式漏网），边界检查失败时 `LastArgTypes[i]` 照样求值 → 读到 malloc 垃圾；(3) 垃圾值是否可解引用取决于 ASLR → 非确定性 strcmp BUS。修复：arg 类型收集进局部数组再赋回字段 + 复合 `and` 改嵌套 if（`src/llvmgen.klx`），修复后 30/30 稳定
+
+### net 模块限制（P1 Winsock 真实现，2026-09-10）
+
+- [ ] **websocket Windows target 下为 typed stub**：WS 握手 helper 依赖 unix socket 签名（i32 fd），Windows 分支在 `emitWebsocketCall` 顶部短路（求值参数后返回空串/void）——IR 形态合法、链接不炸，但 WS 功能在 Windows 不可用。修复方向：WS helper 也走 `__kylix_net_*` wrapper（P1 已铺垫，工作量中等）
+- [ ] **DnsLookup / UDP 函数仍为 not-implemented stub**（两端同样）；TcpDial 仅支持点分十进制 IPv4 字面量（inet_pton 直转，无主机名解析）
+- [ ] **Windows 真机验收未做**：WSAStartup 版本协商 / closesocket / WSAGetLastError 错误码需在真机跑 net echo 冒烟（CI llvm-windows job，v0.7.1 P3）
+- [x] **~~SO_REUSEADDR 常量不可移植~~（已修）**：旧代码统一用 Linux 常量 SOL_SOCKET=1/SO_REUSEADDR=2，macOS/BSD/Windows 实际是 0xffff/4——setsockopt 静默无效，TIME_WAIT 30s 内 rebind 必 EADDRINUSE。现按 targetOS 选常量（`emitNetReusePrim`）
 
 ### host Go 后端 codegen 限制（regex_engine.klx 开发中实测发现，暂不修、已按模式规避）
 

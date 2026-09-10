@@ -676,20 +676,40 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare ptr @getenv(ptr noundef)")
 	g.line("declare ptr @opendir(ptr noundef)")
 	g.line("declare i32 @closedir(ptr noundef)")
-	g.line("; ===== BSD sockets (used by stdlib net) =====")
-	g.line("declare i32 @socket(i32 noundef, i32 noundef, i32 noundef)")
-	g.line("declare i32 @connect(i32 noundef, ptr noundef, i32 noundef)")
-	g.line("declare i32 @bind(i32 noundef, ptr noundef, i32 noundef)")
-	g.line("declare i32 @listen(i32 noundef, i32 noundef)")
-	g.line("declare i32 @accept(i32 noundef, ptr, ptr)")
-	g.line("declare i64 @send(i32 noundef, ptr noundef, i64 noundef, i32 noundef)")
-	g.line("declare i64 @recv(i32 noundef, ptr noundef, i64 noundef, i32 noundef)")
-	g.line("declare i32 @close(i32 noundef)")
+	g.line("; ===== BSD sockets / Winsock (used by stdlib net) =====")
+	// v0.7.1 P1: the socket-family signatures are target-dependent. Unix: BSD
+	// sockets (fd = i32, ssize_t send/recv, close). Windows: Winsock2 (SOCKET =
+	// UINT_PTR = i64, int send/recv, closesocket, WSAStartup/ioctlsocket).
+	// websocket's unix-style call sites are stubbed on Windows (stdlib_websocket)
+	// so these two declare sets never coexist with mismatched call sites.
+	if g.targetOS == "windows" {
+		g.line("declare i64 @socket(i32 noundef, i32 noundef, i32 noundef)")
+		g.line("declare i32 @connect(i64 noundef, ptr noundef, i32 noundef)")
+		g.line("declare i32 @bind(i64 noundef, ptr noundef, i32 noundef)")
+		g.line("declare i32 @listen(i64 noundef, i32 noundef)")
+		g.line("declare i64 @accept(i64 noundef, ptr, ptr)")
+		g.line("declare i32 @send(i64 noundef, ptr noundef, i32 noundef, i32 noundef)")
+		g.line("declare i32 @recv(i64 noundef, ptr noundef, i32 noundef, i32 noundef)")
+		g.line("declare i32 @closesocket(i64 noundef)")
+		g.line("declare i32 @WSAStartup(i16 noundef, ptr noundef)")
+		g.line("declare i32 @ioctlsocket(i64 noundef, i32 noundef, ptr noundef)")
+		g.line("declare i32 @setsockopt(i64 noundef, i32 noundef, i32 noundef, ptr noundef, i32 noundef)")
+	} else {
+		g.line("declare i32 @socket(i32 noundef, i32 noundef, i32 noundef)")
+		g.line("declare i32 @connect(i32 noundef, ptr noundef, i32 noundef)")
+		g.line("declare i32 @bind(i32 noundef, ptr noundef, i32 noundef)")
+		g.line("declare i32 @listen(i32 noundef, i32 noundef)")
+		g.line("declare i32 @accept(i32 noundef, ptr, ptr)")
+		g.line("declare i64 @send(i32 noundef, ptr noundef, i64 noundef, i32 noundef)")
+		g.line("declare i64 @recv(i32 noundef, ptr noundef, i64 noundef, i32 noundef)")
+		g.line("declare i32 @close(i32 noundef)")
+		g.line("declare i32 @setsockopt(i32 noundef, i32 noundef, i32 noundef, ptr noundef, i32 noundef)")
+	}
+	// inet_pton has the same signature on both platforms (ws2_32 provides it).
+	g.line("declare i32 @inet_pton(i32 noundef, ptr noundef, ptr noundef)")
 	// v0.6.4: WebSocket handshake randomness (darwin arc4random_buf / linux getrandom).
 	g.line("declare void @arc4random_buf(ptr noundef, i64 noundef)")
 	g.line("declare i64 @getrandom(ptr noundef, i64 noundef, i32 noundef)")
-	g.line("declare i32 @setsockopt(i32 noundef, i32 noundef, i32 noundef, ptr noundef, i32 noundef)")
-	g.line("declare i32 @inet_pton(i32 noundef, ptr noundef, ptr noundef)")
 	g.line("; ===== OpenSSL libcrypto (used by stdlib crypto) =====")
 	g.line("declare ptr @SHA256(ptr noundef, i64 noundef, ptr noundef)")
 	g.line("declare ptr @MD5(ptr noundef, i64 noundef, ptr noundef)")

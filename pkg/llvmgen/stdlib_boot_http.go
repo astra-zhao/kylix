@@ -52,9 +52,9 @@ func (g *Generator) bootStrcat(dst, src string) {
 // runtime).
 func (g *Generator) emitBootRunBody() {
 	// Reuse the net module's BSD-socket wrappers.
-	g.enqueueStdlib("net", "TcpListen", "TcpListen", 0)
-	g.enqueueStdlib("net", "TcpAccept", "TcpAccept", 0)
-	g.enqueueStdlib("net", "TcpClose", "TcpClose", 0)
+	g.enqueueNetPublic("TcpListen")
+	g.enqueueNetPublic("TcpAccept")
+	g.enqueueNetPublic("TcpClose")
 	// HTTP helpers.
 	g.enqueueStdlib("boot", "readheaders", "readheaders", 0)
 	g.enqueueStdlib("boot", "readbody", "readbody", 0)

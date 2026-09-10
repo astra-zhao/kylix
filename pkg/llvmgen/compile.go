@@ -340,6 +340,11 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 			appendHomebrewLib(&clangArgs, "curl")
 		}
 	}
+	// v0.7.1 P1: net's Winsock primitives (socket/connect/... declared from
+	// ws2_32) — Windows only; unix BSD sockets live in libc.
+	if targetOS == "windows" && strings.Contains(ir, "@__kylix_net_socket") {
+		clangArgs = append(clangArgs, "-lws2_32")
+	}
 	// Linux: glibc's libm is a separate DSO — any IR that lowers to math
 	// library calls (pow/floor/fmod via llvm intrinsics, FloatToStr %.Ng
 	// probing, crypto helpers) fails at link with "DSO missing from command

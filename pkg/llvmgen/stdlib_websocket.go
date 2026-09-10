@@ -21,15 +21,39 @@ import (
 // WsDial/WsAccept (the handshake) live in stdlib_websocket_handshake.go.
 
 func (g *Generator) emitWebsocketCall(funcName string, args []ast.Expression) (string, string, error) {
+	// v0.7.1 P1: Windows target — the websocket helpers call unix-style
+	// @recv/@send/@close (i32 fd, ssize_t) whose signatures differ from the
+	// Winsock declares emitted for net (i64 SOCKET). A real Winsock websocket
+	// is deferred until it can be verified on a Windows machine; return typed
+	// stubs (args evaluated for side effects) so websocket programs still
+	// compile on Windows without IR type conflicts. Helper emission is skipped.
+	if g.targetOS == "windows" {
+		for _, a := range args {
+			if _, _, err := g.emitExpr(a); err != nil {
+				return "", "", err
+			}
+		}
+		switch funcName {
+		case "WsSend", "WsClose":
+			return "0", "void", nil
+		case "WsDialFinish":
+			r := g.tmp()
+			g.line(fmt.Sprintf("  %s = add i1 0, 0 ; websocket.%s not supported on Windows (Winsock)", r, funcName))
+			return r, "i1", nil
+		case "WsDial", "WsDialConnect", "WsAccept", "WsRecv":
+			emptyStr := g.addString("")
+			return g.ptrTo(emptyStr, 1), "ptr", nil
+		}
+	}
 	g.needWebsocketHelpers = true
 	switch funcName {
 	case "WsDial":
-		g.enqueueStdlib("net", "TcpDial", "TcpDial", 0)
+		g.enqueueNetPublic("TcpDial")
 		// WsDial composes the two-phase handshake (v0.6.5).
 		g.enqueueStdlib("websocket", "WsDialConnect", "WsDialConnect", 0)
 		g.enqueueStdlib("websocket", "WsDialFinish", "WsDialFinish", 0)
 	case "WsDialConnect":
-		g.enqueueStdlib("net", "TcpDial", "TcpDial", 0)
+		g.enqueueNetPublic("TcpDial")
 	case "WsDialFinish":
 		g.enqueueStdlib("websocket", "WsDialConnect", "WsDialConnect", 0)
 	}

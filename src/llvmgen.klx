@@ -4864,6 +4864,7 @@ function TLLVMGenerator.EmitCall(e: TCallExpression; t: String): String;
 var
   fname: String;
   args: array of String;
+  argTypes: array of String;
   i: Integer;
   mem: TMemberExpression;
   r: String;
@@ -5018,12 +5019,23 @@ begin
       end;
     end;
     args := [];
-    self.LastArgTypes := [];
+    // v0.7.1 P1: collect arg types into a LOCAL array, not self.LastArgTypes —
+    // a nested call inside an argument expression re-enters EmitCall, which
+    // resets LastArgTypes to [] and fills it with the NESTED call's types, so
+    // appending to the field here desyncs its length from args. EmitPlainCall
+    // then indexes LastArgTypes[i] up to Length(args)-1 and the compound `and`
+    // in its coerce check does NOT short-circuit (bootstrap pitfall) — the
+    // out-of-bounds element read returns malloc garbage, and strcmp on that
+    // wild pointer segfaults non-deterministically (~35% of self-emit runs of
+    // example61; flake existed since P0b). Copy the finished list into the
+    // field right before EmitPlainCall consumes it.
+    argTypes := [];
     for i := 0 to Length(e.Arguments) - 1 do
     begin
       append(args, self.EmitExprTyped(e.Arguments[i]));
-      append(self.LastArgTypes, self.LastType);
+      append(argTypes, self.LastType);
     end;
+    self.LastArgTypes := argTypes;
     result := self.EmitPlainCall(fname, args, t);
     t := self.LastType;
     Exit;
@@ -5119,8 +5131,15 @@ begin
     end;
     // v0.6.9 P3: coerce the actual to the formal's type (Average(3, 4, 5)
     // passes i64 literals into double params — sitofp them).
-    if (i < Length(self.LastArgTypes)) and (self.LastArgTypes[i] <> pt) then
-      args[i] := self.CoerceValue(args[i], self.LastArgTypes[i], pt);
+    // v0.7.1 P1: nested if, NOT a compound `and` — bootstrap `and` evaluates
+    // both operands, so the guarded element read ran even when the bound check
+    // failed (LastArgTypes desynced shorter than args by a nested call) and
+    // strcmp'd malloc garbage. See EmitCall for the desync fix.
+    if i < Length(self.LastArgTypes) then
+    begin
+      if self.LastArgTypes[i] <> pt then
+        args[i] := self.CoerceValue(args[i], self.LastArgTypes[i], pt);
+    end;
     argList := argList + pt + ' ' + args[i];
   end;
   if retType = 'void' then

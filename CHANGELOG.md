@@ -12,7 +12,28 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
+## v0.7.1 (开发中) — Windows 一等公民
+
+### P0：regex 收尾 ✅（2026-09-09，P0a/P0b）
+
+- **Is\* 六验证器纯手写字符类**：删 POSIX regcomp 依赖（UCRT 无 `<regex.h>`，Windows 不可用），六个 Is* 函数逐字节扫描 + 手写字符类 helper（icmp range/or 链，零 libc 调用）——同一份 IR 三平台可链接，Go/LLVM 25 项 parity。
+- **纯 Kylix regex 引擎 `stdlib/regex_engine.klx`（~870 行）**：回溯 VM（显式栈 + visited memo 防 `(a*)*` 空宽循环），字符类 / 量词 `* + ? {n} {n,} {n,m}` + lazy / 锚点 / 分组 / alternation；9 字节定长指令字节码。**RegexMatch / RegexFind / RegexFindAll / RegexReplace / RegexSplit** 五 API；语义对齐 Go RE2（leftmost-first 优先序 + FindAll prevMatchEnd 空匹配规则；Replace/Split 跳过空匹配，文档化偏差）。**设计转向**：不做 stdlib_ir.klx 烘焙——引擎是普通 Kylix unit，多文件构建引用（与 template_engine.klx 同模式），三端免费同源。
+- **教程 `23_regex/example61_regex_engine.klx`（33 场景）**：与 Go `regexp`（RE2）对照逐字一致；三 sweep 接入（test_all.sh / test_all_llvm.sh / test_bootstrap_all.sh 多文件特判段）。**Go 55/55 · LLVM 55/55 · bootstrap 53 PASS + 2 SKIP · 不动点保持（227k 行）**。
+- 顺带发现并记录 **host Go 后端 codegen 三限制**（多返回函数 `result := (a,b)` 无条件变 return / `exit` 变空操作 / 跨单元零参调用丢括号，见 TECHNICAL_DEBT.md）。
+
+### P1：net Winsock 真实现（LLVM 端）✅（2026-09-10）
+
+- **wrapper 架构（`pkg/llvmgen/stdlib_net.go` 重写，~700 行）**：7 个公开 TCP 函数（TcpDial/TcpWrite/TcpRead/TcpClose/TcpListenerClose/TcpListen/TcpAccept）体 OS 无关化——handle 统一 i64（存 TTcpConn/TTcpListener 背后 8 字节堆 cell）、错误统一 i64 -1；全部 OS 触点下沉到 9 个 `__kylix_net_*` 原语 wrapper（socket/connect/bind/listen/accept/send/recv/closeh/reuse），按 `g.targetOS` 发射 unix BSD sockets / Windows Winsock2 两套 define。公开函数体双端逐字共享（新增跨目标一致性单测）。
+- **Windows Winsock2 真实现**：WSAStartup-once（`@__kylix_net_wsa_done` 全局 + MAKEWORD(2,2)=514 + 512B WSADATA）+ SOCKET=UINT_PTR 原生 i64 + closesocket + ioctlsocket 强制阻塞模式（FIONBIO=0x8004667e）+ send/recv i64→i32 trunc/sext（SOCKET_ERROR=-1 保号）；`codegen.go` socket declares 按 targetOS 分支；`compile.go` IR 扫描自动加 `-lws2_32`。unix 分支 fd sext/trunc i64 保持。
+- **顺带修复 SO_REUSEADDR 常量不可移植潜伏 bug**：旧代码统一用 Linux 常量（SOL_SOCKET=1/SO_REUSEADDR=2），而 macOS/BSD/Windows 实际是 **0xffff/4**——setsockopt 静默无效，正常退出后 TIME_WAIT 30s 内 rebind 必 EADDRINUSE（教程从未在 LLVM 端跑过裸 Tcp* 路径所以从未暴露；本次双进程 echo 实测破案）。现按 targetOS 选常量。
+- **跨模块引用入队**：boot HTTP server（BootRun 的 TcpListen/TcpAccept/TcpClose）与 websocket 握手（WsDial 的 TcpDial）直发公开函数调用、无用户 `net` 调用点——新增 `enqueueNetPublic(name)`（公开体 + prims 一次入队），修 example60 引用 `@__kylix_net_accept` 未定义的回归。
+- **websocket Windows 分支 typed stub**（WS helper 依赖 unix i32 fd 签名，Windows target 短路返回空串/void，IR 合法不炸链接）；DNS/UDP 维持 stub。均记 TECHNICAL_DEBT.md。
+- **测试**：`stdlib_net_test.go` 重写——unix wrapper 断言 10 项 + Windows 6 项（declares 全集 / WSAStartup-once / FIONBIO / setsockopt 0xffff/4 / Linux 常量不泄入）+ 跨目标一致性；unix 双进程 echo 实测 10/10（含 TIME_WAIT 立即重绑）；Windows IR 交叉检查 `llc -mtriple=x86_64-w64-mingw32 -filetype=obj` 产合法 COFF（Winsock 符号正确未解析）；`generateIRForTarget` helper（`GenerateWithOpts` + `CompileOpts.Target`）。
+- **验证**：16 包全绿；Go sweep 55/55；LLVM sweep 55/55（example60 修复后）；bootstrap sweep 53 PASS + 2 SKIP；IR 不动点复验保持。
+- **顺带破案 bootstrap 自编译 example61 非确定性段错误（P0b 遗留 flake）**：`--emit-llvm` 编译 regex_engine + example61 约 35% 崩溃（P0b sweep 侥幸通过；git worktree A/B 对 P0b 提交点构建 BOOT 同样 7/20 崩，与 P1 改动无关）。根因三环：(1) `EmitCall` 参数表达式含嵌套调用时重入重置共享字段 `self.LastArgTypes`，外层继续 append 导致长度与 `args` 错配；(2) `EmitPlainCall` coerce 检查写成复合 `and`（bootstrap 不短路，坑清单模式漏网），边界检查失败时元素照样求值 → 读 malloc 垃圾；(3) 垃圾值可解引用与否取决于 ASLR → 非确定性 strcmp BUS。**修复**：arg 类型收集进局部数组再赋回字段 + 复合 `and` 改嵌套 if；修复后 30/30 稳定，不动点 gen1≡gen2 重新验证保持（11.3MB 逐字节）。调试手法：ASAN 版 BOOT（gen1 IR → llc → `clang -fsanitize=address`）定位 `EmitPlainCall+0xdd4` strcmp 野指针 → 反汇编 + IR 结构体偏移表（gep i32 29 = `LastArgTypes`）锁死语句。
+
 ## v0.7.0 (2026-09-06) — web 页面开发 + web 框架
+
 
 ### P5：教程 22_web_pages 接入 + v0.7.0 发布
 
