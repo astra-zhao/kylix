@@ -14,6 +14,28 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ## v0.7.1 (开发中) — Windows 一等公民
 
+### P4：工程债快赢 ✅（2026-09-10）
+
+- **增量缓存指纹加入编译器二进制自哈希（pkg/compiler/cache.go）**：`codegenHash()` 对运行中的 kylix 可执行文件算 SHA-256（进程内缓存，16 hex 截断）写入 `CacheEntry.CodegenHash` 并在 Load 比对——编译器一重编全部缓存自动失效，修掉「改 emitter 必须手动清 `.kylix-cache` 否则产出旧代码」的坑；`CacheVersion` 常量保留作格式结构变更硬重置；exe 读取失败降级为旧 mtime+size 行为。单测 `cache_internal_test.go`（内部包，hash 覆盖钩子模拟重编：同 hash 命中 / 换 hash 失效 / 双向 keyed）。
+- **"三处名单"一致性单测（generator/stdlib_boot_names_test.go）**：解析源文本（非反射未导出 map）交叉校验 Boot* API 名单——`TestBootNameLists_Converged`：host Go `generator_stdlib.go` boot strToSet 与 LLVM `pkg/llvmgen/stdlib.go` boot map 集合必须相等，对称差即 v0.7.0 `undefined: BootNotFoundPage` bug 类（报缺名 + 双端提示）；`TestBootNames_Dispatchable`：LLVM 名单每个 Boot* 必须在 `emitBootCall` 有 case 或 `bootStubReturnTypes` 有条目（缺省误按 i64 类型化）。解析器处理 strToSet/map 两种形态 + 注释跳过 + 括号配平。
+
+### P3：CI llvm-windows job 真跑 ✅（2026-09-10）
+
+- **llvm-windows job 从「LLVM 装不上就跳过」升级为真跑**（ci.yml）：windows-latest runner（真 Windows 环境）解压 mstorsjo llvm-mingw ucrt-x86_64 portable zip（固定 20260826；v6.2 教训规避——installer 全不可用，zip 直接 `Expand-Archive`）→ bin 入 PATH + `KYLIX_MINGW_ROOT` → `kylix doctor`（advisory）。
+- **四段验收**：(1) 4 个代表教程原生编译运行（hello/if_else/类方法/stdlib core）；(2) **example61 regex 引擎**——多文件纯 Kylix unit 在 Windows 原生编译运行，断言 0 个 `^F ` 失败行 + 输出含 done；(3) **net 双进程 Winsock echo**——CI 内联 listener/dialer 两个 .klx 程序，后台 listener + dialer 回环，覆盖 WSAStartup-once/listen/accept/dial/write/read 全链路（P1 的真机验收项由 CI 永久覆盖）；(4) llvm-mingw 兼做 IR 工具链（FindLLVM PATH 命中 llc/clang）与链接 sysroot（FindMingwSysroot），一份 zip 两个角色。
+- **CI 程序预验证**：双进程 echo 与 example61 构建在 macOS 本地用同一份源码先跑通（echo:hello），CI 失败只可能来自平台差异；两个 net 程序再按 `--target=windows/amd64` 交叉编译均产 PE32+。
+
+### P2：--target windows 交叉链接（llvm-mingw）✅（2026-09-10）
+
+- **`FindMingwSysroot()`（compile.go）**：定位 llvm-mingw 工具链根目录——搜索顺序 `$KYLIX_MINGW_ROOT` → 可执行文件旁 `llvm-mingw/` → PATH 上 mingw driver（`x86_64-w64-mingw32-clang`/`-gcc`）的祖父目录 → `~/llvm-mingw`、`/opt/llvm-mingw`、`/usr/local/llvm-mingw`；验证标志 `<root>/x86_64-w64-mingw32/lib`，支持 mstorsjo tarball 解包出的版本化目录嵌套一层（`llvm-mingw-<ver>-ucrt-<platform>/`）。单测 `sysroot_test.go` 3 项（env 覆盖 / 嵌套目录 / 缺失返回空）。
+- **Windows 链接分支改造（compile.go）**：优先用 llvm-mingw 自带 clang 做链接驱动 + `--ld-path=<sysroot>/bin/ld.lld` 显式指定链接器——`-fuse-ld=lld` 按 PATH 找链接器名字，homebrew-only 安装（llvm bin 不在 PATH）必挂 "invalid linker name in argument '-fuse-ld=lld'"；`--target=x86_64-w64-mingw32 --sysroot=<root>/x86_64-w64-mingw32`，CRT（crt2.o）+ compiler-rt + win32 import libs（含 ws2_32）全部来自 sysroot。删除 MSVC 风格 `-Wl,/subsystem:console`（对 lld 无效；mingw 默认 console subsystem）。sysroot 缺失时给友好错误。
+- **`tripleFor` windows/amd64：msvc → mingw triple**：llc 在 msvc triple 下为大栈帧函数发射 MSVC 风格栈探针 `__chkstk`（mingw 任何库都没有该符号），gnu triple（`x86_64-w64-mingw32`）发 `___chkstk_ms`（compiler-rt 内建）——net.klx 交叉链接 `__chkstk` undefined 的根因；datalayout 两环境一致不动。
+- **坑（记 ROADMAP）**：`exec.Command` 必须在全部 `-l` 库 append 之后再构建——windows 分支曾提前建 cmd，`exec.Command` 捕获的参数切片在后续 append（`-lws2_32`）后丢失（realloc 换底层数组），链接报 Winsock 符号全部 undefined。
+- **unix 库门控**：`-lcrypto`/`-lsqlite3`/`-lcurl` 加 `targetOS != "windows"` 门控（mingw sysroot 无这三者；Windows 实现是已知缺口记 TECHNICAL_DEBT.md）；`-lws2_32`（IR 扫描）与 `-lm`（Linux）各自门控不变。
+- **端到端验证**：macOS 上 `KYLIX_MINGW_ROOT=... kylix build --backend=llvm --target=windows/amd64` → hello.klx 与 net.klx（Winsock 双进程 echo 程序）均产出 `PE32+ executable (console) x86-64`，objdump 确认导入 WS2_32.dll + UCRT + KERNEL32；不设 env 报友好错误；`KYLIX_MINGW_ROOT` 设置不影响 darwin 原生构建（Mach-O 正常）。**macOS 提醒**：下载解包的 llvm-mingw 带 `com.apple.quarantine` 隔离属性，Apple Silicon 上无签名二进制被 Gatekeeper 直接 SIGKILL（表现 `signal: killed` 无任何输出）——`xattr -dr com.apple.quarantine <目录>` 解决。
+- **回归**：16 包全绿 + LLVM sweep 55/55 + sysroot 单测 3 项。
+- **Release 交叉冒烟（release.yml `cross-exe-smoke` job）**：ubuntu hosted llvm-mingw（ucrt-ubuntu-22.04-x86_64，资产名经 GitHub API 核实）→ `--target=windows/amd64` 交叉 hello.klx → `file` 断言 PE32+ console x86-64；独立 job 不阻塞发布，红灯即 P2 交叉链路坏。
+
 ### P0：regex 收尾 ✅（2026-09-09，P0a/P0b）
 
 - **Is\* 六验证器纯手写字符类**：删 POSIX regcomp 依赖（UCRT 无 `<regex.h>`，Windows 不可用），六个 Is* 函数逐字节扫描 + 手写字符类 helper（icmp range/or 链，零 libc 调用）——同一份 IR 三平台可链接，Go/LLVM 25 项 parity。

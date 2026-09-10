@@ -125,6 +125,63 @@ func appendHomebrewLib(clangArgs *[]string, brewName string) {
 	}
 }
 
+// FindMingwSysroot locates a mingw-w64 sysroot for cross-linking Windows
+// targets (v0.7.1 P2). llvm-mingw (mstorsjo/llvm-mingw) layout:
+//
+//	<root>/bin/{clang, ld.lld, llvm-*}
+//	<root>/x86_64-w64-mingw32/{lib, include}   ← CRT + win32 libs (ws2_32…)
+//
+// Search order: $KYLIX_MINGW_ROOT, an `llvm-mingw/` directory next to the
+// kylix executable (matches the bundled-LLVM `llvm/` convention), a
+// x86_64-w64-mingw32-* driver found on PATH (→ its parent), then common
+// install locations. Returns "" when no sysroot exists.
+func FindMingwSysroot() string {
+	candidates := []string{}
+	if v := os.Getenv("KYLIX_MINGW_ROOT"); v != "" {
+		candidates = append(candidates, v)
+	}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "llvm-mingw"))
+	}
+	// A mingw driver on PATH implies its parent is the llvm-mingw root.
+	if p, err := exec.LookPath("x86_64-w64-mingw32-clang"); err == nil {
+		candidates = append(candidates, filepath.Dir(filepath.Dir(p)))
+	} else if p, err := exec.LookPath("x86_64-w64-mingw32-gcc"); err == nil {
+		candidates = append(candidates, filepath.Dir(filepath.Dir(p)))
+	}
+	home, _ := os.UserHomeDir()
+	candidates = append(candidates,
+		filepath.Join(home, "llvm-mingw"),
+		"/opt/llvm-mingw",
+		"/usr/local/llvm-mingw",
+	)
+	for _, root := range candidates {
+		if root == "" {
+			continue
+		}
+		if hasMingwTriplet(root) {
+			return root
+		}
+		// llvm-mingw archives unpack a versioned dir (e.g.
+		// llvm-mingw-20260826-ucrt-macos-universal/) — accept one nesting level.
+		if entries, err := os.ReadDir(root); err == nil {
+			for _, e := range entries {
+				if e.IsDir() && hasMingwTriplet(filepath.Join(root, e.Name())) {
+					return filepath.Join(root, e.Name())
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// hasMingwTriplet reports whether dir is an llvm-mingw root: it must contain
+// the x86_64-w64-mingw32 sysroot (CRT libs + win32 import libs).
+func hasMingwTriplet(dir string) bool {
+	st, err := os.Stat(filepath.Join(dir, "x86_64-w64-mingw32", "lib"))
+	return err == nil && st.IsDir()
+}
+
 // resolveTarget parses a "os/arch" cross-compile target into (os, arch).
 // An empty target means the host platform.
 func resolveTarget(target string) (string, string) {
@@ -153,7 +210,11 @@ func tripleFor(osName, arch string) (triple, datalayout string) {
 	case "linux/arm64":
 		return "aarch64-unknown-linux-gnu", "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
 	case "windows/amd64":
-		return "x86_64-pc-windows-msvc", "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+		// v0.7.1 P2: the mingw environment, not msvc — llc under the msvc
+		// triple emits the MSVC stack probe (__chkstk), which no mingw lib
+		// provides; the gnu triple emits ___chkstk_ms (compiler-rt, in every
+		// llvm-mingw sysroot). Datalayout is identical for both environments.
+		return "x86_64-w64-mingw32", "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
 	}
 	// Fallback: treat unknown as the arm64 macOS default (backwards compatible).
 	return "arm64-apple-macosx15.0.0", "e-m:o-i64:64-i128:128-n32:64-S128"
@@ -302,15 +363,47 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 
 	// clang: .o → native binary
 	clangArgs := []string{"-o", outBin, objFile}
-	// Cross-compiling: tell clang which platform to emit for. Windows needs
-	// the lld linker driver + console subsystem (no CRT sysroot is provided;
-	// clang finds the MSVC/WinSDK CRT from the environment).
-	if opts.Target != "" {
+	// The clang binary that performs the link — llvm-mingw's own when
+	// cross-linking Windows, the host LLVM otherwise.
+	linkClang := llvmPaths.Clang
+	// Cross-compiling: tell clang which platform to emit for. v0.7.1 P2:
+	// Windows links through an llvm-mingw sysroot (mingw-w64 CRT + win32
+	// import libs incl. ws2_32) found via FindMingwSysroot — the mingw driver
+	// defaults to the console subsystem, so no /subsystem flag is needed.
+	if opts.Target != "" && targetOS != "windows" {
 		triple, _ := tripleFor(targetOS, targetArch)
 		clangArgs = append(clangArgs, "--target="+triple)
-		if targetOS == "windows" {
-			clangArgs = append(clangArgs, "-fuse-ld=lld", "-Wl,/subsystem:console")
+	}
+	if targetOS == "windows" {
+		sysroot := FindMingwSysroot()
+		if sysroot == "" {
+			return nil, fmt.Errorf("windows cross-link needs llvm-mingw (no sysroot found): install a toolchain from https://github.com/mstorsjo/llvm-mingw/releases (macos-universal / linux variants), unpack it, and point KYLIX_MINGW_ROOT at the unpacked directory (it must contain x86_64-w64-mingw32/lib), or unpack it next to the kylix binary as llvm-mingw/")
 		}
+		// Prefer llvm-mingw's own clang: it is configured for mingw (CRT
+		// defaults, its own ld.lld). A host clang also works given --sysroot,
+		// but -fuse-ld=lld searches PATH for the linker and a homebrew-only
+		// install usually fails there ("invalid linker name").
+		if _, err := os.Stat(filepath.Join(sysroot, "bin", "clang")); err == nil {
+			linkClang = filepath.Join(sysroot, "bin", "clang")
+		}
+		if _, err := os.Stat(filepath.Join(sysroot, "bin", "clang")); err == nil {
+			linkClang = filepath.Join(sysroot, "bin", "clang")
+		}
+		// --ld-path beats -fuse-ld=lld (name lookup): pass the linker binary
+		// explicitly so PATH contents can't break the link.
+		for _, cand := range []string{
+			filepath.Join(sysroot, "bin", "ld.lld"),
+			filepath.Join(filepath.Dir(llvmPaths.Clang), "ld.lld"),
+		} {
+			if st, err := os.Stat(cand); err == nil && !st.IsDir() {
+				clangArgs = append(clangArgs, "--ld-path="+cand)
+				break
+			}
+		}
+		clangArgs = append(clangArgs,
+			"--target=x86_64-w64-mingw32",
+			"--sysroot="+filepath.Join(sysroot, "x86_64-w64-mingw32"),
+		)
 	}
 	// Linux: the IR accesses string constants with absolute relocations
 	// (R_X86_64_32S against .rodata), which the linker rejects under PIE
@@ -321,23 +414,27 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 
 	// Link system libraries by scanning the IR for stdlib module symbols.
 	// v0.6.2: the -L/rpath handling is macOS-only (Homebrew); Linux uses the
-	// system default path; Windows relies on clang's .lib search.
-	if strings.Contains(ir, "@__kylix_crypto_") || strings.Contains(ir, "@SHA1") {
-		clangArgs = append(clangArgs, "-lcrypto")
-		if targetOS == "darwin" {
-			appendHomebrewLib(&clangArgs, "openssl")
+	// system default path. v0.7.1 P2: crypto/db/http libraries are unix-only
+	// (OpenSSL/sqlite3/curl don't exist in the mingw sysroot; the Windows
+	// implementations of those modules are a known gap — see TECHNICAL_DEBT).
+	if targetOS != "windows" {
+		if strings.Contains(ir, "@__kylix_crypto_") || strings.Contains(ir, "@SHA1") {
+			clangArgs = append(clangArgs, "-lcrypto")
+			if targetOS == "darwin" {
+				appendHomebrewLib(&clangArgs, "openssl")
+			}
 		}
-	}
-	if strings.Contains(ir, "@__kylix_db_") || strings.Contains(ir, "@sqlite3_") {
-		clangArgs = append(clangArgs, "-lsqlite3")
-		if targetOS == "darwin" {
-			appendHomebrewLib(&clangArgs, "sqlite")
+		if strings.Contains(ir, "@__kylix_db_") || strings.Contains(ir, "@sqlite3_") {
+			clangArgs = append(clangArgs, "-lsqlite3")
+			if targetOS == "darwin" {
+				appendHomebrewLib(&clangArgs, "sqlite")
+			}
 		}
-	}
-	if strings.Contains(ir, "@__kylix_httpclient_") || strings.Contains(ir, "@curl_easy_") {
-		clangArgs = append(clangArgs, "-lcurl")
-		if targetOS == "darwin" {
-			appendHomebrewLib(&clangArgs, "curl")
+		if strings.Contains(ir, "@__kylix_httpclient_") || strings.Contains(ir, "@curl_easy_") {
+			clangArgs = append(clangArgs, "-lcurl")
+			if targetOS == "darwin" {
+				appendHomebrewLib(&clangArgs, "curl")
+			}
 		}
 	}
 	// v0.7.1 P1: net's Winsock primitives (socket/connect/... declared from
@@ -353,7 +450,10 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	if targetOS == "linux" {
 		clangArgs = append(clangArgs, "-lm")
 	}
-	clangCmd := exec.Command(llvmPaths.Clang, clangArgs...)
+	// Build the link command only after ALL args are collected — exec.Command
+	// captures the args slice, and the library-scan section above appends to
+	// it after the target branches (a cmd built there would miss the -l libs).
+	clangCmd := exec.Command(linkClang, clangArgs...)
 	if out, err := clangCmd.CombinedOutput(); err != nil {
 		// v0.6.2: cross-compiling on a host that lacks the target's CRT/libc
 		// (e.g. linking linux/amd64 from macOS) fails at link even though llc
@@ -364,7 +464,7 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		}
 		// Retry with -v so the underlying linker error surfaces in the report
 		// (clang otherwise reports only "linker command failed").
-		if vout, verr := exec.Command(llvmPaths.Clang, append(clangArgs, "-v")...).CombinedOutput(); verr != nil {
+		if vout, verr := exec.Command(linkClang, append(clangArgs, "-v")...).CombinedOutput(); verr != nil {
 			out = vout
 		}
 		return nil, fmt.Errorf("clang link failed: %w\n%s", err, out)

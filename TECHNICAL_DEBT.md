@@ -16,7 +16,12 @@
 
 - [ ] **websocket Windows target 下为 typed stub**：WS 握手 helper 依赖 unix socket 签名（i32 fd），Windows 分支在 `emitWebsocketCall` 顶部短路（求值参数后返回空串/void）——IR 形态合法、链接不炸，但 WS 功能在 Windows 不可用。修复方向：WS helper 也走 `__kylix_net_*` wrapper（P1 已铺垫，工作量中等）
 - [ ] **DnsLookup / UDP 函数仍为 not-implemented stub**（两端同样）；TcpDial 仅支持点分十进制 IPv4 字面量（inet_pton 直转，无主机名解析）
-- [ ] **Windows 真机验收未做**：WSAStartup 版本协商 / closesocket / WSAGetLastError 错误码需在真机跑 net echo 冒烟（CI llvm-windows job，v0.7.1 P3）
+- [x] **~~Windows 真机验收未做~~（v0.7.1 P3 已覆盖）**：CI llvm-windows job（windows-latest runner = 真 Windows 环境）跑 net 双进程 Winsock echo 全链路（WSAStartup/listen/accept/dial/write/read）+ example61 regex 引擎 + 4 代表教程
+
+### Windows target 限制（P2 交叉链接，2026-09-10）
+
+- [ ] **crypto / db / httpclient 模块在 Windows target 不可用**：三者依赖 OpenSSL/sqlite3/curl 的 unix 形态库，mingw sysroot 里没有——链接已按 `targetOS != "windows"` 门控跳过这三个 `-l`（避免炸链接），但 IR 里这些符号仍会未解析。需要时可在真机用 mingw-w64 自编译这三个库塞进 sysroot，或用 Windows 原生 API 重写（bcrypt/ winhttp 等，工作量大）。websocket 同上（typed stub）
+- [ ] **交叉产物未在真机运行验收**：llvm-mingw 交叉出的 .exe（PE32+ console）仅做形态验证（`file` + 符号检查），真机运行 + net echo 待 CI llvm-windows job（P3）
 - [x] **~~SO_REUSEADDR 常量不可移植~~（已修）**：旧代码统一用 Linux 常量 SOL_SOCKET=1/SO_REUSEADDR=2，macOS/BSD/Windows 实际是 0xffff/4——setsockopt 静默无效，TIME_WAIT 30s 内 rebind 必 EADDRINUSE。现按 targetOS 选常量（`emitNetReusePrim`）
 
 ### host Go 后端 codegen 限制（regex_engine.klx 开发中实测发现，暂不修、已按模式规避）

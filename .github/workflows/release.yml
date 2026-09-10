@@ -215,6 +215,39 @@ jobs:
           name: llvm-mingw-ucrt-x86_64
           path: llvm-mingw-ucrt-x86_64.zip
 
+  cross-exe-smoke:
+    name: Cross .exe smoke (--target windows/amd64)
+    runs-on: ubuntu-latest
+    steps:
+      # v0.7.1 P2: the --target windows/amd64 cross-link (llvm-mingw sysroot)
+      # gets a release-gating smoke — hello.klx must cross-compile to a valid
+      # PE32+ console binary on a linux host. Independent of `release` (a red
+      # smoke doesn't block the release but is visible on the run page).
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install linux-hosted llvm-mingw (cross toolchain + sysroot)
+        run: |
+          curl -fL -o mingw.tar.xz \
+            https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-ubuntu-22.04-x86_64.tar.xz
+          tar -C /opt -xf mingw.tar.xz
+
+      - name: Build CLI
+        run: go build -o kylix ./cmd/kylix/
+
+      - name: Cross-compile hello.klx → PE32+ .exe
+        run: |
+          root=$(ls -d /opt/llvm-mingw-*)
+          KYLIX_MINGW_ROOT="$root" ./kylix build --backend=llvm \
+            --target=windows/amd64 \
+            -o hello.exe examples/complete-tutorial/01_basics/example01_hello.klx
+          file hello.exe | grep -q "PE32+ executable (console) x86-64"
+          echo "cross .exe smoke OK"
+
   release:
     name: Create GitHub Release
     needs: [build, bootstrap, windows-toolchain]

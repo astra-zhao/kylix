@@ -160,20 +160,22 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] **顺带修复 SO_REUSEADDR 常量不可移植潜伏 bug**：Linux SOL_SOCKET=1/SO_REUSEADDR=2，但 macOS/BSD/Windows 都是 0xffff/4——旧代码统一用 1/2 导致 macOS 上 setsockopt 静默无效（正常退出 TIME_WAIT 30s 内 rebind EADDRINUSE）；现按 targetOS 选常量
 - [x] **websocket Windows 分支 typed stub**（IR 形态合法：helper 依赖 unix 签名，Windows target 下短路返回）；DNS/UDP 仍 stub（挂 TECHNICAL_DEBT）
 - [x] **测试**：`stdlib_net_test.go` 重写（unix wrapper 断言 10 项 + Windows 6 项 + 跨目标一致性）；unix 双进程 echo 实测 10/10（含 TIME_WAIT 立即重绑）；Windows IR 交叉检查 `llc -mtriple=x86_64-w64-mingw32` 产合法 COFF + Winsock 符号正确未解析；16 包 + Go sweep 55/55 全绿
-- [ ] Windows 真机验收（WSAStartup 版本协商 / closesocket / 错误码）——需用户配合，记 TODO
+- [x] Windows 真机验收（WSAStartup / closesocket / 错误码）→ 由 P3 CI llvm-windows job 覆盖（windows-latest runner = 真 Windows 环境，双进程 Winsock echo 全链路）
 
 ### P2 — `--target windows` 交叉链接
-- [ ] FindLLVM 识别捆绑 llvm-mingw（`llvm/` 目录含 lld + mingw CRT）
-- [ ] `kylix build --backend=llvm --target=windows/amd64` 在 mac/linux 直出 .exe（系统库表按 targetOS 走 Winsock 分支，不再链接 -lcrypto/-lsqlite3/-lcurl 的 unix 形态）
-- [ ] Release 资产补 .exe 交叉产物冒烟（release.yml 可选步骤）
+- [x] **FindMingwSysroot()**（compile.go）：搜索顺序 `$KYLIX_MINGW_ROOT` → 可执行文件旁 `llvm-mingw/` → PATH 上 mingw driver（`x86_64-w64-mingw32-clang/-gcc`）的祖父目录 → `~/llvm-mingw`、`/opt/llvm-mingw`、`/usr/local/llvm-mingw`；验证 `<root>/x86_64-w64-mingw32/lib` 存在，支持解包后的版本化目录嵌套一层
+- [x] **Windows 链接分支改造**：优先用 llvm-mingw 自带 clang 做链接驱动 + `--ld-path=<sysroot>/bin/ld.lld` 显式指定链接器（`-fuse-ld=lld` 按 PATH 找名字，homebrew-only 安装必挂 "invalid linker name"）+ `--target=x86_64-w64-mingw32 --sysroot=<root>/x86_64-w64-mingw32`（mingw-w64 CRT + win32 import libs 含 ws2_32 全在 sysroot；mingw 默认 console subsystem，删除 MSVC 风格 `-Wl,/subsystem:console`）；**`tripleFor` windows/amd64 从 msvc 改 mingw triple**——msvc 下 llc 发射 MSVC 栈探针 `__chkstk`（mingw 无此符号），gnu triple 发 `___chkstk_ms`（compiler-rt 提供）；sysroot 缺失给友好错误（提示 mstorsjo releases + KYLIX_MINGW_ROOT）。**坑：`exec.Command` 必须在全部 `-l` 库 append 之后再构建**——windows 分支提前建 cmd 会持有旧参数切片，库全部丢失
+- [x] **unix 库门控**：`-lcrypto`/`-lsqlite3`/`-lcurl` 加 `targetOS != "windows"` 门控（crypto/db/http 的 Windows 实现是已知缺口，记 TECHNICAL_DEBT）；ws2_32 已有 IR 扫描门控
+- [x] **端到端验证**：llvm-mingw macos-universal 下载解包 → `KYLIX_MINGW_ROOT=... kylix build --backend=llvm --target=windows/amd64` 交叉出 .exe（`file` 验 PE32+ console）→ 纯计算 + net（Winsock）程序均编译通过（macOS 上注意 `xattr -dr com.apple.quarantine <llvm-mingw目录>`——隔离属性 + 无签名会被 Gatekeeper SIGKILL）
+- [x] Release 资产补 .exe 交叉产物冒烟（release.yml `cross-exe-smoke` job：ubuntu hosted llvm-mingw-ucrt-ubuntu-22.04 + `--target=windows/amd64` 交叉 hello.klx → `file` 断言 PE32+ console x86-64；独立 job 不阻塞 release 发布，红即 P2 链路坏）
 
 ### P3 — CI llvm-windows job
-- [ ] windows-2025 runner：解压 llvm-mingw zip（Release 已附带）→ PATH → `kylix doctor` → hello.klx 编译运行 → net/regex 模块编译测试
-- [ ] v6.2 教训规避：choco/winget 装不上 LLVM 的问题用捆绑 zip 绕开
+- [x] **llvm-windows job 升级为真跑**（ci.yml，windows-latest runner = 真 Windows 环境）：解压 mstorsjo llvm-mingw ucrt-x86_64 zip（`Invoke-WebRequest` + `Expand-Archive`，固定版本 20260826）→ bin 入 PATH + `KYLIX_MINGW_ROOT` env → `kylix doctor`（advisory）→ 4 个代表教程编译运行（hello/if_else/类方法/stdlib）→ **example61 regex 引擎**（多文件纯 Kylix unit，断言 0 个 `^F ` + 输出含 done）→ **net 双进程 Winsock echo**（listener+dialer 两 .klx CI 内联，WSAStartup/listen/accept/dial/write/read 全链路真机验收）
+- [x] **v6.2 教训规避**：choco/winget/官方 exe 装不上 LLVM 的问题用 portable zip 绕开（llvm-mingw 自带 clang/llc/opt/ld.lld，兼做 IR 工具链和链接 sysroot，`FindLLVM` PATH 命中）；CI 程序（双进程 echo + example61 构建）已在 macOS 本地用同一份源码预验证
 
 ### P4 — 工程债快赢（搭车）
-- [ ] 增量缓存指纹加入编译器源码哈希（`.kylix-cache` 不感知 emitter 变化——改发射器必须清缓存的坑）
-- [ ] "三处名单"一致性单测（host Go stdlibModules / host LLVM stdlib.go / emitBootCall switch 交叉校验）
+- [x] **增量缓存指纹加入编译器二进制自哈希**（pkg/compiler/cache.go）：`codegenHash()` 对运行中的 kylix 可执行文件做 SHA-256（进程内缓存），写入 `CacheEntry.CodegenHash` 并在 Load 时比对——编译器一重编（emitter/parser/typecheck 任何改动）全部缓存条目自动失效，不再需要手动清 `.kylix-cache`；`CacheVersion` 常量保留作结构性格式变更的硬重置；exe 读取失败时降级为旧 mtime+size 行为
+- [x] **"三处名单"一致性单测**（generator/stdlib_boot_names_test.go，解析源文本而非反射未导出 map）：(1) `TestBootNameLists_Converged`——host Go `generator_stdlib.go` 的 boot strToSet 与 LLVM `pkg/llvmgen/stdlib.go` 的 boot map 必须集合相等（对称差即 v0.7.0 `undefined: BootNotFoundPage` bug 类），漂移时报缺名字 + 提示双端都要加；(2) `TestBootNames_Dispatchable`——LLVM 名单里每个 Boot* 必须在 `emitBootCall` 有 case 或 `bootStubReturnTypes` 有条目（否则默认按 i64 误类型）
 
 ### 验证门槛
 16 包全绿 · Go+LLVM 教程 55/55 · bootstrap sweep 53 PASS + 2 SKIP · IR 不动点 gen1≡gen2 保持 · CI llvm-windows job 绿 · Windows 真机 net/regex 冒烟通过

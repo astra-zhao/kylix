@@ -12,6 +12,7 @@ package compiler
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -20,6 +21,8 @@ import (
 )
 
 // CacheVersion invalidates stale generated fragments after codegen changes.
+// (Kept as a hard reset for structural cache-format changes; day-to-day
+// codegen invalidation is handled by the binary self-hash below.)
 const CacheVersion = 12
 
 // CacheEntry holds the cached output for a single .klx file.
@@ -27,9 +30,10 @@ type CacheEntry struct {
 	Version int `json:"version"`
 
 	// Fingerprint fields — used to decide whether the cache is still valid.
-	ModTime time.Time `json:"mod_time"`
-	Size    int64     `json:"size"`
-	SrcPath string    `json:"src_path"`
+	ModTime     time.Time `json:"mod_time"`
+	Size        int64     `json:"size"`
+	SrcPath     string    `json:"src_path"`
+	CodegenHash string    `json:"codegen_hash,omitempty"` // v0.7.1 P4: running compiler binary self-hash
 
 	// Cached output
 	GoCode string `json:"go_code"`
@@ -52,6 +56,40 @@ func NewBuildCache(dir string) *BuildCache {
 	cacheDir := filepath.Join(dir, ".kylix-cache")
 	os.MkdirAll(cacheDir, 0755)
 	return &BuildCache{dir: cacheDir}
+}
+
+// codegenHashOverride, when non-empty, short-circuits codegenHash — a test
+// hook to simulate a rebuilt compiler binary (internal tests only).
+var codegenHashOverride string
+
+// codegenHash returns a fingerprint of the running compiler binary (v0.7.1
+// P4): any recompile of the compiler — emitter, parser, typecheck changes —
+// changes the hash, so cached fragments produced by the old binary are
+// invalidated automatically instead of requiring a manual .kylix-cache wipe.
+// The result is process-global (the binary doesn't change under a running
+// process) and short: 16 hex chars are plenty to distinguish compiler builds.
+// On failure it returns "" — entries recorded under "" match "" so the cache
+// degrades to the pre-P4 mtime+size behavior rather than never hitting.
+var cachedCodegenHash string
+
+func codegenHash() string {
+	if codegenHashOverride != "" {
+		return codegenHashOverride
+	}
+	if cachedCodegenHash != "" {
+		return cachedCodegenHash
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(exe)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	cachedCodegenHash = hex.EncodeToString(sum[:8])
+	return cachedCodegenHash
 }
 
 // cacheFile returns the path of the JSON file for a given source path.
@@ -82,7 +120,8 @@ func (c *BuildCache) Load(srcPath string) *CacheEntry {
 		return nil
 	}
 
-	if entry.Version == CacheVersion && entry.ModTime.Equal(info.ModTime()) && entry.Size == info.Size() {
+	if entry.Version == CacheVersion && entry.CodegenHash == codegenHash() &&
+		entry.ModTime.Equal(info.ModTime()) && entry.Size == info.Size() {
 		c.Hits++
 		return &entry
 	}
@@ -97,11 +136,12 @@ func (c *BuildCache) Store(srcPath, goCode string) {
 		return
 	}
 	entry := CacheEntry{
-		Version: CacheVersion,
-		ModTime: info.ModTime(),
-		Size:    info.Size(),
-		SrcPath: srcPath,
-		GoCode:  goCode,
+		Version:     CacheVersion,
+		ModTime:     info.ModTime(),
+		Size:        info.Size(),
+		SrcPath:     srcPath,
+		CodegenHash: codegenHash(),
+		GoCode:      goCode,
 	}
 	data, err := json.Marshal(entry)
 	if err != nil {

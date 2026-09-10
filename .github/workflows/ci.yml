@@ -93,8 +93,10 @@ jobs:
         run: KYLIX=$PWD/kylix bash examples/complete-tutorial/test_all_llvm.sh
 
   llvm-windows:
-    name: LLVM backend (Windows native, smoke)
+    name: LLVM backend (Windows native via llvm-mingw)
     runs-on: windows-latest
+    env:
+      LLVM_MINGW_VER: '20260826'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -105,24 +107,32 @@ jobs:
           go-version: '1.25'
           cache: true
 
+      - name: Fetch llvm-mingw (portable zip — v0.6.2 lesson: installers are unreliable)
+        # mstorsjo/llvm-mingw ships the full LLVM toolchain (clang/llc/opt +
+        # ld.lld) preconfigured for mingw-w64; it doubles as both the IR
+        # toolchain and the native Windows link sysroot (KYLIX_MINGW_ROOT).
+        shell: pwsh
+        run: |
+          $zip = "$env:RUNNER_TEMP\llvm-mingw.zip"
+          Invoke-WebRequest -Uri "https://github.com/mstorsjo/llvm-mingw/releases/download/$($env:LLVM_MINGW_VER)/llvm-mingw-$($env:LLVM_MINGW_VER)-ucrt-x86_64.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath C:\ -Force
+          $root = "C:\llvm-mingw-$($env:LLVM_MINGW_VER)-ucrt-x86_64"
+          Add-Content $env:GITHUB_PATH "$root\bin"
+          Add-Content $env:GITHUB_ENV "KYLIX_MINGW_ROOT=$root"
+
       - name: Build CLI
         shell: pwsh
         run: go build -o kylix.exe ./cmd/kylix/
 
+      - name: Doctor (advisory)
+        shell: bash
+        run: ./kylix.exe doctor || true
+
       - name: "Compile + run representative tutorials (native Windows .exe)"
-        # v0.6.2 cross-platform smoke: hello / control-flow / oop / stdlib-core
-        # compile to native Windows executables via the LLVM backend and run.
-        # The hosted runner's LLVM installer is unreliable (GUI/UAC), so when
-        # llc isn't on PATH this is a documented no-op — Linux is the primary
-        # LLVM verification; Windows compilation is exercised on machines with
-        # LLVM installed (kylix doctor checks it).
+        # v0.7.1 P3: real Windows compilation via llvm-mingw (no skip path).
         shell: bash
         run: |
           set -e
-          if ! command -v llc >/dev/null 2>&1 && [ ! -x "/c/LLVM/bin/llc.exe" ]; then
-            echo "LLVM not installed on this runner — skipping Windows LLVM smoke (see README)"
-            exit 0
-          fi
           for ex in \
             examples/complete-tutorial/01_basics/example01_hello.klx \
             examples/complete-tutorial/02_control_flow/example07_if_else.klx \
@@ -132,6 +142,58 @@ jobs:
             ./kylix.exe build --backend=llvm -o "$name.exe" "$ex"
             "./$name.exe"
           done
+
+      - name: "Regex engine (example61, multi-file pure-Kylix unit)"
+        shell: bash
+        run: |
+          set -e
+          ./kylix.exe build --backend=llvm -o ex61.exe \
+            stdlib/regex_engine.klx \
+            examples/complete-tutorial/23_regex/example61_regex_engine.klx
+          ./ex61.exe > ex61_windows.txt
+          # tutorial prints "T <pat> | <s>" on match, "F <pat> | <s>" on miss
+          test "$(grep -c '^F ' ex61_windows.txt)" = "0"
+          tail -1 ex61_windows.txt | grep -q "done"
+
+      - name: "net smoke: two-process Winsock echo (real-machine acceptance)"
+        # P1 acceptance on a real Windows environment: WSAStartup-once +
+        # listen/accept/dial/write/read over the Winsock wrappers.
+        shell: bash
+        run: |
+          set -e
+          cat > net_listener.klx <<'EOF'
+          program NetListener;
+          uses net;
+          begin
+            var l := TcpListen(19733);
+            if l = nil then begin WriteLn('listen failed'); exit; end;
+            var c := TcpAccept(l);
+            if c = nil then begin WriteLn('accept failed'); exit; end;
+            var r := TcpRead(c, 64);
+            TcpWrite(c, 'echo:' + r);
+            TcpClose(c);
+            TcpListenerClose(l);
+            WriteLn('listener done');
+          end.
+          EOF
+          cat > net_dialer.klx <<'EOF'
+          program NetDialer;
+          uses net;
+          begin
+            var c := TcpDial('127.0.0.1', 19733);
+            if c = nil then begin WriteLn('dial failed'); exit; end;
+            TcpWrite(c, 'hello');
+            WriteLn(TcpRead(c, 64));
+            TcpClose(c);
+          end.
+          EOF
+          ./kylix.exe build --backend=llvm -o net_listener.exe net_listener.klx
+          ./kylix.exe build --backend=llvm -o net_dialer.exe net_dialer.klx
+          ./net_listener.exe &
+          lpid=$!
+          sleep 2
+          ./net_dialer.exe
+          wait $lpid
 
   selfrepro:
     name: Self-reproduction fixpoint
