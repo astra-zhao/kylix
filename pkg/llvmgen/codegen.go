@@ -207,6 +207,11 @@ type Generator struct {
 	// (Variant boxes, classes) still use plain malloc.
 	needArena bool
 
+	// needBootSafeLen is set when the boot response assembler sizes the
+	// response buffer from optional parts (xhdrs/cookie/body may be absent,
+	// v0.8.0 P3); emits the null-safe strlen helper define.
+	needBootSafeLen bool
+
 	// needClassRTTI is set when is/as class checks are used; emitClassRuntime
 	// emits the edge table + __kylix_class_is_a helper. v0.5.4.
 	needClassRTTI bool
@@ -605,6 +610,22 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	// resets it each iteration — framework buffers never leak.
 	if g.needArena {
 		g.emitArenaBodies()
+	}
+
+	// v0.8.0 P3: null-safe strlen for the boot response assembler's dynamic
+	// response-buffer sizing (xhdrs/cookie/body may each be absent).
+	if g.needBootSafeLen {
+		g.line("define i64 @__kylix_boot_safe_len(ptr %p) {")
+		g.line("entry:")
+		g.line("  %isnull = icmp eq ptr %p, null")
+		g.line("  br i1 %isnull, label %zero, label %haslen")
+		g.line("zero:")
+		g.line("  ret i64 0")
+		g.line("haslen:")
+		g.line("  %n = call i64 @strlen(ptr %p)")
+		g.line("  ret i64 %n")
+		g.line("}")
+		g.line("")
 	}
 
 	// v0.6.4: WebSocket handshake/frame helpers (SHA-1, base64, randomness,

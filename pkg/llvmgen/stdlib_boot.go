@@ -251,6 +251,9 @@ func (g *Generator) emitBootBody(funcName string) {
 // v0.7.0 P2: extended from 16 bytes with a Content-Type slot (set by the
 // constructor: text/plain / text/html / application/json) plus cookie and
 // extra-headers slots that WithCookie/WithHeader fill in.
+// v0.8.0 P3: the cookie slot holds a growing buffer of full
+// "Set-Cookie: ...\r\n" lines (multi-cookie, mirrors the Go side's
+// []string) and the xhdrs slot grows by realloc — see emitBootAppendToSlot.
 func (g *Generator) emitBootResponseBody(funcName string) {
 	ctype := "text/plain; charset=utf-8"
 	switch funcName {
@@ -261,8 +264,11 @@ func (g *Generator) emitBootResponseBody(funcName string) {
 	}
 	g.line(fmt.Sprintf("define ptr @__kylix_boot_%s(i64 %%status, ptr %%body) {", funcName))
 	g.line("entry:")
+	// v0.8.0 P2: the handle lives on the per-request arena — BootRun's loop
+	// resets it after each request, so response handles no longer leak.
+	g.needArena = true
 	h := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 40)", h))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 40)", h))
 	s := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i64, ptr %s, i64 0", s, h))
 	g.line(fmt.Sprintf("  store i64 %%status, ptr %s", s))

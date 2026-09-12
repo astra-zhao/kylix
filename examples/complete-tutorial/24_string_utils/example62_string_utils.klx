@@ -1,0 +1,87 @@
+// example62_string_utils.klx — Pure-Kylix string utilities (v0.8.0 P1)
+// Demonstrates the `stringutil` unit (stdlib/stringutil.klx):
+//   - Trim / TrimLeft / TrimRight / IsBlank: whitespace stripping
+//   - StartsWith / EndsWith / Contains / IndexOf / LastIndexOf / Count: search
+//   - Replace / ReverseString / DupeString / Substring: transforms
+//   - PadStart / PadEnd: fixed-width padding (table / report formatting)
+//   - Split / SplitWhitespace / Join: list-style processing
+//   - Capitalize / TitleCase: case shaping
+// The unit is written entirely in Kylix on top of the core primitives
+// (Length / UpperCase / LowerCase / Ord / s[a:b] slicing / append) and
+// compiles to identical output on all three ends: host Go, host LLVM, and
+// the bootstrap compiler.
+// Compiled as a multi-file build: this file + stdlib/stringutil.klx.
+
+program StringUtilsDemo;
+
+uses stringutil;
+
+procedure Show(label_, v: String);
+begin
+  WriteLn(label_ + ' |' + v + '|');
+end;
+
+begin
+  // ---- trim / blank ----
+  Show('Trim', Trim('  hello world  '));
+  Show('TrimLeft', TrimLeft('  hello  '));
+  Show('TrimRight', TrimRight('  hello  '));
+  if IsBlank('     ') then
+    WriteLn('IsBlank |yes|')
+  else
+    WriteLn('IsBlank |no|');
+  if IsBlank(Trim('  x ')) then
+    WriteLn('IsBlank x |yes|')
+  else
+    WriteLn('IsBlank x |no|');
+
+  // ---- search ----
+  if StartsWith('Kylix.pas', 'Kylix') then
+    WriteLn('StartsWith |yes|')
+  else
+    WriteLn('StartsWith |no|');
+  if EndsWith('report_2026.pdf', '.pdf') then
+    WriteLn('EndsWith |yes|')
+  else
+    WriteLn('EndsWith |no|');
+  if Contains('the quick fox', 'quick') then
+    WriteLn('Contains |yes|')
+  else
+    WriteLn('Contains |no|');
+  WriteLn('IndexOf |' + IntToStr(IndexOf('banana', 'an')) + '|');
+  WriteLn('LastIndexOf |' + IntToStr(LastIndexOf('banana', 'an')) + '|');
+  WriteLn('IndexOf missing |' + IntToStr(IndexOf('banana', 'xy')) + '|');
+  WriteLn('Count |' + IntToStr(Count('a-b-a-b-a', 'a-b')) + '|');
+
+  // ---- transforms ----
+  Show('Replace', Replace('one fish, two fish', 'fish', 'cat'));
+  Show('Reverse', ReverseString('kylix'));
+  Show('Dupe', DupeString('ab', 3));
+  Show('Substring', Substring('abcdefgh', 2, 3));
+  Show('Substring clamp', Substring('abc', 2, 99));
+
+  // ---- padding (fixed-width table) ----
+  WriteLn(PadEnd('id', 6, ' ') + PadEnd('name', 10, ' ') + 'score');
+  WriteLn(PadEnd('7', 6, ' ') + PadEnd('alice', 10, ' ') + PadStart('91', 5, ' '));
+  WriteLn(PadEnd('42', 6, ' ') + PadEnd('bob', 10, ' ') + PadStart('7', 5, ' '));
+  Show('PadStart zero', PadStart('42', 5, '0'));
+
+  // ---- split / join ----
+  var parts := Split('2026-09-11', '-');
+  WriteLn('Split len |' + IntToStr(Length(parts)) + '|');
+  WriteLn('y |' + parts[0] + '| m |' + parts[1] + '| d |' + parts[2] + '|');
+  WriteLn('Join |' + Join(parts, '/') + '|');
+  var ws := SplitWhitespace('  keep   the  change ');
+  WriteLn('Words |' + IntToStr(Length(ws)) + '|');
+  WriteLn('Joined words |' + Join(ws, '+') + '|');
+  var csv := Split('a,,b', ',');
+  WriteLn('Empty middle |' + IntToStr(Length(csv)) + '| ' + Join(csv, ';'));
+
+  // ---- case ----
+  Show('Capitalize', Capitalize('kYLIX lang'));
+  Show('TitleCase', TitleCase('the quick brown fox'));
+
+  // ---- round trip: csv line rebuild ----
+  var row := Split('a,b,c', ',');
+  WriteLn('Rebuilt |' + Join(row, ',') + '|');
+end.

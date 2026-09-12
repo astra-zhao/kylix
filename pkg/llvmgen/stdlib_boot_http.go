@@ -185,15 +185,9 @@ func (g *Generator) emitBootRunBody() {
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", bodyField, res))
 	body := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", body, bodyField))
-	respBuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 8192)", respBuf))
-	g.needArena = true
-	g.line(fmt.Sprintf("  store i8 0, ptr %s", respBuf))
-	g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", respBuf, g.ptrTo(g.addString("HTTP/1.1 "), 10)))
-	g.bootStrcat(respBuf, g.bootIntToStr(status))
-	g.bootStrcat(respBuf, g.ptrTo(g.addString(" "), 2))
-	g.bootStrcat(respBuf, g.bootReasonPhrase(status))
-	// Content-Type from the response handle (null → text/html default).
+	// Content-Type / xhdrs / cookie buffer — loaded up front so the response
+	// buffer can be sized exactly (v0.8.0 P3: was a fixed 8192-byte arena
+	// block that large bodies or many headers silently overflowed).
 	ctField := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 16", ctField, res))
 	ct := g.tmp()
@@ -203,20 +197,54 @@ func (g *Generator) emitBootRunBody() {
 	ctSel := g.tmp()
 	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", ctSel, ctNull,
 		g.ptrTo(g.addString("text/html; charset=utf-8"), 25), ct))
-	// Header lines are assembled in trailing-CRLF style: each line ends with
-	// "\r\n" and the final terminator before the body is a single extra
-	// "\r\n". WithHeader entries ("k: v\r\n" from the fluent API) fit this
-	// style natively — no separator juggling between optional blocks.
-	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\nContent-Type: "), 17))
-	g.bootStrcat(respBuf, ctSel)
-	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\n"), 3))
-	// Extra headers (WithHeader) — appended verbatim ("k: v\r\n" entries).
 	xhField := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 32", xhField, res))
 	xh := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", xh, xhField))
 	xhNull := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", xhNull, xh))
+	ckField := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 24", ckField, res))
+	ck := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", ck, ckField))
+	ckNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", ckNull, ck))
+	// size = 128 (status line + Content-Length + CRLFs) + part lengths;
+	// xhdrs/cookie/body may each be absent → null-safe strlen.
+	ctLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", ctLen, ctSel))
+	g.needBootSafeLen = true
+	xhLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_boot_safe_len(ptr %s)", xhLen, xh))
+	ckLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_boot_safe_len(ptr %s)", ckLen, ck))
+	bodyLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_boot_safe_len(ptr %s)", bodyLen, body))
+	s1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 128, %s", s1, ctLen))
+	s2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %s", s2, s1, xhLen))
+	s3 := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %s", s3, s2, ckLen))
+	respSize := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %s", respSize, s3, bodyLen))
+	respBuf := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 %s)", respBuf, respSize))
+	g.needArena = true
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", respBuf))
+	g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", respBuf, g.ptrTo(g.addString("HTTP/1.1 "), 10)))
+	g.bootStrcat(respBuf, g.bootIntToStr(status))
+	g.bootStrcat(respBuf, g.ptrTo(g.addString(" "), 2))
+	g.bootStrcat(respBuf, g.bootReasonPhrase(status))
+	// Header lines are assembled in trailing-CRLF style: each line ends with
+	// "\r\n" and the final terminator before the body is a single extra
+	// "\r\n". WithHeader entries ("k: v\r\n" from the fluent API) and the
+	// v0.8.0 P3 cookie buffer (full "Set-Cookie: ...\r\n" lines) fit this
+	// style natively — no separator juggling between optional blocks.
+	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\nContent-Type: "), 17))
+	g.bootStrcat(respBuf, ctSel)
+	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\n"), 3))
+	// Extra headers (WithHeader) — appended verbatim ("k: v\r\n" entries).
 	xhLbl := g.label()
 	xhJoin := g.label()
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", xhNull, xhJoin, xhLbl))
@@ -224,27 +252,18 @@ func (g *Generator) emitBootRunBody() {
 	g.bootStrcat(respBuf, xh)
 	g.line(fmt.Sprintf("  br label %%%s", xhJoin))
 	g.line(fmt.Sprintf("%s:", xhJoin))
-	g.bootStrcat(respBuf, g.ptrTo(g.addString("Content-Length: "), 17))
-	bodyLen := g.tmp()
-	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", bodyLen, body))
-	g.bootStrcat(respBuf, g.bootIntToStr(bodyLen))
-	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\n"), 3))
-	// Set-Cookie (WithCookie) — one header line.
-	ckField := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 24", ckField, res))
-	ck := g.tmp()
-	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", ck, ckField))
-	ckNull := g.tmp()
-	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", ckNull, ck))
+	// Set-Cookie (WithCookie, v0.8.0 P3 multi-cookie) — preformatted
+	// "Set-Cookie: ...\r\n" lines, appended verbatim.
 	ckLbl := g.label()
 	ckJoin := g.label()
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", ckNull, ckJoin, ckLbl))
 	g.line(fmt.Sprintf("%s:", ckLbl))
-	g.bootStrcat(respBuf, g.ptrTo(g.addString("Set-Cookie: "), 13))
 	g.bootStrcat(respBuf, ck)
-	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\n"), 3))
 	g.line(fmt.Sprintf("  br label %%%s", ckJoin))
 	g.line(fmt.Sprintf("%s:", ckJoin))
+	g.bootStrcat(respBuf, g.ptrTo(g.addString("Content-Length: "), 17))
+	g.bootStrcat(respBuf, g.bootIntToStr(bodyLen))
+	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\n"), 3))
 	g.bootStrcat(respBuf, g.ptrTo(g.addString("\r\n"), 3))
 	g.bootStrcat(respBuf, body)
 	g.emitBootSend(conn, respBuf)

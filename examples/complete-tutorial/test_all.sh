@@ -169,6 +169,30 @@ run_regex_test() {
 
 run_regex_test
 
+# 24_string_utils (v0.8.0 P1): example62 uses the pure-Kylix stringutil unit —
+# multi-file build with stdlib/stringutil.klx.
+run_string_utils_test() {
+    echo "Testing 24_string_utils..."
+    cd "$ROOT/24_string_utils" 2>/dev/null || return 0
+    TOTAL=$((TOTAL + 1))
+    if $KYLIX build "$ROOT/../../stdlib/stringutil.klx" example62_string_utils.klx 2>&1 | grep -q "✓ Compiled"; then
+        local out
+        out=$(go run main.go 2>&1)
+        if [ "$(echo "$out" | tail -1)" = "Rebuilt |a,b,c|" ] && [ "$(echo "$out" | wc -l | tr -d ' ')" = "30" ]; then
+            echo "  ✓ example62_string_utils"
+            PASS=$((PASS + 1))
+        else
+            echo "  ✗ example62_string_utils (run output mismatch)"
+            FAIL=$((FAIL + 1))
+        fi
+    else
+        echo "  ✗ example62_string_utils (compile failed)"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+run_string_utils_test
+
 echo ""
 echo "================================"
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"

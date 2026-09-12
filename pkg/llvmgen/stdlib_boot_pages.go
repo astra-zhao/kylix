@@ -222,58 +222,51 @@ func (g *Generator) emitBootResponseMethodCall(handle, method string, args []ast
 		return handle, "ptr", nil
 
 	case "WithCookie":
-		// resp.WithCookie(name, value): cookie slot = "name=value; Path=/".
+		// resp.WithCookie(name, value): append a full "Set-Cookie: <c>; Path=/"
+		// line to the cookie buffer (v0.8.0 P3 multi-cookie — the slot held a
+		// single overwritten cookie before; the Go side appends to a []string).
+		// The buffer grows by realloc; the response assembler appends its
+		// contents verbatim.
 		if len(argRegs) < 2 {
 			return "", "", fmt.Errorf("TResponse.WithCookie expects 2 arguments, got %d", len(argRegs))
 		}
 		nameLen := g.bootStrlen(argRegs[0])
 		valLen := g.bootStrlen(argRegs[1])
-		cap1 := g.tmp()
-		g.line(fmt.Sprintf("  %s = add i64 %s, %s", cap1, nameLen, valLen))
+		sumLen := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, %s", sumLen, nameLen, valLen))
 		cap2 := g.tmp()
-		g.line(fmt.Sprintf("  %s = add i64 %s, 24", cap2, cap1))
-		buf := g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, cap2))
-		fmtStr := g.addString("%s=%s; Path=/")
-		fmtPtr := g.ptrTo(fmtStr, len("%s=%s; Path=/"))
+		g.line(fmt.Sprintf("  %s = add i64 %s, 40", cap2, sumLen)) // "Set-Cookie: " + "=; Path=/\r\n" + NUL + slack
+		g.needArena = true
+		entry := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 %s)", entry, cap2))
+		fmtStr := g.addString("Set-Cookie: %s=%s; Path=/\r\n")
+		fmtPtr := g.ptrTo(fmtStr, len("Set-Cookie: %s=%s; Path=/\r\n"))
 		g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 %s, ptr %s, ptr %s, ptr %s)",
-			buf, cap2, fmtPtr, argRegs[0], argRegs[1]))
-		storePtr(buf, 24)
+			entry, cap2, fmtPtr, argRegs[0], argRegs[1]))
+		g.emitBootAppendToSlot(handle, 24, entry, cap2)
 		return handle, "ptr", nil
 
 	case "WithHeader":
 		// resp.WithHeader(k, v): append "k: v\r\n" to the xhdrs string
-		// (allocated 1024 on first use; the Go side keeps a real map).
+		// (v0.8.0 P3: the buffer grows by realloc — the fixed 1024-byte
+		// first-use allocation silently overflowed past a few headers).
 		if len(argRegs) < 2 {
 			return "", "", fmt.Errorf("TResponse.WithHeader expects 2 arguments, got %d", len(argRegs))
 		}
-		xh := g.bootLoadPtr(field(32))
-		xhNull := g.tmp()
-		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", xhNull, xh))
-		allocLbl := g.label()
-		joinLbl := g.label()
-		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", xhNull, allocLbl, joinLbl))
-		g.line(fmt.Sprintf("%s:", allocLbl))
-		fresh := g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 1024)", fresh))
-		g.line(fmt.Sprintf("  store i8 0, ptr %s", fresh))
-		storePtr(fresh, 32)
-		g.line(fmt.Sprintf("  br label %%%s", joinLbl))
-		g.line(fmt.Sprintf("%s:", joinLbl))
-		xh2 := g.bootLoadPtr(field(32))
 		kLen := g.bootStrlen(argRegs[0])
 		vLen := g.bootStrlen(argRegs[1])
 		tot := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 %s, %s", tot, kLen, vLen))
 		cap := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 %s, 8", cap, tot))
+		g.needArena = true
 		entry := g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", entry, cap))
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 %s)", entry, cap))
 		fmtStr := g.addString("%s: %s\r\n")
 		fmtPtr := g.ptrTo(fmtStr, 10)
 		g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 %s, ptr %s, ptr %s, ptr %s)",
 			entry, cap, fmtPtr, argRegs[0], argRegs[1]))
-		g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", xh2, entry))
+		g.emitBootAppendToSlot(handle, 32, entry, cap)
 		return handle, "ptr", nil
 
 	case "Redirect":
@@ -283,30 +276,17 @@ func (g *Generator) emitBootResponseMethodCall(handle, method string, args []ast
 			return "", "", fmt.Errorf("TResponse.Redirect expects 1 argument, got %d", len(argRegs))
 		}
 		g.line(fmt.Sprintf("  store i64 302, ptr %s", field(0)))
-		xh := g.bootLoadPtr(field(32))
-		xhNull := g.tmp()
-		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", xhNull, xh))
-		allocLbl := g.label()
-		joinLbl := g.label()
-		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", xhNull, allocLbl, joinLbl))
-		g.line(fmt.Sprintf("%s:", allocLbl))
-		fresh := g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 1024)", fresh))
-		g.line(fmt.Sprintf("  store i8 0, ptr %s", fresh))
-		storePtr(fresh, 32)
-		g.line(fmt.Sprintf("  br label %%%s", joinLbl))
-		g.line(fmt.Sprintf("%s:", joinLbl))
-		xh2 := g.bootLoadPtr(field(32))
 		uLen := g.bootStrlen(argRegs[0])
 		cap := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 %s, 16", cap, uLen))
+		g.needArena = true
 		entry := g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", entry, cap))
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 %s)", entry, cap))
 		fmtStr := g.addString("Location: %s\r\n")
 		fmtPtr := g.ptrTo(fmtStr, 14)
 		g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 %s, ptr %s, ptr %s)",
 			entry, cap, fmtPtr, argRegs[0]))
-		g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", xh2, entry))
+		g.emitBootAppendToSlot(handle, 32, entry, cap)
 		return handle, "ptr", nil
 
 	default:
@@ -315,6 +295,48 @@ func (g *Generator) emitBootResponseMethodCall(handle, method string, args []ast
 		g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; TResponse.%s stub", r, method))
 		return r, "ptr", nil
 	}
+}
+
+// emitBootAppendToSlot appends entry (entryCap bytes, NUL-terminated by the
+// snprintf above) to the growable string buffer stored in the response
+// handle's slot at byteOffset (v0.8.0 P3). First use allocates entryCap;
+// later appends copy old + entry into a fresh block — so repeated WithHeader/
+// WithCookie calls never overflow a fixed buffer.
+// v0.8.0 P2: all blocks live on the per-request arena (BootRun resets it
+// after each request), replacing the malloc/realloc scheme that leaked the
+// buffers on every request. The buffer pointer is re-loaded from the slot
+// after the first-use branch.
+func (g *Generator) emitBootAppendToSlot(handle string, byteOffset int64, entry string, entryCap string) {
+	g.needArena = true
+	field := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %d", field, handle, byteOffset))
+	cur := g.bootLoadPtr(field)
+	curNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", curNull, cur))
+	allocLbl := g.label()
+	joinLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", curNull, allocLbl, joinLbl))
+	g.line(fmt.Sprintf("%s:", allocLbl))
+	fresh := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 %s)", fresh, entryCap))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", fresh))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", fresh, field))
+	g.line(fmt.Sprintf("  br label %%%s", joinLbl))
+	g.line(fmt.Sprintf("%s:", joinLbl))
+	buf := g.bootLoadPtr(field)
+	bufLen := g.bootStrlen(buf)
+	bufPlusOne := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", bufPlusOne, bufLen))
+	newLen := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, %s", newLen, bufLen, entryCap))
+	grown := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 %s)", grown, newLen))
+	// copy bufLen+1: strcat needs dst NUL-terminated, and the copied prefix
+	// holds only raw bytes — its terminator must come along (the source block
+	// is at least bufLen+1: every append's entry is snprintf NUL-terminated).
+	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", grown, buf, bufPlusOne))
+	g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", grown, entry))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", grown, field))
 }
 
 // emitBootServeStaticBody — i1 @__kylix_boot_serve_static(ptr %conn,

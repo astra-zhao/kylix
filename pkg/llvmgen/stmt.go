@@ -604,15 +604,27 @@ func (g *Generator) emitVarDecl(s *ast.VarDecl) error {
 			case "{ ptr, i64, i64 }":
 				// v0.6.4: slice-typed slot — register a dynamic array so
 				// Length()/[] work. A function-returned slice (DbQueryRows,
-				// JsonGetArray) is a Variant array (box ptr elements); an array
-				// literal infers its element type from the first element.
+				// JsonGetArray) used to be assumed a Variant array (box ptr
+				// elements); v0.8.0 P1: resolve the element from the callee's
+				// Kylix return type via exprKylixType ("array of String" →
+				// plain ptr elements) — `var parts := Split(...)` indexed as
+				// variant boxes before, printing nil. Array literals still
+				// infer their element from the first element.
 				suffix = "_dyn"
 				actualLLVMType = "{ ptr, i64, i64 }"
-				elemT, isVar := "ptr", true
+				elemT, elemKylix, isVar := "ptr", "", true
 				if al, ok := s.Value.(*ast.ArrayLiteral); ok && len(al.Elements) > 0 {
 					elemT, isVar = literalElemType(al.Elements[0]), false
+				} else if kt := g.exprKylixType(s.Value); strings.HasPrefix(kt, "array of ") {
+					elemKylix = strings.TrimPrefix(kt, "array of ")
+					if elemKylix != "Variant" {
+						isVar = false
+						elemT = LLVMType(elemKylix)
+					} else {
+						g.needVariantRuntime = true
+					}
 				}
-				g.arrayInfo[name] = &arrayInfo{IsDynamic: true, ElementType: elemT, IsVariant: isVar}
+				g.arrayInfo[name] = &arrayInfo{IsDynamic: true, ElementType: elemT, ElementKylixType: elemKylix, IsVariant: isVar}
 			}
 			allocaReg := g.freshVarReg(name, suffix)
 			g.line(fmt.Sprintf("  %s = alloca %s, align 8", allocaReg, actualLLVMType))

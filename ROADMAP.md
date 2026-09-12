@@ -191,11 +191,11 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] LLVM 端类方法多返回支持：vtable 槽聚合返回 `%__ret_<Class>_<Method>`（预扫描注册 + MethodInfo.MultiRetTypes + emitTupleBuild/destructure 打通）——`(q, r) := obj.M()` 与 `var q, r := obj.M()` 两形式与 host 输出一致；模板引擎 RenderString/ErrorMsg 绕行模式可退役
 - [x] boot/stdlib "三处名单"单一来源化：`internal/bootapi.BootFunctions` 单源表，Go host + LLVM 两端 import；顺带修复 LLVM jwt 名单缺 BootRegisterJwtAuth 漂移残留；dispatch 侧由 TestBootNames_Dispatchable 守护
 
-### v0.8.0 — 自举 stdlib（真自包含）
-- [ ] 纯 Kylix stdlib 扩展（`template_engine.klx` 为范本）：encoding/jsonutil/字符串工具等可纯 Kylix 表达的模块迁到 `.klx`（host 编译 → 烘焙 → 三端同源）
-- [ ] 内存管理：per-request arena 推广（响应 handle/xhdrs 纳入，消 malloc 泄漏）；htab 入口 magic 校验（传"槽"当"表指针"类 bug 快速定位）
-- [ ] LLVM boot server：多 cookie 槽 + 自定义头 realloc（1024 上限解除）
-- [ ] bootstrap 端 boot server 评估（BootRun/read_headers/parse_request 移植或烘焙）
+### v0.8.0 — 自举 stdlib（真自包含）✅（2026-09-11）
+- [x] 纯 Kylix stdlib 扩展：`stdlib/stringutil.klx`（20 函数，多文件构建三端同源，regex_engine 模式）+ example62 教程三端逐字 parity + 顺带修 host LLVM `var x := <数组返回函数>` 元素推断 bug
+- [x] 内存管理：per-request arena 推广（TResponse handle 纳入，消 malloc 泄漏）；htab 入口 magic 校验（24B 布局 + 7 入口 `__kylix_htab_check` + exit 217，host/bootstrap/烘焙数据三处同步）
+- [x] LLVM boot server：多 cookie 槽（Set-Cookie 行增长缓冲）+ 自定义头/cookie realloc（`emitBootAppendToSlot`，1024 上限解除）
+- [x] bootstrap 端 boot server 评估：结论记 TECHNICAL_DEBT.md（~800 行固定 define 可烘焙 + 注解装配 emitter 移植 ~600 行 Kylix；归 v0.9.0 实施）
 
 ### v0.9.0 — 1.0.0-rc 打磨
 - [ ] 三平台 CI 稳定全绿（linux/darwin/windows × amd64/arm64）

@@ -501,6 +501,13 @@ func (g *Generator) callReturnKylixType(call *ast.CallExpression) string {
 	// Identifier func: top-level function (e.g. NewLexer) — funcSigs.
 	if ident, ok := call.Function.(*ast.Identifier); ok {
 		if sig, ok := g.funcSigs[ident.Value]; ok && sig.ReturnType != nil {
+			// v0.8.0 P1: array return types need the "array of <elem>" shape —
+			// typeExprName only handles Identifier and falls back to
+			// TokenLiteral() for *ast.ArrayType, so `var parts := Split(...)`
+			// could not resolve its element type.
+			if at, isArr := sig.ReturnType.(*ast.ArrayType); isArr {
+				return "array of " + typeExprName(at.ElementType)
+			}
 			return typeExprName(sig.ReturnType)
 		}
 		// stdlib one-shot helpers returning a THttpResponse handle (v0.6.1).

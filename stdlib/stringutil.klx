@@ -1,0 +1,481 @@
+unit stringutil;
+
+// stringutil.klx — v0.8.0 P1: pure-Kylix string utilities.
+//
+// One source, three backends (the stdlib/template_engine.klx and
+// stdlib/regex_engine.klx pattern): the host Go backend and the host LLVM
+// backend compile this unit directly (multi-file build), and the bootstrap
+// compiles it through the self-hosted emitter — identical output everywhere.
+// Byte (ASCII) semantics, like the rest of the Kylix runtime.
+//
+// The core language ships only Length/UpperCase/LowerCase/IntToStr/... plus
+// s[a:b] slicing; everything else people expect from a stdlib string module
+// lives here, built from those primitives:
+//
+//   Trim / TrimLeft / TrimRight      whitespace stripping (' ' \t \r \n)
+//   StartsWith / EndsWith            prefix/suffix test
+//   Contains / IndexOf / LastIndexOf substring search (-1 / -1 when missing)
+//   Count                            non-overlapping occurrences
+//   Replace                          replace ALL occurrences (no regex)
+//   Split                            split on a separator string
+//   SplitWhitespace                  split on runs of whitespace
+//   Join                             join with a separator
+//   ReverseString                    byte reversal
+//   PadStart / PadEnd                pad to a width with a pad string
+//   DupeString                       repeat n times
+//   Substring                        s[start:start+len] with clamping
+//   Capitalize                       first letter upper, rest lower
+//   TitleCase                        capitalize the first letter of each word
+//   IsBlank                          empty or whitespace-only
+//
+// Edge-case contract (documented, deterministic on all backends):
+//   IndexOf(s, '')        = 0;  Contains(s, '') = true;  Count(s, '') = 0
+//   Replace(s, '', x)     = s   (empty needle would loop forever)
+//   Split(s, '')          = [s] (single element)
+//   Split('', sep)        = []  (empty input splits to nothing)
+//   Substring clamps start/len into range; start beyond length gives ''
+//   PadStart/PadEnd with an empty pad string fall back to ' '
+
+// ============================ search ============================
+
+// IndexOf returns the first index of `sub` inside `s` (0-based), or -1.
+function IndexOf(s, sub: String): Integer;
+var
+  i: Integer;
+begin
+  result := -1;
+  if Length(sub) = 0 then
+  begin
+    result := 0;
+  end
+  else
+  begin
+    if Length(sub) <= Length(s) then
+    begin
+      i := 0;
+      while i <= Length(s) - Length(sub) do
+      begin
+        if s[i:i+Length(sub)] = sub then
+        begin
+          result := i;
+          i := Length(s);
+        end
+        else
+          i := i + 1;
+      end;
+    end;
+  end;
+end;
+
+// LastIndexOf returns the last index of `sub` inside `s` (0-based), or -1.
+function LastIndexOf(s, sub: String): Integer;
+var
+  i: Integer;
+begin
+  result := -1;
+  if Length(sub) = 0 then
+  begin
+    result := Length(s);
+  end
+  else
+  begin
+    if Length(sub) <= Length(s) then
+    begin
+      i := Length(s) - Length(sub);
+      while i >= 0 do
+      begin
+        if s[i:i+Length(sub)] = sub then
+        begin
+          result := i;
+          i := -1;
+        end
+        else
+          i := i - 1;
+      end;
+    end;
+  end;
+end;
+
+// Contains reports whether `sub` occurs anywhere in `s`.
+function Contains(s, sub: String): Boolean;
+begin
+  result := IndexOf(s, sub) >= 0;
+end;
+
+// StartsWith reports whether `s` begins with `prefix`.
+function StartsWith(s, prefix: String): Boolean;
+begin
+  result := false;
+  if Length(prefix) = 0 then
+    result := true
+  else
+  begin
+    if Length(prefix) <= Length(s) then
+    begin
+      if s[0:Length(prefix)] = prefix then
+        result := true;
+    end;
+  end;
+end;
+
+// EndsWith reports whether `s` ends with `suffix`.
+function EndsWith(s, suffix: String): Boolean;
+begin
+  result := false;
+  if Length(suffix) = 0 then
+    result := true
+  else
+  begin
+    if Length(suffix) <= Length(s) then
+    begin
+      if s[Length(s)-Length(suffix):Length(s)] = suffix then
+        result := true;
+    end;
+  end;
+end;
+
+// Count returns the number of non-overlapping occurrences of `sub` in `s`.
+function Count(s, sub: String): Integer;
+var
+  i: Integer;
+begin
+  result := 0;
+  if Length(sub) = 0 then
+  begin
+    result := 0;
+  end
+  else
+  begin
+    i := 0;
+    while i + Length(sub) <= Length(s) do
+    begin
+      if s[i:i+Length(sub)] = sub then
+      begin
+        result := result + 1;
+        i := i + Length(sub);
+      end
+      else
+        i := i + 1;
+    end;
+  end;
+end;
+
+// ============================ transforms ============================
+
+// Replace returns `s` with every occurrence of `fromS` replaced by `toS`.
+// An empty `fromS` returns `s` unchanged.
+function Replace(s, fromS, toS: String): String;
+var
+  i: Integer;
+  outp: String;
+begin
+  if Length(fromS) = 0 then
+  begin
+    result := s;
+  end
+  else
+  begin
+    outp := '';
+    i := 0;
+    while i < Length(s) do
+    begin
+      if i + Length(fromS) <= Length(s) then
+      begin
+        if s[i:i+Length(fromS)] = fromS then
+        begin
+          outp := outp + toS;
+          i := i + Length(fromS);
+        end
+        else
+        begin
+          outp := outp + s[i:i+1];
+          i := i + 1;
+        end;
+      end
+      else
+      begin
+        outp := outp + s[i:i+1];
+        i := i + 1;
+      end;
+    end;
+    result := outp;
+  end;
+end;
+
+// ReverseString returns `s` with its bytes in reverse order.
+function ReverseString(s: String): String;
+var
+  i: Integer;
+  outp: String;
+begin
+  outp := '';
+  i := Length(s);
+  while i > 0 do
+  begin
+    i := i - 1;
+    outp := outp + s[i:i+1];
+  end;
+  result := outp;
+end;
+
+// DupeString returns `s` repeated `n` times ('' when n <= 0).
+function DupeString(s: String; n: Integer): String;
+var
+  i: Integer;
+  outp: String;
+begin
+  outp := '';
+  i := 0;
+  while i < n do
+  begin
+    outp := outp + s;
+    i := i + 1;
+  end;
+  result := outp;
+end;
+
+// Substring returns s[start:start+clampLen] with start/clampLen clamped into range.
+// A start beyond the length yields ''.
+function Substring(s: String; start: Integer; clampLen: Integer): String;
+var
+  b, e: Integer;
+begin
+  b := start;
+  if b < 0 then
+    b := 0;
+  if b > Length(s) then
+    b := Length(s);
+  e := b + clampLen;
+  if e < b then
+    e := b;
+  if e > Length(s) then
+    e := Length(s);
+  result := s[b:e];
+end;
+
+// ============================ whitespace ============================
+
+// SUAt returns the single character of `s` at `i`, or ' ' when out of range
+// (used by the trim/scan helpers so bounds checks stay in one place).
+function SUAt(s: String; i: Integer): String;
+begin
+  if (i >= 0) and (i < Length(s)) then
+    result := s[i:i+1]
+  else
+    result := ' ';
+end;
+
+// SUIsSpace reports whether `c` is one of ' ' \t \r \n. Byte comparison via
+// Ord — the Chr builtin exists only on the Go backend, so whitespace is
+// identified by code point (32/9/13/10) to stay three-end identical.
+function SUIsSpace(c: String): Boolean;
+var
+  o: Integer;
+begin
+  o := Ord(c);
+  result := (o = 32) or (o = 9) or (o = 13) or (o = 10);
+end;
+
+// TrimLeft strips leading whitespace.
+function TrimLeft(s: String): String;
+var
+  i: Integer;
+begin
+  i := 0;
+  // NB: SUAt is range-safe, so it is well-defined even when the (non
+  // short-circuiting) `and` evaluates it with i = Length(s).
+  while (i < Length(s)) and SUIsSpace(SUAt(s, i)) do
+    i := i + 1;
+  result := s[i:Length(s)];
+end;
+
+// TrimRight strips trailing whitespace.
+function TrimRight(s: String): String;
+var
+  e: Integer;
+begin
+  e := Length(s);
+  while (e > 0) and SUIsSpace(SUAt(s, e - 1)) do
+    e := e - 1;
+  result := s[0:e];
+end;
+
+// Trim strips leading and trailing whitespace.
+function Trim(s: String): String;
+begin
+  result := TrimLeft(TrimRight(s));
+end;
+
+// IsBlank reports whether `s` is empty or whitespace-only.
+function IsBlank(s: String): Boolean;
+begin
+  result := Length(Trim(s)) = 0;
+end;
+
+// ============================ padding ============================
+
+// PadStart left-pads `s` with `pad` (repeated) until Length(s) >= width.
+// An empty pad string falls back to a single space.
+function PadStart(s: String; width: Integer; pad: String): String;
+var
+  outp: String;
+begin
+  if Length(pad) = 0 then
+    pad := ' ';
+  outp := s;
+  while Length(outp) < width do
+    outp := pad + outp;
+  result := outp;
+end;
+
+// PadEnd right-pads `s` with `pad` (repeated) until Length(s) >= width.
+// An empty pad string falls back to a single space.
+function PadEnd(s: String; width: Integer; pad: String): String;
+var
+  outp: String;
+begin
+  if Length(pad) = 0 then
+    pad := ' ';
+  outp := s;
+  while Length(outp) < width do
+    outp := outp + pad;
+  result := outp;
+end;
+
+// ============================ split / join ============================
+
+// Split cuts `s` into pieces at every occurrence of `sep` and returns the
+// pieces WITHOUT the separators. Empty input gives []; empty sep gives [s];
+// no occurrence gives [s]; separators at the very start/end give empty
+// pieces (so Split('a,,b', ',') = ['a', '', 'b']).
+function Split(s, sep: String): array of String;
+var
+  arr: array of String;
+  i, seg: Integer;
+begin
+  result := arr;
+  if Length(s) = 0 then
+  begin
+    result := arr;
+  end
+  else
+  begin
+    if Length(sep) = 0 then
+    begin
+      arr := append(arr, s);
+      result := arr;
+    end
+    else
+    begin
+      seg := 0;
+      i := 0;
+      while i <= Length(s) - Length(sep) do
+      begin
+        if s[i:i+Length(sep)] = sep then
+        begin
+          arr := append(arr, s[seg:i]);
+          i := i + Length(sep);
+          seg := i;
+        end
+        else
+          i := i + 1;
+      end;
+      arr := append(arr, s[seg:Length(s)]);
+      result := arr;
+    end;
+  end;
+end;
+
+// SplitWhitespace cuts `s` at runs of whitespace and drops the empty
+// pieces: SplitWhitespace('  a  b c') = ['a', 'b', 'c'].
+function SplitWhitespace(s: String): array of String;
+var
+  arr: array of String;
+  i, seg: Integer;
+  outp: String;
+begin
+  result := arr;
+  i := 0;
+  seg := -1;
+  while i < Length(s) do
+  begin
+    if SUIsSpace(SUAt(s, i)) then
+    begin
+      if seg >= 0 then
+      begin
+        arr := append(arr, s[seg:i]);
+        seg := -1;
+      end;
+    end
+    else
+    begin
+      if seg < 0 then
+        seg := i;
+    end;
+    i := i + 1;
+  end;
+  if seg >= 0 then
+  begin
+    outp := s[seg:Length(s)];
+    arr := append(arr, outp);
+  end;
+  result := arr;
+end;
+
+// Join concatenates `parts` inserting `sep` between adjacent elements.
+function Join(parts: array of String; sep: String): String;
+var
+  i: Integer;
+  outp: String;
+begin
+  outp := '';
+  i := 0;
+  while i < Length(parts) do
+  begin
+    if i > 0 then
+      outp := outp + sep;
+    outp := outp + parts[i];
+    i := i + 1;
+  end;
+  result := outp;
+end;
+
+// ============================ case ============================
+
+// Capitalize upper-cases the first letter and lower-cases the rest.
+function Capitalize(s: String): String;
+var
+  first, rest: String;
+begin
+  if Length(s) = 0 then
+  begin
+    result := '';
+  end
+  else
+  begin
+    first := UpperCase(s[0:1]);
+    rest := LowerCase(s[1:Length(s)]);
+    result := first + rest;
+  end;
+end;
+
+// TitleCase upper-cases the first letter of every whitespace-separated word
+// and lower-cases the rest of each word.
+function TitleCase(s: String): String;
+var
+  arr: array of String;
+  i: Integer;
+  outp: String;
+begin
+  arr := SplitWhitespace(s);
+  outp := '';
+  i := 0;
+  while i < Length(arr) do
+  begin
+    if i > 0 then
+      outp := outp + ' ';
+    outp := outp + Capitalize(arr[i]);
+    i := i + 1;
+  end;
+  result := outp;
+end;

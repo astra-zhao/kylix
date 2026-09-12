@@ -12,7 +12,37 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
+## v0.8.0 — 自举 stdlib（真自包含）✅（2026-09-11）
+
+### P1 纯 Kylix stdlib 扩展 ✅
+
+- **`stdlib/stringutil.klx`**（~490 行，20 函数）：核心语言只内置 `Length/UpperCase/LowerCase/IntToStr/...` + `s[a:b]` 切片，字符串工具全缺——本次补齐：Trim/TrimLeft/TrimRight/IsBlank、StartsWith/EndsWith/Contains/IndexOf/LastIndexOf/Count、Replace/ReverseString/DupeString/Substring、PadStart/PadEnd、Split/SplitWhitespace/Join、Capitalize/TitleCase。全部由核心原语（Ord/Length/切片/append）表达，字节语义、边界约定文档化（`IndexOf(s,'')=0`、`Replace(s,'',x)=s`、`Split('',sep)=[]`、clamp 语义、空 pad 回退空格等）。
+- **多文件构建三端同源**（regex_engine.klx 模式，非烘焙）：host Go、host LLVM、bootstrap（`--emit-llvm`）编译同一份 unit 输出逐字一致。**example62 教程**（`examples/complete-tutorial/24_string_utils/`，30 行输出）三端 diff 逐字节一致。
+- **三 sweep 接入**：`test_all.sh` / `test_all_llvm.sh` / `test_bootstrap_all.sh` 各加 24_string_utils 多文件特判段（example62 模式）——Go **56/56**、LLVM **56/56**、bootstrap **54 PASS + 2 SKIP**。
+- **顺带修复 host LLVM 推断 bug**：`var parts := Split(...)`（推断 + 函数返回数组）在 LLVM 端元素按 Variant box 索引，读出全 nil——根因两层：(1) `callReturnKylixType` 对 `*ast.ArrayType` 返回类型走 `typeExprName` fallback（TokenLiteral 垃圾），解析不出 "array of String"；(2) `emitVarDecl` 推断分支对 slice RHS 一律假设 Variant 数组（v0.6.4 只为 DbQueryRows 打的补丁）。修复：ArrayType 返回类型发 "array of <elem>" + 推断分支从被调签名解析元素类型（`array of String` → 普通 ptr 元素；ArrayLiteral 仍按首元素推断；DbQueryRows 路径不变）。bootstrap emitter 无此 bug（未注册即通用 slice 路径），不动点不受影响。
+- **开发中确认的语言坑**（规避记录）：`new`/`len` 等 Go/内建名作标识符会撞（参数名避开）；`Length` 生成 `len(s)`，参数名 `len` 遮蔽内建导致编译错；复合 `and` while 条件在 regex_engine 先例下可用（操作数必须自带越界安全——SUAt 范式）。
+
+### P2 内存管理 ✅
+
+- **per-request arena 推广**：TResponse handle（40B：status/body/ctype/cookie/xhdrs）从裸 `malloc` 改走 `__kylix_arena_alloc`（BootRun 循环 reset 回收）——长跑 server 的响应句柄不再泄漏（method/path/request/respBuf 等 v0.6.9 已在 arena 上）。
+- **htab 入口 magic 校验（host + bootstrap 双端）**：htab 布局 16B → 24B `{magic@0, buckets@8, size@16}`（`0x4241545F485F594B` = 4774189848202271051），`htab_new` 存 magic；find/put/get/has/del/size/clear 七入口 + `htab_keys` entry 首指令 `call void @__kylix_htab_check(ptr %t)`——把"值槽"当"表指针"传的 bug 类（v0.7.0 P1 类字段 map 崩溃的根因形态：堆被静默写坏、延迟在无关处崩）从"堆破坏延迟崩溃"变为 **`kylix runtime: htab magic mismatch` + `exit 217` 立即定位**。三处同步：host `stdlib_hashtab.go` + bootstrap `src/llvmgen.klx`（EmitHashtabCheck）+ 烘焙数据 `src/stdlib_ir.klx`（htab_keys 函数体 + 段表 13 段偏移全部 +2修正）；新单测 `TestHtab_MagicCheck`（7 处入口调用 / magic 常量 / malloc 24 / unreachable）。
+- **调试教训**：`@exit` 是 noreturn 但 LLVM 仍要求显式 terminator——`call void @exit(...)` 后缺 `unreachable` 时 llc 报 `expected instruction opcode`（把下一个 label 当指令 opcode 解析）。
+
+### P3 boot server 多 cookie + 自定义头 realloc ✅
+
+- **多 cookie 槽**：cookie 槽（40B handle @24）从单条 cookie 串改为**完整 `Set-Cookie: ...\r\n` 行的增长缓冲**（镜像 Go 端 `[]string` 语义），多次 `WithCookie` 追加不覆盖，响应组装按行输出。
+- **自定义头 realloc**：xhdrs 槽（@32）固定 1024B 上限解除——`emitBootAppendToSlot` 统一处理两槽的首用分配 + 二倍扩容 realloc。
+- **响应组装缓冲精确化**：固定 8192B arena 块改为按实际长度精确分配；新增 null-safe strlen helper（cookie/xhdrs 槽可为 null）。
+- 测试：`stdlib_boot_pages_test` / `stdlib_boot_http_test` 扩展多 cookie 追加与 realloc 行为断言。
+
+### P4 bootstrap 端 boot server 评估 ✅（结论记债，实施归 v0.9.0）
+
+- host example60 IR 实测：`BootRun`/`read_headers`/`parse_request`/`route_lookup`/`serve_static` 等全部为**固定 define（~800 行）可烘焙**（与 13 段烘焙同构）；路由表 `@__kylix_boot_routes` + 注解自动装配 + 40B handle/fluent 方法需 emitter 移植（**bootstrap parser已保留 Attributes（v0.5.9），只差 llvmgen.klx 扫描+发射**）——估计 ~600 行 Kylix + 提取器 boot 段 ~150 行 Python。价值判断：无 Go 机器跑 KylixBoot 属窄场景且 host 端功能完整，不阻塞 1.0.0 API 冻结——结论与依赖债（重烘链路断裂：cover.klx 未入库）记 [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)，归 v0.9.0。
+
+**验证：16 包全绿；Go sweep 56/56；LLVM sweep 56/56；bootstrap sweep 54 PASS + 2 SKIP；IR 不动点保持（gen1 ≡ gen2，227,963 行逐字节一致）**
+
 ## v0.7.2 — CI 全绿 + 稳定性还债 ✅（2026-09-10）
+
 
 ### CI 修复（两个长期红 job）
 

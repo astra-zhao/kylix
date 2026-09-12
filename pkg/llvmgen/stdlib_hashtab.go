@@ -12,8 +12,12 @@ import (
 //
 // Design: separate chaining with a fixed bucket count (256). Each node is a
 // heap-allocated {ptr key, ptr value, ptr next} struct (24 bytes). The table
-// itself is a heap-allocated {ptr buckets, i64 size} header (16 bytes) —
-// `buckets` points to a [256 x ptr] array of bucket head pointers.
+// itself is a heap-allocated {i64 magic, ptr buckets, i64 size} header (24
+// bytes) — `buckets` points to a [256 x ptr] array of bucket head pointers.
+// v0.8.0 P2: the header carries a magic word and every entry point verifies
+// it (htab_check) — the v0.7.0 P1 "slot passed as table pointer" bug class
+// (a value read where a table load was meant) now fails loudly with a clear
+// message instead of silently corrupting the heap.
 //
 //   htab_new()               -> ptr (table header, or null on OOM)
 //   htab_put(t, k, v)        -> void (insert or update; copies k)
@@ -34,6 +38,11 @@ const htabBucketCount = 256
 // htabNodeFields: {ptr key, ptr value, ptr next} = 24 bytes.
 const htabNodeSize = 24
 
+// htabMagic is the sentinel stored in every table header's first word;
+// htab_check rejects headers whose first word differs. (Arbitrary fixed
+// value — "KY" + "_" + "HTAB" little-endian.)
+const htabMagic = 0x4241545F485F594B
+
 // emitHashtabBodies emits all hash-table runtime functions, once per module.
 // Idempotent via hashtabEmitted.
 func (g *Generator) emitHashtabBodies() {
@@ -41,6 +50,7 @@ func (g *Generator) emitHashtabBodies() {
 		return
 	}
 	g.hashtabEmitted = true
+	g.emitHashtabCheck()
 	g.emitHashtabNew()
 	g.emitHashtabHash()
 	g.emitHashtabFind() // helper: returns ptr-to-node-or-null
@@ -67,16 +77,19 @@ func (g *Generator) emitHashtabBodies() {
 func (g *Generator) emitHashtabKeys() {
 	g.line("define { ptr, i64 } @__kylix_htab_keys(ptr %t) {")
 	g.line("entry:")
+	g.line("  call void @__kylix_htab_check(ptr %t)")
 	sizePtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 8", sizePtr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 16", sizePtr))
 	n := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", n, sizePtr))
 	nBytes := g.tmp()
 	g.line(fmt.Sprintf("  %s = mul i64 %s, 8", nBytes, n))
 	items := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", items, nBytes))
+	bucketsSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 8", bucketsSlot))
 	buckets := g.tmp()
-	g.line(fmt.Sprintf("  %s = load ptr, ptr %%t", buckets))
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", buckets, bucketsSlot))
 	idxSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", idxSlot))
 	g.line(fmt.Sprintf("  store i64 0, ptr %s", idxSlot))
@@ -145,6 +158,36 @@ func (g *Generator) emitHashtabKeys() {
 	g.line("")
 }
 
+// emitHashtabCheck emits the entry guard shared by every htab function
+// (v0.8.0 P2): the table pointer must start with the magic word. On mismatch
+// the runtime prints a diagnostic and exits — a wrong pointer (typically a
+// value slot whose load was forgotten) would otherwise scribble over the
+// heap in hard-to-trace ways.
+func (g *Generator) emitHashtabCheck() {
+	g.line("define void @__kylix_htab_check(ptr %t) {")
+	g.line("entry:")
+	m := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %%t", m))
+	ok := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, %d", ok, m, htabMagic))
+	goodLbl := g.label()
+	badLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", ok, goodLbl, badLbl))
+	g.line(fmt.Sprintf("%s:", badLbl))
+	// NB: addString returns the register name, not the value — size the GEP
+	// from the literal, not len(msg) (which would be len("@.str.NNNN") = 10).
+	htabMagicMsg := "kylix runtime: htab magic mismatch — a non-table value was passed where a map/table pointer was expected"
+	msg := g.addString(htabMagicMsg)
+	g.line(fmt.Sprintf("  call i32 @puts(ptr %s)", g.ptrTo(msg, len(htabMagicMsg)+1)))
+	g.line("  call void @exit(i32 217)")
+	// @exit is noreturn but LLVM still demands an explicit terminator.
+	g.line("  unreachable")
+	g.line(fmt.Sprintf("%s:", goodLbl))
+	g.line("  ret void")
+	g.line("}")
+	g.line("")
+}
+
 // htab_new: ptr @__kylix_htab_new()
 //
 //	header = malloc(16)
@@ -156,13 +199,16 @@ func (g *Generator) emitHashtabNew() {
 	g.line("define ptr @__kylix_htab_new() {")
 	g.line("entry:")
 	hdr := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 16)", hdr))
+	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 24)", hdr))
+	g.line(fmt.Sprintf("  store i64 %d, ptr %s", htabMagic, hdr))
 	buckets := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", buckets, htabBucketCount*8))
 	g.line(fmt.Sprintf("  call void @llvm.memset.p0.i64(ptr %s, i8 0, i64 %d, i1 false)", buckets, htabBucketCount*8))
-	g.line(fmt.Sprintf("  store ptr %s, ptr %s", buckets, hdr))
+	bucketsSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", bucketsSlot, hdr))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", buckets, bucketsSlot))
 	sizePtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", sizePtr, hdr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 16", sizePtr, hdr))
 	g.line(fmt.Sprintf("  store i64 0, ptr %s", sizePtr))
 	g.line(fmt.Sprintf("  ret ptr %s", hdr))
 	g.line("}")
@@ -226,8 +272,11 @@ func (g *Generator) emitHashtabHash() {
 func (g *Generator) emitHashtabFind() {
 	g.line("define ptr @__kylix_htab_find(ptr %t, ptr %key) {")
 	g.line("entry:")
+	g.line("  call void @__kylix_htab_check(ptr %t)")
+	bucketsSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 8", bucketsSlot))
 	buckets := g.tmp()
-	g.line(fmt.Sprintf("  %s = load ptr, ptr %%t", buckets))
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", buckets, bucketsSlot))
 	idx := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i64 @__kylix_htab_hash(ptr %%key)", idx))
 	bucketPtr := g.tmp()
@@ -283,6 +332,7 @@ func (g *Generator) emitHashtabFind() {
 func (g *Generator) emitHashtabPut() {
 	g.line("define void @__kylix_htab_put(ptr %t, ptr %key, ptr %val) {")
 	g.line("entry:")
+	g.line("  call void @__kylix_htab_check(ptr %t)")
 	existing := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_find(ptr %%t, ptr %%key)", existing))
 	hasExisting := g.tmp()
@@ -311,8 +361,10 @@ func (g *Generator) emitHashtabPut() {
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", valField, newNode))
 	g.line(fmt.Sprintf("  store ptr %%val, ptr %s", valField))
 	// buckets = t->buckets; idx = hash(key); bucketPtr = &buckets[idx]
+	bucketsSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 8", bucketsSlot))
 	buckets := g.tmp()
-	g.line(fmt.Sprintf("  %s = load ptr, ptr %%t", buckets))
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", buckets, bucketsSlot))
 	idx := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i64 @__kylix_htab_hash(ptr %%key)", idx))
 	bucketPtr := g.tmp()
@@ -327,7 +379,7 @@ func (g *Generator) emitHashtabPut() {
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", newNode, bucketPtr))
 	// t->size++
 	sizePtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 8", sizePtr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 16", sizePtr))
 	curSize := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curSize, sizePtr))
 	newSize := g.tmp()
@@ -351,6 +403,7 @@ func (g *Generator) emitHashtabPut() {
 func (g *Generator) emitHashtabGet() {
 	g.line("define ptr @__kylix_htab_get(ptr %t, ptr %key) {")
 	g.line("entry:")
+	g.line("  call void @__kylix_htab_check(ptr %t)")
 	node := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_find(ptr %%t, ptr %%key)", node))
 	isNull := g.tmp()
@@ -380,6 +433,7 @@ func (g *Generator) emitHashtabGetVariant() {
 	g.needVariantRuntime = true
 	g.line("define ptr @__kylix_htab_get_variant(ptr %t, ptr %key) {")
 	g.line("entry:")
+	g.line("  call void @__kylix_htab_check(ptr %t)")
 	nilPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds { i32, i64 }, ptr @__kylix_variant_nilbox, i32 0, i32 0", nilPtr))
 	node := g.tmp()
@@ -405,6 +459,7 @@ func (g *Generator) emitHashtabGetVariant() {
 func (g *Generator) emitHashtabHas() {
 	g.line("define i1 @__kylix_htab_has(ptr %t, ptr %key) {")
 	g.line("entry:")
+	g.line("  call void @__kylix_htab_check(ptr %t)")
 	node := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_find(ptr %%t, ptr %%key)", node))
 	r := g.tmp()
@@ -421,8 +476,11 @@ func (g *Generator) emitHashtabHas() {
 func (g *Generator) emitHashtabDel() {
 	g.line("define void @__kylix_htab_del(ptr %t, ptr %key) {")
 	g.line("entry:")
+	g.line("  call void @__kylix_htab_check(ptr %t)")
+	bucketsSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 8", bucketsSlot))
 	buckets := g.tmp()
-	g.line(fmt.Sprintf("  %s = load ptr, ptr %%t", buckets))
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", buckets, bucketsSlot))
 	idx := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i64 @__kylix_htab_hash(ptr %%key)", idx))
 	bucketPtr := g.tmp()
@@ -479,7 +537,7 @@ func (g *Generator) emitHashtabDel() {
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", nextVal, prevPtr))
 	g.line(fmt.Sprintf("  call void @free(ptr %s)", cur))
 	sizePtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 8", sizePtr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 16", sizePtr))
 	curSize := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", curSize, sizePtr))
 	newSize := g.tmp()
@@ -496,8 +554,9 @@ func (g *Generator) emitHashtabDel() {
 func (g *Generator) emitHashtabSize() {
 	g.line("define i64 @__kylix_htab_size(ptr %t) {")
 	g.line("entry:")
+	g.line("  call void @__kylix_htab_check(ptr %t)")
 	sizePtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 8", sizePtr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 16", sizePtr))
 	s := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", s, sizePtr))
 	g.line(fmt.Sprintf("  ret i64 %s", s))
@@ -509,8 +568,11 @@ func (g *Generator) emitHashtabSize() {
 func (g *Generator) emitHashtabClear() {
 	g.line("define void @__kylix_htab_clear(ptr %t) {")
 	g.line("entry:")
+	g.line("  call void @__kylix_htab_check(ptr %t)")
+	bucketsSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 8", bucketsSlot))
 	buckets := g.tmp()
-	g.line(fmt.Sprintf("  %s = load ptr, ptr %%t", buckets))
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", buckets, bucketsSlot))
 	iSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
 	// node slot alloca lives in the entry block: a static alloca inside the
@@ -562,7 +624,7 @@ func (g *Generator) emitHashtabClear() {
 	g.line(fmt.Sprintf("  br label %%%s", condLbl))
 	g.line(fmt.Sprintf("%s:", exitLbl))
 	sizePtr := g.tmp()
-	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 8", sizePtr))
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 16", sizePtr))
 	g.line(fmt.Sprintf("  store i64 0, ptr %s", sizePtr))
 	g.line("  ret void")
 	g.line("}")

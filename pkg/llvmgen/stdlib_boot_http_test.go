@@ -114,7 +114,11 @@ func TestBoot_ArenaPerRequest(t *testing.T) {
 	assertIRContains(t, ir, "@__kylix_arena = internal global [1048576 x i8]")
 	assertIRContains(t, ir, "define ptr @__kylix_arena_alloc(i64 %size)")
 	assertIRContains(t, ir, "call void @__kylix_arena_reset()")
-	assertIRContains(t, ir, "call ptr @__kylix_arena_alloc(i64 8192)")
+	// v0.8.0 P3: the response buffer is sized from its actual parts
+	// (status line + ctype + xhdrs + cookies + body) instead of a fixed
+	// 8192-byte block that large bodies silently overflowed.
+	assertIRContains(t, ir, "define i64 @__kylix_boot_safe_len(ptr %p)")
+	assertIRContains(t, ir, "call i64 @__kylix_boot_safe_len(ptr")
 	if contains(t, ir, "@malloc(i64 8192)") {
 		t.Errorf("response buffer still uses plain malloc (should be arena)\nIR:\n%s", ir)
 	}

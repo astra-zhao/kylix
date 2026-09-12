@@ -8509,7 +8509,7 @@ end;
 // {ptr key, ptr value, ptr next} (24B). Keys strdup'd on insert; values stored
 // as-is. Emitted once per module when NeedHashtab is set.
 //
-//   htab_new()            -> ptr
+//   htab_new()            -> ptr   (header: magic@0, buckets@8, size@16)
 //   htab_hash(key)        -> i64  (djb2 masked & 255)
 //   htab_find(t,key)      -> ptr  (node or null)
 //   htab_put(t,key,val)   -> void
@@ -8519,9 +8519,15 @@ end;
 //   htab_size(t)          -> i64
 //   htab_clear(t)         -> void
 //   htab_strdup(s)        -> ptr
+//
+// v0.8.0 P2: every entry point guards with htab_check — the table header's
+// first word must be the magic constant. A wrong pointer (typically a value
+// slot whose load was forgotten — the v0.7.0 P1 bug class) would otherwise
+// scribble over the heap in hard-to-trace ways; now it dies loudly.
 
 procedure TLLVMGenerator.EmitHashtabBodies;
 begin
+  self.EmitHashtabCheck();
   self.EmitHashtabNew();
   self.EmitHashtabHash();
   self.EmitHashtabFind();
@@ -8534,21 +8540,52 @@ begin
   self.EmitHashtabStrdup();
 end;
 
+// htab_check: void @__kylix_htab_check(ptr %t) — entry guard (v0.8.0 P2):
+// the first header word must be the magic constant, else diagnose + exit.
+// (ASCII-only message: the bootstrap lexer keeps source bytes raw and the
+// IR size must be byte-exact.)
+procedure TLLVMGenerator.EmitHashtabCheck;
+var
+  m, ok, goodLbl, badLbl, msg: String;
+begin
+  self.WriteLine('define void @__kylix_htab_check(ptr %t) {');
+  self.WriteLine('entry:');
+  m := self.Tmp();
+  self.WriteLine('  ' + m + ' = load i64, ptr %t');
+  ok := self.Tmp();
+  self.WriteLine('  ' + ok + ' = icmp eq i64 ' + m + ', 4774189848202271051');
+  goodLbl := self.Label();
+  badLbl := self.Label();
+  self.WriteLine('  br i1 ' + ok + ', label %' + goodLbl + ', label %' + badLbl);
+  self.WriteLine(badLbl + ':');
+  msg := self.PtrTo(self.AddString('kylix runtime: htab magic mismatch'), 35);
+  self.WriteLine('  call i32 @puts(ptr ' + msg + ')');
+  self.WriteLine('  call void @exit(i32 217)');
+  self.WriteLine('  unreachable');
+  self.WriteLine(goodLbl + ':');
+  self.WriteLine('  ret void');
+  self.WriteLine('}');
+  self.WriteLine('');
+end;
+
 // htab_new: ptr @__kylix_htab_new()
 procedure TLLVMGenerator.EmitHashtabNew;
 var
-  hdr, buckets, sizePtr: String;
+  hdr, buckets, bucketsSlot, sizePtr: String;
 begin
   self.WriteLine('define ptr @__kylix_htab_new() {');
   self.WriteLine('entry:');
   hdr := self.Tmp();
-  self.WriteLine('  ' + hdr + ' = call ptr @malloc(i64 16)');
+  self.WriteLine('  ' + hdr + ' = call ptr @malloc(i64 24)');
+  self.WriteLine('  store i64 4774189848202271051, ptr ' + hdr);
   buckets := self.Tmp();
   self.WriteLine('  ' + buckets + ' = call ptr @malloc(i64 2048)');
   self.WriteLine('  call void @llvm.memset.p0.i64(ptr ' + buckets + ', i8 0, i64 2048, i1 false)');
-  self.WriteLine('  store ptr ' + buckets + ', ptr ' + hdr);
+  bucketsSlot := self.Tmp();
+  self.WriteLine('  ' + bucketsSlot + ' = getelementptr inbounds i8, ptr ' + hdr + ', i64 8');
+  self.WriteLine('  store ptr ' + buckets + ', ptr ' + bucketsSlot);
   sizePtr := self.Tmp();
-  self.WriteLine('  ' + sizePtr + ' = getelementptr inbounds i8, ptr ' + hdr + ', i64 8');
+  self.WriteLine('  ' + sizePtr + ' = getelementptr inbounds i8, ptr ' + hdr + ', i64 16');
   self.WriteLine('  store i64 0, ptr ' + sizePtr);
   self.WriteLine('  ret ptr ' + hdr);
   self.WriteLine('}');
@@ -8608,14 +8645,17 @@ end;
 // htab_find: ptr @__kylix_htab_find(ptr %t, ptr %key) — node or null.
 procedure TLLVMGenerator.EmitHashtabFind;
 var
-  buckets, idx, bucketPtr, nodeSlot, firstNode, condLbl, bodyLbl: String;
+  buckets, bucketsSlot, idx, bucketPtr, nodeSlot, firstNode, condLbl, bodyLbl: String;
   exitFoundLbl, exitMissLbl: String;
   node, isNull, keyPtr, nodeKey, cmp, eq, nextPtr, nxt: String;
 begin
   self.WriteLine('define ptr @__kylix_htab_find(ptr %t, ptr %key) {');
   self.WriteLine('entry:');
+  self.WriteLine('  call void @__kylix_htab_check(ptr %t)');
+  bucketsSlot := self.Tmp();
+  self.WriteLine('  ' + bucketsSlot + ' = getelementptr inbounds i8, ptr %t, i64 8');
   buckets := self.Tmp();
-  self.WriteLine('  ' + buckets + ' = load ptr, ptr %t');
+  self.WriteLine('  ' + buckets + ' = load ptr, ptr ' + bucketsSlot);
   idx := self.Tmp();
   self.WriteLine('  ' + idx + ' = call i64 @__kylix_htab_hash(ptr %key)');
   bucketPtr := self.Tmp();
@@ -8665,11 +8705,13 @@ end;
 procedure TLLVMGenerator.EmitHashtabPut;
 var
   existing, hasExisting, updateLbl, insertLbl: String;
-  valPtr, newNode, keyField, dup, valField, buckets, idx, bucketPtr: String;
+  valPtr, newNode, keyField, dup, valField: String;
+  buckets, bucketsSlot, idx, bucketPtr: String;
   oldHead, nextField, sizePtr, curSize, newSize: String;
 begin
   self.WriteLine('define void @__kylix_htab_put(ptr %t, ptr %key, ptr %val) {');
   self.WriteLine('entry:');
+  self.WriteLine('  call void @__kylix_htab_check(ptr %t)');
   existing := self.Tmp();
   self.WriteLine('  ' + existing + ' = call ptr @__kylix_htab_find(ptr %t, ptr %key)');
   hasExisting := self.Tmp();
@@ -8693,8 +8735,10 @@ begin
   valField := self.Tmp();
   self.WriteLine('  ' + valField + ' = getelementptr inbounds i8, ptr ' + newNode + ', i64 8');
   self.WriteLine('  store ptr %val, ptr ' + valField);
+  bucketsSlot := self.Tmp();
+  self.WriteLine('  ' + bucketsSlot + ' = getelementptr inbounds i8, ptr %t, i64 8');
   buckets := self.Tmp();
-  self.WriteLine('  ' + buckets + ' = load ptr, ptr %t');
+  self.WriteLine('  ' + buckets + ' = load ptr, ptr ' + bucketsSlot);
   idx := self.Tmp();
   self.WriteLine('  ' + idx + ' = call i64 @__kylix_htab_hash(ptr %key)');
   bucketPtr := self.Tmp();
@@ -8706,7 +8750,7 @@ begin
   self.WriteLine('  store ptr ' + oldHead + ', ptr ' + nextField);
   self.WriteLine('  store ptr ' + newNode + ', ptr ' + bucketPtr);
   sizePtr := self.Tmp();
-  self.WriteLine('  ' + sizePtr + ' = getelementptr inbounds i8, ptr %t, i64 8');
+  self.WriteLine('  ' + sizePtr + ' = getelementptr inbounds i8, ptr %t, i64 16');
   curSize := self.Tmp();
   self.WriteLine('  ' + curSize + ' = load i64, ptr ' + sizePtr);
   newSize := self.Tmp();
@@ -8724,6 +8768,7 @@ var
 begin
   self.WriteLine('define ptr @__kylix_htab_get(ptr %t, ptr %key) {');
   self.WriteLine('entry:');
+  self.WriteLine('  call void @__kylix_htab_check(ptr %t)');
   node := self.Tmp();
   self.WriteLine('  ' + node + ' = call ptr @__kylix_htab_find(ptr %t, ptr %key)');
   isNull := self.Tmp();
@@ -8750,6 +8795,7 @@ var
 begin
   self.WriteLine('define i1 @__kylix_htab_has(ptr %t, ptr %key) {');
   self.WriteLine('entry:');
+  self.WriteLine('  call void @__kylix_htab_check(ptr %t)');
   node := self.Tmp();
   self.WriteLine('  ' + node + ' = call ptr @__kylix_htab_find(ptr %t, ptr %key)');
   r := self.Tmp();
@@ -8762,15 +8808,18 @@ end;
 // htab_del: void @__kylix_htab_del(ptr %t, ptr %key)
 procedure TLLVMGenerator.EmitHashtabDel;
 var
-  buckets, idx, bucketPtr, prevSlot, curSlot, firstCur: String;
+  buckets, bucketsSlot, idx, bucketPtr, prevSlot, curSlot, firstCur: String;
   condLbl, bodyLbl, notFoundLbl, foundLbl: String;
   cur, isNull, keyPtr, curKey, cmp, eq, nextField, newCur: String;
   curNext, nextVal, prevPtr, sizePtr, curSize, newSize: String;
 begin
   self.WriteLine('define void @__kylix_htab_del(ptr %t, ptr %key) {');
   self.WriteLine('entry:');
+  self.WriteLine('  call void @__kylix_htab_check(ptr %t)');
+  bucketsSlot := self.Tmp();
+  self.WriteLine('  ' + bucketsSlot + ' = getelementptr inbounds i8, ptr %t, i64 8');
   buckets := self.Tmp();
-  self.WriteLine('  ' + buckets + ' = load ptr, ptr %t');
+  self.WriteLine('  ' + buckets + ' = load ptr, ptr ' + bucketsSlot);
   idx := self.Tmp();
   self.WriteLine('  ' + idx + ' = call i64 @__kylix_htab_hash(ptr %key)');
   bucketPtr := self.Tmp();
@@ -8822,7 +8871,7 @@ begin
   self.WriteLine('  store ptr ' + nextVal + ', ptr ' + prevPtr);
   self.WriteLine('  call void @free(ptr ' + cur + ')');
   sizePtr := self.Tmp();
-  self.WriteLine('  ' + sizePtr + ' = getelementptr inbounds i8, ptr %t, i64 8');
+  self.WriteLine('  ' + sizePtr + ' = getelementptr inbounds i8, ptr %t, i64 16');
   curSize := self.Tmp();
   self.WriteLine('  ' + curSize + ' = load i64, ptr ' + sizePtr);
   newSize := self.Tmp();
@@ -8842,8 +8891,9 @@ var
 begin
   self.WriteLine('define i64 @__kylix_htab_size(ptr %t) {');
   self.WriteLine('entry:');
+  self.WriteLine('  call void @__kylix_htab_check(ptr %t)');
   sizePtr := self.Tmp();
-  self.WriteLine('  ' + sizePtr + ' = getelementptr inbounds i8, ptr %t, i64 8');
+  self.WriteLine('  ' + sizePtr + ' = getelementptr inbounds i8, ptr %t, i64 16');
   s := self.Tmp();
   self.WriteLine('  ' + s + ' = load i64, ptr ' + sizePtr);
   self.WriteLine('  ret i64 ' + s);
@@ -8854,14 +8904,17 @@ end;
 // htab_clear: void @__kylix_htab_clear(ptr %t) — free all nodes, reset size.
 procedure TLLVMGenerator.EmitHashtabClear;
 var
-  buckets, iSlot, condLbl, bodyLbl, exitLbl: String;
+  buckets, bucketsSlot, iSlot, condLbl, bodyLbl, exitLbl: String;
   curI, done, bucketPtr, nodeSlot, firstNode, innerCond, innerBody: String;
   node, isEmpty, nextField, nxt, nextI, sizePtr: String;
 begin
   self.WriteLine('define void @__kylix_htab_clear(ptr %t) {');
   self.WriteLine('entry:');
+  self.WriteLine('  call void @__kylix_htab_check(ptr %t)');
+  bucketsSlot := self.Tmp();
+  self.WriteLine('  ' + bucketsSlot + ' = getelementptr inbounds i8, ptr %t, i64 8');
   buckets := self.Tmp();
-  self.WriteLine('  ' + buckets + ' = load ptr, ptr %t');
+  self.WriteLine('  ' + buckets + ' = load ptr, ptr ' + bucketsSlot);
   iSlot := self.Tmp();
   self.WriteLine('  ' + iSlot + ' = alloca i64, align 8');
   // node slot alloca lives in the entry block: a static alloca inside the
@@ -8910,7 +8963,7 @@ begin
   self.WriteLine('  br label %' + condLbl);
   self.WriteLine(exitLbl + ':');
   sizePtr := self.Tmp();
-  self.WriteLine('  ' + sizePtr + ' = getelementptr inbounds i8, ptr %t, i64 8');
+  self.WriteLine('  ' + sizePtr + ' = getelementptr inbounds i8, ptr %t, i64 16');
   self.WriteLine('  store i64 0, ptr ' + sizePtr);
   self.WriteLine('  ret void');
   self.WriteLine('}');
