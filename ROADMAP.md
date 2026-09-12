@@ -198,16 +198,52 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] bootstrap 端 boot server 评估：结论记 TECHNICAL_DEBT.md（~800 行固定 define 可烘焙 + 注解装配 emitter 移植 ~600 行 Kylix；归 v0.9.0 实施）
 
 ### v0.9.0 — 1.0.0-rc 打磨
+- [ ] bootstrap 端 boot server 实施（v0.8.0 P4 评估结论：~800 行固定 define 烘焙 + 注解装配 emitter 移植 ~600 行 Kylix）→ example60 sweep SKIP 解除
+- [ ] 重烘链路修复：按 StdFnNames 139 签名机械生成 cover.klx 入库 + 提取器段表自动生成（消手工同步偏移）
+- [ ] **KylixBoot 框架补齐（[ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md) P1 硬前置 + 对齐 Spring Boot 欠账）**：服务端 Session（SessionMiddleware + Remember-me）、CSRF 防护、文件上传（multipart 双端）、分页抽象（Page/Pageable）、模板 layout/partials（template_engine 三端同源扩展）、Response.Download/CSV 导出
 - [ ] 三平台 CI 稳定全绿（linux/darwin/windows × amd64/arm64）
 - [ ] 性能回归基线（compile-time benchmark 入 CI 门禁）
 - [ ] API 稳定性审查：语言语法 / CLI / stdlib 冻结承诺 + 弃用标记
 - [ ] 文档与官网同步（README 双语 / kylix.top / 教程）
 
+### v0.10.0 — KylixAdmin P2+P3 前半（[ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)）
+- [ ] 登录/登出/会话管理（BCrypt + Session + CSRF + 失败锁定 + Remember-me）
+- [ ] RBAC 完整模型（用户/角色/权限点 五表 + `[Role]` 守卫 + 菜单按权限渲染）
+- [ ] 审计（登录日志 + 操作日志中间件自动记录写操作）
+- [ ] 用户/角色管理页（sqlite，`apps/admin/` 起步）
+
+### v0.11.0 — KylixAdmin P3 后半 + P4
+- [ ] 通用 CRUD 引擎（扫 `[Entity]` 元数据驱动：列表/表单/详情/删除自动产出，新增实体只需 Entity + 一行注册）
+- [ ] 仪表盘（统计卡片 + 纯 SVG 图表零依赖）+ 个人中心（改密/头像上传）
+- [ ] UI 设计系统（自研 CSS：布局/表格/分页器/模态框/表单/亮暗主题/响应式，无 CDN 无构建链）
+
+### v0.12.0 — KylixAdmin P5（postgres + 发布）
+- [ ] ORM/QueryBuilder 方言抽象（类型映射 + LIMIT/OFFSET/UPSERT/RETURNING 收口）——sqlite ↔ postgres 业务代码零改动
+- [ ] 连接池参数暴露 + `[Entity]` 注解驱动自动建表/增量迁移（替代手写 SQL MigrationManager）
+- [ ] 一键部署文档（`kylix build --backend=llvm` 单二进制 + 内嵌 sqlite）
+
+### v0.13.0 — H5 多端路线 A（[MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）
+- [ ] 响应式 PWA 移动页面组（mobile-first 变体复用 P4 设计系统）+ manifest + service worker（BootStatic 服务）
+- [ ] JWT refresh token + 登录限流
+- [ ] `docs/H5_GUIDE.md`——验收：手机浏览器可安装使用 admin 移动版
+
+### v0.14.0 — 编译器多端能力（Android/iOS 前置）
+- [ ] **C ABI `export` 关键字落地**（双端：Go `//export` + LLVM `.globl` 裸符号/cdecl + `kylix_free` arena 所有权模型）
+- [ ] tripleFor 增 `aarch64-linux-android` / `x86_64-linux-android` / `aarch64-apple-ios` + FindAndroidNdk / xcrun 探测（复用 mingw 三坑经验）
+- [ ] stdlib 可移植层第一批（datetime/sysutil/exc 按 +android/ios 平台分支）
+- [ ] 交付标志：hello-core 在 Android `libkylix.so` / iOS `libkylix.a` 跑通
+
+### v0.15.0 — 多端示例应用 + wasm
+- [ ] `apps/android/`（Kotlin + JNI 薄壳：登录 + 列表，连 KylixAdmin API）+ `apps/ios/`（SwiftUI + Swift Package 薄壳）
+- [ ] CI 产物形态门禁（.so COFF 式验证 / .a macOS runner 符号验证）+ 真机验收文档
+- [ ] wasm32-unknown-wasi triple + `pkg/wasi` 真实现（wasi_snapshot_preview1 导入表；纯逻辑先行，DOM 不进 wasm）
+
 ### 1.0.0 — 正式版（gate）
-- [ ] v0.7.1–v0.9.0 全部完成
+- [ ] v0.7.1–v0.15.0 全部完成（含 KylixAdmin 旗舰 showcase + H5/Android/iOS 多端能力）
 - [ ] 三平台 CI 全绿 + bootstrap 无 Go 闭环 + IR 不动点 + 教程三端全绿
 - [ ] Release 资产完整（5 平台二进制 + bootstrap tarball + llvm-mingw 工具链）
 - [ ] SECURITY/UPGRADING 文档 + 版本化承诺（1.x 向后兼容）
+- [ ] KylixAdmin 验收清单全过（[ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md) 第六节）+ 多端验收清单全过（[MULTIPLATFORM.md](docs/MULTIPLATFORM.md) 第六节）
 
 ---
 

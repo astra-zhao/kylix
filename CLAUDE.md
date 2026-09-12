@@ -63,6 +63,8 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) — 已知问题与改进积压
 - [TASKS.md](TASKS.md) — 详细任务分解
 - [CHANGELOG.md](CHANGELOG.md) — 版本历史
+- [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md) — KylixAdmin 后台管理平台规划（v0.10–v0.12，1.0.0 旗舰 showcase）
+- [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md) — 多端规划（H5/Android/iOS/wasm，v0.13–v0.15，共享 Kylix 核心 + 各端原生壳）
 
 ## 架构
 
@@ -207,5 +209,7 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - **v0.7.1 — Windows 一等公民**（进行中，详细规划见 ROADMAP.md）：**P0 regex ✅（2026-09-09）**——Is\* 字符类 + 纯 Kylix `stdlib/regex_engine.klx`（~870 行回溯 VM：显式栈 + visited memo，字符类/量词+lazy/锚点/分组/alternation；RE2 语义对齐：leftmost-first + FindAll prevMatchEnd 规则；**设计转向：多文件构建同源三端，非 stdlib_ir.klx 烘焙**）+ example61 教程三端接入（33 场景，Go/LLVM/bootstrap/Go-regexp 四方逐字一致）+ 三 sweep 回归（Go/LLVM 55/55、bootstrap 53 PASS + 2 SKIP）+ 不动点保持；host Go codegen 三限制记 TECHNICAL_DEBT（多返回 result 即 return / exit 失效 / 零参调用丢括号）。**P1 net Winsock ✅（2026-09-10）**——wrapper 架构（7 公开 TCP 函数 OS 无关化 + 9 个 `__kylix_net_*` 原语 wrapper 按 targetOS 发射 unix BSD / Winsock2 两套 define）+ WSAStartup-once/ioctlsocket/SOCKET=i64/-lws2_32 自动链接 + **顺带修 SO_REUSEADDR 常量不可移植 bug**（macOS/Win 是 0xffff/4 非 Linux 1/2，旧代码 macOS 上静默无效）+ `enqueueNetPublic` 修 boot/websocket 跨模块引用 + websocket Windows typed stub（挂债）+ Windows IR 交叉 COFF 验证 + stdlib_net_test 重写（unix 10 + Windows 6 + 一致性）；**顺带破案 P0b 遗留 flake**：bootstrap 自编译 example61 非确定性段错误（35%）——嵌套调用重置共享 `LastArgTypes` 致长度错配 + 复合 `and` 不短路越界读（坑清单模式漏网），修复后 30/30 稳定、sweep 53 PASS + 2 SKIP、不动点保持。**P2 交叉链接 ✅（2026-09-10）**——`FindMingwSysroot()`（KYLIX_MINGW_ROOT → 可执行文件旁 → PATH driver 祖父 → 常见目录；支持版本化目录嵌套）+ 链接走 llvm-mingw 自带 clang + `--ld-path` + `--sysroot`（`-fuse-ld=lld` 按 PATH 找必挂）+ `tripleFor` windows 改 mingw triple（msvc 下 llc 发 `__chkstk`，mingw 无此符号）+ exec.Command 必须在库 append 后构建（切片 realloc 丢参）+ unix 三库门控；hello/net 均 PE32+ console（**macOS 须 `xattr -dr com.apple.quarantine` 否则 Gatekeeper SIGKILL**）。**P3 CI llvm-windows 真跑 ✅**——llvm-mingw portable zip（v6.2 installer 教训）+ 4 教程 + example61 regex + net 双进程 Winsock echo 真机验收（CI 程序 macOS 预验证）。剩余：P4 工程债快赢（缓存指纹/名单单测）。
 - **v0.7.2 — CI 全绿 + 稳定性还债**：fixpoint job 改走 --emit-llvm 链、Lint job、Linux Go codegen 垃圾输出、LLVM 类方法多返回、三处名单单一来源化。
 - **v0.8.0 — 自举 stdlib（真自包含）**：纯 Kylix stdlib 模块扩展（.klx → 烘焙 → 三端同源）、内存管理（arena 推广 + htab 防护）、boot server 多 cookie/xhdrs realloc。
-- **v0.9.0 — 1.0.0-rc**：三平台 CI 稳定全绿、性能基线入 CI、API 稳定性审查（语法/CLI/stdlib 冻结承诺）。
-- **1.0.0**：v0.7.1–v0.9.0 gate 全过后发布正式版。
+- **v0.9.0 — 1.0.0-rc**：bootstrap boot server 实施（解除 example60 SKIP）+ 重烘链路修复（cover.klx 入库 + 段表自动生成）+ **KylixBoot 框架补齐**（Session/CSRF/文件上传/分页/模板 layout/Download——KylixAdmin P1 硬前置，见 docs/ADMIN_PLATFORM.md）+ 三平台 CI 稳定全绿 + 性能基线入 CI + API 稳定性审查。
+- **v0.10.0–v0.12.0 — KylixAdmin 后台管理平台**（详细规划见 docs/ADMIN_PLATFORM.md）：P2 认证 RBAC（登录/角色/权限五表/审计）→ P3 通用 CRUD 引擎（`[Entity]` 元数据驱动 + 仪表盘）+ P4 自研 UI 设计系统（亮暗主题/无 CDN）→ P5 postgres 方言抽象 + 一键部署单二进制。代码 `apps/admin/`。
+- **v0.13.0–v0.15.0 — 多端平台**（详细规划见 docs/MULTIPLATFORM.md，架构：共享 Kylix 核心 + 各端原生壳）：v0.13 H5 路线 A（响应式 PWA 移动页面组）→ v0.14 编译器多端能力（**C ABI `export` 落地** + android/ios triple + NDK/Xcode 探测 + stdlib 可移植层）→ v0.15 示例应用（Kotlin+JNI / SwiftUI 壳）+ wasm32 triple。
+- **1.0.0**：v0.7.1–v0.15.0 gate 全过后发布正式版（KylixAdmin + 多端为旗舰 showcase）。
