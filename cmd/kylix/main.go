@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-const Version = "0.7.0"
+const Version = "0.8.0"
 
 func main() {
 	if len(os.Args) < 2 {
