@@ -907,6 +907,59 @@ func (g *Generator) emitBootRequestMethodCall(req, method string, args []ast.Exp
 		// v0.6.8: req.JSON — parse the request body as JSON into a Variant map
 		// (map[String]Variant), reusing the JsonDecodeMap → box_map pipeline.
 		return g.emitBootReqJSON(req, args)
+	case "PageNum":
+		// v0.9.0 P1.7: req.PageNum(def) — scalar pagination parse (the Pageable
+		// record cannot cross the handle boundary). ?page= value clamped to
+		// >= 1, def on absence/unparsable.
+		if len(args) != 1 {
+			return "", "", fmt.Errorf("TRequest.PageNum expects 1 argument, got %d", len(args))
+		}
+		defReg, _, err := g.emitExpr(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		keyPtr := g.ptrTo(g.addString("page"), len("page")+1)
+		qv, qvT, err := g.emitBootQueryGet(req, keyPtr)
+		if err != nil {
+			return "", "", err
+		}
+		_ = qvT
+		v := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", v, qv))
+		lt1 := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp slt i64 %s, 1", lt1, v))
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = select i1 %s, i64 %s, i64 %s", r, lt1, defReg, v))
+		return r, "i64", nil
+	case "PageSize":
+		// v0.9.0 P1.7: req.PageSize(def, max) — ?size= clamped to 1..max.
+		if len(args) != 2 {
+			return "", "", fmt.Errorf("TRequest.PageSize expects 2 arguments, got %d", len(args))
+		}
+		defReg, _, err := g.emitExpr(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		maxReg, _, err := g.emitExpr(args[1])
+		if err != nil {
+			return "", "", err
+		}
+		keyPtr := g.ptrTo(g.addString("size"), len("size")+1)
+		qv, _, err := g.emitBootQueryGet(req, keyPtr)
+		if err != nil {
+			return "", "", err
+		}
+		v := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", v, qv))
+		lt1 := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp slt i64 %s, 1", lt1, v))
+		sel1 := g.tmp()
+		g.line(fmt.Sprintf("  %s = select i1 %s, i64 %s, i64 %s", sel1, lt1, defReg, v))
+		gtM := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp sgt i64 %s, %s", gtM, sel1, maxReg))
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = select i1 %s, i64 %s, i64 %s", r, gtM, maxReg, sel1))
+		return r, "i64", nil
 	case "Form":
 		// v0.7.0 P2: req.Form(name) — urlencoded body lookup + URL decoding.
 		if len(args) != 1 {
@@ -1100,6 +1153,14 @@ func (g *Generator) emitBootReqQuery(req string, args []ast.Expression) (string,
 	if err != nil {
 		return "", "", err
 	}
+	return g.emitBootQueryGet(req, nameReg)
+}
+
+// emitBootQueryGet — core of req.Query(name): scan the raw header block's
+// first line ("METHOD /path?query HTTP/1.1") for the `name=` pair and return
+// its malloc'd value, or "" when absent. v0.9.0 P1.7: extracted so the scalar
+// pagination methods (PageNum/PageSize) reuse the same parse.
+func (g *Generator) emitBootQueryGet(req string, nameReg string) (string, string, error) {
 	resSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", resSlot))
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", g.ptrTo(g.addString(""), 1), resSlot))
@@ -1114,6 +1175,12 @@ func (g *Generator) emitBootReqQuery(req string, args []ast.Expression) (string,
 	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", qNull, q))
 	doneLbl := g.label()
 	scanLbl := g.label()
+	// v0.9.0 P1.7: have_eq/hit/key_mismatch must be unique per invocation —
+	// PageNum + PageSize in one handler emit this parse twice, and duplicate
+	// labels within a function are invalid IR (broke llc in example testing).
+	haveEqLbl := g.label()
+	hitLbl := g.label()
+	mismatchLbl := g.label()
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", qNull, doneLbl, scanLbl))
 	g.line(fmt.Sprintf("%s:", scanLbl))
 	cur := g.tmp()
@@ -1132,8 +1199,8 @@ func (g *Generator) emitBootReqQuery(req string, args []ast.Expression) (string,
 	g.line(fmt.Sprintf("  %s = call ptr @strchr(ptr %s, i32 61)", eqSign, c))
 	eqNull := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", eqNull, eqSign))
-	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%have_eq", eqNull, doneLbl))
-	g.line("have_eq:")
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", eqNull, doneLbl, haveEqLbl))
+	g.line(fmt.Sprintf("%s:", haveEqLbl))
 	eqAddr := g.tmp()
 	g.line(fmt.Sprintf("  %s = ptrtoint ptr %s to i64", eqAddr, eqSign))
 	cAddr := g.tmp()
@@ -1145,14 +1212,14 @@ func (g *Generator) emitBootReqQuery(req string, args []ast.Expression) (string,
 	lenEq := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, %s", lenEq, keyLen, nameLen))
 	lenEqLbl := g.label()
-	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%key_mismatch", lenEq, lenEqLbl))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", lenEq, lenEqLbl, mismatchLbl))
 	g.line(fmt.Sprintf("%s:", lenEqLbl))
 	sc := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i32 @strncmp(ptr %s, ptr %s, i64 %s)", sc, c, nameReg, keyLen))
 	scEq := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", scEq, sc))
-	g.line(fmt.Sprintf("  br i1 %s, label %%hit, label %%%s", scEq, keyMismatchLbl()))
-	g.line("hit:")
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", scEq, hitLbl, mismatchLbl))
+	g.line(fmt.Sprintf("%s:", hitLbl))
 	valStart := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 1", valStart, eqSign))
 	ampNull := g.tmp()
@@ -1199,7 +1266,7 @@ func (g *Generator) emitBootReqQuery(req string, args []ast.Expression) (string,
 	g.line(fmt.Sprintf("  store i8 0, ptr %s", term))
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", buf, resSlot))
 	g.line(fmt.Sprintf("  br label %%%s", doneLbl))
-	g.line(keyMismatchLbl() + ":")
+	g.line(fmt.Sprintf("%s:", mismatchLbl))
 	ampNull2 := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", ampNull2, amp))
 	advLbl := g.label()
@@ -1215,8 +1282,6 @@ func (g *Generator) emitBootReqQuery(req string, args []ast.Expression) (string,
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", res, resSlot))
 	return res, "ptr", nil
 }
-
-func keyMismatchLbl() string { return "key_mismatch" }
 
 // emitBootReqBody — req.Body: the raw request body pointer (may be null).
 func (g *Generator) emitBootReqBody(req string, args []ast.Expression) (string, string, error) {

@@ -29,6 +29,7 @@ var BootFunctions = []string{
 	"BootNotFoundPage",
 	"BootPOST",
 	"BootPUT",
+	"BootPagerHTML",
 	"BootReadJSON",
 	"BootRegisterAuth",
 	"BootRegisterInstance",

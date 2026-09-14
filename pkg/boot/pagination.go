@@ -47,6 +47,19 @@ func (r *Request) Pageable() Pageable {
 	return PageableFrom(r.Request.URL.Query())
 }
 
+// PageNum returns the ?page= value clamped to >= 1, falling back to def when
+// absent/unparsable (v0.9.0 P1.7 — scalar form used by the LLVM backend too,
+// where the Pageable record cannot cross the handle boundary).
+func (r *Request) PageNum(def int) int {
+	return atoiQuery(r.Request.URL.Query().Get("page"), def, 1<<30)
+}
+
+// PageSize returns the ?size= value clamped to 1..max, falling back to def
+// when absent/unparsable (v0.9.0 P1.7 — scalar form, see PageNum).
+func (r *Request) PageSize(def, max int) int {
+	return atoiQuery(r.Request.URL.Query().Get("size"), def, max)
+}
+
 // atoiQuery parses s leniently (the boot runtime never errors on query
 // input): unparsable or < 1 → fallback, > hi → hi.
 func atoiQuery(s string, fallback, hi int) int {
@@ -175,6 +188,13 @@ func (p *Page) HTMLPager(baseURL string, window int) string {
 
 func pageLink(href string, n int) string {
 	return `<a class="pager-link" href="` + htmlAttr(href) + `">` + strconv.Itoa(n) + `</a>`
+}
+
+// PagerHTML renders the same navigation bar as Page.HTMLPager without
+// assembling a Page first (v0.9.0 P1.7 — module-level form callable from the
+// LLVM backend, where no Page object crosses the handle boundary).
+func PagerHTML(baseURL string, page, size int, total int64, window int) string {
+	return NewPage(nil, page, size, total).HTMLPager(baseURL, window)
 }
 
 // htmlAttr escapes the few characters that matter inside a

@@ -56,6 +56,12 @@ func BootUseLogger() {
 	boot.Use(boot.Logger())
 }
 
+// BootPagerHTML renders a pagination navigation bar (v0.9.0 P1.7 — module-
+// level form callable without a Page object; see boot.PagerHTML).
+func BootPagerHTML(baseURL string, page, size, total, window int64) string {
+	return boot.PagerHTML(baseURL, int(page), int(size), total, int(window))
+}
+
 // BootUseRecover installs the Recover (panic-catching) middleware.
 func BootUseRecover() {
 	boot.Use(boot.Recover())

@@ -181,3 +181,74 @@ end.`)
 	assertIRContains(t, ir, "file not found")
 	assertIRContains(t, ir, "call i32 (ptr, i64, ptr, ...) @snprintf")
 }
+
+// v0.9.0 P1.7: BootPagerHTML — module-level pagination renderer. The nav-bar
+// assembler plus its put/puti/url/htmlattr/link helpers must all be present,
+// and the arena buffer must be zero-initialized (strcat cursor semantics on
+// recycled per-request arena memory).
+func TestBoot_PagerHTMLIR(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses boot;
+[Controller('/api')]
+type
+  TPgController = class
+    [Get('/list')]
+    function List(req: TRequest): TResponse;
+    var nav: String;
+    begin
+      nav := BootPagerHTML('/api/list', 2, 10, 95, 2);
+      result := BootHTML(200, nav);
+    end;
+  end;
+begin
+  BootRun(8094);
+end.`)
+	assertIRContains(t, ir, "define ptr @__kylix_boot_pager_html(ptr %base, i64 %page, i64 %size, i64 %total, i64 %window)")
+	assertIRContains(t, ir, "define ptr @__kylix_boot_pager_put(ptr %cur, ptr %s)")
+	assertIRContains(t, ir, "define ptr @__kylix_boot_pager_puti(ptr %cur, i64 %n)")
+	assertIRContains(t, ir, "define ptr @__kylix_boot_pager_url(ptr %base, i64 %n)")
+	assertIRContains(t, ir, "define ptr @__kylix_boot_htmlattr(ptr %s)")
+	assertIRContains(t, ir, "define ptr @__kylix_boot_pager_link(ptr %cur, ptr %href, i64 %n)")
+	// pager window fragments (quotes escape as \22, UTF-8 ‹ › … as \E2\80\B9
+	// etc. — matches pkg/boot/pagination.go exactly)
+	assertIRContains(t, ir, `<span class=\22pager-current\22>`)
+	assertIRContains(t, ir, `<span class=\22pager-ellipsis\22>`)
+	assertIRContains(t, ir, `pager-disabled`)
+	// attribute escaping for double-quoted hrefs
+	assertIRContains(t, ir, "&amp;")
+	assertIRContains(t, ir, "&quot;")
+	// arena buffer must be zeroed before the first strcat append
+	assertIRContains(t, ir, "call ptr @__kylix_arena_alloc(i64 %t")
+	assertIRContains(t, ir, "define ptr @__kylix_boot_pager_puti(ptr %cur, i64 %n)")
+}
+
+// v0.9.0 P1.7: req.PageNum / req.PageSize — scalar pagination parse over the
+// raw query string with clamp-to-default / clamp-to-max select chains.
+func TestBoot_PageNumPageSizeIR(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses boot;
+[Controller('/api')]
+type
+  TPgController = class
+    [Get('/list')]
+    function List(req: TRequest): TResponse;
+    var pg, sz: Integer;
+    begin
+      pg := req.PageNum(1);
+      sz := req.PageSize(20, 100);
+      result := BootText(200, 'ok');
+    end;
+  end;
+begin
+  BootRun(8099);
+end.`)
+	// both parses reuse the extracted emitBootQueryGet core
+	assertIRContains(t, ir, "call ptr @strchr(ptr %t")
+	// clamping: PageNum selects def when < 1; PageSize clamps to max too
+	assertIRContains(t, ir, "icmp slt i64")
+	assertIRContains(t, ir, "icmp sgt i64")
+	assertIRContains(t, ir, "select i1")
+	if strings.Contains(ir, "unsupported receiver") {
+		t.Fatalf("PageNum/PageSize collapsed to unsupported-receiver stub:\n%s", ir)
+	}
+}

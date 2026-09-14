@@ -54,6 +54,7 @@ var bootStubReturnTypes = map[string]string{
 	"BootRegisterRoles":    "void",
 	"BootNotFoundPage":     "void",
 	"BootErrorPage":        "void",
+	"BootPagerHTML":        "ptr",
 }
 
 // isBootHandleType reports whether name is an opaque KylixBoot handle type
@@ -140,6 +141,25 @@ func (g *Generator) emitBootCall(funcName string, args []ast.Expression) (string
 		g.enqueueStdlib("boot", funcName, funcName, 0)
 		g.line(fmt.Sprintf("  call void @__kylix_boot_%s(ptr %s)", funcName, htmlReg))
 		return "0", "void", nil
+	case "BootPagerHTML":
+		// v0.9.0 P1.7: pagination navigation bar — BootPagerHTML(base, page,
+		// size, total, window) → HTML string (mirrors Go boot.PagerHTML).
+		if len(args) != 5 {
+			return "", "", fmt.Errorf("boot.BootPagerHTML expects 5 arguments, got %d", len(args))
+		}
+		argRs := make([]string, 0, 5)
+		for _, a := range args {
+			r, _, err := g.emitExpr(a)
+			if err != nil {
+				return "", "", err
+			}
+			argRs = append(argRs, r)
+		}
+		g.enqueueStdlib("boot", "BootPagerHTML", "BootPagerHTML", 0)
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_pager_html(ptr %s, i64 %s, i64 %s, i64 %s, i64 %s)",
+			r, argRs[0], argRs[1], argRs[2], argRs[3], argRs[4]))
+		return r, "ptr", nil
 	default:
 		retType, ok := bootStubReturnTypes[funcName]
 		if !ok {
@@ -193,6 +213,9 @@ func (g *Generator) emitBootBody(funcName string) {
 		g.emitBootErrorPageBody("BootNotFoundPage", boot404PageGlobal)
 	case "BootErrorPage":
 		g.emitBootErrorPageBody("BootErrorPage", boot500PageGlobal)
+	case "BootPagerHTML":
+		// v0.9.0 P1.7: pagination navigation bar (helpers + main define).
+		g.emitBootPagerHTMLBody()
 	case "formget":
 		g.emitBootFormGetBody()
 	case "cookieget":
