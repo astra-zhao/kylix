@@ -30,6 +30,15 @@ type Request struct {
 	body    []byte
 	User    string
 	Roles   []string
+	// Session is populated by the Session() middleware (v0.9.0 P1);
+	// nil when the middleware is not installed.
+	Session *Session
+
+	// Multipart form caches (v0.9.0 P1, see upload.go).
+	mpParsed bool
+	mpErr    error
+	mpFields map[string]string
+	mpFiles  map[string]*uploadedPart
 }
 
 // Param returns a URL path parameter value (e.g. "/users/:id" → req.Param("id")).
@@ -79,15 +88,17 @@ func (r *Request) JSON(out interface{}) error {
 }
 
 // Form returns a value from an application/x-www-form-urlencoded body
-// (HTML <form method="POST"> submissions). Falls back to the URL query
-// string when the body is not form-encoded or the key is absent.
-// v0.7.0 P2.
+// (HTML <form method="POST"> submissions). Falls back to multipart form
+// text fields (v0.9.0 P1) and then to the URL query string.
 func (r *Request) Form(name string) string {
 	body := string(r.Body())
 	if vals, err := url.ParseQuery(body); err == nil {
 		if v := vals.Get(name); v != "" {
 			return v
 		}
+	}
+	if v := r.MultipartField(name); v != "" {
+		return v
 	}
 	return r.Query(name)
 }
@@ -196,7 +207,13 @@ func (r *Response) Html(body string) *Response {
 // WithCookie appends a Set-Cookie header (fluent API, v0.7.0 P2).
 // Sent as "name=value; Path=/".
 func (r *Response) WithCookie(name, value string) *Response {
-	r.Cookies = append(r.Cookies, name+"="+value+"; Path=/")
+	return r.WithCookieAttrs(name, value, "Path=/")
+}
+
+// WithCookieAttrs appends a Set-Cookie header with explicit attributes
+// (v0.9.0 P1), e.g. "Path=/; HttpOnly; Max-Age=2592000".
+func (r *Response) WithCookieAttrs(name, value, attrs string) *Response {
+	r.Cookies = append(r.Cookies, name+"="+value+"; "+attrs)
 	return r
 }
 

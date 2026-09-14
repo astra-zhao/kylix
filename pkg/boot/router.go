@@ -166,6 +166,8 @@ func mimeFor(ext string) string {
 		return "text/plain; charset=utf-8"
 	case ".xml":
 		return "application/xml"
+	case ".csv":
+		return "text/csv; charset=utf-8"
 	case ".pdf":
 		return "application/pdf"
 	case ".woff":
