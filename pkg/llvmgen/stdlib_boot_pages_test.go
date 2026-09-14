@@ -134,3 +134,50 @@ func TestBoot_XhdrsReallocGrowth(t *testing.T) {
 	// v0.8.0 P2: the growable buffer is arena-resident (copy-append, no realloc)
 	assertIRContains(t, ir, "call ptr @memcpy(ptr")
 }
+
+// v0.9.0 P1.7: FileBytes responds with in-memory bytes as an attachment —
+// status 200, MIME by filename extension, Content-Disposition header appended
+// to the xhdrs slot.
+func TestBoot_FileBytesIR(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses boot;
+[Controller('/api')]
+type
+  TDlController = class
+    [Get('/csv')]
+    function Csv(req: TRequest): TResponse;
+    begin
+      result := BootText(200, '').FileBytes('id,name', 'report.csv');
+    end;
+  end;
+begin
+  BootRun(8095);
+end.`)
+	assertIRContains(t, ir, `Content-Disposition: attachment; filename=\22%s\22`)
+	// .csv resolves in the MIME table (v0.9.0 P1.7 — matches Go mimeFor)
+	assertIRContains(t, ir, ".csv")
+	assertIRContains(t, ir, "text/csv; charset=utf-8")
+}
+
+// v0.9.0 P1.7: Download reads the file via fopen/fseek/ftell/fread and
+// degrades to a 404 "file not found" text response when fopen fails.
+func TestBoot_DownloadIR(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses boot;
+[Controller('/api')]
+type
+  TDlController = class
+    [Get('/dl')]
+    function Dl(req: TRequest): TResponse;
+    begin
+      result := BootText(200, '').Download('/srv/report.pdf', 'report.pdf');
+    end;
+  end;
+begin
+  BootRun(8096);
+end.`)
+	assertIRContains(t, ir, "call ptr @fopen(ptr")
+	assertIRContains(t, ir, "call i64 @fread(ptr")
+	assertIRContains(t, ir, "file not found")
+	assertIRContains(t, ir, "call i32 (ptr, i64, ptr, ...) @snprintf")
+}

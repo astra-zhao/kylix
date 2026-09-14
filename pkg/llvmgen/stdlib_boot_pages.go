@@ -289,12 +289,118 @@ func (g *Generator) emitBootResponseMethodCall(handle, method string, args []ast
 		g.emitBootAppendToSlot(handle, 32, entry, cap)
 		return handle, "ptr", nil
 
+	case "FileBytes":
+		// resp.FileBytes(data, filename): attachment response from in-memory
+		// bytes (v0.9.0 P1.7, mirrors Go Response.FileBytes).
+		if len(argRegs) < 2 {
+			return "", "", fmt.Errorf("TResponse.FileBytes expects 2 arguments, got %d", len(argRegs))
+		}
+		g.emitBootFileBytesTail(handle, argRegs[0], argRegs[1])
+		return handle, "ptr", nil
+
+	case "Download":
+		// resp.Download(path, filename): read the file and respond as an
+		// attachment (v0.9.0 P1.7, mirrors Go Response.Download). fopen failure
+		// degrades to a 404 "file not found" text response (the Go side also
+		// has a 500 branch for unreadable-but-existing files — collapsed here,
+		// see TECHNICAL_DEBT).
+		if len(argRegs) < 2 {
+			return "", "", fmt.Errorf("TResponse.Download expects 2 arguments, got %d", len(argRegs))
+		}
+		pathReg, filenameReg := argRegs[0], argRegs[1]
+		fp := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @fopen(ptr %s, ptr %s)", fp, pathReg, g.ptrTo(g.addString("rb"), 3)))
+		fpNull := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", fpNull, fp))
+		okLbl := g.label()
+		missLbl := g.label()
+		joinLbl := g.label()
+		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", fpNull, missLbl, okLbl))
+		g.line(fmt.Sprintf("%s:", okLbl))
+		g.line(fmt.Sprintf("  call i32 @fseek(ptr %s, i64 0, i32 2)", fp)) // SEEK_END
+		size := g.tmp()
+		g.line(fmt.Sprintf("  %s = call i64 @ftell(ptr %s)", size, fp))
+		g.line(fmt.Sprintf("  call i32 @fseek(ptr %s, i64 0, i32 0)", fp)) // SEEK_SET
+		bufCap := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i64 %s, 1", bufCap, size))
+		buf := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, bufCap))
+		g.line(fmt.Sprintf("  call i64 @fread(ptr %s, i64 1, i64 %s, ptr %s)", buf, size, fp))
+		g.line(fmt.Sprintf("  call i32 @fclose(ptr %s)", fp))
+		term := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", term, buf, size))
+		g.line(fmt.Sprintf("  store i8 0, ptr %s", term))
+		g.emitBootFileBytesTail(handle, buf, filenameReg)
+		g.line(fmt.Sprintf("  br label %%%s", joinLbl))
+		g.line(fmt.Sprintf("%s:", missLbl))
+		g.line(fmt.Sprintf("  store i64 404, ptr %s", field(0)))
+		g.line(fmt.Sprintf("  store ptr %s, ptr %s", g.ptrTo(g.addString("file not found"), 14), field(8)))
+		g.line(fmt.Sprintf("  store ptr %s, ptr %s", g.ptrTo(g.addString(bootCTText), len(bootCTText)), field(16)))
+		g.line(fmt.Sprintf("  br label %%%s", joinLbl))
+		g.line(fmt.Sprintf("%s:", joinLbl))
+		return handle, "ptr", nil
+
 	default:
 		// Unknown method — null fallback keeps the IR legal.
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = inttoptr i64 0 to ptr ; TResponse.%s stub", r, method))
 		return r, "ptr", nil
 	}
+}
+
+// emitBootFileBytesTail is the shared tail of FileBytes/Download: status 200,
+// body slot ← data, Content-Type ← MIME by filename extension (emitBootMimeSelect),
+// and a "Content-Disposition: attachment; filename=\"<base>\"" header appended
+// to the xhdrs slot (v0.9.0 P1.7, mirrors Go Response.FileBytes). The base
+// name is everything after the last '/', matching Go's filepath.Base for
+// Unix-style paths (backslash separators are not stripped here).
+func (g *Generator) emitBootFileBytesTail(handle, data, filename string) {
+	field := func(off int64) string {
+		p := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %d", p, handle, off))
+		return p
+	}
+	g.line(fmt.Sprintf("  store i64 200, ptr %s", field(0)))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", data, field(8)))
+	// extension = strrchr(filename, '.') or "" (MIME lookup is strcmp-exact,
+	// like the Go mimeFor table; uppercase extensions miss → octet-stream).
+	ext := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @strrchr(ptr %s, i32 46)", ext, filename))
+	extNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", extNull, ext))
+	extSel := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", extSel, extNull,
+		g.ptrTo(g.addString(""), 1), ext))
+	mime := g.emitBootMimeSelect(extSel)
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", mime, field(16)))
+	// basename = after the last '/' (pointer arithmetic via ptrtoint so a null
+	// strrchr result never feeds an inbounds GEP).
+	slash := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @strrchr(ptr %s, i32 47)", slash, filename))
+	slashNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", slashNull, slash))
+	slashAddr := g.tmp()
+	g.line(fmt.Sprintf("  %s = ptrtoint ptr %s to i64", slashAddr, slash))
+	fnAddr := g.tmp()
+	g.line(fmt.Sprintf("  %s = ptrtoint ptr %s to i64", fnAddr, filename))
+	afterSlash := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", afterSlash, slashAddr))
+	baseAddr := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, i64 %s, i64 %s", baseAddr, slashNull, fnAddr, afterSlash))
+	base := g.tmp()
+	g.line(fmt.Sprintf("  %s = inttoptr i64 %s to ptr", base, baseAddr))
+	// entry = "Content-Disposition: attachment; filename=\"<base>\"\r\n"
+	baseLen := g.bootStrlen(base)
+	cap := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 48", cap, baseLen))
+	g.needArena = true
+	entry := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_arena_alloc(i64 %s)", entry, cap))
+	fmtStr := g.addString("Content-Disposition: attachment; filename=\"%s\"\r\n")
+	fmtPtr := g.ptrTo(fmtStr, len(`Content-Disposition: attachment; filename="%s"`)+2)
+	g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 %s, ptr %s, ptr %s)",
+		entry, cap, fmtPtr, base))
+	g.emitBootAppendToSlot(handle, 32, entry, cap)
 }
 
 // emitBootAppendToSlot appends entry (entryCap bytes, NUL-terminated by the
@@ -473,6 +579,7 @@ func (g *Generator) emitBootMimeSelect(ext string) string {
 	add(".svg", "image/svg+xml")
 	add(".ico", "image/x-icon")
 	add(".txt", bootCTText)
+	add(".csv", "text/csv; charset=utf-8")
 	return mime
 }
 
