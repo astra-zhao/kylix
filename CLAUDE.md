@@ -186,7 +186,8 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 | 22_web_pages | 2（59 模板 / 60 web 框架 E2E） | ✅ 全部通过（60 由脚本特判 E2E） |
 | 23_regex | 1（61 regex 引擎，多文件接 stdlib/regex_engine.klx） | ✅ v0.7.1 P0b 三端 parity |
 | 24_string_utils | 1（62 字符串工具，多文件接 stdlib/stringutil.klx） | ✅ v0.8.0 P1 三端 parity |
-| **合计** | **55 编号示例 + unit** | **Go 56/56 · LLVM 56/56 · bootstrap 54 PASS + 2 SKIP** |
+| 25_template_layout | 1（63 模板 layout/partials，多文件接 stdlib/template_engine.klx） | ✅ v0.9.0 P1.6 三端 parity |
+| **合计** | **56 编号示例 + unit** | **Go 57/57 · LLVM 56/56 · bootstrap 55 PASS + 2 SKIP** |
 
 ## v0.5.7 里程碑：LLVM 后端 self-reproduction 不动点（2026-07-29）
 

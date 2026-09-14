@@ -31,6 +31,16 @@ unit template;
 //                         truthy = non-empty, not '0', not 'false'
 //   {{! comment }}        stripped from output
 //
+// LAYOUT + PARTIALS (v0.9.0 P1 — templates registered via AddTemplate):
+//   {{> name }}           inline partial: rendered with the CURRENT context
+//                         (each-scope prefixes visible) and spliced in
+//   {{< name }}           layout inheritance: the rest of this template is
+//                         rendered first and exposed to the base as
+//                         'content' — the base outputs it with {{{content}}}
+//                         (raw, since it is already-rendered HTML)
+//                         '{{< layout name }}' is accepted as an alias.
+//                         Recursion is capped at TplMaxDepth.
+//
 // FILTERS (12):
 //   upper, lower, capitalize, title, trim, length, escape, raw,
 //   default:<s>, truncate:<n>, replace:<a>:<b>, nl2br
@@ -50,6 +60,8 @@ type
     var PrefixCount: Integer;         // logical stack depth (slots are reused)
     var Indexes: array of Integer;    // parallel @index stack
     var LastError: String;
+    var Templates: map[String]String; // named templates (layouts/partials)
+    var Depth: Integer;               // partial/layout nesting guard
 
     procedure PushScope(prefix: String; idx: Integer);
     begin
@@ -80,6 +92,7 @@ type
       tmpMapI: map[String]Integer;
       tmpArr: array of String;
       tmpArrI: array of Integer;
+      tmpTpl: map[String]String;
     begin
       self.Scalars := tmpMap;
       self.ListLens := tmpMapI;
@@ -90,6 +103,8 @@ type
       self.CurIdx := 0;
       self.ItemStarted := false;
       self.LastError := '';
+      self.Templates := tmpTpl;
+      self.Depth := 0;
     end;
 
     // --- context building -------------------------------------------------
@@ -139,6 +154,23 @@ type
       self.CurList := name;
       self.CurIdx := 0;
       self.ItemStarted := false;
+    end;
+
+    // AddTemplate registers a named template for {{< name }} layouts and
+    // {{> name }} partials. Register the base layout, any partials, and the
+    // child template itself, then RenderString the child:
+    //   eng.AddTemplate('base', '<html>{{{content}}}</html>');
+    //   eng.AddTemplate('row', '<li>{{ name }}</li>');
+    //   eng.RenderString('{{< base}}<h1>{{ title }}</h1>{{> row}}');
+    procedure AddTemplate(name: String; src: String);
+    begin
+      self.Templates[name] := src;
+    end;
+
+    // HasTemplate reports whether a named template is registered.
+    function HasTemplate(name: String): Boolean;
+    begin
+      result := self.Templates[name] <> '';
     end;
 
     // AddItem appends a scalar list item (rendered via {{ . }}). The item is
@@ -211,6 +243,7 @@ type
     begin
       self.LastError := '';
       self.PrefixCount := 0;
+      self.Depth := 0;
       out := TplRenderInto(self, tpl);
       result := out;
     end;
@@ -388,6 +421,26 @@ begin
     result := false;
   if s = 'false' then
     result := false;
+end;
+
+// TplCleanName normalizes a {{< name }} / {{> name }} argument: an optional
+// 'layout ' keyword prefix is stripped, then surrounding double quotes.
+function TplCleanName(s: String): String;
+var
+  n: Integer;
+begin
+  result := TplTrim(s);
+  if TplStartsWith(result, 'layout ', 0) then
+    result := TplTrim(result[7:Length(result)]);
+  n := Length(result);
+  if n >= 2 then
+  begin
+    if result[0:1] = '"' then
+    begin
+      if result[n-1:n] = '"' then
+        result := result[1:n-1];
+    end;
+  end;
 end;
 
 // ---------------------------------------------------------------------------
@@ -947,6 +1000,10 @@ var
   prefix: String;
   child: String;
   elseEnd: Integer;
+  pname: String;
+  psrc: String;
+  lname: String;
+  lsrc: String;
 begin
   out := '';
   pos := 0;
@@ -1004,6 +1061,75 @@ begin
     begin
       TplRenderErr(eng, 'unexpected close tag {{' + inner + '}}');
       pos := after;
+      continue;
+    end;
+
+    if c = '>' then
+    begin
+      // {{> name }} — inline partial (v0.9.0 P1): rendered with the current
+      // context (each-scope prefixes visible) and spliced in.
+      pname := TplCleanName(inner[1:Length(inner)]);
+      psrc := eng.Templates[pname];
+      if psrc = '' then
+      begin
+        TplRenderErr(eng, 'unknown partial: ' + pname);
+        pos := after;
+        continue;
+      end;
+      eng.Depth := eng.Depth + 1;
+      if eng.Depth > 32 then
+      begin
+        // recursion guard (cap 32 nesting levels)
+        eng.Depth := eng.Depth - 1;
+        TplRenderErr(eng, 'partial recursion too deep: ' + pname);
+        pos := after;
+        continue;
+      end;
+      child := TplRenderInto(eng, psrc);
+      eng.Depth := eng.Depth - 1;
+      out := out + child;
+      if eng.LastError <> '' then
+        pos := n
+      else
+        pos := after;
+      continue;
+    end;
+
+    if c = '<' then
+    begin
+      // {{< name }} — layout inheritance (v0.9.0 P1): the rest of this
+      // template is rendered first and exposed to the base as 'content'
+      // (the base outputs it with raw {{{content}}}).
+      lname := TplCleanName(inner[1:Length(inner)]);
+      lsrc := eng.Templates[lname];
+      if lsrc = '' then
+      begin
+        TplRenderErr(eng, 'unknown layout: ' + lname);
+        pos := after;
+        continue;
+      end;
+      body := TplRenderInto(eng, tpl[after:n]);
+      if eng.LastError <> '' then
+      begin
+        out := out + body;
+        pos := n;
+        continue;
+      end;
+      eng.Scalars['content'] := body;
+      eng.Depth := eng.Depth + 1;
+      if eng.Depth > 32 then
+      begin
+        eng.Depth := eng.Depth - 1;
+        eng.Scalars['content'] := '';
+        TplRenderErr(eng, 'layout recursion too deep: ' + lname);
+        pos := n;
+        continue;
+      end;
+      child := TplRenderInto(eng, lsrc);
+      eng.Depth := eng.Depth - 1;
+      eng.Scalars['content'] := '';
+      out := out + child;
+      pos := n;
       continue;
     end;
 

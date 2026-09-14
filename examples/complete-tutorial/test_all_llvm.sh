@@ -257,7 +257,34 @@ run_string_utils_test() {
     clean_artifacts stringutil
 }
 
-run_string_utils_test
+# 25_template_layout (v0.9.0 P1): example63 uses the pure-Kylix template
+# unit — multi-file build with stdlib/template_engine.klx (layout + partials).
+run_template_layout_test() {
+    echo "Testing 25_template_layout (LLVM)..."
+    cd "$ROOT/25_template_layout" 2>/dev/null || return 0
+    TOTAL=$((TOTAL + 1))
+    if $KYLIX build --backend=llvm ${LLVM_OPT:+--llvm-opt=$LLVM_OPT} -o "$BINDIR/example63_template_layout" \
+            "$ROOT/../../stdlib/template_engine.klx" example63_template_layout.klx >/dev/null 2>&1; then
+        local out
+        out=$("$BINDIR/example63_template_layout" 2>&1)
+        if [ "$(echo "$out" | wc -l | tr -d ' ')" = "9" ] \
+                && [ "$(echo "$out" | tail -1 | cut -c1-11)" = "9 filters: " ] \
+                && ! echo "$out" | grep -q "ERROR"; then
+            echo "  ✓ example63_template_layout"
+            PASS=$((PASS + 1))
+        else
+            echo "  ✗ example63_template_layout (run output mismatch)"
+            FAIL=$((FAIL + 1))
+        fi
+    else
+        echo "  ✗ example63_template_layout (compile failed)"
+        FAIL=$((FAIL + 1))
+    fi
+    clean_artifacts example63_template_layout
+    clean_artifacts template_engine
+}
+
+run_template_layout_test
 
 echo ""
 echo "=============================================="

@@ -1,0 +1,105 @@
+// example63_template_layout.klx — Template layout inheritance + partials (v0.9.0 P1)
+// Demonstrates the new template unit capabilities:
+//   - {{< name }}   layout inheritance: the rest of the template becomes
+//                   'content', rendered by the base via {{{ content }}}
+//   - {{> name }}   inline partials, inheriting the current each-scope
+//   - AddTemplate(name, src) template registry
+//   - recursion guard (cap 32) + unknown name errors
+// Compiled as a multi-file build: this file + stdlib/template_engine.klx.
+
+program TemplateLayoutDemo;
+
+uses template;
+
+var
+  eng: TTemplateEngine;
+  out: String;
+  err: error;
+
+begin
+  eng := TTemplateEngine.Create();
+
+  // --- context shared by all sections ---
+  eng.AddVar('title', 'Admin');
+  eng.AddVar('nav', 'Home');
+  eng.AddVar('page', 'Dashboard');
+  eng.AddVar('v', 'kylix');
+
+  // --- 1. layout inheritance ---
+  eng.AddTemplate('base', '<html><title>{{ title }}</title><body>{{ nav }} {{{ content }}} <footer>v0.9</footer></body></html>');
+  (out, err) := RenderTemplate(eng, '{{< base}}<h1>{{ page }}</h1>');
+  if err <> nil then
+    WriteLn('1 layout: ERROR: ', ErrorStr(err))
+  else
+    WriteLn('1 layout: ', out);
+
+  // --- 2. 'layout' keyword alias ---
+  (out, err) := RenderTemplate(eng, '{{< layout base}}X');
+  if err <> nil then
+    WriteLn('2 alias: ERROR: ', ErrorStr(err))
+  else
+    WriteLn('2 alias: ', out);
+
+  // --- 3. content is cleared after the layout render ---
+  (out, err) := RenderTemplate(eng, 'c=[{{{ content }}}]');
+  if err <> nil then
+    WriteLn('3 cleared: ERROR: ', ErrorStr(err))
+  else
+    WriteLn('3 cleared: ', out);
+
+  // --- 4. partial inside {{#each}}: {{ . }} and {{ @index }} visible ---
+  eng.AddTemplate('row', '<li>{{ @index }}:{{ . }}</li>');
+  eng.BeginList('tags');
+  eng.AddItem('go');
+  eng.AddItem('llvm');
+  eng.AddItem('pascal');
+  eng.EndList;
+  (out, err) := RenderTemplate(eng, '<ul>{{#each tags}}{{> row}}{{/each}}</ul>');
+  if err <> nil then
+    WriteLn('4 partial: ERROR: ', ErrorStr(err))
+  else
+    WriteLn('4 partial: ', out);
+
+  // --- 5. partial inherits the dotted item scope ---
+  eng.AddTemplate('usercard', '<div class="card">{{ name }}</div>');
+  eng.BeginList('users');
+  eng.ItemField('name', 'Li');
+  eng.NextItem;
+  eng.ItemField('name', 'Yu');
+  eng.EndList;
+  (out, err) := RenderTemplate(eng, '{{#each users}}{{> usercard}}{{/each}}');
+  if err <> nil then
+    WriteLn('5 scoped: ERROR: ', ErrorStr(err))
+  else
+    WriteLn('5 scoped: ', out);
+
+  // --- 6. unknown partial -> error ---
+  (out, err) := RenderTemplate(eng, 'a {{> nothere}} b');
+  if err <> nil then
+    WriteLn('6 unknown: ', ErrorStr(err))
+  else
+    WriteLn('6 unknown: ok [', out, ']');
+
+  // --- 7. unknown layout -> error ---
+  (out, err) := RenderTemplate(eng, '{{< ghost}}body');
+  if err <> nil then
+    WriteLn('7 unknown: ', ErrorStr(err))
+  else
+    WriteLn('7 unknown: ok [', out, ']');
+
+  // --- 8. recursion guard ---
+  eng.AddTemplate('loop', 'x{{> loop}}');
+  (out, err) := RenderTemplate(eng, '{{> loop}}');
+  if err <> nil then
+    WriteLn('8 deep: ', ErrorStr(err))
+  else
+    WriteLn('8 deep: ok (guard failed) [', out, ']');
+
+  // --- 9. filters work inside layouts/partials ---
+  eng.AddTemplate('cell', '<td>{{ v | upper }}</td>');
+  (out, err) := RenderTemplate(eng, '{{< base}}<table>{{> cell}}</table>');
+  if err <> nil then
+    WriteLn('9 filters: ERROR: ', ErrorStr(err))
+  else
+    WriteLn('9 filters: ', out);
+end.

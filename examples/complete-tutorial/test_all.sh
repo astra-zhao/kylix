@@ -193,6 +193,32 @@ run_string_utils_test() {
 
 run_string_utils_test
 
+# 25_template_layout (v0.9.0 P1): example63 uses the pure-Kylix template
+# unit — multi-file build with stdlib/template_engine.klx (layout + partials).
+run_template_layout_test() {
+    echo "Testing 25_template_layout..."
+    cd "$ROOT/25_template_layout" 2>/dev/null || return 0
+    TOTAL=$((TOTAL + 1))
+    if $KYLIX build "$ROOT/../../stdlib/template_engine.klx" example63_template_layout.klx 2>&1 | grep -q "✓ Compiled"; then
+        local out
+        out=$(go run main.go 2>&1)
+        if [ "$(echo "$out" | wc -l | tr -d ' ')" = "9" ] \
+                && [ "$(echo "$out" | tail -1 | cut -c1-11)" = "9 filters: " ] \
+                && ! echo "$out" | grep -q "ERROR"; then
+            echo "  ✓ example63_template_layout"
+            PASS=$((PASS + 1))
+        else
+            echo "  ✗ example63_template_layout (run output mismatch)"
+            FAIL=$((FAIL + 1))
+        fi
+    else
+        echo "  ✗ example63_template_layout (compile failed)"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+run_template_layout_test
+
 echo ""
 echo "================================"
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"
