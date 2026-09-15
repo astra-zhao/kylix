@@ -15,11 +15,12 @@ import (
 // the generated @__kylix_boot_handler_<i> wrapper with a TRequest handle, and
 // writes back an HTTP/1.1 response.
 //
-// TRequest handle layout (64 bytes):
+// TRequest handle layout (80 bytes):
 //
 //	0  ptr method    8  ptr path   16 ptr headers   24 ptr body
 //	32 ptr params    40 i64 nparams     ; params = {ptr key, ptr value} pairs
 //	48 ptr session   56 i64 flags       ; session middleware (P1.7c)
+//	64 ptr mpFields  72 ptr mpFiles     ; multipart upload maps (P1.7)
 //
 // Helpers:
 //
@@ -32,7 +33,11 @@ import (
 // v0.9.0 P1.7c: 48 → 64 — session middleware slots appended:
 //
 //	48 ptr session  56 i64 flags  (bit0 new · bit1 cookie-dirty · bit2 destroyed)
-const bootRequestSize = 64
+//
+// v0.9.0 P1.7: 64 → 80 — multipart upload map slots appended:
+//
+//	64 ptr mpFields  72 ptr mpFiles  (filled by __kylix_boot_multipart_parse)
+const bootRequestSize = 80
 
 // bootIntToStr converts an i64 register to a NUL-terminated decimal string.
 func (g *Generator) bootIntToStr(v string) string {
@@ -185,6 +190,11 @@ func (g *Generator) emitBootRunBody() {
 	// buffer; read_body recv's them into a NUL-terminated malloc'd buffer so
 	// req.Body / req.JSON return the real request body.
 	g.line(fmt.Sprintf("  call void @__kylix_boot_read_body(ptr %s, ptr %s, ptr %s)", conn, headers, req))
+	// v0.9.0 P1.7: eager multipart parse — self-guards on Content-Type
+	// (non-multipart requests leave the maps null → req.File miss) and fills
+	// req[64]/req[72] before any handler runs.
+	g.enqueueStdlib("boot", "multipartparse", "multipartparse", 0)
+	g.line(fmt.Sprintf("  call void @__kylix_boot_multipart_parse(ptr %s)", req))
 	// v0.9.0 P1.7c: resolve the request's session (creates + stores sess/flags
 	// on the handle) before the handler runs. Finish runs after the CSRF gate
 	// picks the response — appending its Set-Cookie BEFORE the cookie slot is
@@ -1008,6 +1018,60 @@ func (g *Generator) emitBootRequestMethodCall(req, method string, args []ast.Exp
 		return g.emitBootReqSessionDestroy(req, args)
 	case "SessionCSRFToken":
 		return g.emitBootReqSessionCSRFToken(req, args)
+	case "File":
+		// v0.9.0 P1.7: req.File(name) — (content, filename, ok) from the
+		// files htab the eager multipart parse filled. The %__ret_ aggregate
+		// is declared by the pre-scan (bootDeclareUploadTypes).
+		if len(args) != 1 {
+			return "", "", fmt.Errorf("TRequest.File expects 1 argument, got %d", len(args))
+		}
+		nameReg, _, err := g.emitExpr(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		g.enqueueStdlib("boot", "reqfile", "reqfile", 0)
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = call %%__ret_BootRequest_File @__kylix_boot_req_file(ptr %s, ptr %s)", r, req, nameReg))
+		return r, "%__ret_BootRequest_File", nil
+	case "SaveFile":
+		// v0.9.0 P1.7: req.SaveFile(name, dir) — (path, ok); sanitizes the
+		// client filename and whitelists the extension (see req_savefile).
+		if len(args) != 2 {
+			return "", "", fmt.Errorf("TRequest.SaveFile expects 2 arguments, got %d", len(args))
+		}
+		nameReg, _, err := g.emitExpr(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		dirReg, _, err := g.emitExpr(args[1])
+		if err != nil {
+			return "", "", err
+		}
+		g.enqueueStdlib("boot", "reqsavefile", "reqsavefile", 0)
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = call %%__ret_BootRequest_SaveFile @__kylix_boot_req_savefile(ptr %s, ptr %s, ptr %s)", r, req, nameReg, dirReg))
+		return r, "%__ret_BootRequest_SaveFile", nil
+	case "MultipartField":
+		// v0.9.0 P1.7: req.MultipartField(name) — text field over the fields
+		// htab (req[64]); "" on any miss (Go parity).
+		if len(args) != 1 {
+			return "", "", fmt.Errorf("TRequest.MultipartField expects 1 argument, got %d", len(args))
+		}
+		nameReg, _, err := g.emitExpr(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		g.needHashtab = true
+		fields := g.tmp()
+		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", fields, g.bootReqField(req, bootFieldSlot)))
+		got := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", got, fields, nameReg))
+		gotNull := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", gotNull, got))
+		empty := g.ptrTo(g.addString(""), 1)
+		res := g.tmp()
+		g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", res, gotNull, empty, got))
+		return res, "ptr", nil
 	case "Form":
 		// v0.7.0 P2: req.Form(name) — urlencoded body lookup + URL decoding.
 		if len(args) != 1 {

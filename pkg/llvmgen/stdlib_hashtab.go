@@ -403,6 +403,17 @@ func (g *Generator) emitHashtabPut() {
 func (g *Generator) emitHashtabGet() {
 	g.line("define ptr @__kylix_htab_get(ptr %t, ptr %key) {")
 	g.line("entry:")
+	// v0.9.0 P1.7: null table → null (Go nil-map read semantics) — the boot
+	// multipart fields map and a not-yet-resolved session are legitimately
+	// null, and htab_check would dereference it.
+	tableNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %%t, null", tableNull))
+	getNullTblLbl := g.label()
+	getFindLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", tableNull, getNullTblLbl, getFindLbl))
+	g.line(fmt.Sprintf("%s:", getNullTblLbl))
+	g.line("  ret ptr null")
+	g.line(fmt.Sprintf("%s:", getFindLbl))
 	g.line("  call void @__kylix_htab_check(ptr %t)")
 	node := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_find(ptr %%t, ptr %%key)", node))

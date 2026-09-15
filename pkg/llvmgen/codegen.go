@@ -131,6 +131,12 @@ type Generator struct {
 	// stores into it — whichever is emitted first declares it once.
 	bootCsrfEnabledDeclared bool
 
+	// bootUploadTypesDeclared guards the %__ret_BootRequest_File/SaveFile
+	// type aliases (v0.9.0 P1.7 multipart upload): declared in the pre-scan
+	// when a class method takes a boot TRequest, so the call-site tuple
+	// destructures resolve.
+	bootUploadTypesDeclared bool
+
 	// base64TableEmitted guards the @__kylix_b64_table global (emitted once
 	// per module, on first Base64Encode/Decode use).
 	base64TableEmitted bool
@@ -486,6 +492,16 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 				}
 				g.multiRetTypes[fd.Name] = llvmTypes
 				g.line(fmt.Sprintf("%%__ret_%s = type { %s }", fd.Name, strings.Join(llvmTypes, ", ")))
+			} else if fd, ok := decl.(*ast.FunctionDecl); ok && fd.IsExternal {
+				// v0.9.0 P1.7: multipart upload — declare req.File/SaveFile
+				// aggregates when an external decl takes a boot TRequest.
+				for _, p := range fd.Parameters {
+					n := typeExprName(p.Type)
+					if n == "TRequest" || n == "BootRequest" {
+						g.bootDeclareUploadTypes()
+						break
+					}
+				}
 			}
 		} else if cd, ok := unwrapClassDecl(decl); ok {
 			// v0.7.2: multi-return methods — declare the %__ret_<Class>_<Method>
@@ -510,6 +526,18 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 				}
 				g.multiRetTypes[sym] = llvmTypes
 				g.line(fmt.Sprintf("%%__ret_%s = type { %s }", sym, strings.Join(llvmTypes, ", ")))
+			}
+			// v0.9.0 P1.7: multipart upload — declare the req.File/req.SaveFile
+			// return aggregates as soon as any class method takes a boot
+			// TRequest, so call-site tuple destructures resolve.
+			for _, m := range cd.Methods {
+				for _, p := range m.Parameters {
+					n := typeExprName(p.Type)
+					if n == "TRequest" || n == "BootRequest" {
+						g.bootDeclareUploadTypes()
+						break
+					}
+				}
 			}
 		}
 		// v0.5.4: register enum constants so `tkProgram` etc. resolve to their

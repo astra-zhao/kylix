@@ -242,6 +242,15 @@ func (g *Generator) emitBootBody(funcName string) {
 	case "csrfcheck":
 		// v0.9.0 P1.7: the CSRF gate itself (BootRun-embedded middleware).
 		g.emitBootCsrfCheckBody()
+	case "multipartparse":
+		// v0.9.0 P1.7: eager multipart/form-data parse (BootRun-embedded).
+		g.emitBootMultipartParseBody()
+	case "reqfile":
+		// v0.9.0 P1.7: req.File(name) — {content, filename, ok}.
+		g.emitBootReqFileBody()
+	case "reqsavefile":
+		// v0.9.0 P1.7: req.SaveFile(name, dir) — {path, ok}.
+		g.emitBootReqSaveFileBody()
 	case "servestatic":
 		g.emitBootServeStaticBody()
 	case "BootGET", "BootPOST", "BootPUT", "BootDELETE":
