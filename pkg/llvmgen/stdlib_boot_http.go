@@ -15,10 +15,11 @@ import (
 // the generated @__kylix_boot_handler_<i> wrapper with a TRequest handle, and
 // writes back an HTTP/1.1 response.
 //
-// TRequest handle layout (48 bytes):
+// TRequest handle layout (64 bytes):
 //
 //	0  ptr method    8  ptr path   16 ptr headers   24 ptr body
 //	32 ptr params    40 i64 nparams     ; params = {ptr key, ptr value} pairs
+//	48 ptr session   56 i64 flags       ; session middleware (P1.7c)
 //
 // Helpers:
 //
@@ -28,7 +29,10 @@ import (
 //	path_match(pattern, path, req) -> i1          segment match + :param fill
 
 // bootRequestSize is the TRequest handle size in bytes.
-const bootRequestSize = 48
+// v0.9.0 P1.7c: 48 → 64 — session middleware slots appended:
+//
+//	48 ptr session  56 i64 flags  (bit0 new · bit1 cookie-dirty · bit2 destroyed)
+const bootRequestSize = 64
 
 // bootIntToStr converts an i64 register to a NUL-terminated decimal string.
 func (g *Generator) bootIntToStr(v string) string {
@@ -60,6 +64,10 @@ func (g *Generator) emitBootRunBody() {
 	g.enqueueStdlib("boot", "readbody", "readbody", 0)
 	g.enqueueStdlib("boot", "parsereq", "parsereq", 0)
 	g.enqueueStdlib("boot", "routelookup", "routelookup", 0)
+	// v0.9.0 P1.7c: session middleware halves — resolve before the handler,
+	// finish after (flags-driven Set-Cookie), mirroring boot.Sessions().
+	g.enqueueStdlib("boot", "sessionresolve", "sessionresolve", 0)
+	g.enqueueStdlib("boot", "sessionfinish", "sessionfinish", 0)
 
 	// v0.7.0 P3: BootRun's 404/500 paths read the error-page globals directly,
 	// so they must be declared at module level regardless of whether the
@@ -177,8 +185,14 @@ func (g *Generator) emitBootRunBody() {
 	// buffer; read_body recv's them into a NUL-terminated malloc'd buffer so
 	// req.Body / req.JSON return the real request body.
 	g.line(fmt.Sprintf("  call void @__kylix_boot_read_body(ptr %s, ptr %s, ptr %s)", conn, headers, req))
+	// v0.9.0 P1.7c: resolve the request's session (creates + stores sess/flags
+	// on the handle) before the handler runs. Finish runs right after the
+	// handler returns — appending its Set-Cookie BEFORE the cookie slot is
+	// loaded and sized into the response buffer below.
+	g.line(fmt.Sprintf("  call void @__kylix_boot_session_resolve(ptr %s, ptr %s)", req, headers))
 	res := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr %s(ptr %s)", res, handler, req))
+	g.line(fmt.Sprintf("  call void @__kylix_boot_session_finish(ptr %s, ptr %s)", req, res))
 	status := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", status, res))
 	bodyField := g.tmp()
@@ -960,6 +974,20 @@ func (g *Generator) emitBootRequestMethodCall(req, method string, args []ast.Exp
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = select i1 %s, i64 %s, i64 %s", r, gtM, maxReg, sel1))
 		return r, "i64", nil
+	case "SessionGet":
+		// v0.9.0 P1.7c: server-side session accessors over the per-session
+		// htab (req[48]) the middleware resolved — see stdlib_boot_session.go.
+		return g.emitBootReqSessionGet(req, args)
+	case "SessionSet":
+		return g.emitBootReqSessionSet(req, args)
+	case "SessionDelete":
+		return g.emitBootReqSessionDelete(req, args)
+	case "SessionMarkRemember":
+		return g.emitBootReqSessionMarkRemember(req, args)
+	case "SessionDestroy":
+		return g.emitBootReqSessionDestroy(req, args)
+	case "SessionCSRFToken":
+		return g.emitBootReqSessionCSRFToken(req, args)
 	case "Form":
 		// v0.7.0 P2: req.Form(name) — urlencoded body lookup + URL decoding.
 		if len(args) != 1 {

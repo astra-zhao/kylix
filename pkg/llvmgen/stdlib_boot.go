@@ -220,6 +220,13 @@ func (g *Generator) emitBootBody(funcName string) {
 		g.emitBootFormGetBody()
 	case "cookieget":
 		g.emitBootCookieGetBody()
+	case "sessionresolve":
+		// v0.9.0 P1.7c: session middleware halves (BootRun-embedded).
+		g.emitBootSessionResolveBody()
+	case "sessionfinish":
+		g.emitBootSessionFinishBody()
+	case "randhex":
+		g.emitBootRandHexBody()
 	case "servestatic":
 		g.emitBootServeStaticBody()
 	case "BootGET", "BootPOST", "BootPUT", "BootDELETE":

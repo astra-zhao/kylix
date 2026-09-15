@@ -120,6 +120,12 @@ type Generator struct {
 	// the program never calls BootNotFoundPage/BootErrorPage (v0.7.0 P3).
 	bootErrorPagesDeclared bool
 
+	// bootSessionsDeclared guards the `@__kylix_boot_sessions = global ptr null`
+	// outer session table (v0.9.0 P1.7c): referenced by the session middleware
+	// (session_resolve/session_finish) and req.SessionDestroy, so whichever is
+	// emitted first declares it once.
+	bootSessionsDeclared bool
+
 	// base64TableEmitted guards the @__kylix_b64_table global (emitted once
 	// per module, on first Base64Encode/Decode use).
 	base64TableEmitted bool

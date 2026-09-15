@@ -1,0 +1,630 @@
+package llvmgen
+
+import (
+	"fmt"
+
+	"kylix/ast"
+)
+
+// stdlib_boot_session.go — v0.9.0 P1.7c: server-side sessions for the LLVM
+// KylixBoot runtime, mirroring pkg/boot/session.go.
+//
+// Storage: one module-global outer htab (@__kylix_boot_sessions) maps SID →
+// per-session htab pointer (opaque value slot, cache-TTL-table precedent).
+// Each per-session htab holds user key/value string pairs plus reserved
+// double-underscore keys the middleware owns:
+//
+//	__sid  — strdup'd session ID (cookie buffer is request-arena scoped)
+//	__exp  — expiry, decimal milliseconds (sliding window)
+//	__rem  — present ⇒ remember-me (30-day TTL + Max-Age cookie attr)
+//
+// TRequest handle gains two fields (bootRequestSize 48 → 64):
+//
+//	48 ptr session   56 i64 flags   ; bit0 new · bit1 cookie-dirty · bit2 destroyed
+//
+// The middleware is BootRun-embedded (LLVM has no middleware chain):
+//
+//	@__kylix_boot_session_resolve(req, headers)  before the handler
+//	@__kylix_boot_session_finish(req, res)       after it — flags-driven
+//	                                             Set-Cookie, Go parity
+const (
+	bootSessionCookieName = "KYLIX_SID"
+	bootSessionKeySID     = "__sid"
+	bootSessionKeyExp     = "__exp"
+	bootSessionKeyRem     = "__rem"
+	bootSessionCSRFKey    = "__csrf"
+
+	bootSessionsGlobal = "@__kylix_boot_sessions"
+
+	// Sliding TTLs (ms), matching Go DefaultSessionTTL/DefaultRememberTTL.
+	bootSessionTTLms  = int64(24 * 60 * 60 * 1000)
+	bootRememberTTLms = int64(30 * 24 * 60 * 60 * 1000)
+	// Cookie Max-Age seconds for remember-me (Go DefaultRememberTTL).
+	bootRememberSeconds = 2592000
+
+	// req[56] flag bits — keep in sync with the doc comment above.
+	bootSessFlagNew       = 1
+	bootSessFlagDirty     = 2
+	bootSessFlagDestroyed = 4
+)
+
+// bootDeclareSessionsGlobal emits the outer session-table global once.
+func (g *Generator) bootDeclareSessionsGlobal() {
+	if g.bootSessionsDeclared {
+		return
+	}
+	g.bootSessionsDeclared = true
+	g.line(fmt.Sprintf("%s = global ptr null", bootSessionsGlobal))
+}
+
+// emitBootSessionResolveBody — void @__kylix_boot_session_resolve(ptr %req,
+// ptr %headers): the session half of the Sessions() middleware. Resolves the
+// KYLIX_SID cookie to a live per-session htab (creating + minting a fresh
+// SID when the cookie is absent/unknown/expired), applies the sliding expiry,
+// and stores sess + flags on the request handle. Allocas carry values across
+// blocks (no phis); htab_put strdups keys, but VALUES are stored verbatim —
+// every value put here is strdup'd first because cookie/rand buffers are
+// request-scoped.
+func (g *Generator) emitBootSessionResolveBody() {
+	g.needHashtab = true
+	g.needArena = true
+	g.enqueueStdlib("cache", "now_ms", "now_ms", 0)
+	g.enqueueStdlib("boot", "randhex", "randhex", 0)
+	g.bootDeclareSessionsGlobal()
+	c := func(format string, args ...interface{}) { g.line(fmt.Sprintf(format, args...)) }
+	c("define void @__kylix_boot_session_resolve(ptr %%req, ptr %%headers) {")
+	c("entry:")
+	tSlot := g.tmp()
+	c("  %s = alloca ptr, align 8", tSlot)
+	sidSlot := g.tmp()
+	c("  %s = alloca ptr, align 8", sidSlot)
+	sessSlot := g.tmp()
+	c("  %s = alloca ptr, align 8", sessSlot)
+	flagsSlot := g.tmp()
+	c("  %s = alloca i64, align 8", flagsSlot)
+	c("  store i64 0, ptr %s", flagsSlot)
+	// Lazy-init the outer sessions table.
+	t0 := g.bootLoadPtr(bootSessionsGlobal)
+	c("  store ptr %s, ptr %s", t0, tSlot)
+	tNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", tNull, t0)
+	tinit := g.label()
+	tready := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", tNull, tinit, tready)
+	c("%s:", tinit)
+	nt := g.tmp()
+	c("  %s = call ptr @__kylix_htab_new()", nt)
+	c("  store ptr %s, ptr %s", nt, bootSessionsGlobal)
+	c("  store ptr %s, ptr %s", nt, tSlot)
+	c("  br label %%%s", tready)
+	// Read the session cookie (null when absent — htab-free path).
+	c("%s:", tready)
+	sidName := g.ptrTo(g.addString(bootSessionCookieName), len(bootSessionCookieName)+1)
+	g.enqueueStdlib("boot", "cookieget", "cookieget", 0)
+	sid0 := g.tmp()
+	c("  %s = call ptr @__kylix_boot_cookie_get(ptr %%headers, ptr %s)", sid0, sidName)
+	c("  store ptr %s, ptr %s", sid0, sidSlot)
+	sidNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", sidNull, sid0)
+	createLbl := g.label()
+	lookupLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", sidNull, createLbl, lookupLbl)
+	c("%s:", lookupLbl)
+	t1 := g.tmp()
+	c("  %s = load ptr, ptr %s", t1, tSlot)
+	sess1 := g.tmp()
+	c("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", sess1, t1, sid0)
+	c("  store ptr %s, ptr %s", sess1, sessSlot)
+	sessNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", sessNull, sess1)
+	mkNewLbl := g.label()
+	expChkLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", sessNull, mkNewLbl, expChkLbl)
+	// Unknown SID — mint a fresh one (Go parity: store.Get miss → Create),
+	// which also closes session fixation by client-chosen IDs.
+	c("%s:", mkNewLbl)
+	c("  store ptr null, ptr %s", sidSlot)
+	c("  br label %%%s", createLbl)
+	// Known session — check __exp (absent ⇒ treat as live, renew below).
+	c("%s:", expChkLbl)
+	expKey := g.ptrTo(g.addString(bootSessionKeyExp), len(bootSessionKeyExp)+1)
+	sess2 := g.tmp()
+	c("  %s = load ptr, ptr %s", sess2, sessSlot)
+	expStr := g.tmp()
+	c("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", expStr, sess2, expKey)
+	expNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", expNull, expStr)
+	renewLbl := g.label()
+	expParseLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", expNull, renewLbl, expParseLbl)
+	c("%s:", expParseLbl)
+	exp := g.tmp()
+	c("  %s = call i64 @atoll(ptr %s)", exp, expStr)
+	now1 := g.tmp()
+	c("  %s = call i64 @__kylix_now_ms()", now1)
+	expired := g.tmp()
+	c("  %s = icmp sgt i64 %s, %s", expired, now1, exp)
+	staleLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", expired, staleLbl, renewLbl)
+	// Expired — drop the stored session, then create a fresh one (Go mints a
+	// new random ID; the stale cookie value is never reused).
+	c("%s:", staleLbl)
+	t2 := g.tmp()
+	c("  %s = load ptr, ptr %s", t2, tSlot)
+	sidStale := g.tmp()
+	c("  %s = load ptr, ptr %s", sidStale, sidSlot)
+	c("  call void @__kylix_htab_del(ptr %s, ptr %s)", t2, sidStale)
+	c("  store ptr null, ptr %s", sidSlot)
+	c("  br label %%%s", createLbl)
+	// Create path — sidSlot is null (no cookie / unknown / expired), so a
+	// fresh SID is minted and the Set-Cookie on this response re-binds the
+	// browser.
+	c("%s:", createLbl)
+	f0 := g.tmp()
+	c("  %s = load i64, ptr %s", f0, flagsSlot)
+	f1 := g.tmp()
+	c("  %s = or i64 %s, %d", f1, f0, bootSessFlagNew)
+	c("  store i64 %s, ptr %s", f1, flagsSlot)
+	sess := g.tmp()
+	c("  %s = call ptr @__kylix_htab_new()", sess)
+	c("  store ptr %s, ptr %s", sess, sessSlot)
+	curSid := g.tmp()
+	c("  %s = load ptr, ptr %s", curSid, sidSlot)
+	curNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", curNull, curSid)
+	mintLbl := g.label()
+	haveSidLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", curNull, mintLbl, haveSidLbl)
+	c("%s:", mintLbl)
+	ns := g.tmp()
+	c("  %s = call ptr @__kylix_boot_rand_hex(i64 32)", ns)
+	c("  store ptr %s, ptr %s", ns, sidSlot)
+	c("  br label %%%s", haveSidLbl)
+	// Register the session in the outer table (key strdup'd by htab_put) and
+	// persist __sid — the value must outlive this request's buffers.
+	c("%s:", haveSidLbl)
+	fs := g.tmp()
+	c("  %s = load ptr, ptr %s", fs, sidSlot)
+	t3 := g.tmp()
+	c("  %s = load ptr, ptr %s", t3, tSlot)
+	c("  call void @__kylix_htab_put(ptr %s, ptr %s, ptr %s)", t3, fs, sess)
+	sidKey := g.ptrTo(g.addString(bootSessionKeySID), len(bootSessionKeySID)+1)
+	dupSid := g.tmp()
+	c("  %s = call ptr @__kylix_htab_strdup(ptr %s)", dupSid, fs)
+	c("  call void @__kylix_htab_put(ptr %s, ptr %s, ptr %s)", sess, sidKey, dupSid)
+	c("  br label %%%s", renewLbl)
+	// Sliding expiry — shared tail for the create and renew paths.
+	c("%s:", renewLbl)
+	sess3 := g.tmp()
+	c("  %s = load ptr, ptr %s", sess3, sessSlot)
+	remKey := g.ptrTo(g.addString(bootSessionKeyRem), len(bootSessionKeyRem)+1)
+	remStr := g.tmp()
+	c("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", remStr, sess3, remKey)
+	isRem := g.tmp()
+	c("  %s = icmp ne ptr %s, null", isRem, remStr)
+	ttl := g.tmp()
+	c("  %s = select i1 %s, i64 %d, i64 %d", ttl, isRem, bootRememberTTLms, bootSessionTTLms)
+	now2 := g.tmp()
+	c("  %s = call i64 @__kylix_now_ms()", now2)
+	newExp := g.tmp()
+	c("  %s = add i64 %s, %s", newExp, now2, ttl)
+	expBuf := g.bootIntToStr(newExp)
+	dupExp := g.tmp()
+	c("  %s = call ptr @__kylix_htab_strdup(ptr %s)", dupExp, expBuf)
+	c("  call void @__kylix_htab_put(ptr %s, ptr %s, ptr %s)", sess3, expKey, dupExp)
+	// Publish on the request handle: sess at 48, flags at 56.
+	c("  store ptr %s, ptr %s", sess3, g.bootReqField("%req", 48))
+	flags := g.tmp()
+	c("  %s = load i64, ptr %s", flags, flagsSlot)
+	c("  store i64 %s, ptr %s", flags, g.bootReqField("%req", 56))
+	c("  ret void")
+	c("}")
+	c("")
+}
+
+// emitBootSessionFinishBody — void @__kylix_boot_session_finish(ptr %req,
+// ptr %res): the response half of the middleware. Flags ≠ 0 ⇒ append the
+// session cookie to the response's cookie slot: destroyed clears the cookie
+// (Max-Age=0), remember adds Max-Age=2592000, plain re-send is Path=/;
+// HttpOnly — the exact lines pkg/boot.writeSessionCookie produces.
+func (g *Generator) emitBootSessionFinishBody() {
+	g.needHashtab = true
+	g.needArena = true
+	c := func(format string, args ...interface{}) { g.line(fmt.Sprintf(format, args...)) }
+	c("define void @__kylix_boot_session_finish(ptr %%req, ptr %%res) {")
+	c("entry:")
+	flags := g.tmp()
+	c("  %s = load i64, ptr %s", flags, g.bootReqField("%req", 56))
+	need := g.tmp()
+	c("  %s = icmp ne i64 %s, 0", need, flags)
+	emitLbl := g.label()
+	doneLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", need, emitLbl, doneLbl)
+	c("%s:", doneLbl)
+	c("  ret void")
+	c("%s:", emitLbl)
+	df := g.tmp()
+	c("  %s = and i64 %s, %d", df, flags, bootSessFlagDestroyed)
+	destroyed := g.tmp()
+	c("  %s = icmp ne i64 %s, 0", destroyed, df)
+	clearLbl := g.label()
+	setLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", destroyed, clearLbl, setLbl)
+	// Destroyed: clear-cookie line is a constant — append verbatim.
+	c("%s:", clearLbl)
+	clearLine := "Set-Cookie: " + bootSessionCookieName + "=; Path=/; Max-Age=0; HttpOnly\r\n"
+	g.emitBootAppendToSlot("%res", 24, g.ptrTo(g.addString(clearLine), len(clearLine)+1), fmt.Sprintf("%d", len(clearLine)+1))
+	c("  ret void")
+	// Set path: assemble "Set-Cookie: KYLIX_SID=<sid><attrs>\r\n" — attrs
+	// selected on the persisted __rem key so a MarkRemember inside this
+	// request's handler takes effect on the very response.
+	c("%s:", setLbl)
+	sess := g.tmp()
+	c("  %s = load ptr, ptr %s", sess, g.bootReqField("%req", 48))
+	sessNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", sessNull, sess)
+	noSessLbl := g.label()
+	haveSessLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", sessNull, noSessLbl, haveSessLbl)
+	c("%s:", noSessLbl)
+	c("  ret void")
+	c("%s:", haveSessLbl)
+	sidKey := g.ptrTo(g.addString(bootSessionKeySID), len(bootSessionKeySID)+1)
+	sid := g.tmp()
+	c("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", sid, sess, sidKey)
+	remKey := g.ptrTo(g.addString(bootSessionKeyRem), len(bootSessionKeyRem)+1)
+	remStr := g.tmp()
+	c("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", remStr, sess, remKey)
+	isRem := g.tmp()
+	c("  %s = icmp ne ptr %s, null", isRem, remStr)
+	attrsPlain := "; Path=/; HttpOnly\r\n"
+	attrsRem := "; Path=/; HttpOnly; Max-Age=" + fmt.Sprintf("%d", bootRememberSeconds) + "\r\n"
+	attrs := g.tmp()
+	c("  %s = select i1 %s, ptr %s, ptr %s", attrs, isRem,
+		g.ptrTo(g.addString(attrsRem), len(attrsRem)+1),
+		g.ptrTo(g.addString(attrsPlain), len(attrsPlain)+1))
+	// Buffer cap: prefix 22 + sid (64 hex) + attrs (≤37) + slack.
+	prefix := "Set-Cookie: " + bootSessionCookieName + "="
+	bufCap := g.tmp()
+	sidLen := g.tmp()
+	c("  %s = call i64 @strlen(ptr %s)", sidLen, sid)
+	c("  %s = add i64 %s, %d", bufCap, sidLen, len(prefix)+len(attrsRem)+16)
+	buf := g.tmp()
+	c("  %s = call ptr @__kylix_arena_alloc(i64 %s)", buf, bufCap)
+	c("  store i8 0, ptr %s", buf)
+	c("  call ptr @strcpy(ptr %s, ptr %s)", buf, g.ptrTo(g.addString(prefix), len(prefix)+1))
+	c("  call ptr @strcat(ptr %s, ptr %s)", buf, sid)
+	c("  call ptr @strcat(ptr %s, ptr %s)", buf, attrs)
+	g.emitBootAppendToSlot("%res", 24, buf, bufCap)
+	c("  ret void")
+	c("}")
+	c("")
+}
+
+// emitBootRandHexBody — ptr @__kylix_boot_rand_hex(i64 %nbytes): 2*nbytes hex
+// chars + NUL in a malloc'd buffer (Go randomID: crypto/rand → hex). Unix
+// reads /dev/urandom; a failed open falls back to a time-derived fill (and
+// Windows, which has no urandom, uses it outright — debt: pseudo-random).
+// nbytes clamps to 64 (the fixed byte scratch buffer).
+func (g *Generator) emitBootRandHexBody() {
+	c := func(format string, args ...interface{}) { g.line(fmt.Sprintf(format, args...)) }
+	c("define ptr @__kylix_boot_rand_hex(i64 %%nbytes) {")
+	c("entry:")
+	// Clamp nbytes to 64.
+	tooBig := g.tmp()
+	c("  %s = icmp sgt i64 %%nbytes, 64", tooBig)
+	n := g.tmp()
+	c("  %s = select i1 %s, i64 64, i64 %%nbytes", n, tooBig)
+	// Scratch byte buffer (alloca is fine: 64B, and the buffer is consumed
+	// before return).
+	byteBuf := g.tmp()
+	c("  %s = alloca [64 x i8], align 1", byteBuf)
+	byteBuf0 := g.tmp()
+	c("  %s = getelementptr inbounds [64 x i8], ptr %s, i64 0, i64 0", byteBuf0, byteBuf)
+	useURandom := g.targetOS != "windows"
+	hexEncLbl := g.label()
+	if useURandom {
+		urandomPath := g.ptrTo(g.addString("/dev/urandom"), 13)
+		urandomMode := g.ptrTo(g.addString("rb"), 3)
+		fb := g.tmp()
+		c("  %s = call ptr @fopen(ptr %s, ptr %s)", fb, urandomPath, urandomMode)
+		fbNull := g.tmp()
+		c("  %s = icmp eq ptr %s, null", fbNull, fb)
+		rdLbl := g.label()
+		timeFillLbl := g.label()
+		c("  br i1 %s, label %%%s, label %%%s", fbNull, timeFillLbl, rdLbl)
+		c("%s:", rdLbl)
+		got := g.tmp()
+		c("  %s = call i64 @fread(ptr %s, i64 1, i64 %s, ptr %s)", got, byteBuf0, n, fb)
+		c("  call i32 @fclose(ptr %s)", fb)
+		full := g.tmp()
+		c("  %s = icmp eq i64 %s, %s", full, got, n)
+		c("  br i1 %s, label %%%s, label %%%s", full, hexEncLbl, timeFillLbl)
+		// Fallback (open failed / short read) + Windows: time-derived bytes.
+		c("%s:", timeFillLbl)
+		g.emitBootRandHexTimeFill(c, byteBuf0, n)
+		c("  br label %%%s", hexEncLbl)
+	} else {
+		g.emitBootRandHexTimeFill(c, byteBuf0, n)
+		c("  br label %%%s", hexEncLbl)
+	}
+	// Hex-encode into a fresh malloc'd buffer.
+	c("%s:", hexEncLbl)
+	out := g.tmp()
+	twice := g.tmp()
+	c("  %s = shl i64 %s, 1", twice, n)
+	outLen := g.tmp()
+	c("  %s = add i64 %s, 1", outLen, twice)
+	c("  %s = call ptr @malloc(i64 %s)", out, outLen)
+	hexTable := g.ptrTo(g.addString("0123456789abcdef"), 17)
+	iSlot := g.tmp()
+	c("  %s = alloca i64, align 8", iSlot)
+	c("  store i64 0, ptr %s", iSlot)
+	condLbl := g.label()
+	bodyLbl := g.label()
+	doneLbl := g.label()
+	c("  br label %%%s", condLbl)
+	c("%s:", condLbl)
+	i := g.tmp()
+	c("  %s = load i64, ptr %s", i, iSlot)
+	more := g.tmp()
+	c("  %s = icmp slt i64 %s, %s", more, i, n)
+	c("  br i1 %s, label %%%s, label %%%s", more, bodyLbl, doneLbl)
+	c("%s:", bodyLbl)
+	bp := g.tmp()
+	c("  %s = getelementptr inbounds i8, ptr %s, i64 %s", bp, byteBuf0, i)
+	b8 := g.tmp()
+	c("  %s = load i8, ptr %s", b8, bp)
+	b32 := g.tmp()
+	c("  %s = zext i8 %s to i32", b32, b8)
+	hi := g.tmp()
+	c("  %s = lshr i32 %s, 4", hi, b32)
+	hi64 := g.tmp()
+	c("  %s = zext i32 %s to i64", hi64, hi)
+	lo := g.tmp()
+	c("  %s = and i32 %s, 15", lo, b32)
+	lo64 := g.tmp()
+	c("  %s = zext i32 %s to i64", lo64, lo)
+	twiceI := g.tmp()
+	c("  %s = shl i64 %s, 1", twiceI, i)
+	o0 := g.tmp()
+	c("  %s = getelementptr inbounds i8, ptr %s, i64 %s", o0, out, twiceI)
+	o1 := g.tmp()
+	c("  %s = add i64 %s, 1", o1, twiceI)
+	o1p := g.tmp()
+	c("  %s = getelementptr inbounds i8, ptr %s, i64 %s", o1p, out, o1)
+	hc0 := g.tmp()
+	c("  %s = getelementptr inbounds i8, ptr %s, i64 %s", hc0, hexTable, hi64)
+	ch0 := g.tmp()
+	c("  %s = load i8, ptr %s", ch0, hc0)
+	c("  store i8 %s, ptr %s", ch0, o0)
+	hc1 := g.tmp()
+	c("  %s = getelementptr inbounds i8, ptr %s, i64 %s", hc1, hexTable, lo64)
+	ch1 := g.tmp()
+	c("  %s = load i8, ptr %s", ch1, hc1)
+	c("  store i8 %s, ptr %s", ch1, o1p)
+	iNext := g.tmp()
+	c("  %s = add i64 %s, 1", iNext, i)
+	c("  store i64 %s, ptr %s", iNext, iSlot)
+	c("  br label %%%s", condLbl)
+	c("%s:", doneLbl)
+	end := g.tmp()
+	c("  %s = getelementptr inbounds i8, ptr %s, i64 %s", end, out, twice)
+	c("  store i8 0, ptr %s", end)
+	c("  ret ptr %s", out)
+	c("}")
+	c("")
+}
+
+// emitBootRandHexTimeFill fills byteBuf with time-derived pseudo bytes — the
+// fallback when /dev/urandom is unavailable (or on Windows). seed = now_ms;
+// byte i = seed >> ((i&7)*8). Not cryptographic — debt note above.
+func (g *Generator) emitBootRandHexTimeFill(c func(string, ...interface{}), byteBuf0, n string) {
+	g.enqueueStdlib("cache", "now_ms", "now_ms", 0)
+	seed := g.tmp()
+	c("  %s = call i64 @__kylix_now_ms()", seed)
+	iSlot := g.tmp()
+	c("  %s = alloca i64, align 8", iSlot)
+	c("  store i64 0, ptr %s", iSlot)
+	condLbl := g.label()
+	bodyLbl := g.label()
+	doneLbl := g.label()
+	c("  br label %%%s", condLbl)
+	c("%s:", condLbl)
+	i := g.tmp()
+	c("  %s = load i64, ptr %s", i, iSlot)
+	more := g.tmp()
+	c("  %s = icmp slt i64 %s, %s", more, i, n)
+	c("  br i1 %s, label %%%s, label %%%s", more, bodyLbl, doneLbl)
+	c("%s:", bodyLbl)
+	iAnd7 := g.tmp()
+	c("  %s = and i64 %s, 7", iAnd7, i)
+	shift := g.tmp()
+	c("  %s = shl i64 %s, 3", shift, iAnd7)
+	shr := g.tmp()
+	c("  %s = lshr i64 %s, %s", shr, seed, shift)
+	b := g.tmp()
+	c("  %s = trunc i64 %s to i8", b, shr)
+	bp := g.tmp()
+	c("  %s = getelementptr inbounds i8, ptr %s, i64 %s", bp, byteBuf0, i)
+	c("  store i8 %s, ptr %s", b, bp)
+	iNext := g.tmp()
+	c("  %s = add i64 %s, 1", iNext, i)
+	c("  store i64 %s, ptr %s", iNext, iSlot)
+	c("  br label %%%s", condLbl)
+	c("%s:", doneLbl)
+}
+
+// ---- req.Session* accessors (called inline at the handler's call site) ----
+//
+// The session pointer at req[48] is guaranteed non-null: BootRun runs
+// @__kylix_boot_session_resolve before dispatching to every handler, and
+// resolve always creates a session.
+
+// emitBootReqSessionGet — req.SessionGet(key): htab lookup, "" on miss.
+func (g *Generator) emitBootReqSessionGet(req string, args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("TRequest.SessionGet expects 1 argument, got %d", len(args))
+	}
+	keyReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	g.needHashtab = true
+	sess := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", sess, g.bootReqField(req, 48)))
+	v := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", v, sess, keyReg))
+	vNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", vNull, v))
+	empty := g.ptrTo(g.addString(""), 1)
+	sel := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", sel, vNull, empty, v))
+	return sel, "ptr", nil
+}
+
+// emitBootReqSessionSet — req.SessionSet(key, value): strdup the value (htab
+// stores value pointers verbatim; the caller's string may be request-scoped),
+// then put. No cookie re-send — matching Go, where Set does not dirty the
+// cookie.
+func (g *Generator) emitBootReqSessionSet(req string, args []ast.Expression) (string, string, error) {
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("TRequest.SessionSet expects 2 arguments, got %d", len(args))
+	}
+	keyReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	valReg, _, err := g.emitExpr(args[1])
+	if err != nil {
+		return "", "", err
+	}
+	g.needHashtab = true
+	sess := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", sess, g.bootReqField(req, 48)))
+	dup := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_strdup(ptr %s)", dup, valReg))
+	g.line(fmt.Sprintf("  call void @__kylix_htab_put(ptr %s, ptr %s, ptr %s)", sess, keyReg, dup))
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 0, 0", r))
+	return r, "i64", nil
+}
+
+// emitBootReqSessionDelete — req.SessionDelete(key).
+func (g *Generator) emitBootReqSessionDelete(req string, args []ast.Expression) (string, string, error) {
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("TRequest.SessionDelete expects 1 argument, got %d", len(args))
+	}
+	keyReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	g.needHashtab = true
+	sess := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", sess, g.bootReqField(req, 48)))
+	g.line(fmt.Sprintf("  call void @__kylix_htab_del(ptr %s, ptr %s)", sess, keyReg))
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 0, 0", r))
+	return r, "i64", nil
+}
+
+// emitBootReqSessionMarkRemember — req.SessionMarkRemember(): persist the
+// remember marker (read by the sliding TTL and the finish cookie attrs) and
+// flag the cookie dirty so finish re-sends it with Max-Age.
+func (g *Generator) emitBootReqSessionMarkRemember(req string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TRequest.SessionMarkRemember expects 0 arguments, got %d", len(args))
+	}
+	g.needHashtab = true
+	sess := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", sess, g.bootReqField(req, 48)))
+	remKey := g.ptrTo(g.addString(bootSessionKeyRem), len(bootSessionKeyRem)+1)
+	one := g.ptrTo(g.addString("1"), 2)
+	g.line(fmt.Sprintf("  call void @__kylix_htab_put(ptr %s, ptr %s, ptr %s)", sess, remKey, one))
+	flagsSlot := g.bootReqField(req, 56)
+	f0 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", f0, flagsSlot))
+	f1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %d", f1, f0, bootSessFlagDirty))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", f1, flagsSlot))
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 0, 0", r))
+	return r, "i64", nil
+}
+
+// emitBootReqSessionDestroy — req.SessionDestroy(): drop the stored session
+// (via the persisted __sid value) from the outer table and flag destroyed so
+// finish sends the clear-cookie line. The per-session htab itself is not
+// freed (htab has no free — same leak profile as expired sessions).
+func (g *Generator) emitBootReqSessionDestroy(req string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TRequest.SessionDestroy expects 0 arguments, got %d", len(args))
+	}
+	g.needHashtab = true
+	sess := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", sess, g.bootReqField(req, 48)))
+	sidKey := g.ptrTo(g.addString(bootSessionKeySID), len(bootSessionKeySID)+1)
+	sid := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", sid, sess, sidKey))
+	sidNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", sidNull, sid))
+	joinLbl := g.label()
+	delLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", sidNull, joinLbl, delLbl))
+	g.line(fmt.Sprintf("%s:", delLbl))
+	tbl := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", tbl, bootSessionsGlobal))
+	tblNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", tblNull, tbl))
+	doDelLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", tblNull, joinLbl, doDelLbl))
+	g.line(fmt.Sprintf("%s:", doDelLbl))
+	g.line(fmt.Sprintf("  call void @__kylix_htab_del(ptr %s, ptr %s)", tbl, sid))
+	g.line(fmt.Sprintf("  br label %%%s", joinLbl))
+	g.line(fmt.Sprintf("%s:", joinLbl))
+	flagsSlot := g.bootReqField(req, 56)
+	f0 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", f0, flagsSlot))
+	f1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %d", f1, f0, bootSessFlagDestroyed))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", f1, flagsSlot))
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 0, 0", r))
+	return r, "i64", nil
+}
+
+// emitBootReqSessionCSRFToken — req.SessionCSRFToken(): the persisted __csrf
+// token, minted (16 random bytes → 32 hex chars) and stored on first call —
+// the value the CSRF middleware validates forms against (P1.7 CSRF slice).
+func (g *Generator) emitBootReqSessionCSRFToken(req string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TRequest.SessionCSRFToken expects 0 arguments, got %d", len(args))
+	}
+	g.needHashtab = true
+	sess := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", sess, g.bootReqField(req, 48)))
+	csrfKey := g.ptrTo(g.addString(bootSessionCSRFKey), len(bootSessionCSRFKey)+1)
+	tok0 := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", tok0, sess, csrfKey))
+	tokNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", tokNull, tok0))
+	tokSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", tokSlot))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", tok0, tokSlot))
+	genLbl := g.label()
+	haveLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", tokNull, genLbl, haveLbl))
+	g.line(fmt.Sprintf("%s:", genLbl))
+	minted := g.tmp()
+	g.enqueueStdlib("boot", "randhex", "randhex", 0)
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_rand_hex(i64 16)", minted))
+	dup := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_strdup(ptr %s)", dup, minted))
+	g.line(fmt.Sprintf("  call void @__kylix_htab_put(ptr %s, ptr %s, ptr %s)", sess, csrfKey, dup))
+	g.line(fmt.Sprintf("  store ptr %s, ptr %s", minted, tokSlot))
+	g.line(fmt.Sprintf("  br label %%%s", haveLbl))
+	g.line(fmt.Sprintf("%s:", haveLbl))
+	tok := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", tok, tokSlot))
+	return tok, "ptr", nil
+}
