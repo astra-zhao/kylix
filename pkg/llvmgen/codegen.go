@@ -126,6 +126,11 @@ type Generator struct {
 	// emitted first declares it once.
 	bootSessionsDeclared bool
 
+	// bootCsrfEnabledDeclared guards `@__kylix_boot_csrf_enabled = global i1
+	// false` (v0.9.0 P1.7 CSRF): BootRun's gate always loads it, BootUseCSRF
+	// stores into it — whichever is emitted first declares it once.
+	bootCsrfEnabledDeclared bool
+
 	// base64TableEmitted guards the @__kylix_b64_table global (emitted once
 	// per module, on first Base64Encode/Decode use).
 	base64TableEmitted bool

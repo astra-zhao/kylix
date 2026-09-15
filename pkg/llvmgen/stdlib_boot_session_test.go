@@ -29,6 +29,63 @@ begin
   BootRun(8107);
 end.`
 
+// csrfProgram arms the gate and hits the protected + unprotected paths.
+const bootCsrfProgram = `program p;
+uses boot;
+[Controller('/api')]
+type
+  TCsrfController = class
+    [Get('/form')]
+    function Form(req: TRequest): TResponse;
+    [Post('/submit')]
+    function Submit(req: TRequest): TResponse;
+    var v: String;
+    begin
+      v := req.SessionCSRFToken();
+      result := BootText(200, v);
+    end;
+  end;
+begin
+  BootUseCSRF();
+  BootRun(8107);
+end.`
+
+// v0.9.0 P1.7: BootRun-embedded CSRF gate — opt-in global, session token
+// check, header/form token sources, 403 messages (pkg/boot/csrf.go parity).
+func TestBoot_CsrfIR(t *testing.T) {
+	ir := generateIR(t, bootCsrfProgram)
+	// The gate define exists and BootRun dispatches through it.
+	assertIRContains(t, ir, "define ptr @__kylix_boot_csrf_check(ptr %req, ptr %headers)")
+	assertIRContains(t, ir, "call ptr @__kylix_boot_csrf_check(ptr")
+	// Opt-in toggle: global declared unconditionally, armed by BootUseCSRF.
+	assertIRContains(t, ir, "@__kylix_boot_csrf_enabled = global i1 false")
+	assertIRContains(t, ir, "define void @__kylix_boot_BootUseCSRF()")
+	assertIRContains(t, ir, "call void @__kylix_boot_BootUseCSRF()")
+	// Token sources: X-CSRF-Token header needle and _csrf form field.
+	assertIRContains(t, ir, "X-CSRF-Token: ")
+	assertIRContains(t, ir, "_csrf")
+	// 403s route through BootText with the Go parity messages.
+	assertIRContains(t, ir, "CSRF token missing: render req.CSRFToken() into the form first")
+	assertIRContains(t, ir, "CSRF token mismatch")
+	// Middleware chain shape: CSRF picks the response via phi, then finish.
+	assertIRContains(t, ir, "phi ptr")
+	if strings.Contains(ir, "unsupported receiver") {
+		t.Fatalf("csrf program collapsed to unsupported-receiver stub:\n%s", ir)
+	}
+}
+
+// The gate define is BootRun-embedded (always emitted, like the session
+// middleware); BootUseCSRF only arms the runtime toggle — without it the
+// global stays false and the store never appears.
+func TestBoot_CsrfOptOutIR(t *testing.T) {
+	ir := generateIR(t, bootSessionProgram)
+	assertIRContains(t, ir, "@__kylix_boot_csrf_enabled = global i1 false")
+	assertIRContains(t, ir, "define ptr @__kylix_boot_csrf_check")
+	if strings.Contains(ir, "store i1 true, ptr @__kylix_boot_csrf_enabled") {
+		t.Fatalf("CSRF armed without BootUseCSRF")
+	}
+}
+
 func TestBoot_SessionMiddlewareIR(t *testing.T) {
 	ir := generateIR(t, bootSessionProgram)
 	// Both middleware halves are emitted and called from BootRun.

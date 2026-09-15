@@ -40,6 +40,7 @@ var BootFunctions = []string{
 	"BootStatic",
 	"BootText",
 	"BootUseCORS",
+	"BootUseCSRF",
 	"BootUseLogger",
 	"BootUseRecover",
 	"BootUseRequestID",

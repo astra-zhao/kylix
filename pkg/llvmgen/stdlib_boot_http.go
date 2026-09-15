@@ -186,12 +186,32 @@ func (g *Generator) emitBootRunBody() {
 	// req.Body / req.JSON return the real request body.
 	g.line(fmt.Sprintf("  call void @__kylix_boot_read_body(ptr %s, ptr %s, ptr %s)", conn, headers, req))
 	// v0.9.0 P1.7c: resolve the request's session (creates + stores sess/flags
-	// on the handle) before the handler runs. Finish runs right after the
-	// handler returns — appending its Set-Cookie BEFORE the cookie slot is
+	// on the handle) before the handler runs. Finish runs after the CSRF gate
+	// picks the response — appending its Set-Cookie BEFORE the cookie slot is
 	// loaded and sized into the response buffer below.
 	g.line(fmt.Sprintf("  call void @__kylix_boot_session_resolve(ptr %s, ptr %s)", req, headers))
+	// v0.9.0 P1.7: CSRF gate (mirrors Go's csrf middleware inside Sessions):
+	// null → dispatch to the handler; otherwise the returned 403 BootText
+	// handle IS the response — session finish still runs on it so the
+	// (new-session) cookie write happens exactly like Go's 403 path.
+	g.enqueueStdlib("boot", "csrfcheck", "csrfcheck", 0)
+	csrfRes := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_csrf_check(ptr %s, ptr %s)", csrfRes, req, headers))
+	csrfPass := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", csrfPass, csrfRes))
+	doHandlerLbl := g.label()
+	csrfFailLbl := g.label()
+	haveResLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", csrfPass, doHandlerLbl, csrfFailLbl))
+	g.line(fmt.Sprintf("%s:", csrfFailLbl))
+	g.line(fmt.Sprintf("  br label %%%s", haveResLbl))
+	g.line(fmt.Sprintf("%s:", doHandlerLbl))
+	hres := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr %s(ptr %s)", hres, handler, req))
+	g.line(fmt.Sprintf("  br label %%%s", haveResLbl))
+	g.line(fmt.Sprintf("%s:", haveResLbl))
 	res := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr %s(ptr %s)", res, handler, req))
+	g.line(fmt.Sprintf("  %s = phi ptr [ %s, %%%s ], [ %s, %%%s ]", res, hres, doHandlerLbl, csrfRes, csrfFailLbl))
 	g.line(fmt.Sprintf("  call void @__kylix_boot_session_finish(ptr %s, ptr %s)", req, res))
 	status := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", status, res))

@@ -22,6 +22,7 @@ procedure BootUseLogger();
 procedure BootUseRecover();
 procedure BootUseCORS();
 procedure BootUseRequestID();
+procedure BootUseCSRF();
 
 // ===== Response builders =====
 function BootText(status: Integer; body: String): Variant;

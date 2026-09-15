@@ -55,6 +55,7 @@ var bootStubReturnTypes = map[string]string{
 	"BootNotFoundPage":     "void",
 	"BootErrorPage":        "void",
 	"BootPagerHTML":        "ptr",
+	"BootUseCSRF":          "void",
 }
 
 // isBootHandleType reports whether name is an opaque KylixBoot handle type
@@ -160,6 +161,14 @@ func (g *Generator) emitBootCall(funcName string, args []ast.Expression) (string
 		g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_pager_html(ptr %s, i64 %s, i64 %s, i64 %s, i64 %s)",
 			r, argRs[0], argRs[1], argRs[2], argRs[3], argRs[4]))
 		return r, "ptr", nil
+	case "BootUseCSRF":
+		// v0.9.0 P1.7: arm the CSRF gate — store i1 true into
+		// @__kylix_boot_csrf_enabled; BootRun's middleware chain consults it
+		// between session resolve and handler dispatch.
+		g.enqueueStdlib("boot", "BootUseCSRF", "BootUseCSRF", 0)
+		g.enqueueStdlib("boot", "csrfcheck", "csrfcheck", 0)
+		g.line("  call void @__kylix_boot_BootUseCSRF()")
+		return "0", "void", nil
 	default:
 		retType, ok := bootStubReturnTypes[funcName]
 		if !ok {
@@ -227,6 +236,12 @@ func (g *Generator) emitBootBody(funcName string) {
 		g.emitBootSessionFinishBody()
 	case "randhex":
 		g.emitBootRandHexBody()
+	case "BootUseCSRF":
+		// v0.9.0 P1.7: arm the CSRF toggle global.
+		g.emitBootUseCSRFBody()
+	case "csrfcheck":
+		// v0.9.0 P1.7: the CSRF gate itself (BootRun-embedded middleware).
+		g.emitBootCsrfCheckBody()
 	case "servestatic":
 		g.emitBootServeStaticBody()
 	case "BootGET", "BootPOST", "BootPUT", "BootDELETE":

@@ -36,6 +36,14 @@ const (
 
 	bootSessionsGlobal = "@__kylix_boot_sessions"
 
+	// v0.9.0 P1.7 CSRF (mirrors pkg/boot/csrf.go): opt-in via BootUseCSRF —
+	// the gate lives in BootRun between session resolve and handler dispatch.
+	bootCsrfEnabledGlobal = "@__kylix_boot_csrf_enabled"
+	bootCsrfHeaderNeedle  = "X-CSRF-Token: "
+	bootCsrfFormField     = "_csrf"
+	bootCsrfMissingMsg    = "CSRF token missing: render req.CSRFToken() into the form first"
+	bootCsrfMismatchMsg   = "CSRF token mismatch"
+
 	// Sliding TTLs (ms), matching Go DefaultSessionTTL/DefaultRememberTTL.
 	bootSessionTTLms  = int64(24 * 60 * 60 * 1000)
 	bootRememberTTLms = int64(30 * 24 * 60 * 60 * 1000)
@@ -627,4 +635,152 @@ func (g *Generator) emitBootReqSessionCSRFToken(req string, args []ast.Expressio
 	tok := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", tok, tokSlot))
 	return tok, "ptr", nil
+}
+
+// ---- v0.9.0 P1.7 CSRF (pkg/boot/csrf.go parity) ----
+//
+// Synchronizer-token gate over the session table: unsafe methods (anything
+// but GET — the boot server only routes GET/POST/PUT/DELETE) must present the
+// session's __csrf token via the X-CSRF-Token header or the _csrf form field.
+// Opt-in via BootUseCSRF: the BootRun gate loads @__kylix_boot_csrf_enabled
+// so programs without the call keep POSTs working.
+
+// bootDeclareCsrfGlobal emits the csrf toggle global once (module level).
+func (g *Generator) bootDeclareCsrfGlobal() {
+	if g.bootCsrfEnabledDeclared {
+		return
+	}
+	g.bootCsrfEnabledDeclared = true
+	g.line(fmt.Sprintf("%s = global i1 false", bootCsrfEnabledGlobal))
+}
+
+// emitBootUseCSRFBody — void @__kylix_boot_BootUseCSRF(): arm the gate.
+func (g *Generator) emitBootUseCSRFBody() {
+	g.bootDeclareCsrfGlobal()
+	g.line("define void @__kylix_boot_BootUseCSRF() {")
+	g.line("entry:")
+	g.line(fmt.Sprintf("  store i1 true, ptr %s", bootCsrfEnabledGlobal))
+	g.line("  ret void")
+	g.line("}")
+	g.line("")
+}
+
+// emitBootCsrfCheckBody — ptr @__kylix_boot_csrf_check(ptr %req,
+// ptr %headers): null = pass (safe method, gate off, or token match);
+// non-null = a 403 BootText response handle the caller must send INSTEAD of
+// dispatching to the handler. Token compare is strcmp here — Go uses
+// subtle.ConstantTimeCompare (debt: timing side channel, low risk for a
+// per-session random token).
+func (g *Generator) emitBootCsrfCheckBody() {
+	c := func(format string, args ...interface{}) { g.line(fmt.Sprintf(format, args...)) }
+	g.needHashtab = true
+	g.enqueueStdlib("boot", "BootText", "BootText", 2)
+	g.enqueueStdlib("boot", "formget", "formget", 0)
+	g.bootDeclareCsrfGlobal()
+	c("define ptr @__kylix_boot_csrf_check(ptr %%req, ptr %%headers) {")
+	c("entry:")
+	passLbl := g.label()
+	chkMethodLbl := g.label()
+	en := g.tmp()
+	c("  %s = load i8, ptr %s", en, bootCsrfEnabledGlobal)
+	enOn := g.tmp()
+	c("  %s = icmp ne i8 %s, 0", enOn, en)
+	c("  br i1 %s, label %%%s, label %%%s", enOn, chkMethodLbl, passLbl)
+	// Gate off or safe method → pass.
+	c("%s:", passLbl)
+	c("  ret ptr null")
+	c("%s:", chkMethodLbl)
+	method := g.tmp()
+	c("  %s = load ptr, ptr %s", method, g.bootReqField("%req", 0))
+	mCmp := g.tmp()
+	c("  %s = call i32 @strcmp(ptr %s, ptr %s)", mCmp, method,
+		g.ptrTo(g.addString("GET"), 4))
+	isGet := g.tmp()
+	c("  %s = icmp eq i32 %s, 0", isGet, mCmp)
+	chkSessLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", isGet, passLbl, chkSessLbl)
+	// Session token — issued by req.CSRFToken(); absent ⇒ 403 missing.
+	c("%s:", chkSessLbl)
+	sess := g.tmp()
+	c("  %s = load ptr, ptr %s", sess, g.bootReqField("%req", 48))
+	sessTok := g.tmp()
+	csrfKey := g.ptrTo(g.addString(bootSessionCSRFKey), len(bootSessionCSRFKey)+1)
+	c("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", sessTok, sess, csrfKey)
+	sessTokNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", sessTokNull, sessTok)
+	chkTokLbl := g.label()
+	missingLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", sessTokNull, missingLbl, chkTokLbl)
+	// Request token: X-CSRF-Token header first, _csrf form field fallback —
+	// both funnel through a slot into the shared compare block.
+	chkTokJoinLbl := g.label()
+	chkTokCmpLbl := g.label()
+	c("%s:", chkTokLbl)
+	tokSlot := g.tmp()
+	c("  %s = alloca ptr, align 8", tokSlot)
+	c("  store ptr null, ptr %s", tokSlot)
+	needle := g.ptrTo(g.addString(bootCsrfHeaderNeedle), len(bootCsrfHeaderNeedle)+1)
+	hp := g.tmp()
+	c("  %s = call ptr @strstr(ptr %%headers, ptr %s)", hp, needle)
+	hpNull := g.tmp()
+	c("  %s = icmp ne ptr %s, null", hpNull, hp)
+	hdrValLbl := g.label()
+	formChkLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", hpNull, hdrValLbl, formChkLbl)
+	c("%s:", hdrValLbl)
+	hv := g.tmp()
+	c("  %s = getelementptr inbounds i8, ptr %s, i64 %d", hv, hp, len(bootCsrfHeaderNeedle))
+	// Copy the header value out (it runs to the '\r' line terminator — same
+	// trim idiom as emitBootReqHeader) so strcmp sees a C string.
+	cr := g.tmp()
+	c("  %s = call ptr @strchr(ptr %s, i32 13)", cr, hv)
+	crAddr := g.tmp()
+	c("  %s = ptrtoint ptr %s to i64", crAddr, cr)
+	hvAddr := g.tmp()
+	c("  %s = ptrtoint ptr %s to i64", hvAddr, hv)
+	tokLen := g.tmp()
+	c("  %s = sub i64 %s, %s", tokLen, crAddr, hvAddr)
+	g.needMemcpy = true
+	hbuf := g.tmp()
+	c("  %s = call ptr @malloc(i64 %s)", hbuf, tokLen)
+	c("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", hbuf, hv, tokLen)
+	hterm := g.tmp()
+	c("  %s = getelementptr inbounds i8, ptr %s, i64 %s", hterm, hbuf, tokLen)
+	c("  store i8 0, ptr %s", hterm)
+	c("  store ptr %s, ptr %s", hbuf, tokSlot)
+	c("  br label %%%s", chkTokJoinLbl)
+	c("%s:", formChkLbl)
+	body := g.tmp()
+	c("  %s = load ptr, ptr %s", body, g.bootReqField("%req", 24))
+	fv := g.tmp()
+	csrfField := g.ptrTo(g.addString(bootCsrfFormField), len(bootCsrfFormField)+1)
+	c("  %s = call ptr @__kylix_boot_form_get(ptr %s, ptr %s)", fv, body, csrfField)
+	c("  store ptr %s, ptr %s", fv, tokSlot)
+	c("  br label %%%s", chkTokJoinLbl)
+	c("%s:", chkTokJoinLbl)
+	reqTok := g.tmp()
+	c("  %s = load ptr, ptr %s", reqTok, tokSlot)
+	reqTokNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", reqTokNull, reqTok)
+	mismatchLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", reqTokNull, mismatchLbl, chkTokCmpLbl)
+	c("%s:", chkTokCmpLbl)
+	tcmp := g.tmp()
+	c("  %s = call i32 @strcmp(ptr %s, ptr %s)", tcmp, reqTok, sessTok)
+	tokEq := g.tmp()
+	c("  %s = icmp eq i32 %s, 0", tokEq, tcmp)
+	c("  br i1 %s, label %%%s, label %%%s", tokEq, passLbl, mismatchLbl)
+	// 403s — BootText handles, sent by BootRun's normal response assembly.
+	c("%s:", missingLbl)
+	miss := g.tmp()
+	c("  %s = call ptr @__kylix_boot_BootText(i64 403, ptr %s)", miss,
+		g.ptrTo(g.addString(bootCsrfMissingMsg), len(bootCsrfMissingMsg)+1))
+	c("  ret ptr %s", miss)
+	c("%s:", mismatchLbl)
+	mism := g.tmp()
+	c("  %s = call ptr @__kylix_boot_BootText(i64 403, ptr %s)", mism,
+		g.ptrTo(g.addString(bootCsrfMismatchMsg), len(bootCsrfMismatchMsg)+1))
+	c("  ret ptr %s", mism)
+	c("}")
+	c("")
 }
