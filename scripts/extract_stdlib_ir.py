@@ -36,12 +36,23 @@ FILES = [OUT + 'cover.ll'] + [OUT + p for p in [
     'example53_cache.ll',
     'example54_http.ll',
     'example55_websocket.ll',
+    # boot segment source: BootRun/read_headers/parse_request/route_lookup/
+    # path_match/serve_static/BootText/BootHTML/error pages/session/csrf/
+    # multipart defines (v0.9.0 P2). Program-specific handler_N wrappers and
+    # route-table globals are excluded below — the bootstrap emitter emits
+    # those itself (annotation auto-wiring).
+    'example60_web_framework.ll',
+    # boot route-registration coverage: [Put]/[Delete]/[Authenticated]/proc
+    # handler verbs example60 does not exercise (scripts/cover_boot.klx).
+    'cover_boot.ll',
 ]]
 
 # Segment order: 'runtime' first — it is emitted unconditionally (tiny, and
-# referenced by the others).
+# referenced by the others). 'boot' last (v0.9.0 P2): the KylixBoot server
+# defines (BootRun/read_headers/parse_request/... from example60.ll).
 SEGMENTS = ['runtime', 'sysutil', 'regex', 'datetime', 'encoding', 'net',
-            'cache', 'crypto', 'db', 'json', 'jwt', 'httpclient', 'websocket']
+            'cache', 'crypto', 'db', 'json', 'jwt', 'httpclient', 'websocket',
+            'boot']
 
 # Symbols extracted into the 'runtime' segment. Includes the variant helpers
 # and htab_get_variant/htab_keys that llvmgen.klx lacks — this upgrades the
@@ -74,6 +85,16 @@ def sym_seg(sym):
         for seg, names in SEG_EXTRA.items():
             if s in names:
                 return seg
+    # __kylix_boot_handler_N wrappers are program-specific — the bootstrap
+    # emitter generates them itself (annotation auto-wiring).
+    if re.match(r'^boot_handler_\d+$', s):
+        return None
+    # The boot arena helpers are shared by the baked boot defines AND the
+    # bootstrap's own TResponse fluent methods; keep them out of 'runtime'
+    # (the unconditional segment) so non-server programs don't get the 1MiB
+    # arena bss.
+    if s in ('arena_alloc', 'arena_reset'):
+        return 'boot'
     for seg in SEGMENTS[1:]:
         if s.startswith(seg + '_'):
             return seg
@@ -81,8 +102,9 @@ def sym_seg(sym):
 
 
 def parse_ll(path):
-    """Return {sym: [define lines]}, {strname: line}, [declare lines]."""
-    bodies, strs, decls, globs = {}, {}, [], {}
+    """Return {sym: [define lines]}, {strname: line}, [declare lines],
+    {globname: line}, {typename: line}."""
+    bodies, strs, decls, globs, types = {}, {}, [], {}, {}
     lines = open(path).read().split('\n')
     i = 0
     while i < len(lines):
@@ -105,10 +127,18 @@ def parse_ll(path):
         m = re.match(r'^@(__kylix_[A-Za-z0-9_]+) = .*$', ln)
         if m:
             globs[m.group(1)] = ln
+        # Named IR types referenced by baked bodies. Only %__ret_* (method
+        # multi-return aggregates, e.g. %__ret_BootRequest_File used by the
+        # baked req_file/req_savefile defines) go into a segment; other named
+        # types are bootstrap-owned (%__kylix_edge) or program-specific
+        # (%Exception, %TWebController) and must NOT be baked.
+        m = re.match(r'^(%__ret_[A-Za-z0-9_]+) = .*$', ln)
+        if m:
+            types[m.group(1)] = ln
         if ln.startswith('declare '):
             decls.append(ln)
         i += 1
-    return bodies, strs, decls, globs
+    return bodies, strs, decls, globs, types
 
 
 def main():
@@ -117,16 +147,17 @@ def main():
     # constant pool), so name-keyed cross-file lookup would paste the wrong
     # string into a body (this silently corrupted HexEncode once).
     file_data = []
-    all_decls, all_globs = [], {}
+    all_decls, all_globs, all_types = [], {}, {}
     for f in FILES:
         if not os.path.exists(f):
             sys.exit('missing source: ' + f)
-        b, s, d, gb = parse_ll(f)
+        b, s, d, gb, ty = parse_ll(f)
         file_data.append((f, b, s))
         for ln in d:
             if ln not in all_decls:
                 all_decls.append(ln)
         all_globs.update(gb)
+        all_types.update(ty)
 
     seg_bodies = {seg: [] for seg in SEGMENTS}
     seg_kstrs = {seg: [] for seg in SEGMENTS}  # kstr constant lines, kept OFF
@@ -213,15 +244,24 @@ def main():
         'llvm.memset.p0.i64', 'llvm.memcpy.p0.p0.i64',
     }
     # module-level @__kylix_* globals referenced by the extracted bodies.
-    # Boot/exc/jmpbuf/args/emptystr/datetime-arena are bootstrap-owned; boot
-    # segments aren't extracted at all.
+    # Exc/jmpbuf/args/emptystr/datetime-arena are bootstrap-owned; the boot
+    # routes table is emitted by the bootstrap's auto-wiring (see glob_seg).
     GLOBAL_SKIP = {'__kylix_args', '__kylix_emptystr', '__kylix_exc_active',
                    '__kylix_exc_obj', '__kylix_exc_type', '__kylix_exctab',
                    '__kylix_jmpbuf', '__kylix_datetime_arena',
                    '__kylix_datetime_arena_ptr'}
     def glob_seg(name):
-        if name in GLOBAL_SKIP or name.startswith('__kylix_boot_'):
+        if name in GLOBAL_SKIP:
             return None
+        if name.startswith('__kylix_boot_'):
+            rest = name[len('__kylix_boot_'):]
+            # routes/nroutes/ctrl_* are program-specific — the bootstrap's
+            # annotation auto-wiring emits them itself. Everything else
+            # (404_page/500_page/sessions/static_dir/csrf_enabled) backs the
+            # baked boot defines.
+            if rest in ('routes', 'nroutes') or rest.startswith('ctrl_'):
+                return None
+            return 'boot'
         if name in ('__kylix_b64_table', '__kylix_b64url_table'):
             return 'encoding'
         return 'runtime'
@@ -239,6 +279,10 @@ def main():
         lines_out = list(seg_bodies[seg]) + seg_kstrs[seg]
         if seg == 'runtime':
             lines_out = extra_decls + lines_out
+        if seg == 'boot':
+            # %__ret_* multi-return aggregate types first (LLVM accepts named
+            # types anywhere at module level, but keep the segment readable).
+            lines_out = [all_types[t] for t in sorted(all_types)] + lines_out
         # module-level globals referenced by this segment's bodies
         lines_out.extend(seg_globals[seg])
         deps = set()

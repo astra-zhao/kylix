@@ -1,0 +1,58 @@
+// cover_boot.klx — v0.9.0 P2: boot-segment rebake coverage for the route
+// registration defines the example60 tutorial does not exercise. Host-emitted
+// IR from this file feeds scripts/extract_stdlib_ir.py (via
+// scripts/rebake_stdlib_ir.sh) so the baked boot segment carries defines for
+// every [Get]/[Post]/[Put]/[Delete] verb — the bootstrap's EmitBootAutoWiring
+// calls Boot<M> per annotation and would otherwise emit an undefined symbol
+// (example51_openapi's [Delete] route). Program-specific symbols
+// (boot_handler_N wrappers, routes/nroutes/ctrl_* globals) are excluded by
+// the extractor.
+
+program BootCover;
+
+uses boot;
+
+[Controller('/api')]
+type
+  TCoverController = class
+    [Get('/g')]
+    function GetIt(req: TRequest): TResponse;
+    begin
+      result := BootText(200, 'g');
+    end;
+
+    [Post('/p')]
+    function PostIt(req: TRequest): TResponse;
+    begin
+      result := BootText(200, 'p');
+    end;
+
+    [Put('/u')]
+    function PutIt(req: TRequest): TResponse;
+    begin
+      result := BootText(200, 'u');
+    end;
+
+    [Delete('/d')]
+    function DeleteIt(req: TRequest): TResponse;
+    begin
+      result := BootText(200, 'd');
+    end;
+
+    [Get('/auth')]
+    [Authenticated]
+    function AuthIt(req: TRequest): TResponse;
+    begin
+      result := BootText(200, 'a');
+    end;
+
+    [Post('/proc')]
+    procedure ProcIt(req: TRequest; res: TResponse);
+    begin
+      res.SetText('proc');
+    end;
+  end;
+
+begin
+  BootRun(8078);
+end.

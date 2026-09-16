@@ -82,6 +82,21 @@ type
     // current function context
     MemberType: String;   // P2: EmitMember/EmitMethodCall return type via field
     LastRetKylix: String; // v0.7.0 P0a: Kylix ret name of the last method call
+    // v0.9.0 P2: KylixBoot annotation routes (host bootRoutes). Components/
+    // [Inject] DI wiring stays a Go-backend feature (no baked BootRegisterInstance
+    // consumer needs it); [Role] guards stay host-only (BootEnforceRole has no
+    // baked define — a bootstrap program using it would emit an undefined call).
+    BootRtMethod: array of String;  // 'GET'/'POST'/'PUT'/'DELETE'
+    BootRtPath: array of String;
+    BootRtClass: array of String;
+    BootRtName: array of String;    // handler method name
+    BootRtProc: array of Integer;   // 1 = procedure handler (req, res)
+    BootRtSec: array of Integer;    // 1 = [Authenticated]
+    BootRtCount: Integer;
+    BootGlobalsDone: Boolean;       // routes/nroutes/ctrl globals emitted
+    BootFoundAttr: TAttribute;      // BootFindAttr's match (out-param workaround)
+    BootFmtNames: array of String;  // BootFmtConst dedup names
+    BootFmtLines: array of String;  // full module-level constant lines
     LastArrayReg: String; // P3: register back-channel from TryClassFieldArrayIndex
     LastArgTypes: array of String; // P3/#44: arg types from the last EmitCall —
                           // EmitPlainCall coerces each actual to its formal's type
@@ -1203,6 +1218,10 @@ begin
       continue;
     self.EmitLambdaDecls(p);
   end;
+  // Pass 2.6 (v0.9.0 P2): KylixBoot annotation routes — scan all class decls
+  // so EmitMain's auto-wiring and the module-end wrappers find them.
+  for pi := 0 to Length(progs) - 1 do
+    self.BootScanRoutes(progs[pi]);
   // Pass 3: main statements — the first non-unit program with statements.
   mainIdx := -1;
   for pi := 0 to Length(progs) - 1 do
@@ -1222,6 +1241,9 @@ begin
     self.EmitMain(p.Statements);
   end;
   self.EmitStdlibSegments();
+  // v0.9.0 P2: handler wrappers after the baked segments (module level;
+  // forward references into the boot segment resolve at link time)
+  self.EmitBootWrappers();
   if self.NeedHashtab then self.EmitHashtabBodies();
   if self.NeedClassRTTI then self.EmitClassRuntime();
   if self.NeedException then self.EmitExceptionRuntime();
@@ -1310,6 +1332,7 @@ begin
     self.ScanStmtForGenerics(prog.Statements[i]);
 
   // Pass 3: main function.
+  self.BootScanRoutes(prog);
   if Length(prog.Statements) > 0 then
     self.EmitMain(prog.Statements);
 
@@ -1317,6 +1340,7 @@ begin
   // (single-program path: no uses collection — the bootstrap always goes
   // through EmitPrograms, and prog.Uses[i] member-index chains don't lower.)
   self.EmitStdlibSegments();
+  self.EmitBootWrappers();
   if self.NeedHashtab then self.EmitHashtabBodies();
   if self.NeedClassRTTI then self.EmitClassRuntime();
   if self.NeedException then self.EmitExceptionRuntime();
@@ -1494,6 +1518,9 @@ var
   i: Integer;
   stmt: TStatement;
 begin
+  // v0.9.0 P2: route-table globals are module-level — emit before main's
+  // define (globals cannot sit inside a function body).
+  self.EmitBootRouteGlobals();
   self.WriteLine('; ===== Entry point =====');
   // v0.6.9 P4: fresh local scope — the last Pass-2 function's locals leak
   // into main otherwise, so main's `for i := ...` RegisterLocal found a
@@ -1525,6 +1552,9 @@ begin
   self.EmitGlobalVarInits();
   // v0.6.9 P3: hoist explicitly-typed vars to main's entry block
   self.PreEmitAllocas(stmts);
+  // v0.9.0 P2: KylixBoot auto-wiring — construct controllers + register
+  // routes before any user statement (host emitBootAutoWiring placement).
+  self.EmitBootAutoWiring();
   for i := 0 to Length(stmts) - 1 do
   begin
     stmt := stmts[i];
@@ -1631,6 +1661,11 @@ var
   i: Integer;
   c: TLLVMStringConst;
 begin
+  // v0.9.0 P2: boot fluent-method format constants (raw LLVM escapes —
+  // see BootFmtConst). Written before the pool check so a program using only
+  // fluent methods still gets them.
+  for i := 0 to Length(self.BootFmtLines) - 1 do
+    self.WriteLine(self.BootFmtLines[i]);
   if Length(self.StrDedup) = 0 then Exit;
   self.WriteLine('; ===== String constants =====');
   for i := 0 to Length(self.StrDedup) - 1 do
@@ -5233,6 +5268,11 @@ begin
   if si < 0 then Exit;
   if self.IndexOfStr(self.UsedSegs, seg) >= 0 then Exit;
   append(self.UsedSegs, seg);
+  // v0.9.0 P2: the baked boot defines (BootRun's setjmp 500 handler, session
+  // csrf, …) reference the exception globals — the extractor GLOBAL_SKIPs
+  // those as bootstrap-owned, so force the runtime emission whenever boot is
+  // marked (otherwise llc fails on undefined @__kylix_exc_active).
+  if seg = 'boot' then self.NeedException := true;
   deps := StdSegDeps[si];
   if deps = '' then Exit;
   depStart := 0;
@@ -5294,31 +5334,12 @@ begin
     result := r2;
     Exit;
   end;
-  // v0.7.0 P0a (example41): BootText/BootHTML construct the KylixBoot response
-  // handle {i64 status, ptr body} — the host (emitBootResponseCall) returns a
-  // 16-byte malloc'd handle and `.Body`/`.Status` GEP+load into it. Boot has
-  // no baked IR segment, so inline the handle construction here. The handle
-  // ptrtoint's back to i64 to honor the bootstrap's TResponse→i64 convention
-  // (method rets / result slots / locals are all i64); EmitMember's
-  // TResponse branch inttoptr's it back before the GEP.
-  if (seg = 'boot') and ((fnameEff = 'BootText') or (fnameEff = 'BootHTML')) and (Length(callArgs) >= 2) then
-  begin
-    stReg := self.EmitExpr(callArgs[0]);
-    bdReg := self.EmitExpr(callArgs[1]);
-    h := self.Tmp();
-    self.WriteLine('  ' + h + ' = call ptr @malloc(i64 16)');
-    s0 := self.Tmp();
-    self.WriteLine('  ' + s0 + ' = getelementptr inbounds i8, ptr ' + h + ', i64 0');
-    self.WriteLine('  store i64 ' + stReg + ', ptr ' + s0);
-    s1 := self.Tmp();
-    self.WriteLine('  ' + s1 + ' = getelementptr inbounds i8, ptr ' + h + ', i64 8');
-    self.WriteLine('  store ptr ' + bdReg + ', ptr ' + s1);
-    r2 := self.Tmp();
-    self.WriteLine('  ' + r2 + ' = ptrtoint ptr ' + h + ' to i64');
-    self.LastType := 'i64';
-    result := r2;
-    Exit;
-  end;
+  // v0.9.0 P2: BootText/BootHTML now dispatch through the baked boot segment
+  // (the generic tail below) — the v0.7.0 P0a inline 16-byte handle
+  // construction is gone. The baked defines return the real 40-byte TResponse
+  // handle as ptr, so the tail converts it to the bootstrap's TResponse→i64
+  // convention (result slots / locals are i64; EmitMember's TResponse branch
+  // and the TResponse fluent methods inttoptr it back).
   // v0.7.0 P0a (example52): DbExec / DbQueryScalar are inline on the host
   // (emitDbExecCall / emitDbQueryScalarCall) so no bodies were baked — lower
   // them inline here with the same sqlite3 call sequence.
@@ -5460,6 +5481,18 @@ begin
   r := self.Tmp();
   self.WriteLine('  ' + r + ' = call ' + ret + ' @' + sym + '(' + argList + ')');
   self.LastType := ret;
+  // v0.9.0 P2: baked BootText/BootHTML return the 40-byte TResponse handle
+  // as ptr — convert to the bootstrap's i64 handle convention.
+  if (seg = 'boot') and (ret = 'ptr') and
+     ((fnameEff = 'BootText') or (fnameEff = 'BootHTML')) then
+  begin
+    r2 := self.Tmp();
+    self.WriteLine('  ' + r2 + ' = ptrtoint ptr ' + r + ' to i64');
+    self.LastType := 'i64';
+    self.LastRetKylix := 'TResponse';
+    result := r2;
+    Exit;
+  end;
   result := r;
 end;
 
@@ -5570,6 +5603,8 @@ begin
     if (fname = 'BootConfigSet') or (fname = 'BootConfigGetString') or (fname = 'BootConfigGetInt') or (fname = 'BootRegisterInstance') then begin result := true; Exit; end;
     if (fname = 'BootResolve') or (fname = 'BootRegisterAuth') or (fname = 'BootRegisterRoles') or (fname = 'BootEnforceAuth') or (fname = 'BootEnforceRole') then begin result := true; Exit; end;
     if fname = 'BootReadJSON' then begin result := true; Exit; end;
+    // v0.9.0 P2: custom error pages (baked defines from example60)
+    if (fname = 'BootNotFoundPage') or (fname = 'BootErrorPage') then begin result := true; Exit; end;
     Exit;
   end;
   if modName = 'httpclient' then
@@ -5756,8 +5791,168 @@ var
   recv, k, v, ttl, ttlLoc, htabLoc, htab, res: String;
   resSlot, e, n, bad, boxed, lblBad, lblBox, lblDone: String;
   r: String;
+  // v0.9.0 P2: TResponse fluent locals
+  r2, f0, ct, ctNull, ctSel, ul, cap, entry, fp, arg0, arg1, a0t, a1t: String;
 begin
   result := '';
+  // ---- v0.9.0 P2: TResponse fluent methods (host emitBootResponseMethodCall)
+  // — the handle is a 40-byte {status, body, ctype, cookie, xhdrs} block;
+  // locals/result slots hold it as i64 (ptrtoint'd). FileBytes/Download/Csv
+  // stay host-only (debt); Json encoding likewise.
+  if (classT = 'TResponse') or (classT = 'BootResponse') then
+  begin
+    // receiver → real pointer (inttoptr from the i64 handle convention)
+    if objExpr is TIdentifier then
+    begin
+      if (objExpr as TIdentifier).Value = 'self' then
+        recv := '%self' // method receiver register — already a real pointer
+      else
+      begin
+        if self.HasLocal((objExpr as TIdentifier).Value) then
+          resSlot := self.LocalReg((objExpr as TIdentifier).Value)
+        else
+          resSlot := self.GReg((objExpr as TIdentifier).Value);
+        recv := self.Tmp();
+        self.WriteLine('  ' + recv + ' = load i64, ptr ' + resSlot);
+        r2 := self.Tmp();
+        self.WriteLine('  ' + r2 + ' = inttoptr i64 ' + recv + ' to ptr');
+        recv := r2;
+      end;
+    end
+    else
+    begin
+      recv := self.EmitExpr(objExpr);
+      if self.LastType = 'i64' then
+      begin
+        r2 := self.Tmp();
+        self.WriteLine('  ' + r2 + ' = inttoptr i64 ' + recv + ' to ptr');
+        recv := r2;
+      end;
+    end;
+    // args (types remembered — StatusCode's arg stays i64, string methods
+    // coerce below; NB: `and` does not short-circuit, so no compound guards)
+    arg0 := '';
+    arg1 := '';
+    a0t := '';
+    a1t := '';
+    if Length(margs) >= 1 then
+    begin
+      arg0 := self.EmitExpr(margs[0]);
+      a0t := self.LastType;
+    end;
+    if Length(margs) >= 2 then
+    begin
+      arg1 := self.EmitExpr(margs[1]);
+      a1t := self.LastType;
+    end;
+    if (method = 'Html') and (Length(margs) >= 1) then
+    begin
+      self.MarkStdSeg('boot');
+      f0 := self.Tmp();
+      self.WriteLine('  ' + f0 + ' = getelementptr inbounds i8, ptr ' + recv + ', i64 8');
+      self.WriteLine('  store ptr ' + self.BootPtrArg(arg0, a0t) + ', ptr ' + f0);
+      f0 := self.Tmp();
+      self.WriteLine('  ' + f0 + ' = getelementptr inbounds i8, ptr ' + recv + ', i64 16');
+      self.WriteLine('  store ptr ' + self.PtrTo(self.AddString('text/html'), 10) + ', ptr ' + f0);
+      result := self.BootRetHandle(recv);
+      Exit;
+    end;
+    if ((method = 'Send') or (method = 'SetText')) and (Length(margs) >= 1) then
+    begin
+      self.MarkStdSeg('boot');
+      f0 := self.Tmp();
+      self.WriteLine('  ' + f0 + ' = getelementptr inbounds i8, ptr ' + recv + ', i64 8');
+      self.WriteLine('  store ptr ' + self.BootPtrArg(arg0, a0t) + ', ptr ' + f0);
+      f0 := self.Tmp();
+      self.WriteLine('  ' + f0 + ' = getelementptr inbounds i8, ptr ' + recv + ', i64 16');
+      ct := self.Tmp();
+      self.WriteLine('  ' + ct + ' = load ptr, ptr ' + f0);
+      ctNull := self.Tmp();
+      self.WriteLine('  ' + ctNull + ' = icmp eq ptr ' + ct + ', null');
+      ctSel := self.Tmp();
+      self.WriteLine('  ' + ctSel + ' = select i1 ' + ctNull + ', ptr ' +
+        self.PtrTo(self.AddString('text/plain'), 11) + ', ptr ' + ct);
+      self.WriteLine('  store ptr ' + ctSel + ', ptr ' + f0);
+      result := self.BootRetHandle(recv);
+      Exit;
+    end;
+    if (method = 'StatusCode') and (Length(margs) >= 1) then
+    begin
+      f0 := self.Tmp();
+      self.WriteLine('  ' + f0 + ' = getelementptr inbounds i8, ptr ' + recv + ', i64 0');
+      self.WriteLine('  store i64 ' + arg0 + ', ptr ' + f0);
+      result := self.BootRetHandle(recv);
+      Exit;
+    end;
+    if (method = 'WithCookie') and (Length(margs) >= 2) then
+    begin
+      self.MarkStdSeg('boot');
+      arg0 := self.BootPtrArg(arg0, a0t);
+      arg1 := self.BootPtrArg(arg1, a1t);
+      ul := self.Tmp();
+      self.WriteLine('  ' + ul + ' = call i64 @strlen(ptr ' + arg0 + ')');
+      cap := self.Tmp();
+      self.WriteLine('  ' + cap + ' = call i64 @strlen(ptr ' + arg1 + ')');
+      entry := self.Tmp();
+      self.WriteLine('  ' + entry + ' = add i64 ' + ul + ', ' + cap);
+      cap := self.Tmp();
+      self.WriteLine('  ' + cap + ' = add i64 ' + entry + ', 40');
+      entry := self.Tmp();
+      self.WriteLine('  ' + entry + ' = call ptr @__kylix_arena_alloc(i64 ' + cap + ')');
+      self.BootFmtConst('fmt_cookie',
+        '@__kylix_fmt_cookie = private unnamed_addr constant [28 x i8] c"Set-Cookie: %s=%s; Path=/\0D\0A\00", align 1');
+      fp := self.PtrTo('@__kylix_fmt_cookie', 28);
+      self.WriteLine('  call i32 (ptr, i64, ptr, ...) @snprintf(ptr ' + entry + ', i64 ' + cap + ', ptr ' + fp + ', ptr ' + arg0 + ', ptr ' + arg1 + ')');
+      self.BootAppendToSlot(recv, 24, entry, cap);
+      result := self.BootRetHandle(recv);
+      Exit;
+    end;
+    if (method = 'WithHeader') and (Length(margs) >= 2) then
+    begin
+      self.MarkStdSeg('boot');
+      arg0 := self.BootPtrArg(arg0, a0t);
+      arg1 := self.BootPtrArg(arg1, a1t);
+      ul := self.Tmp();
+      self.WriteLine('  ' + ul + ' = call i64 @strlen(ptr ' + arg0 + ')');
+      cap := self.Tmp();
+      self.WriteLine('  ' + cap + ' = call i64 @strlen(ptr ' + arg1 + ')');
+      entry := self.Tmp();
+      self.WriteLine('  ' + entry + ' = add i64 ' + ul + ', ' + cap);
+      cap := self.Tmp();
+      self.WriteLine('  ' + cap + ' = add i64 ' + entry + ', 8');
+      entry := self.Tmp();
+      self.WriteLine('  ' + entry + ' = call ptr @__kylix_arena_alloc(i64 ' + cap + ')');
+      self.BootFmtConst('fmt_hdr',
+        '@__kylix_fmt_hdr = private unnamed_addr constant [9 x i8] c"%s: %s\0D\0A\00", align 1');
+      fp := self.PtrTo('@__kylix_fmt_hdr', 9);
+      self.WriteLine('  call i32 (ptr, i64, ptr, ...) @snprintf(ptr ' + entry + ', i64 ' + cap + ', ptr ' + fp + ', ptr ' + arg0 + ', ptr ' + arg1 + ')');
+      self.BootAppendToSlot(recv, 32, entry, cap);
+      result := self.BootRetHandle(recv);
+      Exit;
+    end;
+    if (method = 'Redirect') and (Length(margs) >= 1) then
+    begin
+      self.MarkStdSeg('boot');
+      arg0 := self.BootPtrArg(arg0, a0t);
+      f0 := self.Tmp();
+      self.WriteLine('  ' + f0 + ' = getelementptr inbounds i8, ptr ' + recv + ', i64 0');
+      self.WriteLine('  store i64 302, ptr ' + f0);
+      ul := self.Tmp();
+      self.WriteLine('  ' + ul + ' = call i64 @strlen(ptr ' + arg0 + ')');
+      cap := self.Tmp();
+      self.WriteLine('  ' + cap + ' = add i64 ' + ul + ', 16');
+      entry := self.Tmp();
+      self.WriteLine('  ' + entry + ' = call ptr @__kylix_arena_alloc(i64 ' + cap + ')');
+      self.BootFmtConst('fmt_loc',
+        '@__kylix_fmt_loc = private unnamed_addr constant [15 x i8] c"Location: %s\0D\0A\00", align 1');
+      fp := self.PtrTo('@__kylix_fmt_loc', 15);
+      self.WriteLine('  call i32 (ptr, i64, ptr, ...) @snprintf(ptr ' + entry + ', i64 ' + cap + ', ptr ' + fp + ', ptr ' + arg0 + ')');
+      self.BootAppendToSlot(recv, 32, entry, cap);
+      result := self.BootRetHandle(recv);
+      Exit;
+    end;
+    Exit; // unknown TResponse method — fall through to the unhandled stub
+  end;
   if classT = 'TCache' then
   begin
     recv := self.EmitReceiverPtr(objExpr);
@@ -6009,9 +6204,452 @@ begin
       continue;
     from := StdSegStart[si];
     cnt := StdSegCount[si];
+    if (seg = 'boot') and (self.BootGlobalsDone = false) then
+    begin
+      // The baked route_lookup reads the route table — a boot program with
+      // no [Controller] routes (BootText-only) still needs the globals.
+      self.BootGlobalsDone := true;
+      self.WriteLine('@__kylix_boot_routes = global [64 x { ptr, ptr, ptr }] zeroinitializer');
+      self.WriteLine('@__kylix_boot_nroutes = global i64 0');
+    end;
     for li := from to from + cnt - 1 do
       self.WriteLine(StdIrLines[li]);
   end;
+end;
+
+// ============================================================================
+// v0.9.0 P2: KylixBoot annotation auto-wiring (host boot_annotations.go port).
+// Scans [Controller]/[Get]-style class annotations, emits the route-table
+// globals + constructor/registration instructions at main's top, and the
+// __kylix_boot_handler_N wrapper defines at module end. Components/[Inject]
+// DI wiring stays Go-backend-only (nothing in the baked boot segment needs
+// it); [Role] guards stay host-only (no baked BootEnforceRole define).
+// ============================================================================
+
+// BootPtrArg — coerce a fluent-method argument to ptr (i64 handles/scalars
+// are inttoptr'd; ptr passes through). Only for String-typed formals —
+// StatusCode's Integer arg is used raw.
+function TLLVMGenerator.BootPtrArg(a: String; aType: String): String;
+var r: String;
+begin
+  result := a;
+  if aType = 'ptr' then Exit;
+  r := self.Tmp();
+  self.WriteLine('  ' + r + ' = inttoptr i64 ' + a + ' to ptr');
+  result := r;
+end;
+
+// BootRetHandle — fluent call result: the handle ptr goes back to callers as
+// an i64 (bootstrap TResponse slot convention, mirroring EmitStdlibCall's
+// BootText/BootHTML tail). Sets LastType/LastRetKylix so a chained member
+// access re-enters this TResponse branch.
+function TLLVMGenerator.BootRetHandle(hnd: String): String;
+var r2: String;
+begin
+  r2 := self.Tmp();
+  self.WriteLine('  ' + r2 + ' = ptrtoint ptr ' + hnd + ' to i64');
+  self.LastType := 'i64';
+  self.LastRetKylix := 'TResponse';
+  result := r2;
+end;
+
+// BootFmtConst — a module-level string constant carrying RAW LLVM escape
+// sequences (\0D\0A …). AddString's pool stores raw source bytes, and real
+// CR/LF bytes cannot be written as Kylix source literals (the lexer keeps
+// escapes raw) — so the boot fluent methods' "…\r\n" format strings go
+// through here and are written by EmitStringConsts. Deduped by name.
+procedure TLLVMGenerator.BootFmtConst(name: String; line: String);
+var i: Integer;
+begin
+  for i := 0 to Length(self.BootFmtNames) - 1 do
+    if self.BootFmtNames[i] = name then Exit;
+  append(self.BootFmtNames, name);
+  append(self.BootFmtLines, line);
+end;
+
+// BootScanRoutes — walk a program's class declarations collecting
+// [Controller]/[Get|Post|Put|Delete] routes (host scanBootController).
+procedure TLLVMGenerator.BootScanRoutes(prog: TProgram);
+var
+  i, j, ai: Integer;
+  decl: TNode;
+  td: TTypeDecl;
+  cd: TClassDecl;
+  className: String;
+  basePath, httpMethod, methodPath: String;
+  method: TFunctionDecl;
+  attr: TAttribute;
+begin
+  for i := 0 to Length(prog.Declarations) - 1 do
+  begin
+    decl := prog.Declarations[i];
+    cd := nil;
+    className := '';
+    if decl is TTypeDecl then
+    begin
+      td := decl as TTypeDecl;
+      if td.DeclType is TClassDecl then
+      begin
+        cd := td.DeclType as TClassDecl;
+        className := td.Name;
+        if self.BootFindAttr(td.Attributes, 'Controller') = false then
+          cd := nil;
+      end;
+    end
+    else if decl is TClassDecl then
+    begin
+      cd := decl as TClassDecl;
+      className := cd.Name;
+      if self.BootFindAttr(cd.Attributes, 'Controller') = false then
+        cd := nil;
+    end;
+    if cd = nil then
+      continue;
+    basePath := self.BootAttrStringArg(self.BootFoundAttr, '');
+    for j := 0 to Length(cd.Methods) - 1 do
+    begin
+      method := cd.Methods[j];
+      if method.Body = nil then
+        continue;
+      for ai := 0 to Length(method.Attributes) - 1 do
+      begin
+        attr := method.Attributes[ai];
+        httpMethod := self.BootRouteMethodOf(attr.Name);
+        if httpMethod = '' then
+          continue;
+        // handler shape check: function(req: TRequest): TResponse or
+        // procedure(req: TRequest; res: TResponse) — anything else is skipped
+        // (mirrors host BootHandlerKindFor).
+        if self.BootHandlerKind(method) = '' then
+          continue;
+        methodPath := self.BootAttrStringArg(attr, '/');
+        append(self.BootRtMethod, httpMethod);
+        append(self.BootRtPath, self.BootNormPath(basePath, methodPath));
+        append(self.BootRtClass, className);
+        append(self.BootRtName, method.Name);
+        if self.BootHandlerKind(method) = 'proc' then
+          append(self.BootRtProc, 1)
+        else
+          append(self.BootRtProc, 0);
+        if self.BootFindAttr(method.Attributes, 'Authenticated') then
+          append(self.BootRtSec, 1)
+        else
+          append(self.BootRtSec, 0);
+        self.BootRtCount := self.BootRtCount + 1;
+      end;
+    end;
+  end;
+end;
+
+// BootFindAttr — case-sensitive name match (tutorial annotations use the
+// canonical PascalCase forms). Sets BootFoundAttr for the caller to read —
+// the bootstrap's out-params don't survive member-chain lowering.
+function TLLVMGenerator.BootFindAttr(attrs: array of TAttribute; name: String): Boolean;
+var i: Integer;
+begin
+  result := false;
+  self.BootFoundAttr := nil;
+  for i := 0 to Length(attrs) - 1 do
+  begin
+    if attrs[i].Name = name then
+    begin
+      self.BootFoundAttr := attrs[i];
+      result := true;
+      Exit;
+    end;
+  end;
+end;
+
+// BootAttrStringArg — first attribute arg as a string literal, else fallback.
+function TLLVMGenerator.BootAttrStringArg(attr: TAttribute; fallback: String): String;
+begin
+  result := fallback;
+  if attr = nil then Exit;
+  if Length(attr.Args) = 0 then Exit;
+  if attr.Args[0] is TStringLiteral then
+    result := (attr.Args[0] as TStringLiteral).Value;
+end;
+
+// BootRouteMethodOf — annotation name → HTTP method, or ''.
+function TLLVMGenerator.BootRouteMethodOf(name: String): String;
+begin
+  if name = 'Get' then result := 'GET'
+  else if name = 'Post' then result := 'POST'
+  else if name = 'Put' then result := 'PUT'
+  else if name = 'Delete' then result := 'DELETE'
+  else result := '';
+end;
+
+// BootHandlerKind — 'func' (1 TRequest param, returns TResponse), 'proc'
+// (2 params req,res, no return), or ''.
+function TLLVMGenerator.BootHandlerKind(m: TFunctionDecl): String;
+var
+  p0, p1: String;
+begin
+  result := '';
+  if m = nil then Exit;
+  p0 := self.BootParamTypeName(0, m);
+  if (Length(m.Parameters) = 1) and (m.ReturnType <> nil) and
+     (p0 = 'TRequest') and self.BootTypeExprIsResponse(m.ReturnType) then
+    result := 'func'
+  else if Length(m.Parameters) = 2 then
+  begin
+    p1 := self.BootParamTypeName(1, m);
+    if (m.ReturnType = nil) and (p0 = 'TRequest') and (p1 = 'TResponse') then
+      result := 'proc';
+  end;
+end;
+
+// BootParamTypeName — parameter's type name when written as a plain
+// TRequest/TResponse identifier ('' otherwise).
+function TLLVMGenerator.BootParamTypeName(idx: Integer; m: TFunctionDecl): String;
+var p: TParameter;
+begin
+  result := '';
+  if idx >= Length(m.Parameters) then Exit;
+  p := m.Parameters[idx];
+  if p.ParamType is TIdentifier then
+  begin
+    result := (p.ParamType as TIdentifier).Value;
+    // NB: or doesn't short-circuit — no compound condition here on purpose
+    if (result <> 'TRequest') and (result <> 'TResponse') then
+      result := '';
+  end;
+end;
+
+// BootTypeExprIsResponse — type expression is TResponse/BootResponse.
+function TLLVMGenerator.BootTypeExprIsResponse(t: TExpression): Boolean;
+begin
+  result := false;
+  if t is TIdentifier then
+  begin
+    result := ((t as TIdentifier).Value = 'TResponse') or
+              ((t as TIdentifier).Value = 'BootResponse');
+  end;
+end;
+
+// BootNormPath — join controller base + method sub into one route path
+// (host normalizeBootPath).
+function TLLVMGenerator.BootNormPath(base: String; sub: String): String;
+var
+  b, s, combined: String;
+begin
+  if base = '' then
+  begin
+    if sub = '' then
+      result := '/'
+    else if self.BootStartsWithSlash(sub) then
+      result := sub
+    else
+      result := '/' + sub;
+    Exit;
+  end;
+  if (sub = '') or (sub = '/') then
+  begin
+    if self.BootStartsWithSlash(base) = false then
+      base := '/' + base;
+    // TrimRight '/' (keep a single leading slash)
+    while (Length(base) > 1) and (self.BootCharAt(base, Length(base) - 1) = '/') do
+      base := self.BootSlice(base, 0, Length(base) - 1);
+    result := base;
+    Exit;
+  end;
+  b := base;
+  while (Length(b) > 0) and (self.BootCharAt(b, Length(b) - 1) = '/') do
+    b := self.BootSlice(b, 0, Length(b) - 1);
+  s := sub;
+  while (Length(s) > 0) and (self.BootCharAt(s, 0) = '/') do
+    s := self.BootSlice(s, 1, Length(s));
+  combined := b + '/' + s;
+  while (Length(combined) > 1) and (self.BootCharAt(combined, Length(combined) - 1) = '/') do
+    combined := self.BootSlice(combined, 0, Length(combined) - 1);
+  if self.BootStartsWithSlash(combined) = false then
+    combined := '/' + combined;
+  result := combined;
+end;
+
+function TLLVMGenerator.BootCharAt(s: String; idx: Integer): String;
+begin
+  // the bootstrap's slice bounds are inclusive-exclusive; a 1-char window
+  // reads the byte at idx (idx may equal Length — window clamps to '')
+  if (idx < 0) or (idx >= Length(s)) then
+    result := ''
+  else
+    result := s[idx:idx+1];
+end;
+
+function TLLVMGenerator.BootSlice(s: String; from: Integer; upto: Integer): String;
+begin
+  if from >= upto then
+    result := ''
+  else
+    result := s[from:upto];
+end;
+
+function TLLVMGenerator.BootStartsWithSlash(s: String): Boolean;
+begin
+  result := (Length(s) > 0) and (self.BootCharAt(s, 0) = '/');
+end;
+
+// EmitBootRouteGlobals — module-level route-table globals. Called at the top
+// of EmitMain (before main's define — globals cannot sit inside a function).
+// The baked route_lookup reads routes/nroutes, so they must exist whenever
+// the boot segment is emitted; EmitStdlibSegments emits the bare table for
+// route-less boot programs.
+procedure TLLVMGenerator.EmitBootRouteGlobals;
+var i, j: Integer;
+  cname: String;
+  seen: Boolean;
+begin
+  if self.BootRtCount = 0 then Exit;
+  if self.BootGlobalsDone then Exit;
+  self.BootGlobalsDone := true;
+  self.WriteLine('; --- KylixBoot route table (v0.9.0 P2) ---');
+  for i := 0 to self.BootRtCount - 1 do
+  begin
+    cname := self.BootRtClass[i];
+    seen := false;
+    for j := 0 to i - 1 do
+      if self.BootRtClass[j] = cname then
+        seen := true;
+    if seen = false then
+      self.WriteLine('@__kylix_boot_ctrl_' + cname + ' = global ptr null');
+  end;
+  self.WriteLine('@__kylix_boot_routes = global [64 x { ptr, ptr, ptr }] zeroinitializer');
+  self.WriteLine('@__kylix_boot_nroutes = global i64 0');
+end;
+
+// EmitBootAutoWiring — instructions at the top of main(), before any user
+// statement (host emitBootAutoWiring steps 2+4): instantiate each controller
+// once into its ctrl global, then Boot<METHOD>(path, @__kylix_boot_handler_N).
+procedure TLLVMGenerator.EmitBootAutoWiring;
+var
+  i, j: Integer;
+  cname, inst, pathReg, wrapper: String;
+  seen: Boolean;
+begin
+  if self.BootRtCount = 0 then Exit;
+  self.MarkStdSeg('boot');
+  self.WriteLine('  ; --- KylixBoot auto-wiring (v0.9.0 P2) ---');
+  for i := 0 to self.BootRtCount - 1 do
+  begin
+    cname := self.BootRtClass[i];
+    seen := false;
+    for j := 0 to i - 1 do
+      if self.BootRtClass[j] = cname then
+        seen := true;
+    if seen then
+      continue;
+    inst := self.EmitConstructor(cname);
+    self.WriteLine('  store ptr ' + inst + ', ptr @__kylix_boot_ctrl_' + cname);
+  end;
+  for i := 0 to self.BootRtCount - 1 do
+  begin
+    pathReg := self.PtrTo(self.AddString(self.BootRtPath[i]), Length(self.BootRtPath[i]) + 1);
+    wrapper := '@__kylix_boot_handler_' + self.IntToStrS(i);
+    self.WriteLine('  call void @__kylix_boot_Boot' + self.BootRtMethod[i] +
+      '(ptr ' + pathReg + ', ptr ' + wrapper + ') ; route ' + self.BootRtMethod[i] +
+      ' ' + self.BootRtPath[i] + ' -> ' + self.BootRtClass[i] + '.' + self.BootRtName[i]);
+  end;
+end;
+
+// EmitBootWrappers — the handler wrapper defines (host emitBootWrapper).
+// Called after EmitStdlibSegments (module level; class methods were emitted
+// in Pass 2, the baked Boot* defines are forward references LLVM resolves).
+procedure TLLVMGenerator.EmitBootWrappers;
+var
+  i: Integer;
+  w, cname, mname, ctrl, res, h: String;
+begin
+  for i := 0 to self.BootRtCount - 1 do
+  begin
+    w := self.IntToStrS(i);
+    cname := self.BootRtClass[i];
+    mname := self.BootRtName[i];
+    self.WriteLine('define ptr @__kylix_boot_handler_' + w + '(ptr %req) {');
+    self.WriteLine('entry:');
+    ctrl := self.Tmp();
+    self.WriteLine('  ' + ctrl + ' = load ptr, ptr @__kylix_boot_ctrl_' + cname);
+    // [Authenticated] guard: BootEnforceAuth returns null = pass (baked)
+    if self.BootRtSec[i] = 1 then
+    begin
+      self.MarkStdSeg('boot');
+      res := self.Tmp();
+      self.WriteLine('  ' + res + ' = call ptr @__kylix_boot_BootEnforceAuth(ptr %req)');
+      h := self.Tmp();
+      self.WriteLine('  ' + h + ' = icmp eq ptr ' + res + ', null');
+      self.WriteLine('  br i1 ' + h + ', label %__kix_auth_ok_' + w + ', label %__kix_auth_deny_' + w);
+      self.WriteLine('__kix_auth_deny_' + w + ':');
+      self.WriteLine('  ret ptr ' + res);
+      self.WriteLine('__kix_auth_ok_' + w + ':');
+    end;
+    if self.BootRtProc[i] = 1 then
+    begin
+      // procedure handler: BootText(200, "") pre-creates the response, the
+      // handler mutates it in place, the wrapper returns it.
+      self.MarkStdSeg('boot');
+      res := self.Tmp();
+      self.WriteLine('  ' + res + ' = call ptr @__kylix_boot_BootText(i64 200, ptr ' +
+        self.PtrTo(self.AddString(''), 1) + ')');
+      self.WriteLine('  call void @' + cname + '_' + mname + '(ptr ' + ctrl + ', ptr %req, ptr ' + res + ')');
+      self.WriteLine('  ret ptr ' + res);
+    end
+    else
+    begin
+      // function handler: the method returns the handle as i64 (the
+      // bootstrap's TResponse→i64 convention) — inttoptr it back.
+      res := self.Tmp();
+      self.WriteLine('  ' + res + ' = call i64 @' + cname + '_' + mname + '(ptr ' + ctrl + ', ptr %req)');
+      h := self.Tmp();
+      self.WriteLine('  ' + h + ' = inttoptr i64 ' + res + ' to ptr');
+      self.WriteLine('  ret ptr ' + h);
+    end;
+    self.WriteLine('}');
+    self.WriteLine('');
+  end;
+end;
+
+// BootAppendToSlot — grow-and-append an entry into the response handle's
+// cookie (24) / xhdrs (32) slot (host emitBootAppendToSlot, v0.8.0 P3): first
+// use arena-allocs, later uses memcpy the prefix + strcat the entry.
+procedure TLLVMGenerator.BootAppendToSlot(hnd: String; byteOffset: Integer; ebuf: String; entryCap: String);
+var
+  field, cur, curNull, allocLbl, joinLbl, fresh, buf, bufLen, bufPlusOne: String;
+  newLen, grown: String;
+begin
+  self.MarkStdSeg('boot');
+  field := self.Tmp();
+  self.WriteLine('  ' + field + ' = getelementptr inbounds i8, ptr ' + hnd + ', i64 ' + self.IntToStrS(byteOffset));
+  cur := self.Tmp();
+  self.WriteLine('  ' + cur + ' = load ptr, ptr ' + field);
+  curNull := self.Tmp();
+  self.WriteLine('  ' + curNull + ' = icmp eq ptr ' + cur + ', null');
+  allocLbl := self.Label();
+  joinLbl := self.Label();
+  self.WriteLine('  br i1 ' + curNull + ', label %' + allocLbl + ', label %' + joinLbl);
+  self.WriteLine(allocLbl + ':');
+  fresh := self.Tmp();
+  self.WriteLine('  ' + fresh + ' = call ptr @__kylix_arena_alloc(i64 ' + entryCap + ')');
+  self.WriteLine('  store i8 0, ptr ' + fresh);
+  self.WriteLine('  store ptr ' + fresh + ', ptr ' + field);
+  self.WriteLine('  br label %' + joinLbl);
+  self.WriteLine(joinLbl + ':');
+  buf := self.Tmp();
+  self.WriteLine('  ' + buf + ' = load ptr, ptr ' + field);
+  bufLen := self.Tmp();
+  self.WriteLine('  ' + bufLen + ' = call i64 @strlen(ptr ' + buf + ')');
+  bufPlusOne := self.Tmp();
+  self.WriteLine('  ' + bufPlusOne + ' = add i64 ' + bufLen + ', 1');
+  newLen := self.Tmp();
+  self.WriteLine('  ' + newLen + ' = add i64 ' + bufLen + ', ' + entryCap);
+  grown := self.Tmp();
+  self.WriteLine('  ' + grown + ' = call ptr @__kylix_arena_alloc(i64 ' + newLen + ')');
+  // copy bufLen+1: strcat needs dst NUL-terminated, and the copied prefix
+  // holds only raw bytes — its terminator must come along (the source block
+  // is at least bufLen+1: every append's entry is snprintf NUL-terminated).
+  self.WriteLine('  call ptr @memcpy(ptr ' + grown + ', ptr ' + buf + ', i64 ' + bufPlusOne + ')');
+  self.WriteLine('  call ptr @strcat(ptr ' + grown + ', ptr ' + ebuf + ')');
+  self.WriteLine('  store ptr ' + grown + ', ptr ' + field);
 end;
 
 function TLLVMGenerator.EmitIdentLoad(name: String): String;

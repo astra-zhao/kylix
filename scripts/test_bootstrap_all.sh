@@ -75,13 +75,10 @@ for f in "$TUT"/*/*.klx; do
   if [ "$name" == "example63_template_layout" ]; then
     continue
   fi
-  # example60 is a real BootRun HTTP server — the bootstrap compiler does not
-  # support the boot server (v0.7.0 P3 limitation, see TECHNICAL_DEBT.md), and
-  # a server never exits so the host reference would hang until timeout.
-  # Exercised end-to-end by the tutorial test scripts (curl + kill) instead.
+  # example60 is a real BootRun HTTP server — a server never exits so the
+  # host reference would hang until timeout. Exercised end-to-end by the
+  # dedicated E2E test below (v0.9.0 P2: bootstrap boot server + curl).
   if [ "$name" == "example60_web_framework" ]; then
-    echo "SKIP example60_web_framework (boot server E2E — not supported by bootstrap)"
-    SKIP=$((SKIP+1))
     continue
   fi
   # ---- host reference ----
@@ -237,6 +234,49 @@ if [ -f "$TUT/25_template_layout/$name.klx" ]; then
       fi
     else
       echo "FAIL $name (multi-file pipeline)"; FAIL=$((FAIL+1))
+    fi
+  fi
+fi
+
+# ---- example60 web framework E2E (v0.9.0 P2: bootstrap boot server) ----
+# Real BootRun server: launch the bootstrap-built binary in the background,
+# curl four endpoints (200 page / 302 redirect + Location / custom 404 /
+# custom 500 via raise), then kill. Mirrors the host test_all_llvm.sh E2E.
+name=example60_web_framework
+if [ -f "$TUT/22_web_pages/$name.klx" ]; then
+  ok=1 tries=0
+  if ! "$BOOT" --emit-llvm "$TUT/22_web_pages/$name.klx" > "$OUT/$name.ll" 2>/dev/null \
+      && [ -s "$OUT/$name.ll" ]; then
+    echo "FAIL $name (bootstrap emit)"; FAIL=$((FAIL+1)); ok=0
+  fi
+  if [ "$ok" = 1 ] && ! "$LLC" -filetype=obj "$OUT/$name.ll" -o "$OUT/$name.o" 2>"$OUT/$name.llc.err"; then
+    echo "FAIL $name (llc)"; head -4 "$OUT/$name.llc.err" | sed 's/^/    /'
+    FAIL=$((FAIL+1)); ok=0
+  fi
+  if [ "$ok" = 1 ] && ! clang "$OUT/$name.o" -o "$OUT/${name}_boot" \
+      -L/opt/homebrew/opt/openssl@3/lib -lcrypto -lsqlite3 -lcurl 2>"$OUT/$name.clang.err"; then
+    echo "FAIL $name (link)"; head -4 "$OUT/$name.clang.err" | sed 's/^/    /'
+    FAIL=$((FAIL+1)); ok=0
+  fi
+  if [ "$ok" = 1 ]; then
+    "$OUT/${name}_boot" >/dev/null 2>&1 &
+    pid=$!
+    while [ $tries -lt 25 ]; do
+      curl -s -o /dev/null http://127.0.0.1:8077/api/new && break
+      sleep 0.2
+      tries=$((tries + 1))
+    done
+    [ "$(curl -s http://127.0.0.1:8077/api/new)" = "you made it" ] || ok=0
+    curl -si http://127.0.0.1:8077/api/old | head -1 | grep -q "^HTTP/1.1 302" || ok=0
+    curl -si http://127.0.0.1:8077/api/old | grep -qi "^Location: /api/new" || ok=0
+    curl -s http://127.0.0.1:8077/api/missing | grep -q "Custom 404" || ok=0
+    curl -s http://127.0.0.1:8077/api/boom | grep -q "Custom 500" || ok=0
+    kill -9 $pid 2>/dev/null
+    wait $pid 2>/dev/null
+    if [ "$ok" = 1 ]; then
+      echo "PASS $name (boot server E2E)"; PASS=$((PASS+1))
+    else
+      echo "FAIL $name (boot server E2E)"; FAIL=$((FAIL+1))
     fi
   fi
 fi

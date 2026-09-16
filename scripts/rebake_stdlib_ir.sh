@@ -48,6 +48,10 @@ emit "$TUT/17_database/example52_database.klx" example52_database
 emit "$TUT/18_cache/example53_cache.klx" example53_cache
 emit "$TUT/19_http/example54_http.klx" example54_http
 emit "$TUT/20_websocket/example55_websocket.klx" example55_websocket
+emit "$TUT/22_web_pages/example60_web_framework.klx" example60_web_framework
+# boot route-registration defines beyond example60's verbs ([Put]/[Delete]/
+# [Authenticated]/proc handler) — see scripts/cover_boot.klx header.
+emit "$ROOT/scripts/cover_boot.klx" cover_boot
 
 echo "[2/3] baking..."
 python3 "$ROOT/scripts/extract_stdlib_ir.py" > "$ROOT/src/stdlib_ir.klx"

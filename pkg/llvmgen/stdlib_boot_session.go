@@ -91,6 +91,12 @@ func (g *Generator) emitBootSessionResolveBody() {
 	flagsSlot := g.tmp()
 	c("  %s = alloca i64, align 8", flagsSlot)
 	c("  store i64 0, ptr %s", flagsSlot)
+	// expKey's GEP is minted in entry: it is used in renewLbl, which the
+	// cookie-absent path (entry → createLbl) reaches WITHOUT passing through
+	// expChkLbl — defining it in expChkLbl was an SSA domination violation
+	// that llc's -disable-verify masked (the minted session then got its
+	// __exp key written from a stale register on that path).
+	expKey := g.ptrTo(g.addString(bootSessionKeyExp), len(bootSessionKeyExp)+1)
 	// Lazy-init the outer sessions table.
 	t0 := g.bootLoadPtr(bootSessionsGlobal)
 	c("  store ptr %s, ptr %s", t0, tSlot)
@@ -135,7 +141,6 @@ func (g *Generator) emitBootSessionResolveBody() {
 	c("  br label %%%s", createLbl)
 	// Known session — check __exp (absent ⇒ treat as live, renew below).
 	c("%s:", expChkLbl)
-	expKey := g.ptrTo(g.addString(bootSessionKeyExp), len(bootSessionKeyExp)+1)
 	sess2 := g.tmp()
 	c("  %s = load ptr, ptr %s", sess2, sessSlot)
 	expStr := g.tmp()
