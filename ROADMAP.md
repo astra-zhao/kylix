@@ -198,9 +198,9 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] bootstrap 端 boot server 评估：结论记 TECHNICAL_DEBT.md（~800 行固定 define 可烘焙 + 注解装配 emitter 移植 ~600 行 Kylix；归 v0.9.0 实施）
 
 ### v0.9.0 — 1.0.0-rc 打磨
-- [ ] bootstrap 端 boot server 实施（v0.8.0 P4 评估结论：~800 行固定 define 烘焙 + 注解装配 emitter 移植 ~600 行 Kylix）→ example60 sweep SKIP 解除
-- [ ] 重烘链路修复：按 StdFnNames 139 签名机械生成 cover.klx 入库 + 提取器段表自动生成（消手工同步偏移）
-- [ ] **KylixBoot 框架补齐（[ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md) P1 硬前置 + 对齐 Spring Boot 欠账）**：服务端 Session（SessionMiddleware + Remember-me）、CSRF 防护、文件上传（multipart 双端）、分页抽象（Page/Pageable）、模板 layout/partials（template_engine 三端同源扩展）、Response.Download/CSV 导出
+- [x] bootstrap 端 boot server 实施 ✅（v0.9.0 P2：提取器 boot 段 + src/llvmgen.klx 注解装配 17 方法 + TResponse fluent 6 方法 + cover_boot.klx 重烘 179 签名）→ example60 sweep SKIP 解除（56 PASS + 1 SKIP）+ IR 不动点保持（gen1 ≡ gen2，267,261 行）
+- [x] 重烘链路修复 ✅（v0.9.0 P2：cover.klx / cover_boot.klx 入库 + rebake 脚本含 verify 门 + 重烘 139→179 签名；剩余小尾巴——cover 机械生成 + 段表自动生成——记 TECHNICAL_DEBT 低风险顺带处理）
+- [x] **KylixBoot 框架补齐（[ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md) P1 硬前置 + 对齐 Spring Boot 欠账）✅**（v0.9.0 P1.6+P1.7：模板 layout/partials 三端同源 + 服务端 Session + CSRF + multipart 文件上传 + 分页 BootPagerHTML + Response.Download/FileBytes/CSV——均 LLVM 端 E2E 与 Go 行为一致；bootstrap 端 boot server 随 P2 落地，功能债记 TECHNICAL_DEBT）
 - [ ] 三平台 CI 稳定全绿（linux/darwin/windows × amd64/arm64）
 - [ ] 性能回归基线（compile-time benchmark 入 CI 门禁）
 - [ ] API 稳定性审查：语言语法 / CLI / stdlib 冻结承诺 + 弃用标记

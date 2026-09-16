@@ -8,15 +8,12 @@
 
 ---
 
-## 🚧 v0.8.0 已知问题（2026-09-11，P4 bootstrap 端 boot server 评估）
+## 🚧 v0.9.0 已知问题（2026-09-16，P2 boot server 实施后）
 
-- [ ] **bootstrap 端 boot server（example60 sweep SKIP）——P4 评估结论：可行，建议 v0.9.0 实施**。现状：bootstrap 端 boot 只有 `BootText`/`BootHTML` 内联 16B handle（`src/llvmgen.klx` 5304 起）+其余 boot 函数全 stub（5402 起），example60 sweep 显式 SKIP。评估发现：
-  - **可烘焙部分**（host example60 IR 实测）：`BootRun`/`read_headers`/`read_body`/`parse_request`/`route_lookup`/`path_match`/`serve_static`/`safe_len`/`form_get`/`cookie_get`/`BootNotFoundPage`/`BootErrorPage` 等全部为固定 define（~800 行），与 13 段烘焙完全同构，走 `extract_stdlib_ir.py` 加 boot 段即可；
-  - **需 bootstrap emitter 移植部分**：路由表 `@__kylix_boot_routes` + `BootGET` 包装 + `handler_N`（程序相关，注解驱动）——**bootstrap parser 已保留 Attributes（v0.5.9 移植，src/ast.klx 76-117）**，只差 `llvmgen.klx` 扫描+发射（参照 host `scanBootAnnotations`/`emitBootAutoWiring`）；BootText/BootHTML 16B→40B handle（含 arena）；fluent 方法 6 个（Html/Text/Json/Redirect/WithCookie/WithHeader/StatusCode，参照 host `emitBootResponseMethodCall`）；`req.Param/Query/Header/Body/Cookie/Form` 内联降级（参照 host `stdlib_boot_http.go`）；
-  - **工作量估计**：~600 行 Kylix（src/llvmgen.klx）+ 提取器 boot 段支持（~150 行 Python），约等于 1.5×P3；实施后需重验 IR 不动点（bootstrap emitter 变更）；
-  - **依赖债**：重烘链路（cover.klx 未入库，见下一条）；boot 段烘焙需先重烘全量（host IR 已因 arena/magic/safe_len 漂移，重烘顺带消除手工同步）；
-  - **价值判断**：无 Go 机器上跑 KylixBoot 应用本就是窄场景，且 host 端 boot server 功能完整（v0.7.0-P3 + v0.8.0-P3），不阻塞 1.0.0 API 冻结——故记债不实施，归入 v0.9.0。
-- [ ] **重烘链路断裂：cover.klx 未入库 + /tmp/stdir_cover/cover.ll 已清**（v0.6.9 遗留，P1/P4 前置）。`scripts/extract_stdlib_ir.py` 依赖 cover 覆盖程序产出的 cover.ll（覆盖教程未覆盖的函数：cache TTL、httpclient 助手、Base64URL、UrlEncode/Decode、Variant div/mod 等）；cover.klx 源码从未入库，/tmp 清理后无法重烘。修复方向：按 `stdlib_ir.klx` 头部 `StdFnNames` 139 签名表机械生成 cover 程序（每签名调用一次）并**入库 `src/` 或 `scripts/`**，CI 不依赖 /tmp。
+- [x] **~~bootstrap 端 boot server（example60 sweep SKIP）~~（v0.9.0 P2 已实施）**：提取器 boot 段（固定 define 烘焙 + 程序符号排除）+ `src/llvmgen.klx` 注解装配 17 方法 + TResponse fluent 6 方法（BootFmtConst 常量机制）+ cover_boot.klx 重烘覆盖（179 签名）；example60 sweep SKIP 解除转 E2E（56 PASS + 1 SKIP）；IR 不动点保持（gen1 ≡ gen2，267,261 行）。
+- [x] **~~重烘链路断裂：cover.klx 未入库~~（v0.9.0 P2 已修）**：`scripts/cover.klx` 入库 + `scripts/rebake_stdlib_ir.sh` 一键重烘（含 verify 门）+ `scripts/cover_boot.klx` boot 动词覆盖。剩余小尾巴：cover.klx 仍为手写（非按 StdFnNames 机械生成），提取器段表手工同步（新增 stdlib 段时需改 SEGMENTS/sym_seg）——低风险，新增模块时顺带处理。
+- [ ] **bootstrap 端 boot server 功能债（host 专属，bootstrap 缺省 stub）**：`TResponse.FileBytes/Download/Csv`、`[Role]` 守卫（BootEnforceRole 无烘焙 define）、组件 DI 装配（BootRegisterInstance）——程序使用会 emit undefined 符号，**编译期即报错**（不静默错译）。修复方向：host 覆盖程序补 define 重烘 / emitter 端 stub。
+- [ ] **bootstrap emitter 无 verify 门**：bootstrap sweep 的 llc 不带 -disable-verify（正确），但 host 自身编译链（`kylix build --backend=llvm`）默认 -disable-verify 求性能——两次潜伏 SSA bug（IsIP step phi / session expKey）均由 verify 门/烘焙链路抓获，说明 host 快路径存在放过坏 IR 的风险窗口。修复方向：`--debug` / CI 抽查走 verify。
 
 ## 🚧 v0.7.1 已知问题（2026-09-09，P0b regex 引擎开发中发现）
 

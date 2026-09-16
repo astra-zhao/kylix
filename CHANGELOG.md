@@ -12,6 +12,31 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
+## v0.9.0 — 1.0.0-rc 打磨（进行中）
+
+### P1.6 模板 layout/partials ✅
+
+- `stdlib/template_engine.klx` 扩展 layout/partial 装配（三端同源，regex_engine.klx 模式）+ **example63 教程**（`25_template_layout/`）三端 parity + 三 sweep 接入（56 编号示例）；`docs/TEMPLATE_GUIDE.md` 纠偏。
+
+### P1.7 KylixBoot 框架补齐（LLVM 端对齐 Go）✅
+
+- **P1.7a** `TResponse.Download/FileBytes` + mime `.csv`（文件下载 + 字节响应）；**P1.7b** 分页 `BootPagerHTML` + `req.PageNum/PageSize`（六场景 E2E 与 Go 逐字一致）；**P1.7c** Session（BootRun 内嵌 middleware + 五场景 E2E 与 Go cookie 行为一致）；**P1.7d** CSRF（BootRun 内嵌门 + 九场景 E2E 与 Go csrf.go 行为一致）；**P1.7e** multipart 上传 `req.File/SaveFile/MultipartField`（+ 跨请求槽泄漏修复 + htab_get null 安全，七场景 E2E 与 Go parity）。
+
+### P2 重烘链路修复 + bootstrap 端 boot server 实施 ✅
+
+- **重烘链路闭环**（v0.6.9 遗留债清偿）：`scripts/cover.klx` 入库 + `scripts/rebake_stdlib_ir.sh` 一键重烘（含 `opt -passes=verify` 门——host llc 走 -disable-verify，坏 IR 会被静默烘入）+ 烘焙数据重烘 139→152 签名；顺带修 host `stdlib_regex.go` IsIP 非法 SSA（final 读 step phi 不支配，被 -disable-verify 掩盖）。
+- **bootstrap 端 boot server**（example60 sweep SKIP 解除）：
+  - 提取器加 **boot 段**（`SEGMENTS` + `sym_seg`/`glob_seg` boot 规则）：固定 define（BootRun/read_headers/parse_request/route_lookup/path_match/serve_static/session/csrf/multipart/error pages/BootText/BootHTML/BootGET/BootPOST/BootPUT/BootDELETE/BootEnforceAuth + arena_alloc/reset）烘焙；程序相关符号（`boot_handler_N` wrapper、routes/nroutes/ctrl_* 全局）排除——bootstrap 自发；`%__ret_*` 类型行入段；**`scripts/cover_boot.klx`** 重烘覆盖程序补 example60 未覆盖的动词（[Put]/[Delete]/[Authenticated]/proc handler），烘焙至 179 签名。
+  - **`src/llvmgen.klx` 注解装配（17 方法 + 五处接线）**：`BootScanRoutes`（`[Controller]`/`[Get|Post|Put|Delete]` 扫描，BootFindAttr 的 out-param workaround——bootstrap 成员链不支持 out 参数）+ `EmitBootRouteGlobals`（EmitMain 开头发 routes/nroutes/ctrl_* 全局）+ `EmitBootAutoWiring`（构造器 store ctrl + `Boot<M>(path, @handler_N)`）+ `EmitBootWrappers`（func handler `call i64` → inttoptr ret；proc handler 预建 `BootText(200,"")`；`[Authenticated]` → BootEnforceAuth 守卫）+ **TResponse fluent 6 方法**（Html/Send/SetText/StatusCode/WithCookie/WithHeader/Redirect——40B handle 直改 + arena_alloc + snprintf）。**`BootFmtConst` 机制**：bootstrap 源码无法写真实 CR/LF 字节（AddString 池存 raw 源字节），fluent 方法格式串走模块级常量行暂存 + EmitStringConsts 发射 LLVM 转义文本（`Location: %s\0D\0A\00`）。
+  - BootText/BootHTML 从内联 16B 分支改烘焙 define dispatch + ptrtoint→i64（bootstrap TResponse 槽约定）。
+  - **过程破案 4 个**：(1) `BootAppendToSlot` 参数名 `entry` 与 LLVM 函数入口块名共享命名空间（`unable to create block named 'entry'`）→ 改名 `ebuf`；(2) 烘焙 boot define 引用 exc 全局但 GLOBAL_SKIP 归 bootstrap 所有 → `MarkStdSeg('boot')` 强制 `NeedException`；(3) example51 `[Delete]` 无烘焙 BootPUT/BootDELETE → cover_boot.klx 覆盖；(4) **host `stdlib_boot_session.go` expKey SSA 支配违反**（GEP 定义于 expChkLbl、使用于 renewLbl，无 cookie 路径绕过定义块读寄存器残渣——被 llc -disable-verify 掩盖的真 bug，verify 门首战告捷）→ GEP 提 entry 块。
+  - **example60 E2E（bootstrap 产二进制）**：/api/new 200、/api/old 302+Location+Set-Cookie session、/api/missing 404 自定义页、/api/boom 500 自定义页——与 host 行为一致。
+- **验证**：bootstrap sweep **56 PASS + 1 SKIP**（原 55+2，example60 SKIP 解除转 E2E PASS）；host LLVM sweep 56/56；go test 16 包全绿；**IR 不动点保持（gen1 ≡ gen2，267,261 行逐字节）**。
+
+### bootstrap 端 boot server 已知债（后续）
+
+- `TResponse.FileBytes/Download/Csv`、`[Role]` 守卫（BootEnforceRole 无烘焙 define）、组件 DI 装配（BootRegisterInstance）——host 专属，bootstrap 端缺省 stub（程序用了会 emit undefined 符号，编译期即报错，不会静默错译）。
+
 ## v0.8.0 — 自举 stdlib（真自包含）✅（2026-09-11）
 
 ### P1 纯 Kylix stdlib 扩展 ✅
