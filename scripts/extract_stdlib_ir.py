@@ -18,18 +18,24 @@ Usage: python3 scripts/extract_stdlib_ir.py > src/stdlib_ir.klx
 """
 import re, os, sys
 
+# Sources: scripts/cover.klx (coverage program calling every stdlib function the
+# host dispatch implements) + tutorial IRs. All .ll files are generated into
+# /tmp/stdir_cover/ by scripts/rebake_stdlib_ir.sh (host `build --backend=llvm
+# -o <dir>/<name>.ll`); only compilation is required — the .ll text is what the
+# extractor parses.
 TUT = '/Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/'
-FILES = ['/tmp/stdir_cover/cover.ll'] + [TUT + p for p in [
-    '08_stdlib_utils/example36_sysutil.ll',
-    '08_stdlib_utils/example37_jsonutil.ll',
-    '08_stdlib_utils/example38_datetime.ll',
-    '08_stdlib_utils/example39_regex.ll',
-    '13_stdlib_phase6/example48_phase6_net_crypto_encoding.ll',
-    '15_jwt/example50_jwt_auth.ll',
-    '17_database/example52_database.ll',
-    '18_cache/example53_cache.ll',
-    '19_http/example54_http.ll',
-    '20_websocket/example55_websocket.ll',
+OUT = '/tmp/stdir_cover/'
+FILES = [OUT + 'cover.ll'] + [OUT + p for p in [
+    'example36_sysutil.ll',
+    'example37_jsonutil.ll',
+    'example38_datetime.ll',
+    'example39_regex.ll',
+    'example48_phase6_net_crypto_encoding.ll',
+    'example50_jwt_auth.ll',
+    'example52_database.ll',
+    'example53_cache.ll',
+    'example54_http.ll',
+    'example55_websocket.ll',
 ]]
 
 # Segment order: 'runtime' first — it is emitted unconditionally (tiny, and
@@ -203,6 +209,7 @@ def main():
         'curl_easy_cleanup', 'curl_slist_append', 'curl_slist_free_all',
         'regcomp', 'regexec', 'regfree',
         'time', 'localtime', 'localtime_r', 'localtime_s', 'mktime', 'strftime',
+        'calloc', 'write', 'RAND_bytes',
         'llvm.memset.p0.i64', 'llvm.memcpy.p0.p0.i64',
     }
     # module-level @__kylix_* globals referenced by the extracted bodies.

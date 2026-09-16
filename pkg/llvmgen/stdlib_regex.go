@@ -530,10 +530,14 @@ func (g *Generator) emitRegexIsIP() {
 	g.line(fmt.Sprintf("  br label %%%s", loop))
 
 	g.line(final + ":")
+	// Read the LOOP phis (dv/gv), not the step phis (nd/ng): the path
+	// entry → loop → final never passes through step, so the step phis do
+	// not dominate this block (invalid SSA that -disable-verify masked —
+	// "worked" only because every non-empty string reaches final via step).
 	dGe1 := g.tmp()
-	g.line(fmt.Sprintf("  %s = icmp ne i64 %s, 0", dGe1, nd))
+	g.line(fmt.Sprintf("  %s = icmp ne i64 %s, 0", dGe1, dv))
 	gEq4 := g.tmp()
-	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 4", gEq4, ng))
+	g.line(fmt.Sprintf("  %s = icmp eq i64 %s, 4", gEq4, gv))
 	okRes := g.tmp()
 	g.line(fmt.Sprintf("  %s = and i1 %s, %s", okRes, dGe1, gEq4))
 	pass := g.label()

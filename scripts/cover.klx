@@ -1,0 +1,195 @@
+// cover.klx — stdlib IR 重烘覆盖程序（scripts/extract_stdlib_ir.py 的输入源之一）。
+//
+// 目标：让 HOST 编译器对全部 139 个 `__kylix_<seg>_<Fn>` 烘焙符号发射 define。
+// 只需编译通过（`kylix build --backend=llvm --emit-llvm`），**无需运行**——
+// 提取器解析的是 .ll 文本。运行时语义（网络调用失败、文件不存在）无关紧要。
+//
+// 再烘流程（v0.9.0 重烘链路，见 TECHNICAL_DEBT.md）：
+//   1. /tmp/kylix_bin build --backend=llvm --emit-llvm -o /tmp/stdir_cover/cover.ll scripts/cover.klx
+//   2. 依次 --emit-llvm 生成教程 .ll（example36-39/48/50/52-55，见提取器 FILES）
+//   3. python3 scripts/extract_stdlib_ir.py > src/stdlib_ir.klx
+//   4. 验证：stderr `signatures: 139`；bootstrap 构建 + sweep + IR 不动点
+//
+// 覆盖映射（段 → 本程序语句）：
+//   sysutil  → 文件读写/目录/路径段；encoding → Base64*/Hex*/Url*；
+//   crypto   → Sha256/Md5/HmacSha256/Aes*/BCrypt*；regex → Is* 七件套；
+//   datetime → Now/MakeDate/AddDays/FormatDate/Year/Month/Day（arena 助手随行）；
+//   db       → DbOpen/DbOpenSQLite/DbExec/DbQueryRows/DbClose（htab 行构造随行）；
+//   net      → TcpListen/Accept/Dial/Read/Write/Close/ListenerClose；
+//   cache    → NewCache/Put/PutWithTTL/Get/GetString/Has/Sweep/Delete/Clear/Size
+//              （cache_expired/cache_put/now_ms 随行）；
+//   httpclient → THttpClient 五方法 + StatusCode + HttpDo* + 六个一次性助手
+//              （http_write_cb 随行）；json → Encode/Pretty/Decode 全家族
+//              （parse/escape/float 助手 + JsonEncode_htab 包装随行）；
+//   jwt      → JwtSign/JwtVerify/JwtSubject/JwtGetString/JwtGetInt（b64url/hex 随行）；
+//   websocket → WsDial 两段式 + WsAccept/Send/Recv/Close（ws_* 七助手随行）；
+//   variant/htab → Variant 标量算术（add/sub/mul/div/mod/idiv/compare）、
+//              map 装箱读取（box_*/map_get/htab_get_variant）、WriteLn（print*）。
+program StdlibCover;
+uses sysutil, encoding, crypto, regex, datetime, db, net, cache, httpclient,
+     jsonutil, jwt, websocket;
+
+var
+  // Variant / map 走 var 块 + 赋值路径（emitAssign coercion）——host 的
+  // `var x := <Variant/map 返回调用>` 推断路径对聚合/box 返回有缺口
+  // （v0.8.0 同族，记 TECHNICAL_DEBT），cover 不踩。
+  v: Variant;
+  m: map[String]Variant;
+  rows: array of Variant;
+
+begin
+  // ---- sysutil（WriteFile 先行，后续读取依赖它存在；运行失败不影响 IR）----
+  var sf := '/tmp/kylix_cover_cover.txt';
+  WriteFile(sf, 'cover');
+  var s := ReadFile(sf);
+  AppendFile('/tmp/kylix_cover_append.txt', 'x');
+  CopyFile('/tmp/kylix_cover_cover.txt', '/tmp/kylix_cover_copy.txt');
+  var b := FileExists('/tmp/kylix_cover_cover.txt');
+  b := DirExists('/tmp');
+  CreateDir('/tmp/kylix_cover_dir');
+  DeleteFile('/tmp/kylix_cover_copy.txt');
+  var n := GetFileSize('/tmp/kylix_cover_cover.txt');
+  s := GetWorkingDir();
+  SetWorkingDir('/tmp');
+  SetWorkingDir('/');
+  s := GetTempDir();
+  s := PathJoin('/usr');
+  s := PathJoin('/usr', 'local');
+  s := PathJoin('/usr', 'local', 'bin');
+  s := PathBase('/path/to/file.txt');
+
+  // ---- encoding ----
+  s := Base64Encode('cover');
+  s := Base64Decode(s);
+  s := Base64URLEncode('cover');
+  s := Base64URLDecode(s);
+  s := HexEncode('cover');
+  s := HexDecode(s);
+  s := UrlEncode('a b&c=d');
+  s := UrlDecode('a+b%26c');
+
+  // ---- crypto ----
+  s := Sha256('cover');
+  s := Md5('cover');
+  s := HmacSha256('key', 'cover');
+  s := AesEncrypt('key', 'cover');
+  s := AesDecrypt('key', s);
+  s := BCryptHash('cover', 4);
+  b := BCryptCompare('cover', s);
+
+  // ---- regex（Is* 全套，IsIP 为教程未覆盖项）----
+  b := IsEmail('cover@kylix.top');
+  b := IsURL('https://kylix.top');
+  b := IsNumeric('123');
+  b := IsAlpha('cover');
+  b := IsAlphaNumeric('c01');
+  b := IsIP('127.0.0.1');
+
+  // ---- datetime（arena/FreeArena/MakeDate 助手随行）----
+  var dt := Now();
+  n := dt.Year();
+  n := dt.Month();
+  n := dt.Day();
+  dt := MakeDate(2026, 9, 15);
+  dt := dt.AddDays(1);
+  s := dt.FormatDate();
+
+  // ---- db（DbOpen 与 DbOpenSQLite 双入口）----
+  var dbconn := DbOpenSQLite(':memory:');
+  dbconn := DbOpen('sqlite', ':memory:');
+  n := DbExec(dbconn, 'CREATE TABLE t (a INTEGER)');
+  n := DbExec(dbconn, 'INSERT INTO t VALUES (1)', 'x', 2);
+  var rows := DbQueryRows(dbconn, 'SELECT a FROM t');
+  s := DbQueryScalar(dbconn, 'SELECT COUNT(*) FROM t');
+  DbClose(dbconn);
+
+  // ---- net（TcpDial/Read/Write/Close 为教程未覆盖项；不运行不连接）----
+  var conn := TcpDial('127.0.0.1', 1);
+  n := TcpWrite(conn, 'cover');
+  s := TcpRead(conn, 1);
+  TcpClose(conn);
+
+  // ---- cache（TTL 入口 PutWithTTL/Sweep 为教程未覆盖项）----
+  var c := NewCache(4, 0);
+  c.Put('k', 'val');
+  c.PutWithTTL('t', 'val', 1000);
+  s := c.GetString('k');
+  v := c.Get('k');
+  b := c.Has('k');
+  n := c.Sweep();
+  c.Delete('k');
+  c.Clear();
+  n := c.Size();
+
+  // ---- httpclient（五方法 + StatusCode + HttpDo* + 六个一次性助手）----
+  var hc := NewHttpClient('http://127.0.0.1:1', 100);
+  hc.SetHeader('X-Cover', 'kylix');
+  s := hc.Get('/get');
+  s := hc.Post('/post', 'text/plain', 'body');
+  s := hc.Put('/put', 'text/plain', 'body');
+  s := hc.Delete('/delete');
+  n := hc.StatusCode('/status');
+  s := HttpGet('http://127.0.0.1:1/x');
+  s := HttpPost('http://127.0.0.1:1/x', 'text/plain', 'b');
+  s := HttpPut('http://127.0.0.1:1/x', 'text/plain', 'b');
+  s := HttpDelete('http://127.0.0.1:1/x');
+  m := HttpGetJSON('http://127.0.0.1:1/x');
+  m := HttpPostJSON('http://127.0.0.1:1/x', 'b');
+  // 注：HttpDoGet/HttpDoPost（THttpResponse 聚合返回）不在此覆盖——host `var r :=
+  // HttpDoGet(...)` 推断路径把聚合值存进 ptr 槽（IR 类型错），属 v0.8.0
+  // `var x := <数组返回函数>` 同族推断缺口，记 TECHNICAL_DEBT。其 define 依赖
+  // （DoRequest/Request）已由上面的一次性助手与 THttpClient 方法覆盖。
+
+  // ---- json（Encode/Pretty/Decode 全家族 + 嵌套读取）----
+  m['name'] := 'cover';
+  m['n'] := 3;
+  s := JsonEncode(m);
+  s := JsonEncodePretty(m);
+  v := JsonDecode('{"a":[1,2],"b":{"c":true}}');
+  m := JsonDecodeMap('{"a":"1"}');
+  // 注：JsonDecodeArray 仅 Go 后端实现（LLVM 烘焙表无此符号），不在此调用。
+  s := JsonGetString(m, 'a');
+  n := JsonGetInt(m, 'n');
+  var fl := JsonGetFloat(m, 'n');
+  b := JsonGetBool(m, 'n');
+  m := JsonGetMap(m, 'a');
+  rows := JsonGetArray(m, 'a');
+  b := JsonHasKey(m, 'a');
+  n := JsonArrayLen(rows);
+  s := JsonArrayGetString(rows, 0);
+
+  // ---- jwt（claims 家族为教程未覆盖项）----
+  s := JwtSign('secret', 'cover', 60, nil);
+  v := JwtVerify('secret', s);
+  s := JwtSubject(v);
+  s := JwtGetString(v, 'sub');
+  n := JwtGetInt(v, 'exp');
+
+  // ---- websocket（两段式自回环 + 全五函数；不运行不连接）----
+  var ln := TcpListen(18080);
+  var cli := WsDialConnect('127.0.0.1:18080', '/echo');
+  conn := TcpAccept(ln);
+  var srv := WsAccept(conn);
+  b := WsDialFinish(cli);
+  WsSend(srv, 'cover');
+  s := WsRecv(cli);
+  WsClose(cli);
+  WsClose(srv);
+  TcpListenerClose(ln);
+
+  // ---- variant 算术 + map 装箱读取（box_*/map_get/htab_get_variant/print*）----
+  v := 10;
+  var w := 3; // w 也是 Variant 标量，走推断路径
+  v := v + w;
+  v := v - w;
+  v := v * w;
+  v := v div w;
+  v := v mod w;
+  v := v / w;
+  b := v > w;
+  m['x'] := 'y';
+  s := m['x'];
+  WriteLn(v);
+  WriteLn(s);
+  WriteLn(fl);
+end.
