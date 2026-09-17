@@ -231,10 +231,11 @@ jobs:
           grep -n '^F ' ex61_windows.txt || true
           test "$rc" = "0"
           # Reference output (byte-identical on Go/LLVM/bootstrap ends):
-          # 33 scenario lines — 26 matches ("T ...") plus the 5 negative
-          # scenarios which legitimately print "F ..." (^ab|xab, ab$|abx,
-          # cat|dog|hotbird, (a|b)*abb|abxa, a{2}|a) — then "done".
-          test "$(grep -c '^T ' ex61_windows.txt)" = "26"
+          # 33 lines — 24 ShowMatch scenarios of which 5 are negative and
+          # legitimately print "F ..." (^ab|xab, ab$|abx, cat|dog|hotbird,
+          # (a|b)*abb|abxa, a{2}|a) → 19 "T ..." + 5 "F ...", plus 4 find-all
+          # ("A"), 2 replace ("R"), 2 split ("S") lines, then "done".
+          test "$(grep -c '^T ' ex61_windows.txt)" = "19"
           test "$(grep -c '^F ' ex61_windows.txt)" = "5"
           tail -1 ex61_windows.txt | grep -q "done"
 
