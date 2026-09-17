@@ -23,7 +23,7 @@
 
 - [ ] **websocket Windows target 下为 typed stub**：WS 握手 helper 依赖 unix socket 签名（i32 fd），Windows 分支在 `emitWebsocketCall` 顶部短路（求值参数后返回空串/void）——IR 形态合法、链接不炸，但 WS 功能在 Windows 不可用。修复方向：WS helper 也走 `__kylix_net_*` wrapper（P1 已铺垫，工作量中等）
 - [ ] **DnsLookup / UDP 函数仍为 not-implemented stub**（两端同样）；TcpDial 仅支持点分十进制 IPv4 字面量（inet_pton 直转，无主机名解析）
-- [x] **~~Windows 真机验收未做~~（v0.7.1 P3 已覆盖）**：CI llvm-windows job（windows-latest runner = 真 Windows 环境）跑 net 双进程 Winsock echo 全链路（WSAStartup/listen/accept/dial/write/read）+ example61 regex 引擎 + 4 代表教程
+- [x] **~~Windows 真机验收未做~~（v0.7.1 P3 编写，v0.9.0 起真实跑通）**：CI llvm-windows job（windows-latest runner = 真 Windows 环境）跑 net 双进程 Winsock echo 全链路（WSAStartup/listen/accept/dial/write/read）+ example61 regex 引擎 + 4 代表教程。**勘误（v0.9.0）**：v0.7.2 起 ci.yml YAML 语法错误使整个 workflow 0s 失败，本 job 直到 v0.9.0 修复前从未真实执行过（v0.7.1 的"✅"实为 macOS 交叉预验证）；顺带破案 llvm-mingw Windows 原生 zip 无 llc.exe → 编译器加 `clang -x ir -c` 回退（见 CHANGELOG v0.9.0）
 
 ### Windows target 限制（P2 交叉链接，2026-09-10）
 

@@ -50,6 +50,10 @@ Exit code is non-zero if any required tool is missing.
 	} else {
 		if llvm.LLC != "" {
 			fmt.Printf("  ✓ llc: %s\n", llvm.LLC)
+		} else if llvm.Clang != "" {
+			// v0.9.0: llvm-mingw native Windows has no llc — the .ll → .o
+			// step falls back to `clang -x ir -c` (see pkg/llvmgen/compile.go).
+			fmt.Println("  − llc: not found (IR→object via clang -x ir; OK for llvm-mingw toolchains)")
 		} else {
 			fmt.Println("  ✗ llc: not found")
 			fail = true
@@ -65,7 +69,11 @@ Exit code is non-zero if any required tool is missing.
 		} else {
 			fmt.Println("  − opt: not found (optional; --llvm-opt falls back to llc -O)")
 		}
-		if out, err := exec.Command(llvm.LLC, "--version").Output(); err == nil {
+		verBin := llvm.LLC
+		if verBin == "" {
+			verBin = llvm.Clang
+		}
+		if out, err := exec.Command(verBin, "--version").Output(); err == nil {
 			fmt.Printf("  version: %s\n", strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0])
 		}
 	}

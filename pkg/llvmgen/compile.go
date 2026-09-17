@@ -65,10 +65,14 @@ func FindLLVM() (*LLVMPaths, error) {
 	clang := find("clang")
 	opt := find("opt") // optional; only needed for --llvm-opt
 
-	if llc == "" {
-		return nil, fmt.Errorf("llc not found; install LLVM (brew install llvm or apt install llvm)")
-	}
+	// v0.9.0: llc is optional now — llvm-mingw's native-Windows toolchain
+	// (the only practical LLVM for KylixBoot on Windows) ships clang/lld but
+	// NO llc/opt; clang's cc1 lowers .ll → object itself. Require clang only;
+	// CompileToBinary falls back to `clang -x ir -c` when LLC == "".
 	if clang == "" {
+		if llc == "" {
+			return nil, fmt.Errorf("LLVM toolchain not found: no llc and no clang; install LLVM (brew install llvm or apt install llvm clang)")
+		}
 		return nil, fmt.Errorf("clang not found; install clang (brew install llvm or apt install clang)")
 	}
 
@@ -325,25 +329,47 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		if optLevel == "" {
 			optLevel = "0"
 		}
-		llcArgs := []string{"-filetype=obj"}
-		switch optLevel {
-		case "0", "1", "2", "3":
-			llcArgs = append(llcArgs, "-O="+optLevel)
-		default:
-			llcArgs = append(llcArgs, "-O=2")
-		}
-		llcArgs = append(llcArgs, "-disable-verify") // v0.6.5: skip IR verification on large modules
-		// v0.6.2: cross-compilation — pin the target so llc honors it even if
-		// the IR triple were lost; llc is a multi-target compiler.
-		if opts.Target != "" {
-			tOS, tArch := resolveTarget(opts.Target)
-			triple, _ := tripleFor(tOS, tArch)
-			llcArgs = append(llcArgs, "-mtriple="+triple)
-		}
-		llcArgs = append(llcArgs, "-o", objFile, irFile)
-		llcCmd := exec.Command(llvmPaths.LLC, llcArgs...)
-		if out, err := llcCmd.CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("llc failed: %w\n%s", err, out)
+
+		if llvmPaths.LLC != "" {
+			llcArgs := []string{"-filetype=obj"}
+			switch optLevel {
+			case "0", "1", "2", "3":
+				llcArgs = append(llcArgs, "-O="+optLevel)
+			default:
+				llcArgs = append(llcArgs, "-O=2")
+			}
+			llcArgs = append(llcArgs, "-disable-verify") // v0.6.5: skip IR verification on large modules
+			// v0.6.2: cross-compilation — pin the target so llc honors it even if
+			// the IR triple were lost; llc is a multi-target compiler.
+			if opts.Target != "" {
+				tOS, tArch := resolveTarget(opts.Target)
+				triple, _ := tripleFor(tOS, tArch)
+				llcArgs = append(llcArgs, "-mtriple="+triple)
+			}
+			llcArgs = append(llcArgs, "-o", objFile, irFile)
+			llcCmd := exec.Command(llvmPaths.LLC, llcArgs...)
+			if out, err := llcCmd.CombinedOutput(); err != nil {
+				return nil, fmt.Errorf("llc failed: %w\n%s", err, out)
+			}
+		} else {
+			// v0.9.0: no llc (llvm-mingw native Windows) — clang's cc1 lowers
+			// the .ll to an object itself (`-x ir` feeds the file as LLVM IR).
+			// Driver defaults to -O0, matching the forced llc -O=0 above.
+			clangArgs := []string{"-x", "ir", "-c"}
+			switch optLevel {
+			case "1", "2", "3":
+				clangArgs = append(clangArgs, "-O"+optLevel)
+			}
+			if opts.Target != "" {
+				tOS, tArch := resolveTarget(opts.Target)
+				triple, _ := tripleFor(tOS, tArch)
+				clangArgs = append(clangArgs, "--target="+triple)
+			}
+			clangArgs = append(clangArgs, "-o", objFile, irFile)
+			clangCmd := exec.Command(llvmPaths.Clang, clangArgs...)
+			if out, err := clangCmd.CombinedOutput(); err != nil {
+				return nil, fmt.Errorf("clang IR compile failed: %w\n%s", err, out)
+			}
 		}
 		// Populate the cache with the freshly-compiled object.
 		if store := defaultLLVMCache(); store != nil {

@@ -308,7 +308,9 @@ jobs:
           # gen2: mem2reg → llc → clang link → native compiler (no Go)
           opt -passes=mem2reg fp1.ll -S -o fp1_opt.ll
           llc -filetype=obj fp1_opt.ll -o fp1.o
-          libs=""
+          # -lm: the IR calls fmod (Variant div/mod); Linux ld requires libm
+          # explicitly on the command line (macOS libSystem bundles it).
+          libs="-lm"
           grep -q "@__kylix_crypto_\|@EVP_\|@SHA256\|@MD5\|@PKCS5" fp1.ll && libs="$libs -lcrypto" || true
           grep -q "@sqlite3_" fp1.ll && libs="$libs -lsqlite3" || true
           grep -q "@curl_" fp1.ll && libs="$libs -lcurl" || true
@@ -335,3 +337,27 @@ jobs:
             echo "$fmt_files"
             exit 1
           fi
+
+  perf-gate:
+    name: Performance regression gate
+    # v0.9.0: loose order-of-magnitude ceilings only — shared runners have
+    # ±30% noise, so this catches cache/optimizer/O(n²) blow-ups, not drift.
+    # See benchmarks/ci_gate.sh header for what each ceiling catches.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install LLVM toolchain + stdlib native libs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev
+
+      - name: Run perf gate (compile_time scenarios vs ceilings)
+        run: bash benchmarks/ci_gate.sh

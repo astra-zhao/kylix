@@ -37,6 +37,14 @@ All notable changes to the Kylix compiler are documented in this file.
 
 - `TResponse.FileBytes/Download/Csv`、`[Role]` 守卫（BootEnforceRole 无烘焙 define）、组件 DI 装配（BootRegisterInstance）——host 专属，bootstrap 端缺省 stub（程序用了会 emit undefined 符号，编译期即报错，不会静默错译）。
 
+### CI 修复 + 三平台覆盖 + 性能门禁 ✅
+
+- **ci.yml YAML 语法错误修复**（2026-08-13 起 CI 全挂的根因）：110 行 unquoted `name:` 值含 `: ` → 整个 workflow 0s 解析失败——v0.7.2 起**所有 CI 从未真正跑过**（含 v0.7.1 P3 的"llvm-windows 真跑 ✅"实为 macOS 本地预验证）。
+- **llvm-windows job 修复（llc not found 破案）**：llvm-mingw 的 **Windows 原生 zip 不含 `llc.exe`/`opt.exe`**（bin 323 项仅 clang/lld/lldb + llvm-binutils，远程读 zip 中央目录确认）——这是工具链本体形态，非 PATH/解包问题。修复：`pkg/llvmgen/compile.go` **FindLLVM 允许无 llc（有 clang 即可）** + `.ll → .o` 步骤回退 **`clang -x ir -c`**（cc1 自行 lowering，O0 默认 / `-O<n>` 对齐 llc 通道 / `--target=` 对齐交叉）；doctor 同步（无 llc 有 clang → advisory 非失败）。本地端到端验证：无 llc 环境 clang 回退编译+链接+运行正确、`-x ir -c -O2` 产物运行正确。
+- **selfrepro job 修复**：CI 链接报 `fmod@@GLIBC_2.38 undefined + libm.so.6 DSO missing`——Variant div/mod 调 fmod，Linux ld 要求显式 `-lm`（macOS libSystem 打包）→ 链接命令 `libs="-lm"` 起步。
+- **三平台覆盖**：新增 tutorials-arm64 / llvm-tutorials-arm64（ubuntu-24.04-arm）+ llvm-darwin（macos-15 完整 LLVM sweep）；release.yml 交叉 smoke 补 llvm-mingw bin 进 GITHUB_PATH（KYLIX_MINGW_ROOT 只覆盖 sysroot 不含 llc/clang）。
+- **性能回归门禁**：`benchmarks/ci_gate.sh`（bootstrap 源四场景：go_cold 10s / go_warm 5s / llvm_o0 60s / llvm_o2 60s 宽松天花板，只抓数量级回归——缓存丢失/DCE 掉了/O(n²)，不抓 runner ±30% 噪声，零 flake）+ ci.yml `perf-gate` job。
+
 ## v0.8.0 — 自举 stdlib（真自包含）✅（2026-09-11）
 
 ### P1 纯 Kylix stdlib 扩展 ✅
