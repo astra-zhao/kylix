@@ -47,6 +47,12 @@ All notable changes to the Kylix compiler are documented in this file.
 - **API 稳定性审查**：[docs/API_STABILITY.md](docs/API_STABILITY.md)——1.0.0 冻结承诺：Stable/Experimental/Internal 三级 + CLI 子命令与 flag / stdlib 声明面（23 个 klx 声明模块 + 3 纯 Kylix unit）/ 语言语法三张冻结清单 + 不冻结范围（Go 内部 API、生成代码形态、缓存格式、stub 行为）+ 弃用流程（标记 → 保留一个大版本 → major 移除）+ release 前 checklist。
 - **🎉 CI 全绿达成（run 35241229836，2026-08-13 起首次）**：10/10 job——Test (Go) / Lint / **selfrepro IR 不动点（gen1 ≡ gen2 CI 达成）** / perf-gate / linux amd64+arm64 双教程 / darwin arm64 完整 sweep / **windows 原生（llvm-mingw：4 教程 + ex61 逐字 parity + net smoke Winsock 双进程真机验收）**。ex61 顺带勘误：Windows 输出与本地参考逐字一致，5 条 "F" 行是负场景（锚点/量词不匹配）预期输出，v0.7.1 的 CI 断言 `F=0` 本身错误（该 job 因 YAML bug 从未真跑过）。
 
+### 文档与官网同步 ✅
+
+- **README.md + README_CN.md + SUMMARY.md 三份主文档全面同步到 v0.9.0**：version badge 0.7.0→0.9.0；🚀 高亮列表头部补 v0.9.0（CI 全绿 + KylixBoot 补齐 + bootstrap boot server + 重烘闭环 + API 冻结）与 v0.8.0/v0.7.2/v0.7.1 三条；教程计数 54/54→**56/56**（双后端）+ bootstrap sweep 52 PASS + 2 SKIP→**56 PASS + 1 SKIP**（SKIP 为 example60 E2E，v0.9.0 已解除）；`gh release download` 示例版本号；目录树 51→56；"Current status" 行改写为 v0.9.0（下一步指向 v0.10.0 KylixAdmin）；版本历史表补 v0.7.1/v0.7.2/v0.8.0/v0.9.0 四行；SUMMARY.md 测试状态表/版本里程碑表（补 v0.7.x–v0.9.0）/后续规划（改指 v0.10+ KylixAdmin）；CN 版功能列表补齐 Bootstrap 无 Go 闭环条目（英文版已有而中文版缺失）+ stdlib 纯 Kylix unit（regex/stringutil/template_engine）。
+- **历史条目勘误**：v0.6.9 的教程 sweep 数字统一为 **51/51 PASS**（P4.12 修复 example15/lambda + example50/jwt 后的终态，此前写的 52 PASS + 2 SKIP 是 v0.7.0 时代教程总数增长后的数字，错挂到了 v0.6.9 名下）。
+- **官网 html/index.html 同步（kylix.top 源文件在仓库内）**：`<title>`/og/twitter title（v0.7.0→v0.9.0）、JSON-LD version、hero badge、stats bar 54/54→56/56、**WHATS NEW 区块整段改写为 v0.9.0 四卡片**（KylixBoot 补齐 / bootstrap boot server / 重烘闭环 / CI 全绿+API 冻结）、教程卡 51→56 示例、路线图卡与 CTA 段落改写（下一站 v0.10.0 KylixAdmin）、页脚版本号、sitemap.xml lastmod 刷新。
+
 ## v0.8.0 — 自举 stdlib（真自包含）✅（2026-09-11）
 
 ### P1 纯 Kylix stdlib 扩展 ✅

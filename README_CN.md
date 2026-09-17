@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-0.7.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.9.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,9 +10,17 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后�
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
+> 🚀 **v0.9.0**: **1.0.0-rc 打磨。** KylixBoot 框架补齐（Session + CSRF、multipart 文件上传、`TResponse.Download/FileBytes/CSV`、分页、模板 layout/partials——三端同源）、**bootstrap boot server 落地**（example60 的 SKIP 解除：无 Go 编译器现在能编译并服务真实 HTTP 应用）、stdlib IR 重烘链路闭环（`scripts/rebake_stdlib_ir.sh` 含 `opt -passes=verify` 门，139→179 签名）、**CI 三平台重回全绿**（10 job，2026-08-13 起首次）+ 性能回归门禁 + API 稳定性冻结承诺（[docs/API_STABILITY.md](docs/API_STABILITY.md)）。IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。详见 [CHANGELOG.md](CHANGELOG.md)。
+>
+> 🚀 **v0.8.0**: **自举 stdlib（真自包含）。** `stdlib/stringutil.klx`（~490 行 20 函数——Trim/Split/Join/Pad…）单源编译到三端、per-request arena 推广（长跑 server 不泄漏）、htab magic 校验双端加固（错传句柄立即 exit 217，不再延迟成堆破坏）、boot server 多 cookie + 响应组装 realloc。详见 [CHANGELOG.md](CHANGELOG.md)。
+>
+> 🚀 **v0.7.2**: **CI 全绿 + 稳定性还债。** selfrepro job 改验真实 `--emit-llvm` IR 链（gen1 → gen2 → 逐字节比对）、LLVM 端支持类方法多返回（vtable 槽）、Boot* 函数表单一来源化（`internal/bootapi`）。退役的 Go-codegen bootstrap 路径现在显式报错。
+>
+> 🚀 **v0.7.1**: **Windows 一等公民**——纯 Kylix regex 引擎（回溯 VM，三端 parity）、真实 Winsock 网络（`-lws2_32` 自动链接）、`--target windows` 交叉链接（llvm-mingw，`--ld-path` + `--sysroot`）。
+>
 > 🚀 **v0.7.0**: **web 页面开发 + web 框架。** 纯 Kylix 编写的 Mustache 风格模板引擎（`stdlib/template_engine.klx`，Go/LLVM/bootstrap 三端同源）、页面渲染 API（`res.HTML`/`Redirect`、`req.Form`/`Cookie`、自定义 404/500 错误页、`static/` 静态资源、双后端真实 `BootRun` HTTP server）、一等公民 `error` 类型，以及 **example60 web 框架教程以真实端到端 HTTP server 测试运行**（launch + curl + kill）。v0.6.9 的 bootstrap 无 Go 闭环（逐字节 IR 不动点，gen1 ≡ gen2 ≡ gen3）保持不变。GitHub Release 现已附带预编译二进制与 bootstrap tarball（linux/darwin/windows）。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
-> 🚀 **v0.6.9**: **bootstrap 编译器彻底摆脱 Go。** 编译器自身源码（`src/*.klx`，9 文件）经 `--emit-llvm` 产出 LLVM IR，链接成零 Go 依赖的原生 `gen2` 编译器，且 **gen1 ≡ gen2 ≡ gen3 逐字节一致（~220k 行 IR——真正的不动点）**。stdlib 以烘焙 IR 数据（`src/stdlib_ir.klx`）进入 bootstrap，免手写 15.5k 行 Go 移植。无捕获 lambda 与 JwtSign 修复补齐教程 sweep：**50/51 PASS**（bootstrap-vs-host 输出逐字 diff）。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🚀 **v0.6.9**: **bootstrap 编译器彻底摆脱 Go。** 编译器自身源码（`src/*.klx`，9 文件）经 `--emit-llvm` 产出 LLVM IR，链接成零 Go 依赖的原生 `gen2` 编译器，且 **gen1 ≡ gen2 ≡ gen3 逐字节一致（~220k 行 IR——真正的不动点）**。stdlib 以烘焙 IR 数据（`src/stdlib_ir.klx`）进入 bootstrap，免手写 15.5k 行 Go 移植。无捕获 lambda 与 JwtSign 修复补齐教程 sweep：**51/51 PASS**（bootstrap-vs-host 输出逐字 diff）。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
 > 🚀 **v0.6.8**: boot server 补强 + stdlib 补全 + JetBrains 插件完善。`BootRun` 读取 POST body（`req.Body()`）、`req.JSON()` 绑定 JSON → `map[String]Variant`、`BootRegisterJwtAuth` 真校验 `Authorization: Bearer`（HS256）；stdlib 新增 `Base64URLEncode/Decode` + JSON 嵌套对象；JetBrains 插件新增 `.klx` 文件图标、Kylix Run 配置（`kylix run`）、未定义标识符 warning。详见 [CHANGELOG.md](CHANGELOG.md)。
 > 🚀 **v0.6.7**: **JetBrains 插件** — 完整 Gradle Kotlin 项目（`jetbrains-plugin/`）：TextMate 语法高亮、LSP4IJ 桥接 `kylix lsp`（补全/跳转/重命名/格式化）、25 个 Live Templates，附完整安装使用手册。ROADMAP #9 ✅。详见 [CHANGELOG.md](CHANGELOG.md)。
@@ -79,7 +87,8 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后�
 - **调试器**: `kylix debug` 集成 Delve (v0.2.3)
 - **WebAssembly**: `kylix build --wasm` 编译为 .wasm (v0.2.3)
 - **WASI**: `kylix build --wasi` 编译为 WASI 目标 (v0.3.0-alpha)
-- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链。**51/51 教程在 LLVM 后端编译+运行 (100%)**（Go 后端 51/51），支持逐行 DWARF 调试（`-g`，LLDB 逐行单步 + 变量检视，含类方法/lambda DISubprogram + 块作用域 DILexicalBlock）、泛型类方法（TStack<T>.Push/Pop）、静态数组真实下界，以及日益完善的**真实 IR stdlib**：db（DbOpen/DbExec/DbQueryScalar/**DbQueryRows**）、**websocket**（RFC 6455 客户端+服务端）、jwt（HS256）、httpclient、sysutil、datetime、jsonutil、crypto、encoding、cache、boot。
+- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链。**56/56 教程在 LLVM 后端编译+运行 (100%，含 example60 真实 HTTP server E2E)**（Go 后端 56/56），支持逐行 DWARF 调试（`-g`，LLDB 逐行单步 + 变量检视，含类方法/lambda DISubprogram + 块作用域 DILexicalBlock）、泛型类方法（TStack<T>.Push/Pop）、静态数组真实下界，以及日益完善的**真实 IR stdlib**：db（DbOpen/DbExec/DbQueryScalar/**DbQueryRows**）、**websocket**（RFC 6455 客户端+服务端）、jwt（HS256）、httpclient、sysutil、datetime、jsonutil、crypto、encoding、cache、boot，外加三端同源的纯 Kylix unit：**regex**（回溯引擎，v0.7.1）、**stringutil**（v0.8.0）、**template_engine** 含 layout/partials（v0.9.0）。
+- **Bootstrap 无 Go 闭环 (v0.6.9)**: 编译器自身源码（`src/*.klx`）经 `--emit-llvm` 产出 IR，链接成零 Go 依赖的原生 `gen2` 编译器，迭代至**逐字节 IR 不动点**（gen1 ≡ gen2，~26.7 万行）。stdlib 以烘焙 IR 数据（`src/stdlib_ir.klx`）进入 bootstrap。**教程 sweep 56 PASS + 1 SKIP**（bootstrap-vs-host 逐字 diff，`scripts/test_bootstrap_all.sh`；SKIP 为 example60 的 launch+curl E2E，v0.9.0 经 bootstrap boot server 落地后解除）。
 - **KylixBoot 框架**: Spring Boot 式注解驱动的 Web 应用 (v0.3.1)
 - **注解自动装配**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` 自动路由注册 (v0.3.2)
 - **依赖注入**: `[Service]`/`[Component]`/`[Inject]` 编译期自动装配 (v0.3.2)
@@ -97,7 +106,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后�
 每个 Release 附带 linux/amd64、linux/arm64、darwin/amd64、darwin/arm64、windows/amd64 预编译二进制，以及各平台的 **bootstrap tarball**（自举原生编译器 `main_self`，无需 Go）：
 
 ```bash
-gh release download v0.7.0          # 或到 Releases 页面下载
+gh release download v0.9.0          # 或到 Releases 页面下载
 chmod +x kylix-*                    # 重命名为 kylix，放入 PATH
 ```
 
@@ -995,7 +1004,7 @@ kylix/
 │   ├── ...                 # token/error/ast/lexer/parser/generator/llvmgen/main
 │   └── stdlib_ir.klx       # 烘焙 stdlib IR 数据 (v0.6.9, 自动生成勿手改)
 ├── examples/           # 示例程序
-│   ├── complete-tutorial/  # 51 个渐进式教程示例
+│   ├── complete-tutorial/  # 56 个渐进式教程示例
 │   ├── wasi-hello/         # WASI 示例 (Wasmtime/Node.js)
 │   └── cloudflare-worker/  # Cloudflare Workers 示例
 ├── vscode-ext/         # VS Code 扩展
@@ -1056,7 +1065,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 
 ## 路线图
 
-当前状态：**v0.7.0**（2026-09-06）—— web 页面开发 + web 框架（`error` 类型、纯 Kylix 模板引擎、页面渲染 API、Redirect/错误页、example60 server E2E）；v0.6.9 bootstrap 无 Go 闭环（IR 不动点 gen1≡gen2≡gen3）保持。下一步：v0.7.1 net Winsock / regex pcre2 真实现（Windows 真机）。完整路线图见 [ROADMAP.md](ROADMAP.md)。
+当前状态：**v0.9.0（1.0.0-rc 打磨）**—— KylixBoot 框架补齐（Session/CSRF、multipart 上传、Download/FileBytes/CSV、分页、模板 layout/partials）、bootstrap boot server 落地（example60 E2E 解除 SKIP）、stdlib IR 重烘链路闭环、CI 三平台全绿（10 job）+ 性能门禁 + API 稳定性冻结（[docs/API_STABILITY.md](docs/API_STABILITY.md)）。IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。下一步：**v0.10.0 KylixAdmin 后台管理平台**（见 [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)）。完整路线图见 [ROADMAP.md](ROADMAP.md)。
 
 ## 跨平台编译
 
@@ -1111,7 +1120,7 @@ kylix build --wasm --tinygo main.klx  # TinyGo (~30 KB)
 | WebAssembly | wasm | `--wasm` (含可选 `--tinygo`) |
 | WASI | wasip1/wasm | `--wasi` (含可选 `--tinygo`) |
 
-### LLVM 原生后端 (v0.3.0-alpha → v0.7.0)
+### LLVM 原生后端 (v0.3.0-alpha → v0.9.0)
 
 Kylix 现在有实验性 LLVM 后端，直接从 AST 生成原生二进制，绕过 Go 工具链。
 
@@ -1147,7 +1156,7 @@ end.
 
 自 Milestone 2 起,LLVM 后端还覆盖了接口（fat pointer）、泛型类单态化、异常、lambda/闭包、Variant、DWARF 调试信息与 KylixBoot 注解自动装配 —— 详见 `docs/` 下的 LLVM 后端文档。
 
-### LLVM stdlib（真实 IR 实现，v0.4.2 → v0.7.0）
+### LLVM stdlib（真实 IR 实现，v0.4.2 → v0.9.0）
 
 LLVM 后端现在可以**无需 Go** 编译 stdlib 密集型程序。已有真实 IR 实现的模块：
 
@@ -1179,8 +1188,12 @@ WsClose(ws);
 
 | 版本 | 亮点 |
 |------|------|
-| v0.7.0 | web 页面开发 + web 框架：error 类型、纯 Kylix 模板引擎、页面渲染 API、Redirect/错误页、example60 server E2E；教程 54/54 双后端 |
-| v0.6.9 | bootstrap 无 Go 闭环：stdlib IR 烘焙、gen2 原生编译器、IR 不动点（gen1≡gen2≡gen3）、教程 sweep 52 PASS |
+| v0.9.0 | 1.0.0-rc 打磨：KylixBoot 补齐（Session/CSRF/上传/Download/分页/layout）、bootstrap boot server（example60 E2E）、stdlib IR 重烘链路、CI 三平台全绿 + 性能门禁 + API 稳定性冻结 |
+| v0.8.0 | 自举 stdlib：纯 Kylix stringutil（三端单源）、per-request arena、htab magic 校验加固 |
+| v0.7.2 | CI 全绿 + selfrepro 改走真实 --emit-llvm IR 链 + LLVM 类方法多返回 + Boot* 单一来源表 |
+| v0.7.1 | Windows 一等公民：纯 Kylix regex 引擎、Winsock 网络、--target windows 交叉链接（llvm-mingw） |
+| v0.7.0 | web 页面开发 + web 框架：error 类型、纯 Kylix 模板引擎、页面渲染 API、Redirect/错误页、example60 server E2E；教程 56/56 双后端 |
+| v0.6.9 | bootstrap 无 Go 闭环：stdlib IR 烘焙、gen2 原生编译器、IR 不动点（gen1≡gen2≡gen3）、教程 sweep 51/51 |
 | v0.6.8 | boot server 补强（POST body / req.JSON / JWT 真校验）+ stdlib 补全 + JetBrains 完善 |
 | v0.6.7 | JetBrains 插件（TextMate + LSP4IJ + Live Templates）+ 安装手册 —— ROADMAP #9 完成 |
 | v0.6.6 | boot HTTP server（真 HTTP/1.1,无 Go 可用）+ stdlib：JWT claims、cache TTL、HttpGetJSON、UrlEncode |

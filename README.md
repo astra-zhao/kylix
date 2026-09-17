@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,9 +10,17 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go or to native 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
+> 🚀 **v0.9.0**: **1.0.0-rc polish.** KylixBoot framework completion (Session + CSRF, multipart file upload, `TResponse.Download/FileBytes/CSV`, pagination, template layout/partials — three backends from one source), the **bootstrap boot server is live** (example60's SKIP is lifted: the no-Go compiler now compiles and serves a real HTTP app), stdlib IR rebake pipeline closed-loop (`scripts/rebake_stdlib_ir.sh` with an `opt -passes=verify` gate, 139→179 signatures), and **CI is green on all three platforms again** (10 jobs, first time since 2026-08-13) plus a perf-regression gate and an API-stability freeze promise ([docs/API_STABILITY.md](docs/API_STABILITY.md)). IR fixed point holds (gen1 ≡ gen2, 267k lines byte-identical). See [CHANGELOG.md](CHANGELOG.md).
+>
+> 🚀 **v0.8.0**: **Self-hosted stdlib (truly self-contained).** `stdlib/stringutil.klx` (~490 lines, 20 functions — Trim/Split/Join/Pad…) compiled from one source to all three backends, per-request arena promotion (long-running servers don't leak), htab magic-check hardening on both ends (corrupt-handle bugs now abort with exit 217 instead of delaying into heap corruption), boot-server multi-cookie + realloc'd response assembly. See [CHANGELOG.md](CHANGELOG.md).
+>
+> 🚀 **v0.7.2**: **CI all green + stability debt.** The selfrepro job verifies the real `--emit-llvm` IR chain (gen1 → gen2 → byte-compare), the LLVM backend supports class-method multi-returns via vtable slots, and the Boot* function table got a single source of truth (`internal/bootapi`). The retired Go-codegen bootstrap path now errors explicitly.
+>
+> 🚀 **v0.7.1**: **Windows as a first-class citizen** — a pure-Kylix regex engine (backtracking VM, three-backend parity), real Winsock networking (`-lws2_32` auto-link), and `--target windows` cross-linking via llvm-mingw (`--ld-path` + `--sysroot`).
+>
 > 🚀 **v0.7.0**: **Web page development + web framework.** A pure-Kylix Mustache-style template engine (`stdlib/template_engine.klx`, three backends from one source), page-render APIs (`res.HTML`/`Redirect`, `req.Form`/`Cookie`, custom 404/500 error pages, `static/` assets, real `BootRun` HTTP server on both Go and LLVM backends), a first-class `error` type, and the **example60 web-framework tutorial runs as a real end-to-end HTTP server test** (launch + curl + kill). The bootstrap no-Go loop from v0.6.9 (byte-identical IR fixed point, gen1 ≡ gen2 ≡ gen3) remains intact. See [CHANGELOG.md](CHANGELOG.md).
 >
-> 🚀 **v0.6.9**: **The bootstrap compiler fully escapes Go.** The compiler's own source (`src/*.klx`, 9 files) emits LLVM IR via `--emit-llvm` and links into a zero-Go-dependency native `gen2` compiler, with **gen1 ≡ gen2 ≡ gen3 byte-identical (~220k lines — a true IR fixed point)**. The stdlib enters the bootstrap as baked IR data (`src/stdlib_ir.klx`), avoiding a hand-written 15.5k-line Go port. Tutorial sweep: **52 PASS + 2 SKIP** (bootstrap-vs-host byte diff). See [CHANGELOG.md](CHANGELOG.md).
+> 🚀 **v0.6.9**: **The bootstrap compiler fully escapes Go.** The compiler's own source (`src/*.klx`, 9 files) emits LLVM IR via `--emit-llvm` and links into a zero-Go-dependency native `gen2` compiler, with **gen1 ≡ gen2 ≡ gen3 byte-identical (~220k lines — a true IR fixed point)**. The stdlib enters the bootstrap as baked IR data (`src/stdlib_ir.klx`), avoiding a hand-written 15.5k-line Go port. Tutorial sweep: **51/51 PASS** (bootstrap-vs-host byte diff, after the P4.12 lambda/JwtSign fixes). See [CHANGELOG.md](CHANGELOG.md).
 >
 > 🚀 **v0.6.8**: boot server enhancements + stdlib completion + JetBrains plugin polish. `BootRun` reads POST bodies (`req.Body()`), `req.JSON()` binds JSON to a `map[String]Variant`, `BootRegisterJwtAuth` really validates `Authorization: Bearer` (HS256); stdlib adds `Base64URLEncode/Decode` + nested-object JSON; the JetBrains plugin gains a `.klx` file icon, a Kylix run configuration (`kylix run`), and undefined-identifier warnings. See [CHANGELOG.md](CHANGELOG.md).
 >
@@ -77,8 +85,8 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go or to native 
 - **LSP Server**: Full IDE support with completion, hover, diagnostics, and signature help
 - **Package Manager**: `kylix add`, `kylix remove`, `kylix publish` for dependency management
 - **WASI**: `kylix build --wasi` — compile to WebAssembly System Interface (v0.3.0-alpha)
-- **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain. **54/54 tutorials compile and run on the LLVM backend (100%, incl. example60's real HTTP-server E2E)** (Go backend: 54/54), with per-instruction DWARF debug info (`-g`, LLDB line-stepping + variable inspection, including class methods/lambdas via DISubprogram and block scopes via DILexicalBlock), generic class methods (TStack<T>.Push/Pop), static arrays with real lower bounds, and a growing stdlib with real IR implementations: db (DbOpen/DbExec/DbQueryScalar/**DbQueryRows**), **websocket** (RFC 6455 client+server), jwt (HS256), httpclient, sysutil, datetime, jsonutil, crypto, encoding, cache, boot. Also: `--target` cross-compilation (v0.6.2), `--llvm-opt=2` optimization channel, `kylix doctor` environment preflight, and **`--emit-llvm`** (v0.6.9) — the bootstrap compiler's own IR output, which is the basis of the no-Go self-hosting loop.
-- **Bootstrap, No-Go Loop (v0.6.9)**: the compiler's own source (`src/*.klx`) emits LLVM IR, links into a native `gen2` compiler with zero Go dependency, and iterates to a **byte-identical IR fixed point** (gen1 ≡ gen2 ≡ gen3, ~220k lines). The stdlib ships to the bootstrap as baked IR data (`src/stdlib_ir.klx`). **Tutorial sweep 52 PASS + 2 SKIP** (bootstrap-vs-host byte-diff, `scripts/test_bootstrap_all.sh`).
+- **LLVM Backend**: `kylix build --backend=llvm` — native code without Go toolchain. **56/56 tutorials compile and run on the LLVM backend (100%, incl. example60's real HTTP-server E2E)** (Go backend: 56/56), with per-instruction DWARF debug info (`-g`, LLDB line-stepping + variable inspection, including class methods/lambdas via DISubprogram and block scopes via DILexicalBlock), generic class methods (TStack<T>.Push/Pop), static arrays with real lower bounds, and a growing stdlib with real IR implementations: db (DbOpen/DbExec/DbQueryScalar/**DbQueryRows**), **websocket** (RFC 6455 client+server), jwt (HS256), httpclient, sysutil, datetime, jsonutil, crypto, encoding, cache, boot, plus pure-Kylix units compiled from one source to all three backends: **regex** (backtracking engine, v0.7.1), **stringutil** (v0.8.0), **template_engine** with layout/partials (v0.9.0). Also: `--target` cross-compilation (v0.6.2), `--llvm-opt=2` optimization channel, `kylix doctor` environment preflight, and **`--emit-llvm`** (v0.6.9) — the bootstrap compiler's own IR output, which is the basis of the no-Go self-hosting loop.
+- **Bootstrap, No-Go Loop (v0.6.9)**: the compiler's own source (`src/*.klx`) emits LLVM IR, links into a native `gen2` compiler with zero Go dependency, and iterates to a **byte-identical IR fixed point** (gen1 ≡ gen2, ~267k lines). The stdlib ships to the bootstrap as baked IR data (`src/stdlib_ir.klx`). **Tutorial sweep 56 PASS + 1 SKIP** (bootstrap-vs-host byte-diff, `scripts/test_bootstrap_all.sh`; the skip is example60's launch+curl E2E, itself lifted in v0.9.0 via the bootstrap boot server).
 - **KylixBoot Framework**: Spring Boot–style annotation-driven web apps (v0.3.1)
 - **Annotation Auto-Wiring**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` auto route registration (v0.3.2)
 - **Dependency Injection**: `[Service]`/`[Component]`/`[Inject]` compile-time auto-wiring (v0.3.2)
@@ -97,7 +105,7 @@ darwin/amd64, darwin/arm64 and windows/amd64, plus a **bootstrap tarball**
 (the self-hosted native compiler `main_self`, no Go required) per platform:
 
 ```bash
-gh release download v0.7.0          # or download from the Releases page
+gh release download v0.9.0          # or download from the Releases page
 chmod +x kylix-*                    # rename to `kylix`, put on PATH
 ```
 
@@ -955,7 +963,7 @@ kylix/
 │   ├── error.klx
 │   └── main.klx
 ├── examples/           # Example programs
-│   ├── complete-tutorial/  # 51 progressive tutorial examples
+│   ├── complete-tutorial/  # 56 progressive tutorial examples
 │   ├── wasi-hello/     # WASI Hello World (Wasmtime/Node.js)
 │   └── cloudflare-worker/  # Cloudflare Workers HTTP handler
 ├── vscode-ext/         # VS Code extension
@@ -1016,7 +1024,7 @@ Kylix LSP supports any editor with LSP client:
 
 ## Roadmap
 
-Current status: **v0.7.0** (2026-09-06) — web page development + web framework shipped (pure-Kylix template engine, page-render APIs, Redirect + custom 404/500 error pages, static assets, forms/cookies, real BootRun HTTP server on Go and LLVM backends, first-class `error` type, example60 end-to-end server test; the v0.6.9 bootstrap no-Go loop and IR fixed point remain intact). Next up: v0.7.1 net Winsock / regex pcre2 real implementations (Windows). The full roadmap lives in [ROADMAP.md](ROADMAP.md).
+Current status: **v0.9.0 (1.0.0-rc polish)** — KylixBoot framework completion (Session/CSRF, multipart upload, Download/FileBytes/CSV, pagination, template layout/partials), the bootstrap boot server (example60 E2E un-SKIPped), the closed-loop stdlib IR rebake pipeline, CI green on all three platforms (10 jobs) + perf gate + API stability freeze ([docs/API_STABILITY.md](docs/API_STABILITY.md)). The IR fixed point holds (gen1 ≡ gen2, 267k lines byte-identical). Next up: **v0.10.0 KylixAdmin admin platform** (see [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)). The full roadmap lives in [ROADMAP.md](ROADMAP.md).
 
 ## Cross-Platform Compilation
 
@@ -1158,8 +1166,12 @@ Recent releases (see [CHANGELOG.md](CHANGELOG.md) for the full history):
 
 | Version | Highlights |
 |---------|------------|
-| v0.7.0 | Web page development + web framework: `error` type, pure-Kylix template engine, page-render APIs, Redirect + custom error pages, example60 server E2E; tutorials 54/54 on both backends |
-| v0.6.9 | Bootstrap no-Go loop: stdlib IR baking, gen2 native compiler, IR fixed point (gen1≡gen2≡gen3), tutorial sweep 52 PASS |
+| v0.9.0 | 1.0.0-rc polish: KylixBoot completion (Session/CSRF/upload/Download/pagination/layout), bootstrap boot server (example60 E2E), stdlib IR rebake loop, CI green on 3 platforms + perf gate + API stability freeze |
+| v0.8.0 | Self-hosted stdlib: pure-Kylix stringutil (3 backends one source), per-request arena, htab magic-check hardening |
+| v0.7.2 | CI all green + selfrepro on the real --emit-llvm IR chain + LLVM class-method multi-returns + Boot* single-source table |
+| v0.7.1 | Windows first-class: pure-Kylix regex engine, Winsock networking, --target windows cross-linking (llvm-mingw) |
+| v0.7.0 | Web page development + web framework: `error` type, pure-Kylix template engine, page-render APIs, Redirect + custom error pages, example60 server E2E; tutorials 56/56 on both backends |
+| v0.6.9 | Bootstrap no-Go loop: stdlib IR baking, gen2 native compiler, IR fixed point (gen1≡gen2≡gen3), tutorial sweep 51/51 |
 | v0.6.8 | Boot server hardening (POST body / req.JSON / real JWT validation) + stdlib completion + JetBrains polish |
 | v0.6.7 | JetBrains plugin (TextMate + LSP4IJ + live templates) + install manual — ROADMAP #9 done |
 | v0.6.6 | Boot HTTP server (real HTTP/1.1, no Go needed) + stdlib: JWT claims, cache TTL, HttpGetJSON, UrlEncode |

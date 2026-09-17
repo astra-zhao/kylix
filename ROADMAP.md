@@ -1,11 +1,13 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-09-06  
-> 当前版本: v0.7.0（已发布——web 页面开发 + web 框架）  
+> 最后更新: 2026-09-18  
+> 当前版本: v0.9.0（1.0.0-rc 打磨——规划项全部完成，待发版）  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
 **✅ v0.7.0 已发布！** web 页面开发 + web 框架：(1) **P0 `error` 类型语言特性**——`(T, error)` 多返回 + 裸 error + `ErrorStr`，host/LLVM/bootstrap 三端；(2) **P1 纯 Kylix 模板引擎**——`stdlib/template_engine.klx`（Mustache 风格 `{{}}`，12 过滤器 + each/if），三端同源可用；(3) **P2 页面渲染 API**——`res.HTML`/`req.Form`/`req.Cookie`/`static/` 静态资源，Go 与 LLVM 双端同步；(4) **P3 页面框架完善**——`res.Redirect`（302）+ 自定义 404/500 错误页 + 模板上下文（`AddVariant`/`SetContext`）；(5) **P5 教程接入**——example60 真实 BootRun server E2E（launch + curl + kill），Go/LLVM 54/54。**v0.6.9 bootstrap 无 Go 闭环与 IR 不动点保持**。**(6) P6 GitHub Release 工作流打通（2026-09-08 补录）**——tag 触发 CI 全绿 + Release 自动创建（5 平台二进制 + 双平台 bootstrap tarball + llvm-mingw 工具链）；顺带破案修复两个 Linux 潜伏 bug：ELF 零尺寸 vtable 同址致 `is` 恒真（commit 441b103）+ 自举 IR 硬编码 arm64 triple 致 Linux llc 产 Mach-O（commit fbb6509）。**下一步 → v0.7.1 net Winsock / regex pcre2（Windows 真机）**。详见 [CHANGELOG.md](CHANGELOG.md)。
+
+**✅ v0.9.0 规划项全部完成（待发版）！** 1.0.0-rc 打磨：(1) **KylixBoot 框架补齐**——Session + CSRF、multipart 文件上传、`TResponse.Download/FileBytes/CSV`、分页、模板 layout/partials（三端同源）；(2) **bootstrap 端 boot server 实施**——example60 E2E 解除 SKIP（56 PASS + 1 SKIP），IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）；(3) **stdlib IR 重烘链路闭环**——cover.klx/cover_boot.klx 入库 + verify 门 + 139→179 签名；(4) **CI 三平台 10 job 全绿**（2026-08-13 起首次，run 35241229836——破案 ci.yml YAML 语法错误 / llvm-mingw 无 llc → clang -x ir 回退 / selfrepro -lm/-no-pie）；(5) **性能回归门禁**（benchmarks/ci_gate.sh）；(6) **API 稳定性冻结承诺**（[docs/API_STABILITY.md](docs/API_STABILITY.md)）；(7) **文档与官网同步**（README 双语 + SUMMARY + html/index.html 全部更新到 v0.9.0）。**下一步 → v0.10.0 KylixAdmin 后台管理平台**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 **✅ v0.6.9 已发布！** bootstrap 无 Go 闭环达成：(1) **stdlib IR 烘焙**——host 生成的 stdlib IR 按 13 段烘焙进 `src/stdlib_ir.klx`（免手写 15.5k 行 Go 移植），bootstrap 只做 call-site dispatch + wrapper 类方法；(2) **gen2 编译器诞生 + IR 不动点**——9 文件自举 IR（~220k 行）通过 llc 并链接出 gen2（纯原生无 Go），**gen1 ≡ gen2 ≡ gen3 逐字节一致（真正不动点）**；P4.10/P4.11 破案两大根因（for 计数器全局槽污染、`array of Boolean` 写读 stride 不一致）。**bootstrap emitter 补缺 20+ 项**（dot-name 方法/链式成员/record 类型系统/epilogue 重排/嵌套循环/alloca hoisting/构造函数 calloc 等，详见 CHANGELOG）。**教程 sweep 50/51 PASS**（bootstrap-vs-host 逐字 diff，`scripts/test_bootstrap_all.sh`；example15 lambda / example50 jwt 已于 P4.12 修复，example33 为 host 端 SKIP）。**下一步 → v0.7.0 web 框架**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -69,7 +71,10 @@
 | **v0.6.8** | boot server 补强（POST body/req.JSON/JWT 真校验）+ stdlib 补全 + 插件完善 | ✅ 完成 | 2026-08-23 |
 | **v0.6.9** | bootstrap 无 Go 闭环（stdlib IR 烘焙 + gen2 编译器 + IR 不动点 + 教程 sweep 50/51） | ✅ 完成 | 2026-09-04 |
 | **v0.7.0** | web 页面开发 + web 框架（error 类型 + 纯 Kylix 模板引擎 + 页面渲染 API + Redirect/错误页 + example60 server E2E）+ GitHub Release 工作流 | ✅ 完成 | 2026-09-06 |
-| **v0.7.1** | Windows 一等公民：net Winsock 真实现 + regex 引擎（纯 Kylix 烘焙）+ --target windows 交叉链接 + CI llvm-windows job | 🚧 进行中 | — |
+| **v0.7.1** | Windows 一等公民：net Winsock 真实现 + regex 引擎（纯 Kylix 多文件同源）+ --target windows 交叉链接 + CI llvm-windows job | ✅ 完成 | 2026-09-10 |
+| **v0.7.2** | CI 全绿 + 稳定性还债（selfrepro --emit-llvm 链 + 类方法多返回 + Boot* 单源表） | ✅ 完成 | 2026-09-10 |
+| **v0.8.0** | 自举 stdlib（stringutil 三端同源 + arena 推广 + htab magic 校验） | ✅ 完成 | 2026-09-11 |
+| **v0.9.0** | 1.0.0-rc 打磨（KylixBoot 补齐 + bootstrap boot server + 重烘闭环 + CI 全绿 + 性能门禁 + API 冻结 + 文档官网同步） | ✅ 完成 | 待发版 |
 
 ---
 
@@ -204,7 +209,7 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] 三平台 CI 稳定全绿 ✅（v0.9.0：10 job 全绿——Test/Lint/selfrepro fixpoint/perf-gate + linux amd64+arm64 / darwin arm64 / windows 原生（llvm-mingw）教程+ex61+Winsock 真机；2026-08-13 起首次全绿，破案 ci.yml YAML 语法错误（v0.7.2 起全 workflow 0s 失败）+ llvm-mingw Windows zip 无 llc（clang -x ir 回退）+ selfrepro -lm/-no-pie）
 - [x] 性能回归基线 ✅（v0.9.0：benchmarks/ci_gate.sh 四场景宽松天花板门禁 + ci.yml perf-gate job，首跑 PASS）
 - [x] API 稳定性审查 ✅（v0.9.0：[docs/API_STABILITY.md](docs/API_STABILITY.md)——冻结承诺分级（Stable/Experimental/Internal）+ CLI/stdlib 声明面/语言语法三张冻结清单 + 不冻结范围 + 弃用流程（标记→保留一个大版本→major 移除）+ release 前 checklist）
-- [ ] 文档与官网同步（README 双语 / kylix.top / 教程）
+- [x] 文档与官网同步 ✅（v0.9.0：README.md + README_CN.md + SUMMARY.md 三份主文档全面同步到 v0.9.0——badge/🚀 高亮列表（补 v0.7.1–v0.9.0 四条）/教程计数 56/56 + bootstrap sweep 56 PASS + 1 SKIP/Current status 行/版本历史表（补 4 行）/目录树 56/测试状态表/后续规划改指 v0.10+ KylixAdmin；顺手修正 v0.6.9 历史条目的 sweep 数字（52→51/51，P4.12 终态）；官网 html/index.html 同步（页面就在仓库内：title/og/badge/JSON-LD version、stats 54→56、WHATS NEW 区块改写为 v0.9.0 四卡片、教程/路线/CTA/页脚文案与数字、sitemap lastmod））
 
 ### v0.10.0 — KylixAdmin P2+P3 前半（[ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)）
 - [ ] 登录/登出/会话管理（BCrypt + Session + CSRF + 失败锁定 + Remember-me）
