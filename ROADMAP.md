@@ -203,7 +203,7 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] **KylixBoot 框架补齐（[ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md) P1 硬前置 + 对齐 Spring Boot 欠账）✅**（v0.9.0 P1.6+P1.7：模板 layout/partials 三端同源 + 服务端 Session + CSRF + multipart 文件上传 + 分页 BootPagerHTML + Response.Download/FileBytes/CSV——均 LLVM 端 E2E 与 Go 行为一致；bootstrap 端 boot server 随 P2 落地，功能债记 TECHNICAL_DEBT）
 - [ ] 三平台 CI 稳定全绿（linux/darwin/windows × amd64/arm64）
 - [ ] 性能回归基线（compile-time benchmark 入 CI 门禁）
-- [ ] API 稳定性审查：语言语法 / CLI / stdlib 冻结承诺 + 弃用标记
+- [x] API 稳定性审查 ✅（v0.9.0：[docs/API_STABILITY.md](docs/API_STABILITY.md)——冻结承诺分级（Stable/Experimental/Internal）+ CLI/stdlib 声明面/语言语法三张冻结清单 + 不冻结范围 + 弃用流程（标记→保留一个大版本→major 移除）+ release 前 checklist）
 - [ ] 文档与官网同步（README 双语 / kylix.top / 教程）
 
 ### v0.10.0 — KylixAdmin P2+P3 前半（[ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)）

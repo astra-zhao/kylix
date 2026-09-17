@@ -66,6 +66,7 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - [CHANGELOG.md](CHANGELOG.md) — 版本历史
 - [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md) — KylixAdmin 后台管理平台规划（v0.10–v0.12，1.0.0 旗舰 showcase）
 - [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md) — 多端规划（H5/Android/iOS/wasm，v0.13–v0.15，共享 Kylix 核心 + 各端原生壳）
+- [docs/API_STABILITY.md](docs/API_STABILITY.md) — 1.0.0 API 冻结承诺（CLI/stdlib/语法三张清单 + 弃用流程）
 
 ## 架构
 

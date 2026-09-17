@@ -44,6 +44,7 @@ All notable changes to the Kylix compiler are documented in this file.
 - **selfrepro job 修复**：CI 链接报 `fmod@@GLIBC_2.38 undefined + libm.so.6 DSO missing`——Variant div/mod 调 fmod，Linux ld 要求显式 `-lm`（macOS libSystem 打包）→ 链接命令 `libs="-lm"` 起步。
 - **三平台覆盖**：新增 tutorials-arm64 / llvm-tutorials-arm64（ubuntu-24.04-arm）+ llvm-darwin（macos-15 完整 LLVM sweep）；release.yml 交叉 smoke 补 llvm-mingw bin 进 GITHUB_PATH（KYLIX_MINGW_ROOT 只覆盖 sysroot 不含 llc/clang）。
 - **性能回归门禁**：`benchmarks/ci_gate.sh`（bootstrap 源四场景：go_cold 10s / go_warm 5s / llvm_o0 60s / llvm_o2 60s 宽松天花板，只抓数量级回归——缓存丢失/DCE 掉了/O(n²)，不抓 runner ±30% 噪声，零 flake）+ ci.yml `perf-gate` job。
+- **API 稳定性审查**：[docs/API_STABILITY.md](docs/API_STABILITY.md)——1.0.0 冻结承诺：Stable/Experimental/Internal 三级 + CLI 子命令与 flag / stdlib 声明面（23 个 klx 声明模块 + 3 纯 Kylix unit）/ 语言语法三张冻结清单 + 不冻结范围（Go 内部 API、生成代码形态、缓存格式、stub 行为）+ 弃用流程（标记 → 保留一个大版本 → major 移除）+ release 前 checklist。
 
 ## v0.8.0 — 自举 stdlib（真自包含）✅（2026-09-11）
 
