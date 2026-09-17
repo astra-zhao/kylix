@@ -230,10 +230,14 @@ jobs:
           cache: true
 
       - name: Install linux-hosted llvm-mingw (cross toolchain + sysroot)
+        # The unpacked bin/ must be on PATH — FindLLVM looks for llc/clang
+        # there (v0.8.0 release failure: KYLIX_MINGW_ROOT alone only covers
+        # the mingw sysroot, not the IR toolchain).
         run: |
           curl -fL -o mingw.tar.xz \
             https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-ubuntu-22.04-x86_64.tar.xz
           tar -C /opt -xf mingw.tar.xz
+          echo "$(ls -d /opt/llvm-mingw-*)/bin" >> "$GITHUB_PATH"
 
       - name: Build CLI
         run: go build -o kylix ./cmd/kylix/

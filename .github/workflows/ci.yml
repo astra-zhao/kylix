@@ -48,7 +48,7 @@ jobs:
           ./kylix test stdlib/src/collections_test.klx
 
   tutorials:
-    name: Tutorials (51 examples)
+    name: Tutorials (Go backend, linux amd64)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -63,11 +63,30 @@ jobs:
       - name: Build CLI
         run: go build -o kylix ./cmd/kylix/
 
-      - name: "Run 51 tutorials (Go backend compile, then go run)"
+      - name: "Run tutorials (Go backend compile, then go run)"
+        run: KYLIX=$PWD/kylix bash examples/complete-tutorial/test_all.sh
+
+  tutorials-arm64:
+    name: Tutorials (Go backend, linux arm64)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Build CLI
+        run: go build -o kylix ./cmd/kylix/
+
+      - name: "Run tutorials (Go backend compile, then go run)"
         run: KYLIX=$PWD/kylix bash examples/complete-tutorial/test_all.sh
 
   llvm-tutorials:
-    name: Tutorials (LLVM backend, 51 examples)
+    name: Tutorials (LLVM backend, linux amd64)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -89,7 +108,57 @@ jobs:
       - name: Build CLI
         run: go build -o kylix ./cmd/kylix/
 
-      - name: "Run 51 tutorials (LLVM backend → native binary, run, cleanup)"
+      - name: "Run tutorials (LLVM backend → native binary, run, cleanup)"
+        run: KYLIX=$PWD/kylix bash examples/complete-tutorial/test_all_llvm.sh
+
+  llvm-tutorials-arm64:
+    name: Tutorials (LLVM backend, linux arm64)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install LLVM toolchain + stdlib native libs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev
+
+      - name: Build CLI
+        run: go build -o kylix ./cmd/kylix/
+
+      - name: "Run tutorials (LLVM backend → native binary, run, cleanup)"
+        run: KYLIX=$PWD/kylix bash examples/complete-tutorial/test_all_llvm.sh
+
+  llvm-darwin:
+    name: Tutorials (LLVM backend, macos arm64)
+    # v0.9.0: darwin was the only platform with zero CI coverage despite
+    # being the primary dev machine — run the full LLVM sweep on arm64.
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install LLVM toolchain + openssl (brew; sqlite3/curl are system)
+        run: |
+          brew install llvm openssl@3
+          echo "/opt/homebrew/opt/llvm/bin" >> "$GITHUB_PATH"
+
+      - name: Build CLI
+        run: go build -o kylix ./cmd/kylix/
+
+      - name: "Run tutorials (LLVM backend → native binary, run, cleanup)"
         run: KYLIX=$PWD/kylix bash examples/complete-tutorial/test_all_llvm.sh
 
   llvm-windows:
@@ -107,7 +176,7 @@ jobs:
           go-version: '1.25'
           cache: true
 
-      - name: Fetch llvm-mingw (portable zip — v0.6.2 lesson: installers are unreliable)
+      - name: "Fetch llvm-mingw (portable zip — v0.6.2 lesson: installers are unreliable)"
         # mstorsjo/llvm-mingw ships the full LLVM toolchain (clang/llc/opt +
         # ld.lld) preconfigured for mingw-w64; it doubles as both the IR
         # toolchain and the native Windows link sysroot (KYLIX_MINGW_ROOT).
