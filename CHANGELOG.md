@@ -45,6 +45,7 @@ All notable changes to the Kylix compiler are documented in this file.
 - **三平台覆盖**：新增 tutorials-arm64 / llvm-tutorials-arm64（ubuntu-24.04-arm）+ llvm-darwin（macos-15 完整 LLVM sweep）；release.yml 交叉 smoke 补 llvm-mingw bin 进 GITHUB_PATH（KYLIX_MINGW_ROOT 只覆盖 sysroot 不含 llc/clang）。
 - **性能回归门禁**：`benchmarks/ci_gate.sh`（bootstrap 源四场景：go_cold 10s / go_warm 5s / llvm_o0 60s / llvm_o2 60s 宽松天花板，只抓数量级回归——缓存丢失/DCE 掉了/O(n²)，不抓 runner ±30% 噪声，零 flake）+ ci.yml `perf-gate` job。
 - **API 稳定性审查**：[docs/API_STABILITY.md](docs/API_STABILITY.md)——1.0.0 冻结承诺：Stable/Experimental/Internal 三级 + CLI 子命令与 flag / stdlib 声明面（23 个 klx 声明模块 + 3 纯 Kylix unit）/ 语言语法三张冻结清单 + 不冻结范围（Go 内部 API、生成代码形态、缓存格式、stub 行为）+ 弃用流程（标记 → 保留一个大版本 → major 移除）+ release 前 checklist。
+- **🎉 CI 全绿达成（run 35241229836，2026-08-13 起首次）**：10/10 job——Test (Go) / Lint / **selfrepro IR 不动点（gen1 ≡ gen2 CI 达成）** / perf-gate / linux amd64+arm64 双教程 / darwin arm64 完整 sweep / **windows 原生（llvm-mingw：4 教程 + ex61 逐字 parity + net smoke Winsock 双进程真机验收）**。ex61 顺带勘误：Windows 输出与本地参考逐字一致，5 条 "F" 行是负场景（锚点/量词不匹配）预期输出，v0.7.1 的 CI 断言 `F=0` 本身错误（该 job 因 YAML bug 从未真跑过）。
 
 ## v0.8.0 — 自举 stdlib（真自包含）✅（2026-09-11）
 
