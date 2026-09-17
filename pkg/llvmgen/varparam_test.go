@@ -52,8 +52,16 @@ func compileRunLLVM(t *testing.T, src string) string {
 	if err := os.WriteFile(ll, []byte(generateIR(t, src)), 0644); err != nil {
 		t.Fatalf("write IR: %v", err)
 	}
-	if out, err := exec.Command(paths.LLC, "-filetype=obj", "-O=0", "-disable-verify", "-o", o, ll).CombinedOutput(); err != nil {
-		t.Fatalf("llc: %v\n%s", err, out)
+	// Mirror production CompileToNativeOpts: llc when present, else
+	// `clang -x ir -c` (llvm-mingw native Windows has no llc).
+	if paths.LLC != "" {
+		if out, err := exec.Command(paths.LLC, "-filetype=obj", "-O=0", "-disable-verify", "-o", o, ll).CombinedOutput(); err != nil {
+			t.Fatalf("llc: %v\n%s", err, out)
+		}
+	} else {
+		if out, err := exec.Command(paths.Clang, "-x", "ir", "-c", "-o", o, ll).CombinedOutput(); err != nil {
+			t.Fatalf("clang IR compile: %v\n%s", err, out)
+		}
 	}
 	if out, err := exec.Command(paths.Clang, "-o", bin, o).CombinedOutput(); err != nil {
 		t.Fatalf("clang: %v\n%s", err, out)

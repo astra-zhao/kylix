@@ -219,7 +219,15 @@ jobs:
           ./kylix.exe build --backend=llvm -o ex61.exe \
             stdlib/regex_engine.klx \
             examples/complete-tutorial/23_regex/example61_regex_engine.klx
+          set +e
           ./ex61.exe > ex61_windows.txt
+          rc=$?
+          set -e
+          echo "ex61 exit=$rc"
+          echo "--- output tail ---"
+          tail -5 ex61_windows.txt || true
+          echo "--- F-miss count: $(grep -c '^F ' ex61_windows.txt || true)"
+          test "$rc" = "0"
           # tutorial prints "T <pat> | <s>" on match, "F <pat> | <s>" on miss
           test "$(grep -c '^F ' ex61_windows.txt)" = "0"
           tail -1 ex61_windows.txt | grep -q "done"
@@ -310,7 +318,10 @@ jobs:
           llc -filetype=obj fp1_opt.ll -o fp1.o
           # -lm: the IR calls fmod (Variant div/mod); Linux ld requires libm
           # explicitly on the command line (macOS libSystem bundles it).
-          libs="-lm"
+          # -no-pie: llc emits the Static relocation model; Ubuntu clang links
+          # PIE by default → "failed to set dynamic section sizes: bad value"
+          # (same fix as release.yml's bootstrap smoke).
+          clang fp1.o -no-pie -o gen2 $libs
           grep -q "@__kylix_crypto_\|@EVP_\|@SHA256\|@MD5\|@PKCS5" fp1.ll && libs="$libs -lcrypto" || true
           grep -q "@sqlite3_" fp1.ll && libs="$libs -lsqlite3" || true
           grep -q "@curl_" fp1.ll && libs="$libs -lcurl" || true
