@@ -227,9 +227,15 @@ jobs:
           echo "--- output tail ---"
           tail -5 ex61_windows.txt || true
           echo "--- F-miss count: $(grep -c '^F ' ex61_windows.txt || true)"
+          echo "--- F-miss lines ---"
+          grep -n '^F ' ex61_windows.txt || true
           test "$rc" = "0"
-          # tutorial prints "T <pat> | <s>" on match, "F <pat> | <s>" on miss
-          test "$(grep -c '^F ' ex61_windows.txt)" = "0"
+          # Reference output (byte-identical on Go/LLVM/bootstrap ends):
+          # 33 scenario lines — 26 matches ("T ...") plus the 5 negative
+          # scenarios which legitimately print "F ..." (^ab|xab, ab$|abx,
+          # cat|dog|hotbird, (a|b)*abb|abxa, a{2}|a) — then "done".
+          test "$(grep -c '^T ' ex61_windows.txt)" = "26"
+          test "$(grep -c '^F ' ex61_windows.txt)" = "5"
           tail -1 ex61_windows.txt | grep -q "done"
 
       - name: "net smoke: two-process Winsock echo (real-machine acceptance)"
@@ -321,11 +327,11 @@ jobs:
           # -no-pie: llc emits the Static relocation model; Ubuntu clang links
           # PIE by default → "failed to set dynamic section sizes: bad value"
           # (same fix as release.yml's bootstrap smoke).
-          clang fp1.o -no-pie -o gen2 $libs
+          libs="-lm"
           grep -q "@__kylix_crypto_\|@EVP_\|@SHA256\|@MD5\|@PKCS5" fp1.ll && libs="$libs -lcrypto" || true
           grep -q "@sqlite3_" fp1.ll && libs="$libs -lsqlite3" || true
           grep -q "@curl_" fp1.ll && libs="$libs -lcurl" || true
-          clang fp1.o -o gen2 $libs
+          clang fp1.o -no-pie -o gen2 $libs
           # gen2 emits IR for the same sources — must be byte-identical
           ./gen2 --emit-llvm $FILES > fp2.ll
           cmp fp1.ll fp2.ll && echo "self-reproduction IR fixpoint OK (gen1 ≡ gen2)"
