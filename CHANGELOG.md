@@ -12,7 +12,7 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
-## v0.9.0 — 1.0.0-rc 打磨（进行中）
+## v0.9.0 — 1.0.0-rc 打磨 ✅（2026-09-18 发布）
 
 ### P1.6 模板 layout/partials ✅
 
@@ -49,7 +49,7 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ### 文档与官网同步 ✅
 
-- **README.md + README_CN.md + SUMMARY.md 三份主文档全面同步到 v0.9.0**：version badge 0.7.0→0.9.0；🚀 高亮列表头部补 v0.9.0（CI 全绿 + KylixBoot 补齐 + bootstrap boot server + 重烘闭环 + API 冻结）与 v0.8.0/v0.7.2/v0.7.1 三条；教程计数 54/54→**56/56**（双后端）+ bootstrap sweep 52 PASS + 2 SKIP→**56 PASS + 1 SKIP**（SKIP 为 example60 E2E，v0.9.0 已解除）；`gh release download` 示例版本号；目录树 51→56；"Current status" 行改写为 v0.9.0（下一步指向 v0.10.0 KylixAdmin）；版本历史表补 v0.7.1/v0.7.2/v0.8.0/v0.9.0 四行；SUMMARY.md 测试状态表/版本里程碑表（补 v0.7.x–v0.9.0）/后续规划（改指 v0.10+ KylixAdmin）；CN 版功能列表补齐 Bootstrap 无 Go 闭环条目（英文版已有而中文版缺失）+ stdlib 纯 Kylix unit（regex/stringutil/template_engine）。
+- **README.md + README_CN.md + SUMMARY.md 三份主文档全面同步到 v0.9.0**：version badge 0.7.0→0.9.0；🚀 高亮列表头部补 v0.9.0（CI 全绿 + KylixBoot 补齐 + bootstrap boot server + 重烘闭环 + API 冻结）与 v0.8.0/v0.7.2/v0.7.1 三条；教程计数 54/54→**56 示例全过**（Go sweep 57/57——多文件模块记 2 项；LLVM sweep 56/56）+ bootstrap sweep 52 PASS + 2 SKIP→**56 PASS + 1 SKIP**（SKIP 为 example60 E2E，v0.9.0 已解除）；`gh release download` 示例版本号；目录树 51→56；"Current status" 行改写为 v0.9.0（下一步指向 v0.10.0 KylixAdmin）；版本历史表补 v0.7.1/v0.7.2/v0.8.0/v0.9.0 四行；SUMMARY.md 测试状态表/版本里程碑表（补 v0.7.x–v0.9.0）/后续规划（改指 v0.10+ KylixAdmin）；CN 版功能列表补齐 Bootstrap 无 Go 闭环条目（英文版已有而中文版缺失）+ stdlib 纯 Kylix unit（regex/stringutil/template_engine）。
 - **历史条目勘误**：v0.6.9 的教程 sweep 数字统一为 **51/51 PASS**（P4.12 修复 example15/lambda + example50/jwt 后的终态，此前写的 52 PASS + 2 SKIP 是 v0.7.0 时代教程总数增长后的数字，错挂到了 v0.6.9 名下）。
 - **官网 html/index.html 同步（kylix.top 源文件在仓库内）**：`<title>`/og/twitter title（v0.7.0→v0.9.0）、JSON-LD version、hero badge、stats bar 54/54→56/56、**WHATS NEW 区块整段改写为 v0.9.0 四卡片**（KylixBoot 补齐 / bootstrap boot server / 重烘闭环 / CI 全绿+API 冻结）、教程卡 51→56 示例、路线图卡与 CTA 段落改写（下一站 v0.10.0 KylixAdmin）、页脚版本号、sitemap.xml lastmod 刷新。
 

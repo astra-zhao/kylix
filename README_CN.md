@@ -87,7 +87,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后�
 - **调试器**: `kylix debug` 集成 Delve (v0.2.3)
 - **WebAssembly**: `kylix build --wasm` 编译为 .wasm (v0.2.3)
 - **WASI**: `kylix build --wasi` 编译为 WASI 目标 (v0.3.0-alpha)
-- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链。**56/56 教程在 LLVM 后端编译+运行 (100%，含 example60 真实 HTTP server E2E)**（Go 后端 56/56），支持逐行 DWARF 调试（`-g`，LLDB 逐行单步 + 变量检视，含类方法/lambda DISubprogram + 块作用域 DILexicalBlock）、泛型类方法（TStack<T>.Push/Pop）、静态数组真实下界，以及日益完善的**真实 IR stdlib**：db（DbOpen/DbExec/DbQueryScalar/**DbQueryRows**）、**websocket**（RFC 6455 客户端+服务端）、jwt（HS256）、httpclient、sysutil、datetime、jsonutil、crypto、encoding、cache、boot，外加三端同源的纯 Kylix unit：**regex**（回溯引擎，v0.7.1）、**stringutil**（v0.8.0）、**template_engine** 含 layout/partials（v0.9.0）。
+- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链。**56 个教程全部在 LLVM 后端编译+运行 (100%，含 example60 真实 HTTP server E2E)**（Go 后端 sweep 57/57——多文件模块示例记 2 项），支持逐行 DWARF 调试（`-g`，LLDB 逐行单步 + 变量检视，含类方法/lambda DISubprogram + 块作用域 DILexicalBlock）、泛型类方法（TStack<T>.Push/Pop）、静态数组真实下界，以及日益完善的**真实 IR stdlib**：db（DbOpen/DbExec/DbQueryScalar/**DbQueryRows**）、**websocket**（RFC 6455 客户端+服务端）、jwt（HS256）、httpclient、sysutil、datetime、jsonutil、crypto、encoding、cache、boot，外加三端同源的纯 Kylix unit：**regex**（回溯引擎，v0.7.1）、**stringutil**（v0.8.0）、**template_engine** 含 layout/partials（v0.9.0）。
 - **Bootstrap 无 Go 闭环 (v0.6.9)**: 编译器自身源码（`src/*.klx`）经 `--emit-llvm` 产出 IR，链接成零 Go 依赖的原生 `gen2` 编译器，迭代至**逐字节 IR 不动点**（gen1 ≡ gen2，~26.7 万行）。stdlib 以烘焙 IR 数据（`src/stdlib_ir.klx`）进入 bootstrap。**教程 sweep 56 PASS + 1 SKIP**（bootstrap-vs-host 逐字 diff，`scripts/test_bootstrap_all.sh`；SKIP 为 example60 的 launch+curl E2E，v0.9.0 经 bootstrap boot server 落地后解除）。
 - **KylixBoot 框架**: Spring Boot 式注解驱动的 Web 应用 (v0.3.1)
 - **注解自动装配**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` 自动路由注册 (v0.3.2)
@@ -1192,7 +1192,7 @@ WsClose(ws);
 | v0.8.0 | 自举 stdlib：纯 Kylix stringutil（三端单源）、per-request arena、htab magic 校验加固 |
 | v0.7.2 | CI 全绿 + selfrepro 改走真实 --emit-llvm IR 链 + LLVM 类方法多返回 + Boot* 单一来源表 |
 | v0.7.1 | Windows 一等公民：纯 Kylix regex 引擎、Winsock 网络、--target windows 交叉链接（llvm-mingw） |
-| v0.7.0 | web 页面开发 + web 框架：error 类型、纯 Kylix 模板引擎、页面渲染 API、Redirect/错误页、example60 server E2E；教程 56/56 双后端 |
+| v0.7.0 | web 页面开发 + web 框架：error 类型、纯 Kylix 模板引擎、页面渲染 API、Redirect/错误页、example60 server E2E；教程 54/54 双后端 |
 | v0.6.9 | bootstrap 无 Go 闭环：stdlib IR 烘焙、gen2 原生编译器、IR 不动点（gen1≡gen2≡gen3）、教程 sweep 51/51 |
 | v0.6.8 | boot server 补强（POST body / req.JSON / JWT 真校验）+ stdlib 补全 + JetBrains 完善 |
 | v0.6.7 | JetBrains 插件（TextMate + LSP4IJ + Live Templates）+ 安装手册 —— ROADMAP #9 完成 |

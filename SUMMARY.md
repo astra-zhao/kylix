@@ -113,7 +113,7 @@ kylix version           # 显示版本信息
 | 项目 | 结果 |
 |------|------|
 | Go 单元测试 | ✅ 16 包全绿 |
-| 教程 sweep（Go 后端） | ✅ 56/56 |
+| 教程 sweep（Go 后端） | ✅ 57/57（56 示例，多文件模块记 2 项） |
 | 教程 sweep（LLVM 后端） | ✅ 56/56（含 example60 server E2E） |
 | 自举 sweep（无 Go） | ✅ 56 PASS + 1 SKIP（example60 E2E，v0.9.0 经 bootstrap boot server 落地后解除） |
 | 自举 IR 不动点 | ✅ gen1 ≡ gen2（26.7 万行逐字节） |
