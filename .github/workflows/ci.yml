@@ -113,7 +113,7 @@ jobs:
 
       - name: "Boehm GC E2E: example64 with --gc=boehm + bounded maxRSS"
         # v0.10.0 P0 (issue #1): prove the Boehm mode actually reclaims — the
-        # example allocates ~340MB of garbage; with GC the peak RSS must stay
+        # example allocates ~60MB of garbage; with GC the peak RSS must stay
         # far below that. Functional parity is covered by test_all_llvm.sh.
         run: |
           mkdir -p /tmp/gc_check
@@ -177,7 +177,7 @@ jobs:
 
       - name: Install LLVM toolchain + openssl (brew; sqlite3/curl are system)
         run: |
-          brew install llvm openssl@3 bdw-gc time
+          brew install llvm openssl@3 bdw-gc
           echo "/opt/homebrew/opt/llvm/bin" >> "$GITHUB_PATH"
 
       - name: Build CLI
@@ -188,7 +188,7 @@ jobs:
 
       - name: "Boehm GC E2E: example64 with --gc=boehm + bounded maxRSS"
         # v0.10.0 P0 (issue #1): prove the Boehm mode actually reclaims — the
-        # example allocates ~340MB of garbage; with GC the peak RSS must stay
+        # example allocates ~60MB of garbage; with GC the peak RSS must stay
         # far below that. Functional parity is covered by test_all_llvm.sh.
         run: |
           mkdir -p /tmp/gc_check
