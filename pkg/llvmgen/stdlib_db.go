@@ -477,7 +477,7 @@ func (g *Generator) emitDbQueryRowsBody() {
 	newBytes := g.tmp()
 	g.line(fmt.Sprintf("  %s = mul i64 %s, 8", newBytes, newLen))
 	newData := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", newData, newBytes))
+	g.line(fmt.Sprintf("  %s = %s", newData, g.mallocCall(newBytes)))
 	oldBytes := g.tmp()
 	g.line(fmt.Sprintf("  %s = mul i64 %s, 8", oldBytes, oldLen))
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", newData, oldData, oldBytes))

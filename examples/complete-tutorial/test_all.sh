@@ -81,7 +81,8 @@ for dir in \
     18_cache \
     19_http \
     20_websocket \
-    21_variant; do
+    21_variant \
+    26_memory; do
     run_single_file_dir "$dir"
 done
 

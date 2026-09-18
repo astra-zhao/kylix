@@ -252,7 +252,7 @@ func (g *Generator) emitLambda(e *ast.LambdaExpression) (string, string, error) 
 	} else {
 		size := int64(8 * len(caps)) // conservative: each field <= 8 bytes
 		envReg = g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", envReg, size))
+		g.line(fmt.Sprintf("  %s = %s", envReg, g.mallocCall(fmt.Sprintf("%d", size))))
 		for i, c := range caps {
 			// Load the captured value from the outer scope.
 			valReg, _, err := g.emitIdentLoad(c.name)

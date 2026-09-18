@@ -363,7 +363,7 @@ func (g *Generator) jwtConcat3(a, b, c string) string {
 	plus1 := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", plus1, total))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, plus1))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(plus1)))
 	g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", buf, a))
 	g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", buf, b))
 	g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", buf, c))
@@ -409,7 +409,7 @@ func (g *Generator) emitJwtB64URLBody() {
 	one := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", one, four))
 	out := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", out, one))
+	g.line(fmt.Sprintf("  %s = %s", out, g.mallocCall(one)))
 	iSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
 	g.line(fmt.Sprintf("  store i64 0, ptr %s", iSlot))
@@ -542,7 +542,7 @@ func (g *Generator) emitJwtHexDecodeBody() {
 	half := g.tmp()
 	g.line(fmt.Sprintf("  %s = sdiv i64 %%n, 2", half))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, half))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(half)))
 	iSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
 	g.line(fmt.Sprintf("  store i64 0, ptr %s", iSlot))
@@ -690,7 +690,7 @@ func (g *Generator) emitJwtVerifyBody() {
 	slen1 := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", slen1, sl))
 	signing := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", signing, slen1))
+	g.line(fmt.Sprintf("  %s = %s", signing, g.mallocCall(slen1)))
 	g.needMemcpy = true
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %%token, i64 %s)", signing, sl))
 	nulPos := g.tmp()
@@ -725,7 +725,7 @@ func (g *Generator) emitJwtVerifyBody() {
 	payloadPlus1 := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", payloadPlus1, payloadLen))
 	payloadBuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", payloadBuf, payloadPlus1))
+	g.line(fmt.Sprintf("  %s = %s", payloadBuf, g.mallocCall(payloadPlus1)))
 	g.needMemcpy = true
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", payloadBuf, d1p1, payloadLen))
 	payloadNul := g.tmp()
@@ -789,7 +789,7 @@ func (g *Generator) emitJwtB64URLDecodeBody() {
 	g.line("define ptr @__kylix_jwt_b64url_decode(ptr %str, i64 %n) {")
 	g.line("entry:")
 	out := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %%n)", out)) // output <= n bytes
+	g.line(fmt.Sprintf("  %s = %s", out, g.mallocCall("%n"))) // output <= n bytes
 	iSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
 	g.line(fmt.Sprintf("  store i64 0, ptr %s", iSlot))

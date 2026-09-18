@@ -112,6 +112,14 @@ type CompileOpts struct {
 	// Drives the LLVM IR target triple + datalayout, llc codegen, clang link
 	// flags and the system-library search. See tripleFor.
 	Target string
+
+	// GC (v0.10.0): automatic memory management for user data on the LLVM
+	// backend. "" (default) keeps the historical malloc-based, no-free
+	// behavior; "boehm" routes user-data allocations through GC_malloc (Boehm
+	// conservative GC, zeroed like calloc) and links -lgc. Not supported for
+	// the windows target yet (llvm-mingw has no libgc) — CompileToNativeOpts
+	// rejects the combination with a clear error.
+	GC string
 }
 
 // appendHomebrewLib adds -L + -Wl,-rpath for a Homebrew-installed library on
@@ -249,6 +257,14 @@ func CompileASTToNative(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 
 // compileASTWithOpts is the shared implementation that honors CompileOpts.
 func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LLVMPaths, opts CompileOpts) (*CompileResult, error) {
+	// v0.10.0 (--gc=boehm): reject unsupported combinations up front, before
+	// any IR generation or sysroot probing — llvm-mingw ships no libgc.
+	if opts.GC != "" && opts.GC != "boehm" {
+		return nil, fmt.Errorf("unsupported --gc value %q (supported: boehm)", opts.GC)
+	}
+	if opts.GC == "boehm" && strings.HasPrefix(opts.Target, "windows/") {
+		return nil, fmt.Errorf("--gc=boehm is not supported for the windows target yet (llvm-mingw has no libgc); build without --gc or target unix")
+	}
 	// -g implies -O0: optimization reorders/drops instructions, making debug
 	// info misleading. Force OptLevel off when DebugInfo is on.
 	if opts.DebugInfo && opts.OptLevel != "" {
@@ -475,6 +491,19 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	// (surfaced by the ubuntu-24.04 CI runner's stricter default linker).
 	if targetOS == "linux" {
 		clangArgs = append(clangArgs, "-lm")
+	}
+	// v0.10.0 (--gc=boehm): link the Boehm conservative GC. User-data
+	// allocations route through GC_malloc, so the library is needed whenever
+	// the mode is on. Windows is rejected earlier (llvm-mingw has no libgc).
+	// macOS: Homebrew formula is "bdw-gc" (installs to /opt/homebrew/opt/bdw-gc).
+	if opts.GC == "boehm" {
+		if targetOS == "windows" {
+			return nil, fmt.Errorf("--gc=boehm is not supported for the windows target yet (llvm-mingw has no libgc); build without --gc or target unix")
+		}
+		clangArgs = append(clangArgs, "-lgc")
+		if targetOS == "darwin" {
+			appendHomebrewLib(&clangArgs, "bdw-gc")
+		}
 	}
 	// Build the link command only after ALL args are collected — exec.Command
 	// captures the args slice, and the library-scan section above appends to

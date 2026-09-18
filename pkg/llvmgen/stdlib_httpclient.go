@@ -216,7 +216,7 @@ func (g *Generator) emitHttpclientNewBody() {
 	g.line("  ret ptr null")
 	g.line(fmt.Sprintf("%s:", okLbl))
 	h := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", h, httpClientHandleSize))
+	g.line(fmt.Sprintf("  %s = %s", h, g.mallocCall(fmt.Sprintf("%d", httpClientHandleSize))))
 	g.line(fmt.Sprintf("  call void @llvm.memset.p0.i64(ptr %s, i8 0, i64 %d, i1 false)", h, httpClientHandleSize))
 	// store curl at offset 0
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", curl, h))
@@ -348,7 +348,7 @@ func (g *Generator) emitHttpclientWriteCallbackBody() {
 	// grow: newData = realloc(curData, needed)
 	g.line(fmt.Sprintf("%s:", growLbl))
 	newData := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @realloc(ptr %s, i64 %s)", newData, curData, needed))
+	g.line(fmt.Sprintf("  %s = %s", newData, g.reallocCall(curData, needed)))
 	isNull := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", isNull, newData))
 	failLbl := g.label()

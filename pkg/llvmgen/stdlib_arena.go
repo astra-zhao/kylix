@@ -44,7 +44,7 @@ func (g *Generator) emitArenaBodies() {
 	// request still works; such buffers are not reclaimed (accepted cost).
 	g.line(fmt.Sprintf("%s:", failLbl))
 	fallback := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %%size)", fallback))
+	g.line(fmt.Sprintf("  %s = %s", fallback, g.mallocCall("%size")))
 	g.line(fmt.Sprintf("  ret ptr %s", fallback))
 	g.line("}")
 	g.line("")

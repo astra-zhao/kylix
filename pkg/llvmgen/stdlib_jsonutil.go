@@ -748,7 +748,7 @@ func (g *Generator) emitJsonEncodeBody() {
 	ival := g.tmp()
 	g.line(fmt.Sprintf("  %s = load i64, ptr %s", ival, p1))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 32)", buf))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall("32")))
 	g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 32, ptr %s, i64 %s)", buf, intFmtPtr, ival))
 	g.line(fmt.Sprintf("  ret ptr %s", buf))
 	// float → shortest Go representation
@@ -807,7 +807,7 @@ func (g *Generator) emitJsonEscapeStr() {
 	sz2 := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 3", sz2, sz))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, sz2))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(sz2)))
 	g.line(fmt.Sprintf("  store i8 34, ptr %s", buf)) // opening '"'
 	b1 := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %s, i64 1", b1, buf))
@@ -1024,7 +1024,7 @@ func (g *Generator) emitJsonFloatStr() {
 	useE := g.tmp()
 	g.line(fmt.Sprintf("  %s = and i1 %s, %s", useE, nz, lgor))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 64)", buf))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall("64")))
 
 	// probe shortest %.Ng precision 1..17 (round-trip)
 	initLbl := g.label()
@@ -1139,7 +1139,7 @@ func (g *Generator) emitJsonFloatFfmt() {
 	startPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr i8, ptr %%in, i64 %s", startPtr, signLen))
 	out := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 64)", out))
+	g.line(fmt.Sprintf("  %s = %s", out, g.mallocCall("64")))
 	negLbl := g.label()
 	noNegLbl := g.label()
 	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isNeg, negLbl, noNegLbl))

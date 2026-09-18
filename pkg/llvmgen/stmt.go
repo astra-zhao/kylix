@@ -349,7 +349,7 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 					// v0.6.9 P4: calloc — the caller may read fields the callee
 					// never assigned (garbage unterminated strings downstream).
 					recReg := g.tmp()
-					g.line(fmt.Sprintf("  %s = call ptr @calloc(i64 1, i64 %d)", recReg, size))
+					g.line(fmt.Sprintf("  %s = %s", recReg, g.zallocCall(fmt.Sprintf("%d", size))))
 					// Store vtable for is/as (records have [0 x ptr] vtable).
 					g.line(fmt.Sprintf("  store ptr @%s_vtable, ptr %s", retKylix, recReg))
 					g.line(fmt.Sprintf("  store ptr %s, ptr %%result", recReg))
@@ -736,7 +736,7 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 			// reading an unassigned field of a malloc'd record returns heap
 			// garbage (0xbe pattern) that explodes downstream string ops.
 			rec := g.tmp()
-			g.line(fmt.Sprintf("  %s = call ptr @calloc(i64 1, i64 %d)", rec, size))
+			g.line(fmt.Sprintf("  %s = %s", rec, g.zallocCall(fmt.Sprintf("%d", size))))
 			g.line(fmt.Sprintf("  store ptr %s, ptr %s", rec, allocaReg))
 			g.locals[name] = allocaReg
 			g.localTypes[name] = ident.Value
@@ -1041,7 +1041,7 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 					recSize += llvmTypeSize(f.LLVMType)
 				}
 				newRec := g.tmp()
-				g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", newRec, recSize))
+				g.line(fmt.Sprintf("  %s = %s", newRec, g.mallocCall(fmt.Sprintf("%d", recSize))))
 				g.needMemcpy = true
 				g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %d)", newRec, v, recSize))
 				g.line(fmt.Sprintf("  store ptr %s, ptr %s", newRec, gepReg))

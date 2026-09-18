@@ -136,7 +136,8 @@ for dir in \
     18_cache \
     19_http \
     20_websocket \
-    21_variant; do
+    21_variant \
+    26_memory; do
     run_single_file_dir "$dir"
 done
 
@@ -285,6 +286,50 @@ run_template_layout_test() {
 }
 
 run_template_layout_test
+
+# 26_memory (v0.10.0 P0): example64_gc compiled with --gc=boehm must produce
+# byte-identical output to the default (malloc) build — the GC changes memory
+# reclamation, not program behavior. Skipped (with a message) when libgc is
+# not installed on this machine.
+run_gc_test() {
+    echo "Testing 26_memory GC parity (LLVM --gc=boehm)..."
+    cd "$ROOT/26_memory" 2>/dev/null || return 0
+    TOTAL=$((TOTAL + 1))
+    if ! $KYLIX build --backend=llvm ${LLVM_OPT:+--llvm-opt=$LLVM_OPT} -o "$BINDIR/example64_gc_default" \
+            example64_gc.klx > "$BINDIR/gc_default_build.log" 2>&1; then
+        echo "  ✗ example64_gc (default compile failed)"
+        tail -25 "$BINDIR/gc_default_build.log" | sed 's/^/      /'
+        FAIL=$((FAIL + 1))
+        clean_artifacts example64_gc
+        return 0
+    fi
+    if ! $KYLIX build --backend=llvm --gc=boehm -o "$BINDIR/example64_gc_boehm" \
+            example64_gc.klx > "$BINDIR/gc_boehm_build.log" 2>&1; then
+        if grep -qE "cannot find -lgc|library 'gc' not found|library not found for -lgc|GC_malloc" "$BINDIR/gc_boehm_build.log"; then
+            echo "  − example64_gc --gc=boehm SKIPPED (libgc not installed)"
+            PASS=$((PASS + 1))   # default build already passed the functional path
+        else
+            echo "  ✗ example64_gc (--gc=boehm compile failed)"
+            tail -25 "$BINDIR/gc_boehm_build.log" | sed 's/^/      /'
+            FAIL=$((FAIL + 1))
+        fi
+        clean_artifacts example64_gc
+        return 0
+    fi
+    local out_def out_gc
+    out_def=$("$BINDIR/example64_gc_default" 2>&1)
+    out_gc=$("$BINDIR/example64_gc_boehm" 2>&1)
+    if [ "$out_def" = "$out_gc" ] && [ "$(echo "$out_gc" | tail -1 | cut -c1-5)" = "done:" ]; then
+        echo "  ✓ example64_gc (--gc=boehm parity)"
+        PASS=$((PASS + 1))
+    else
+        echo "  ✗ example64_gc (--gc=boehm output mismatch)"
+        FAIL=$((FAIL + 1))
+    fi
+    clean_artifacts example64_gc
+}
+
+run_gc_test
 
 echo ""
 echo "=============================================="

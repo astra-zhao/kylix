@@ -727,7 +727,7 @@ func (g *Generator) emitConstructor(className string) (string, error) {
 	// self-emit OOM). Map/slice fields are still explicitly initialized below
 	// (calloc zeroes are not enough for map fields — they need a live htab).
 	allocReg := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @calloc(i64 1, i64 %d)", allocReg, size))
+	g.line(fmt.Sprintf("  %s = %s", allocReg, g.zallocCall(fmt.Sprintf("%d", size))))
 
 	// v0.5.4: ALWAYS store the vtable pointer at offset 0, even for classes
 	// with no methods. Previously only classes with methods got their vtable

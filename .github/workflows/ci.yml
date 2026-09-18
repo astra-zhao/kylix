@@ -103,13 +103,38 @@ jobs:
         # system libs it links for the db/httpclient/crypto stdlib modules.
         run: |
           sudo apt-get update
-          sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev
+          sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev libgc-dev time
 
       - name: Build CLI
         run: go build -o kylix ./cmd/kylix/
 
       - name: "Run tutorials (LLVM backend → native binary, run, cleanup)"
         run: KYLIX=$PWD/kylix bash examples/complete-tutorial/test_all_llvm.sh
+
+      - name: "Boehm GC E2E: example64 with --gc=boehm + bounded maxRSS"
+        # v0.10.0 P0 (issue #1): prove the Boehm mode actually reclaims — the
+        # example allocates ~340MB of garbage; with GC the peak RSS must stay
+        # far below that. Functional parity is covered by test_all_llvm.sh.
+        run: |
+          mkdir -p /tmp/gc_check
+          cp examples/complete-tutorial/26_memory/example64_gc.klx /tmp/gc_check/
+          ./kylix build --backend=llvm --gc=boehm -o /tmp/gc_check/example64_gc /tmp/gc_check/example64_gc.klx
+          if /usr/bin/time --version >/dev/null 2>&1; then
+            # GNU time (Linux): "Maximum resident set size (kbytes): N"
+            /usr/bin/time -v /tmp/gc_check/example64_gc >/tmp/gc_check/out.txt 2>/tmp/gc_check/time.txt
+            KB=$(grep "Maximum resident set size" /tmp/gc_check/time.txt | grep -o "[0-9]*" | tail -1)
+          else
+            # BSD time (macOS): "<bytes>  maximum resident set size"
+            /usr/bin/time -l /tmp/gc_check/example64_gc >/tmp/gc_check/out.txt 2>/tmp/gc_check/time.txt
+            B=$(grep "maximum resident set size" /tmp/gc_check/time.txt | grep -o "[0-9]*" | tail -1)
+            KB=$((B / 1024))
+          fi
+          echo "maxRSS: ${KB} KB"
+          tail -2 /tmp/gc_check/out.txt
+          if [ -z "$KB" ] || [ "$KB" -lt 1 ] || [ "$KB" -gt 131072 ]; then
+            echo "maxRSS ${KB}KB outside the 128MB bound — GC not reclaiming?"
+            exit 1
+          fi
 
   llvm-tutorials-arm64:
     name: Tutorials (LLVM backend, linux arm64)
@@ -127,7 +152,7 @@ jobs:
       - name: Install LLVM toolchain + stdlib native libs
         run: |
           sudo apt-get update
-          sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev
+          sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev libgc-dev time
 
       - name: Build CLI
         run: go build -o kylix ./cmd/kylix/
@@ -152,7 +177,7 @@ jobs:
 
       - name: Install LLVM toolchain + openssl (brew; sqlite3/curl are system)
         run: |
-          brew install llvm openssl@3
+          brew install llvm openssl@3 bdw-gc time
           echo "/opt/homebrew/opt/llvm/bin" >> "$GITHUB_PATH"
 
       - name: Build CLI
@@ -160,6 +185,31 @@ jobs:
 
       - name: "Run tutorials (LLVM backend → native binary, run, cleanup)"
         run: KYLIX=$PWD/kylix bash examples/complete-tutorial/test_all_llvm.sh
+
+      - name: "Boehm GC E2E: example64 with --gc=boehm + bounded maxRSS"
+        # v0.10.0 P0 (issue #1): prove the Boehm mode actually reclaims — the
+        # example allocates ~340MB of garbage; with GC the peak RSS must stay
+        # far below that. Functional parity is covered by test_all_llvm.sh.
+        run: |
+          mkdir -p /tmp/gc_check
+          cp examples/complete-tutorial/26_memory/example64_gc.klx /tmp/gc_check/
+          ./kylix build --backend=llvm --gc=boehm -o /tmp/gc_check/example64_gc /tmp/gc_check/example64_gc.klx
+          if /usr/bin/time --version >/dev/null 2>&1; then
+            # GNU time (Linux): "Maximum resident set size (kbytes): N"
+            /usr/bin/time -v /tmp/gc_check/example64_gc >/tmp/gc_check/out.txt 2>/tmp/gc_check/time.txt
+            KB=$(grep "Maximum resident set size" /tmp/gc_check/time.txt | grep -o "[0-9]*" | tail -1)
+          else
+            # BSD time (macOS): "<bytes>  maximum resident set size"
+            /usr/bin/time -l /tmp/gc_check/example64_gc >/tmp/gc_check/out.txt 2>/tmp/gc_check/time.txt
+            B=$(grep "maximum resident set size" /tmp/gc_check/time.txt | grep -o "[0-9]*" | tail -1)
+            KB=$((B / 1024))
+          fi
+          echo "maxRSS: ${KB} KB"
+          tail -2 /tmp/gc_check/out.txt
+          if [ -z "$KB" ] || [ "$KB" -lt 1 ] || [ "$KB" -gt 131072 ]; then
+            echo "maxRSS ${KB}KB outside the 128MB bound — GC not reclaiming?"
+            exit 1
+          fi
 
   llvm-windows:
     name: LLVM backend (Windows native via llvm-mingw)
@@ -375,7 +425,7 @@ jobs:
       - name: Install LLVM toolchain + stdlib native libs
         run: |
           sudo apt-get update
-          sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev
+          sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev libssl-dev libgc-dev time
 
       - name: Run perf gate (compile_time scenarios vs ceilings)
         run: bash benchmarks/ci_gate.sh

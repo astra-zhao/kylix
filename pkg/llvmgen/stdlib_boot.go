@@ -454,7 +454,7 @@ func (g *Generator) emitBootEnforceAuthBody() {
 	bufSize := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", bufSize, realLen))
 	tbuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", tbuf, bufSize))
+	g.line(fmt.Sprintf("  %s = %s", tbuf, g.mallocCall(bufSize)))
 	g.needMemcpy = true
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", tbuf, token, realLen))
 	termPtr := g.tmp()

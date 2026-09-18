@@ -25,6 +25,7 @@ Diagnose the Kylix toolchain:
   - LLVM backend: needs llc + clang (+ optional opt for --llvm-opt)
                   macOS: brew install llvm    Linux: apt install llvm clang
   - stdlib native libs: sqlite3 / curl / openssl (db / httpclient / crypto)
+                  + libgc (optional, only for --gc=boehm; macOS: brew install bdw-gc)
 
 Exit code is non-zero if any required tool is missing.
 `)
@@ -104,6 +105,9 @@ Exit code is non-zero if any required tool is missing.
 	checkLib(clang, "sqlite3", "-lsqlite3", "sqlite")
 	checkLib(clang, "curl", "-lcurl", "curl")
 	checkLib(clang, "openssl (libcrypto)", "-lcrypto", "openssl")
+	// v0.10.0: optional — only needed by --gc=boehm (Boehm conservative GC).
+	// Not a hard requirement: the default malloc-based mode never links it.
+	checkLib(clang, "boehm gc (libgc, for --gc=boehm)", "-lgc", "bdw-gc")
 
 	fmt.Println()
 	if fail {

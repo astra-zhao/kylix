@@ -55,7 +55,7 @@
 
 - [x] **~~单 Set-Cookie 槽~~（v0.8.0 P3 已修）**：cookie 槽改为"完整 `Set-Cookie: ...\r\n` 行的增长缓冲"（镜像 Go 端 []string），多次 `WithCookie` 追加不再覆盖
 - [x] **~~自定义头 1024 字节上限~~（v0.8.0 P3 已修）**：xhdrs 槽改 `emitBootAppendToSlot` 按需 realloc（首用分配 + 二倍扩容），固定 1024 上限解除
-- [ ] **响应 handle / xhdrs 每请求 malloc 不回收**：预存在行为（无 free），长运行服务缓慢泄漏——per-request arena 已覆盖响应 buffer，handle 分配尚未纳入
+- [x] **~~响应 handle / xhdrs 每请求 malloc 不回收~~（v0.10.0 P0 已修）**：`--gc=boehm`（issue #1）把用户数据分配（类/record/字符串/数组/Variant box/handle/xhdrs）路由到 Boehm GC（`GC_malloc`），长跑程序自动回收——默认 malloc 模式行为不变（短命程序无影响）；内部临时 buffer（配对 free 的）保留 malloc/free 原样；windows 目标暂不支持（llvm-mingw 无 libgc，显式报错）
 - [ ] **静态文件仅限 /static/ 前缀 + 文本 MIME 完整性**：send 体按 ftell 长度二进制安全，但读入 buffer 后含 NUL 的文件内容经 strlen 发头长度正确、体内容完整（已验证路径）；若未来加目录列表/Range 需重审
 
 ### emitter / 工具链缺口（P1 模板引擎开发中发现）

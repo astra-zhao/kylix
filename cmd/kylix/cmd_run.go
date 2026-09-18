@@ -19,6 +19,7 @@ func cmdRun(args []string) {
 	backend := fs.String("backend", "auto", "Compiler backend: auto (default: Go if available, else LLVM), go, or llvm")
 	llvmOpt := fs.String("llvm-opt", "", "LLVM optimization level (0/1/2/3); only meaningful with --backend=llvm")
 	llvmDebug := fs.Bool("g", false, "Emit DWARF debug info (LLVM backend)")
+	gc := fs.String("gc", "", "Automatic memory management for user data (LLVM backend): boehm (Boehm GC, links -lgc). Default: malloc-based, no free")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix run [options] [file.klx]
 
@@ -48,7 +49,7 @@ OPTIONS:
 		file := fs.Arg(0)
 
 		if runBackend == "llvm" {
-			if err := runWithLLVM(file, *keepGo, *llvmOpt, *llvmDebug, *verbose); err != nil {
+			if err := runWithLLVM(file, *keepGo, *llvmOpt, *llvmDebug, *verbose, *gc); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -83,7 +84,7 @@ OPTIONS:
 	}
 
 	if runBackend == "llvm" {
-		if err := runProjectWithLLVM(cfg, *keepGo, *llvmOpt, *llvmDebug, *verbose); err != nil {
+		if err := runProjectWithLLVM(cfg, *keepGo, *llvmOpt, *llvmDebug, *verbose, *gc); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -167,7 +168,7 @@ func resolveRunBackend(s string) string {
 // The .ll/.o/binary are produced in a throwaway temp dir and removed after the
 // run unless --keep is given (in which case the binary is copied next to the
 // source file, mirroring `kylix build --backend=llvm` output location).
-func runWithLLVM(srcFile string, keep bool, optLevel string, debug, verbose bool) error {
+func runWithLLVM(srcFile string, keep bool, optLevel string, debug, verbose bool, gc string) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
 		// v0.6.5: don't claim "no Go toolchain" when the user explicitly
@@ -190,6 +191,7 @@ func runWithLLVM(srcFile string, keep bool, optLevel string, debug, verbose bool
 	result, err := llvmgen.CompileToNativeOpts(tmpSrc, bin, llvmPaths, llvmgen.CompileOpts{
 		OptLevel:  optLevel,
 		DebugInfo: debug,
+		GC:        gc,
 	})
 	if err != nil {
 		return err
@@ -216,7 +218,7 @@ func runWithLLVM(srcFile string, keep bool, optLevel string, debug, verbose bool
 
 // runProjectWithLLVM compiles all .klx files of a project to one native binary
 // and runs it. Mirrors runWithLLVM's temp-dir + cleanup semantics.
-func runProjectWithLLVM(cfg *project.Config, keep bool, optLevel string, debug, verbose bool) error {
+func runProjectWithLLVM(cfg *project.Config, keep bool, optLevel string, debug, verbose bool, gc string) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
 		// v0.6.5: don't claim "no Go toolchain" when the user explicitly
@@ -247,9 +249,9 @@ func runProjectWithLLVM(cfg *project.Config, keep bool, optLevel string, debug, 
 	bin := filepath.Join(tmp, cfg.Name)
 	var result *llvmgen.CompileResult
 	if len(tmpFiles) > 1 {
-		result, err = llvmgen.CompileFilesToNative(tmpFiles, bin, llvmPaths, llvmgen.CompileOpts{OptLevel: optLevel, DebugInfo: debug})
+		result, err = llvmgen.CompileFilesToNative(tmpFiles, bin, llvmPaths, llvmgen.CompileOpts{OptLevel: optLevel, DebugInfo: debug, GC: gc})
 	} else {
-		result, err = llvmgen.CompileToNativeOpts(tmpFiles[0], bin, llvmPaths, llvmgen.CompileOpts{OptLevel: optLevel, DebugInfo: debug})
+		result, err = llvmgen.CompileToNativeOpts(tmpFiles[0], bin, llvmPaths, llvmgen.CompileOpts{OptLevel: optLevel, DebugInfo: debug, GC: gc})
 	}
 	if err != nil {
 		return err

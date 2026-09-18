@@ -212,6 +212,11 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] 文档与官网同步 ✅（v0.9.0：README.md + README_CN.md + SUMMARY.md 三份主文档全面同步到 v0.9.0——badge/🚀 高亮列表（补 v0.7.1–v0.9.0 四条）/教程计数 56/56 + bootstrap sweep 56 PASS + 1 SKIP/Current status 行/版本历史表（补 4 行）/目录树 56/测试状态表/后续规划改指 v0.10+ KylixAdmin；顺手修正 v0.6.9 历史条目的 sweep 数字（52→51/51，P4.12 终态）；官网 html/index.html 同步（页面就在仓库内：title/og/badge/JSON-LD version、stats 54→56、WHATS NEW 区块改写为 v0.9.0 四卡片、教程/路线/CTA/页脚文案与数字、sitemap lastmod））
 
 ### v0.10.0 — KylixAdmin P2+P3 前半（[ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)）
+- [ ] **LLVM 后端 Boehm GC（issue #1，硬前置）**：CLI `--gc=boehm`——用户数据分配点（类构造/record/字符串/动态数组/Variant box/闭包/map）→ `GC_malloc`/`GC_malloc_atomic` + `-lgc` 链接；**内部临时 buffer（boot_pages/jsonutil 解析等有配对 free 的）保留 malloc/free 不变**——长跑 server 自动回收语义与 Go 后端对齐；KylixAdmin 常驻场景内存安全
+  - [ ] 教程示例 `example64_gc`（`26_memory` 章节：循环分配大量对象/字符串/数组后丢弃 → 回收 → 输出稳定校验值；三端 sweep 接入——Go 后端天然 GC 走默认编译、LLVM 端 `--gc=boehm` 编译运行、bootstrap 链路）
+  - [ ] CI 验证：linux/darwin job 装 libgc（apt/brew）+ example64 `--gc=boehm` E2E + 输出 parity 断言；windows 交叉默认路径不受影响（未装 libgc 时 `--gc=boehm` 报明确错误而非链接炸）；`kylix doctor` 补 libgc 探测项
+  - [ ] 文档：README/llvm-backend.md 更新内存语义（自动回收选项 + limitation 收窄）
+  - 方向承诺：**不走手动 Free/Dispose 路线**（与 Go 后端语义无法对齐 + 会被 1.0 API 冻结锁死），1.0.0 前「内存自动回收、语言不提供 Free/Dispose」写入 [API_STABILITY.md](docs/API_STABILITY.md)；长期评估 ARC 作确定性回收选项（嵌入式/移动端友好）
 - [ ] 登录/登出/会话管理（BCrypt + Session + CSRF + 失败锁定 + Remember-me）
 - [ ] RBAC 完整模型（用户/角色/权限点 五表 + `[Role]` 守卫 + 菜单按权限渲染）
 - [ ] 审计（登录日志 + 操作日志中间件自动记录写操作）

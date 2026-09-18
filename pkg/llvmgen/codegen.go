@@ -181,6 +181,14 @@ type Generator struct {
 	targetOS   string
 	targetArch string
 
+	// gc (v0.10.0): "" (default, plain malloc/calloc) or "boehm" (--gc=boehm).
+	// When boehm, user-data allocations route through GC_malloc (Boehm
+	// conservative GC, zeroed like calloc) so long-running programs reclaim
+	// garbage — matching the Go backend's semantics (issue #1). Internal temp
+	// buffers with paired @free keep plain malloc/free (GC memory must never
+	// reach libc free). Default-path IR is byte-identical to pre-GC output.
+	gc string
+
 	// strDedup (v0.4.5 Phase C) deduplicates string constants by content —
 	// two addString("hello") calls return the same @.str.N register instead
 	// of emitting two identical globals. Reduces IR size and binary rodata.
@@ -329,6 +337,7 @@ func GenerateWithOpts(prog *ast.Program, srcFile string, opts CompileOpts) (stri
 	g := NewGenerator(prog.Name)
 	g.debugInfo = opts.DebugInfo
 	g.targetOS, g.targetArch = resolveTarget(opts.Target)
+	g.gc = opts.GC
 	if g.debugInfo {
 		g.initDbgMeta(srcFile)
 	}
@@ -716,6 +725,44 @@ func (g *Generator) emitHeader() {
 	g.line("")
 }
 
+// ===== GC allocation helpers (v0.10.0, --gc=boehm) =====
+//
+// User-data allocations route through these so the Boehm mode is a one-line
+// switch per site. Default mode reproduces the historical call text exactly
+// (IR fixed point is byte-identical). Internal temp buffers with a paired
+// @free must keep plain malloc/free — GC-owned memory passed to libc free is
+// undefined behavior.
+
+// gcOn reports whether Boehm-GC mode (--gc=boehm) is active.
+func (g *Generator) gcOn() bool { return g.gc == "boehm" }
+
+// mallocCall returns the full call text for a non-zeroed user-data allocation
+// of sizeOperand bytes (the raw IR operand, e.g. "%n" or "512").
+func (g *Generator) mallocCall(sizeOperand string) string {
+	if g.gcOn() {
+		return "call ptr @GC_malloc(i64 " + sizeOperand + ")"
+	}
+	return "call ptr @malloc(i64 " + sizeOperand + ")"
+}
+
+// zallocCall returns the full call text for a zero-initialized user-data
+// allocation (calloc(1, n) semantics; GC_malloc zeroes too).
+func (g *Generator) zallocCall(sizeOperand string) string {
+	if g.gcOn() {
+		return "call ptr @GC_malloc(i64 " + sizeOperand + ")"
+	}
+	return "call ptr @calloc(i64 1, i64 " + sizeOperand + ")"
+}
+
+// reallocCall returns the full call text for growing a user-data buffer that
+// is never freed (httpclient response accumulation); GC mode maps to GC_realloc.
+func (g *Generator) reallocCall(ptrOperand, sizeOperand string) string {
+	if g.gcOn() {
+		return "call ptr @GC_realloc(ptr " + ptrOperand + ", i64 " + sizeOperand + ")"
+	}
+	return "call ptr @realloc(ptr " + ptrOperand + ", i64 " + sizeOperand + ")"
+}
+
 func (g *Generator) emitRuntimeDecls() {
 	g.line("; ===== Runtime declarations (libc) =====")
 	g.line("@__kylix_emptystr = global [1 x i8] c\"\\00\" ; empty C string; null string operands are normalized to this (v0.5.6)")
@@ -728,6 +775,12 @@ func (g *Generator) emitRuntimeDecls() {
 	// v0.6.9 P4: zero-initialized allocations (class instances, record locals)
 	g.line("declare ptr @calloc(i64 noundef, i64 noundef)")
 	g.line("declare void @free(ptr noundef)")
+	// v0.10.0 (--gc=boehm): Boehm conservative GC entry points. Declared only
+	// in GC mode so default IR stays byte-identical (IR fixed point).
+	if g.gcOn() {
+		g.line("declare ptr @GC_malloc(i64 noundef)")
+		g.line("declare ptr @GC_realloc(ptr noundef, i64 noundef)")
+	}
 	g.line("declare i64 @strlen(ptr noundef)")
 	g.line("declare ptr @strcpy(ptr noundef, ptr noundef)")
 	g.line("declare ptr @strcat(ptr noundef, ptr noundef)")

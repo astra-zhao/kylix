@@ -177,7 +177,7 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 		n := int64(len(e.Elements))
 		bufSize := int64(8 * (n + 1))
 		buf := g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", buf, bufSize))
+		g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(fmt.Sprintf("%d", bufSize))))
 		lenPtr := g.tmp()
 		g.line(fmt.Sprintf("  %s = getelementptr inbounds i64, ptr %s, i64 0", lenPtr, buf))
 		g.line(fmt.Sprintf("  store i64 %d, ptr %s", n, lenPtr))
@@ -230,7 +230,7 @@ func (g *Generator) emitExpr(node ast.Expression) (reg string, llvmType string, 
 		allocSize := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 %s, 1", allocSize, length))
 		buf := g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, allocSize))
+		g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(allocSize)))
 
 		// src = base + low
 		src := g.tmp()
@@ -678,7 +678,7 @@ func (g *Generator) emitStringConcat(lv, rv string) string {
 	size1 := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", size1, size))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, size1))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(size1)))
 	g.line(fmt.Sprintf("  call ptr @strcpy(ptr %s, ptr %s)", buf, lv))
 	g.line(fmt.Sprintf("  call ptr @strcat(ptr %s, ptr %s)", buf, rv))
 	return buf
@@ -778,7 +778,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		allocSize := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 %s, 1", allocSize, sizeReg))
 		buf := g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, allocSize))
+		g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(allocSize)))
 		readN := g.tmp()
 		g.line(fmt.Sprintf("  %s = call i64 @fread(ptr %s, i64 1, i64 %s, ptr %s)", readN, buf, sizeReg, fp))
 		_ = readN
@@ -953,7 +953,7 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		sizeReg := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 %s, 1", sizeReg, n))
 		buf := g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, sizeReg))
+		g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(sizeReg)))
 		fn := "tolower"
 		if funcName == "UpperCase" {
 			fn = "toupper"
@@ -1296,7 +1296,7 @@ func (g *Generator) emitAppend(sliceArg, elemArg ast.Expression) (string, string
 	newSize := g.tmp()
 	g.line(fmt.Sprintf("  %s = mul i64 %s, %d", newSize, newLen, elemSize))
 	newData := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", newData, newSize))
+	g.line(fmt.Sprintf("  %s = %s", newData, g.mallocCall(newSize)))
 	// memcpy old data (oldLen * elemSize bytes) if oldLen > 0.
 	oldBytes := g.tmp()
 	g.line(fmt.Sprintf("  %s = mul i64 %s, %d", oldBytes, oldLen, elemSize))
@@ -1343,7 +1343,7 @@ func (g *Generator) emitLength(arg ast.Expression) (string, string, error) {
 func (g *Generator) emitWriteLnMulti(args []ast.Expression) (string, string, error) {
 	const bufSize = 512
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", buf, bufSize))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(fmt.Sprintf("%d", bufSize))))
 	g.line(fmt.Sprintf("  store i8 0, ptr %s", buf))
 
 	ldFmt := g.addString("%ld")

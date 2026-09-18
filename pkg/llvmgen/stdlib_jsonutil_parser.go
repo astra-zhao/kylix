@@ -113,7 +113,7 @@ func (g *Generator) emitJsonReadString() {
 	bufSize := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", bufSize, ln))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, bufSize))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(bufSize)))
 	outSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", outSlot))
 	g.line(fmt.Sprintf("  store i64 0, ptr %s", outSlot))
@@ -293,7 +293,7 @@ func (g *Generator) emitJsonReadBare() {
 	allocSize := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", allocSize, length))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, allocSize))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(allocSize)))
 	src := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%s, i64 %s", src, start))
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", buf, src, length))
@@ -397,7 +397,7 @@ func (g *Generator) emitJsonSkipNested() {
 	allocSize := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", allocSize, length))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, allocSize))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(allocSize)))
 	src := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%s, i64 %s", src, start))
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", buf, src, length))
@@ -567,7 +567,7 @@ func (g *Generator) emitJsonParseArray() {
 	bufSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", bufSlot))
 	initBuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 32)", initBuf)) // 4 * 8
+	g.line(fmt.Sprintf("  %s = %s", initBuf, g.mallocCall("32"))) // 4 * 8
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", initBuf, bufSlot))
 	lenSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", lenSlot))
@@ -635,13 +635,15 @@ func (g *Generator) emitJsonParseArray() {
 	newSize := g.tmp()
 	g.line(fmt.Sprintf("  %s = mul i64 %s, 8", newSize, newCap))
 	newBuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", newBuf, newSize))
+	g.line(fmt.Sprintf("  %s = %s", newBuf, g.mallocCall(newSize)))
 	oldBuf := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", oldBuf, bufSlot))
 	copyBytes := g.tmp()
 	g.line(fmt.Sprintf("  %s = mul i64 %s, 8", copyBytes, curLen))
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", newBuf, oldBuf, copyBytes))
-	g.line(fmt.Sprintf("  call void @free(ptr %s)", oldBuf))
+	if !g.gcOn() {
+		g.line(fmt.Sprintf("  call void @free(ptr %s)", oldBuf))
+	}
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", newBuf, bufSlot))
 	g.line(fmt.Sprintf("  br label %%%s", storeLbl))
 	// storeLbl: buf[len] = val; len++.

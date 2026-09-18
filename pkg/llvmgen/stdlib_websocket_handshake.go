@@ -13,7 +13,7 @@ func (g *Generator) emitWsReadHeadersBody() {
 	g.line("define ptr @__kylix_ws_readheaders(i32 %fd) {")
 	g.line("entry:")
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 4096)", buf))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall("4096")))
 	posSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", posSlot))
 	g.line(fmt.Sprintf("  store i64 0, ptr %s", posSlot))
@@ -25,7 +25,7 @@ func (g *Generator) emitWsReadHeadersBody() {
 	g.line(fmt.Sprintf("  br label %%%s", loop))
 	g.line(fmt.Sprintf("%s:", loop))
 	byteBuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 1)", byteBuf))
+	g.line(fmt.Sprintf("  %s = %s", byteBuf, g.mallocCall("1")))
 	n := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i64 @__kylix_ws_recvn(i32 %%fd, ptr %s, i64 1)", n, byteBuf))
 	le0 := g.tmp()
@@ -70,7 +70,7 @@ func (g *Generator) wsAcceptKey(keyReg string) string {
 	kpSize := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", kpSize, kpLen))
 	kp := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", kp, kpSize))
+	g.line(fmt.Sprintf("  %s = %s", kp, g.mallocCall(kpSize)))
 	g.needMemcpy = true
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", kp, keyReg, keyLen))
 	guid := g.addString(wsWsGUID)
@@ -79,7 +79,7 @@ func (g *Generator) wsAcceptKey(keyReg string) string {
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", kp2, kp, keyLen))
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 36)", kp2, guidPtr))
 	sha1buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 20)", sha1buf))
+	g.line(fmt.Sprintf("  %s = %s", sha1buf, g.mallocCall("20")))
 	// Hand-rolled SHA-1 (v0.6.5: padLen fixed — no longer needs OpenSSL).
 	g.line(fmt.Sprintf("  call void @__kylix_ws_sha1(ptr %s, i64 %s, ptr %s)", kp, kpLen, sha1buf))
 	expect := g.tmp()
@@ -148,7 +148,7 @@ func (g *Generator) wsHeaderField(headerReg, field string) (string, string) {
 	vsize := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", vsize, vlen))
 	vbuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", vbuf, vsize))
+	g.line(fmt.Sprintf("  %s = %s", vbuf, g.mallocCall(vsize)))
 	g.needMemcpy = true
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", vbuf, val2, vlen))
 	vterm := g.tmp()
@@ -221,7 +221,7 @@ func (g *Generator) emitWsDialConnectBody() {
 	hostSize := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", hostSize, hostLen))
 	host := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", host, hostSize))
+	g.line(fmt.Sprintf("  %s = %s", host, g.mallocCall(hostSize)))
 	g.needMemcpy = true
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", host, addr, hostLen))
 	hterm := g.tmp()
@@ -246,13 +246,13 @@ func (g *Generator) emitWsDialConnectBody() {
 	g.line(fmt.Sprintf("  %s = trunc i64 %s to i32", fdi, fd))
 	// ---- key = b64(16 random bytes)
 	keybuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 16)", keybuf))
+	g.line(fmt.Sprintf("  %s = %s", keybuf, g.mallocCall("16")))
 	g.line(fmt.Sprintf("  call void @__kylix_ws_rand(ptr %s, i64 16)", keybuf))
 	key := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_ws_b64(ptr %s, i64 16)", key, keybuf))
 	// ---- build request with a strcat chain
 	req := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 1024)", req))
+	g.line(fmt.Sprintf("  %s = %s", req, g.mallocCall("1024")))
 	g.line(fmt.Sprintf("  store i8 0, ptr %s", req))
 	cat := func(s string) {
 		sc := g.addString(s)
@@ -271,7 +271,7 @@ func (g *Generator) emitWsDialConnectBody() {
 	g.line(fmt.Sprintf("  call i64 @__kylix_ws_sendall(i32 %s, ptr %s, i64 %s)", fdi, req, reqLen))
 	// ---- return half-open handle {fd, isServer=0, key}
 	ws := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 24)", ws))
+	g.line(fmt.Sprintf("  %s = %s", ws, g.mallocCall("24")))
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", fd, ws))
 	svLoc := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", svLoc, ws))
@@ -355,7 +355,7 @@ func (g *Generator) emitWsAcceptBody() {
 	expect := g.wsAcceptKey(key)
 	// reply 101 (strcat chain — snprintf's varargs hit the LLVM -O0 spill bug)
 	rbuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 256)", rbuf))
+	g.line(fmt.Sprintf("  %s = %s", rbuf, g.mallocCall("256")))
 	g.line(fmt.Sprintf("  store i8 0, ptr %s", rbuf))
 	cat101 := func(s string) {
 		sc := g.addString(s)
@@ -370,7 +370,7 @@ func (g *Generator) emitWsAcceptBody() {
 	g.line(fmt.Sprintf("  call i64 @__kylix_ws_sendall(i32 %s, ptr %s, i64 %s)", fdi, rbuf, rl))
 	// build handle {fd, isServer=1}
 	ws := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 16)", ws))
+	g.line(fmt.Sprintf("  %s = %s", ws, g.mallocCall("16")))
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", fd, ws))
 	wsSv := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", wsSv, ws))

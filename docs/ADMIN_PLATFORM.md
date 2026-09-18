@@ -59,6 +59,8 @@
 
 **结论：不完全匹配。** Web 核心闭环（路由/DI/校验/ORM/JWT/模板）完整，但真实后台系统所需的工程层（session/CSRF/上传/分页/layout）缺四块硬前置——由本平台倒逼补齐（并入 v0.9.0 P1）。
 
+**运行时内存前置（issue #1，并入 v0.10.0）**：后台平台是长跑常驻 server，而 LLVM 后端当前无 GC 且语言无 Free/Dispose——用户对象每请求累积泄漏（框架 buffer 已由 per-request arena 覆盖）。v0.10.0 第一步集成 Boehm GC（`-gc=boehm`）作为本平台的硬前置，详见 ROADMAP.md v0.10.0 节。
+
 ---
 
 ## 三、数据库策略（两阶段）

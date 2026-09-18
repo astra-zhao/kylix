@@ -302,7 +302,7 @@ func (g *Generator) emitMapIndexPut(idx *ast.IndexExpression, valReg string, val
 // string→string, so we stringify integers on store.
 func (g *Generator) emitIntToStrReg(valReg string) string {
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 32)", buf))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall("32")))
 	fmtStr := g.addString("%lld")
 	fmtPtr := g.ptrTo(fmtStr, 5)
 	g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 32, ptr %s, i64 %s)", buf, fmtPtr, valReg))

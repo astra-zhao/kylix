@@ -565,7 +565,7 @@ func (g *Generator) emitStringInterpolation(e *ast.StringInterpolation) (string,
 	size := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", size, total))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, size))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(size)))
 	g.line(fmt.Sprintf("  store i8 0, ptr %s", buf))
 
 	// ---- pass 2: concatenate

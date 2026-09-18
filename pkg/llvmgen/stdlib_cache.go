@@ -67,7 +67,7 @@ func (g *Generator) emitCacheNowMsBody() {
 	g.line("define i64 @__kylix_now_ms() {")
 	g.line("entry:")
 	tv := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 16)", tv))
+	g.line(fmt.Sprintf("  %s = %s", tv, g.mallocCall("16")))
 	g.line(fmt.Sprintf("  call i32 @gettimeofday(ptr %s, ptr null)", tv))
 	secPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 0", secPtr, tv))
@@ -180,7 +180,7 @@ func (g *Generator) emitCacheNewCacheCall(args []ast.Expression) (string, string
 	}
 	g.needHashtab = true
 	h := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 24)", h))
+	g.line(fmt.Sprintf("  %s = %s", h, g.mallocCall("24")))
 	htab := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_new()", htab))
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", htab, h))
@@ -263,7 +263,7 @@ func (g *Generator) emitCachePutBody() {
 	exp := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, %%ttlMs", exp, now))
 	rec := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 8)", rec))
+	g.line(fmt.Sprintf("  %s = %s", rec, g.mallocCall("8")))
 	g.line(fmt.Sprintf("  store i64 %s, ptr %s", exp, rec))
 	g.line(fmt.Sprintf("  call void @__kylix_htab_put(ptr %s, ptr %%k, ptr %s)", ttl, rec))
 	g.line(fmt.Sprintf("  br label %%%s", doneLbl))

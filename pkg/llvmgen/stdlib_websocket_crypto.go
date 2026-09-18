@@ -35,7 +35,7 @@ func (g *Generator) emitWsSha1Body() {
 	g.line(fmt.Sprintf("  %s = add i64 %s, 64", pl4, pl3))
 	padLen := pl4
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", buf, padLen))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(padLen)))
 	g.needMemcpy = true
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %%data, i64 %%len)", buf))
 	// buf[len] = 0x80
@@ -101,7 +101,7 @@ func (g *Generator) emitWsSha1Body() {
 	g.line(fmt.Sprintf("  store i32 -1009589776, ptr %s", hs[4])) // 0xC3D2E1F0
 	// w[80] i32 buffer
 	wBuf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 320)", wBuf))
+	g.line(fmt.Sprintf("  %s = %s", wBuf, g.mallocCall("320")))
 
 	// ---- per-block loop
 	blkSlot := g.tmp()
@@ -342,7 +342,7 @@ func (g *Generator) emitWsB64Body() {
 	ol4 := g.tmp()
 	g.line(fmt.Sprintf("  %s = add i64 %s, 1", ol4, ol3))
 	out := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %s)", out, ol4))
+	g.line(fmt.Sprintf("  %s = %s", out, g.mallocCall(ol4)))
 	iSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
 	g.line(fmt.Sprintf("  store i64 0, ptr %s", iSlot))

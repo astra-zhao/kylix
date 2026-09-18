@@ -368,7 +368,7 @@ func (g *Generator) emitBootRandHexBody() {
 	c("  %s = shl i64 %s, 1", twice, n)
 	outLen := g.tmp()
 	c("  %s = add i64 %s, 1", outLen, twice)
-	c("  %s = call ptr @malloc(i64 %s)", out, outLen)
+	c("  %s = %s", out, g.mallocCall(outLen))
 	hexTable := g.ptrTo(g.addString("0123456789abcdef"), 17)
 	iSlot := g.tmp()
 	c("  %s = alloca i64, align 8", iSlot)
@@ -747,7 +747,7 @@ func (g *Generator) emitBootCsrfCheckBody() {
 	c("  %s = sub i64 %s, %s", tokLen, crAddr, hvAddr)
 	g.needMemcpy = true
 	hbuf := g.tmp()
-	c("  %s = call ptr @malloc(i64 %s)", hbuf, tokLen)
+	c("  %s = %s", hbuf, g.mallocCall(tokLen))
 	c("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", hbuf, hv, tokLen)
 	hterm := g.tmp()
 	c("  %s = getelementptr inbounds i8, ptr %s, i64 %s", hterm, hbuf, tokLen)

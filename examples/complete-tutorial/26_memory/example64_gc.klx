@@ -1,0 +1,60 @@
+program Example64_GC;
+
+// example64_gc - memory pressure example (v0.10.0, issue #1).
+//
+// Each outer round creates a burst of garbage: short strings repeatedly
+// doubled through concat (every + allocates a fresh buffer), plus one fresh
+// TAccum object. Only the running checksum survives the round. The output
+// is a pure functional checksum, byte-identical across all three backends
+// (Go / LLVM / bootstrap).
+//
+// With LLVM --gc=boehm the garbage is reclaimed automatically by the Boehm
+// conservative GC, so long-running memory stays bounded (CI asserts maxRSS).
+// The default malloc mode behaves identically functionally - garbage is
+// only reclaimed at process exit, so its RSS grows with total allocation.
+
+type
+  TAccum = class
+  public
+    Total: Integer;
+    procedure Add(v: Integer);
+    begin
+      self.Total := self.Total + v;
+    end;
+  end;
+
+var
+  i: Integer;
+  j: Integer;
+  t: String;
+  acc: TAccum;
+  grand: Integer;
+begin
+  grand := 0;
+  for i := 1 to 2500 do
+  begin
+    for j := 1 to 40 do
+    begin
+      t := 'item-' + IntToStr(i) + '-' + IntToStr(j) + '-payloadpadding-x';
+      t := t + t;
+      t := t + t;
+      t := t + t;
+      grand := grand + Length(t);
+    end;
+    acc := TAccum.Create;
+    acc.Add(grand);
+    if i = 625 then
+    begin
+      WriteLn('checkpoint ', i, ' grand=', grand);
+    end;
+    if i = 1250 then
+    begin
+      WriteLn('checkpoint ', i, ' grand=', grand);
+    end;
+    if i = 1875 then
+    begin
+      WriteLn('checkpoint ', i, ' grand=', grand);
+    end;
+  end;
+  WriteLn('done: grand=', grand, ' sample=', Length(t), ' total=', acc.Total);
+end.

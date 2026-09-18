@@ -577,7 +577,7 @@ func (g *Generator) emitDatetimeFormatDateBody() {
 	g.emitLocaltimeCall(tmPtr, "%self", tmBuf)
 	// Allocate buffer for formatted string (20 bytes enough for "YYYY-MM-DD")
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 20)", buf))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall("20")))
 	// Format string "%Y-%m-%d" (YYYY-MM-DD)
 	fmtStr := g.addString("%Y-%m-%d")
 	fmtPtr := g.ptrTo(fmtStr, 9)

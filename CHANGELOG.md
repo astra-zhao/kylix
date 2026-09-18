@@ -12,6 +12,16 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
+## v0.10.0 — KylixAdmin（进行中）
+
+### P0 LLVM 后端 Boehm GC（issue #1，进行中）
+
+- **背景**：GitHub issue #1 指出核心问题——Go 后端靠 Go GC 自动回收，LLVM 后端却**既无 GC 也无 Free/Dispose**（用户连自救入口都没有），同一源码两后端内存语义不一致，长跑程序用户对象持续累积。认账为缺陷，方向定为自动回收（不走手动 Free 路线：与 Go 后端语义无法对齐 + 会被 1.0 API 冻结锁死）。
+- **`--gc=boehm`**（opt-in）：用户数据分配点（类构造/record/字符串/动态数组/Variant box/闭包环境/map/htab keys + stdlib 返回给用户的 buffer，共 ~90 处）路由到 `GC_malloc`（Boehm 保守 GC，自带清零），链接 `-lgc`；**默认 malloc 模式 IR 逐字节不变**（IR 不动点与烘焙数据不受影响）。
+- **边界处理**：内部临时 buffer（配对 `free` 的 ~15 处，boot_pages 静态服务/httpclient header/websocket 发送帧/sysutil scratch 等）保持 malloc/free 原样（GC 内存传 libc free 是 UB）；`TcpRead` 失败路径与 jsonutil 解析扩容两处混合点在 GC 模式下不发射 free；httpclient 响应缓冲 realloc → `GC_realloc`；`--gc=boehm` + windows 目标显式报错（llvm-mingw 无 libgc）。
+- **CLI/工具链**：`build`/`run` 新增 `--gc` flag；增量缓存指纹（`irCacheKey`/`ComputeCacheKey`）纳入 GC 选项；`kylix doctor` 补 libgc 探测（brew `bdw-gc` / apt `libgc-dev`）。
+- **example64_gc**（`26_memory/`）：垃圾分配压力示例（2500 轮 × 40 次字符串翻倍拼接 + 每轮新建对象，~60MB 垃圾；仅用教程已覆盖特性，保证三端可编译），三端输出 parity；LLVM sweep 特判 `--gc=boehm` 编译 + 输出与默认构建逐字 diff（Go sweep 58/58、LLVM sweep 58/58）；实测 maxRSS 默认 62MB vs GC 22MB；CI（linux amd64/darwin）新增 GC E2E 步——maxRSS < 128MB 断言，CI 依赖补 `libgc-dev`/`bdw-gc`/`time`。
+
 ## v0.9.0 — 1.0.0-rc 打磨 ✅（2026-09-18 发布）
 
 ### P1.6 模板 layout/partials ✅

@@ -37,7 +37,7 @@ func ComputeCacheKey(srcFile string, opts CompileOpts, depHashes []string) (Cach
 	}
 	h.Write(src)
 	// Options affect codegen output.
-	fmt.Fprintf(h, "opt=%s|debug=%v", opts.OptLevel, opts.DebugInfo)
+	fmt.Fprintf(h, "opt=%s|debug=%v|gc=%s", opts.OptLevel, opts.DebugInfo, opts.GC)
 	// Dependency signatures (unit files merged in for multi-file builds).
 	for _, dh := range depHashes {
 		h.Write([]byte(dh))
@@ -118,7 +118,7 @@ func (c *CacheStore) Put(key CacheKey, srcObj string) error {
 func irCacheKey(ir string, opts CompileOpts) CacheKey {
 	h := sha256.New()
 	h.Write([]byte(ir))
-	fmt.Fprintf(h, "opt=%s|debug=%v|target=%s", opts.OptLevel, opts.DebugInfo, opts.Target)
+	fmt.Fprintf(h, "opt=%s|debug=%v|target=%s|gc=%s", opts.OptLevel, opts.DebugInfo, opts.Target, opts.GC)
 	return CacheKey(hex.EncodeToString(h.Sum(nil)))
 }
 
