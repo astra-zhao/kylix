@@ -84,11 +84,14 @@
 | 模板 layout | `{{<layout "base.tpl">}}` 继承 + `{{> partial}}` 包含（template_engine.klx 三端同源扩展） | template_engine.klx |
 | 下载 | `Response.Download(path, filename)` / CSV 流式导出 | 双端 |
 
-### P2 认证与 RBAC（平台骨架）
+### P2 认证与 RBAC（平台骨架）✅（v0.10.0，2026-09-19）
 
-- 登录/登出/会话管理：Pbkdf2Compare 验证（PBKDF2-HMAC-SHA256，默认 210000 迭代）+ Session + CSRF + 失败 5 次锁 15 分钟 + Remember-me（30 天）
-- RBAC 完整模型：用户 / 角色 / 权限点 / 用户-角色 / 角色-权限 五表 + `[Role("admin")]` 守卫贯通 + 菜单按权限渲染
-- 审计：登录日志（IP/UA/成败）+ 操作日志（谁/何时/对什么/做了什么，中间件自动记录写操作）
+- 登录/登出/会话管理：Pbkdf2Compare 验证（PBKDF2-HMAC-SHA256，默认 210000 迭代）+ Session（登录成功 Regenerate 防固定）+ CSRF + 失败 5 次锁 15 分钟（users 表持久化，跨重启）+ Remember-me（30 天）
+- RBAC 完整模型：用户 / 角色 / 权限点 / 用户-角色 / 角色-权限 五表 + `[Role("admin")]` 守卫真体化（LLVM 端原为空桩，本版换真体——session `__roles` 判断）+ `__perms` 登录快照 + 菜单按权限渲染
+- 审计：登录日志 login_logs（IP/UA/成败/原因）+ 操作日志 op_logs（变更路由调用点记录 method/path/username/ip——TRequest 无 Method/Path 槽，中间件形态留 P3）
+- **落地**：`apps/admin/` 纯 Kylix 双端同源——lib/{admindb,adminsec,audit}.klx + main.klx（4 控制器 15 路由）+ views/ 5 模板（`{{< base}}` layout）+ static/admin.css 自研 CSS
+- **双端 E2E**：`apps/admin/e2e.sh`——Go/LLVM 形态各跑同一 12 场景 curl 序列，归一化 transcript 逐字 diff；CI `admin-e2e` job；**不进三教程 sweep**（计数不变）
+- 限制（文档化）：会话存内存（重启失效）、CSRF token 成功 POST 后轮换、改角色需重登录、bootstrap 端 `[Role]` 守卫缺烘焙 define（编译期报错，host 专属）
 
 ### P3 通用 CRUD 引擎（生产力核心）
 

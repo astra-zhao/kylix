@@ -217,10 +217,10 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
   - [x] CI 验证：linux/darwin job 装 libgc（apt/brew）+ example64 `--gc=boehm` E2E + 输出 parity 断言；windows 交叉默认路径不受影响（未装 libgc 时 `--gc=boehm` 报明确错误而非链接炸）；`kylix doctor` 补 libgc 探测项
   - [x] 文档：README/llvm-backend.md 更新内存语义（自动回收选项 + limitation 收窄）
   - 方向承诺：**不走手动 Free/Dispose 路线**（与 Go 后端语义无法对齐 + 会被 1.0 API 冻结锁死），1.0.0 前「内存自动回收、语言不提供 Free/Dispose」写入 [API_STABILITY.md](docs/API_STABILITY.md)；长期评估 ARC 作确定性回收选项（嵌入式/移动端友好）
-- [ ] 登录/登出/会话管理（BCrypt + Session + CSRF + 失败锁定 + Remember-me）
-- [ ] RBAC 完整模型（用户/角色/权限点 五表 + `[Role]` 守卫 + 菜单按权限渲染）
-- [ ] 审计（登录日志 + 操作日志中间件自动记录写操作）
-- [ ] 用户/角色管理页（sqlite，`apps/admin/` 起步）
+- [x] 登录/登出/会话管理（**PBKDF2-HMAC-SHA256 替代 BCrypt**——Go/LLVM 哈希格式跨形态兼容 + Session（登录后 Regenerate 防固定）+ CSRF + 失败锁定（users 表持久化，5 次锁 15 分钟，跨重启）+ Remember-me 30 天）✅
+- [x] RBAC 完整模型（用户/角色/权限点 五表 + `[Role]` 守卫真体化（LLVM 端原为空桩）+ `__perms` 登录快照 + 菜单按权限渲染）✅
+- [x] 审计（登录日志 login_logs + 操作日志 op_logs，变更路由调用点记录）✅
+- [x] 用户/角色管理页（sqlite，`apps/admin/`：4 控制器 15 路由 + 5 视图模板 + 自研 CSS；**双端 E2E** `apps/admin/e2e.sh`——Go/LLVM 同源 Kylix 代码跑同一 12 场景 curl 序列，归一化 transcript 逐字 diff + CI `admin-e2e` job）✅
 
 ### v0.11.0 — KylixAdmin P3 后半 + P4
 - [ ] 通用 CRUD 引擎（扫 `[Entity]` 元数据驱动：列表/表单/详情/删除自动产出，新增实体只需 Entity + 一行注册）

@@ -349,7 +349,15 @@ func (g *Generator) emitHashtabPut() {
 	// insert path
 	g.line(fmt.Sprintf("%s:", insertLbl))
 	newNode := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @malloc(i64 %d)", newNode, htabNodeSize))
+	// v0.10.0 P2: the node MUST use the same allocator as the key/value
+	// buffers (htab_strdup → mallocCall). Under --gc=boehm the strdup'd
+	// key/value are GC objects whose ONLY reference lives inside the node;
+	// a malloc'd node is invisible to the collector, so it never pins them
+	// and a mid-run collection swept live session/map entries (KylixAdmin
+	// E2E: Unauthorized after GC pressure, and a segfault variant). With the
+	// node GC'd too, the chain table→buckets→node→key/value is fully
+	// traceable; htab_del/htab_clear skip the free under GC.
+	g.line(fmt.Sprintf("  %s = %s", newNode, g.mallocCall(fmt.Sprintf("%d", htabNodeSize))))
 	// strdup(key) into node->key
 	keyField := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 0", keyField, newNode))
@@ -546,7 +554,11 @@ func (g *Generator) emitHashtabDel() {
 	prevPtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", prevPtr, prevSlot))
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", nextVal, prevPtr))
-	g.line(fmt.Sprintf("  call void @free(ptr %s)", cur))
+	// GC mode: the node is GC_malloc'd — libc free on it is UB; the
+	// collector reclaims the unlinked chain instead.
+	if !g.gcOn() {
+		g.line(fmt.Sprintf("  call void @free(ptr %s)", cur))
+	}
 	sizePtr := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %%t, i64 16", sizePtr))
 	curSize := g.tmp()
@@ -624,7 +636,10 @@ func (g *Generator) emitHashtabClear() {
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 16", nextField, node))
 	nxt := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", nxt, nextField))
-	g.line(fmt.Sprintf("  call void @free(ptr %s)", node))
+	// GC mode: nodes are GC_malloc'd — no free (see htab_del).
+	if !g.gcOn() {
+		g.line(fmt.Sprintf("  call void @free(ptr %s)", node))
+	}
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", nxt, nodeSlot))
 	g.line(fmt.Sprintf("  br label %%%s", innerCond))
 	g.line("bucket_done:")

@@ -758,6 +758,7 @@ type
 
 var
   db: TDatabase;
+  port: Integer;
 
 begin
   db := AdminOpen('admin.db');
@@ -766,6 +767,9 @@ begin
   BootUseCSRF();
   BootStatic('static');
   BootNotFoundPage('<html><body><h1>404 Not Found</h1><p><a href="/login">Sign in</a></p></body></html>');
-  WriteLn('kylixadmin listening on :8090');
-  BootRun(8090);
+  port := StrToInt(GetEnv('KYADMIN_PORT'));
+  if port = 0 then
+    port := 8090;
+  WriteLn('kylixadmin listening on :' + IntToStr(port));
+  BootRun(port);
 end.

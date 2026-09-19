@@ -22,7 +22,17 @@ All notable changes to the Kylix compiler are documented in this file.
 - **CLI/工具链**：`build`/`run` 新增 `--gc` flag；增量缓存指纹（`irCacheKey`/`ComputeCacheKey`）纳入 GC 选项；`kylix doctor` 补 libgc 探测（brew `bdw-gc` / apt `libgc-dev`）。
 - **example64_gc**（`26_memory/`）：垃圾分配压力示例（2500 轮 × 40 次字符串翻倍拼接 + 每轮新建对象，~60MB 垃圾；仅用教程已覆盖特性，保证三端可编译），三端输出 parity；LLVM sweep 特判 `--gc=boehm` 编译 + 输出与默认构建逐字 diff（Go sweep 58/58、LLVM sweep 58/58）；实测 maxRSS 默认 62MB vs GC 22MB；CI（linux amd64/darwin）新增 GC E2E 步——maxRSS < 128MB 断言，CI 依赖补 `libgc-dev`/`bdw-gc`（darwin job 曾因 brew 无 `time` formula 挂——E2E 只用系统 /usr/bin/time，已删）。**CI 10 job 全绿（run 35350407964）：GC E2E maxRSS linux amd64 20MB / darwin 21MB，selfrepro fixpoint 不动点复验绿**。
 
+### P2 KylixAdmin 认证与 RBAC（✅ 2026-09-19 完成，双端同步）
+
+- **认证地基双端**：`Pbkdf2Hash/Pbkdf2Compare`（crypto，Go x/crypto/pbkdf2 + LLVM OpenSSL PKCS5_PBKDF2_HMAC，信封 `pbkdf2$sha256$<iter>$<hex_salt>$<hex_out>`，默认 210000 迭代）替代 BCryptHash（弃用——Go/LLVM 哈希格式跨形态不兼容，sqlite 无法共享）；`req.SessionRegenerate()` 双端（登录成功换 SID 防固定）；`[Authenticated]` 守卫 session-first（Go 端 Bearer/JWT 路径保留为回退）；`[Role]` 守卫真体化（LLVM 端原为空桩——`stdlib_boot.go` 永远放行，本版换真体：session `__roles` 逗号包含判断，未命中 403）。
+- **apps/admin/ 落地**（纯 Kylix，Go/LLVM 双端同源）：`lib/admindb.klx`（五表 DDL users/roles/permissions/user_roles/role_permissions + 两日志表 login_logs/op_logs + 种子 admin/GetEnv KYADMIN_PASSWORD）、`lib/adminsec.klx`（DoLogin 锁检查→Pbkdf2Compare→失败计数/锁定（users 表持久化，5 次锁 15 分钟跨重启）→成功 Regenerate + 写 `__user/__roles/__perms`；ClientIP XFF→X-Real-IP→unknown；HasPerm 哨兵逗号边界匹配）、`lib/audit.klx`（WriteOpLog + 分页 offset）、`main.klx`（4 控制器 15 路由：login/logout/dashboard/users CRUD/roles CRUD 含权限复选/logs 双表页）、5 视图模板（layout `{{< base}}`）+ 自研 admin.css。
+- **双端 E2E**（`apps/admin/e2e.sh`）：Go 形态（codegen → `go build`）与 LLVM 形态（`--gc=boehm`，缺 libgc 回退 malloc）各跑同一 **12 场景 curl 序列**（登录页 200+CSRF+cookie / 错口令+login_logs / admin 登录四页 200 / 建号+op_logs / 删除守卫（种子 admin/本人 403）/ 无权限 403 / 无 CSRF 403 / 无会话 401 / remember Max-Age=2592000 / 5 连错锁定→正确口令仍锁 / logs 页 / logout 旧 cookie 401），transcript 只含确定性 key=value（token/SID/时间戳不进 transcript）后逐字 diff。CI 新增 `admin-e2e` job。**不进三教程 sweep**（Go 58/58、LLVM 58/58、bootstrap 57 PASS + 1 SKIP 计数不变）。
+- **编译器配套修复**：`pkg/llvmgen/stmt.go` emitVarDecl 显式 opaque 类型本地声明（`db: TDatabase`）归一 ptr（原走 LLVMType i64 回退，stdlib DB 调用点类型错配）；`pkg/llvmgen/stdlib_datetime.go` 补 `TDateTime.Unix` 真体（原 stub 返回常量 0）；**`pkg/llvmgen/stdlib_hashtab.go` GC 混搭修复**——`--gc=boehm` 下 htab 节点走裸 malloc 而 key/value strdup 走 GC_malloc，GC 不扫 malloc 内存导致活会话/活 map 数据的唯一引用不可达、中途回收即错收（admin E2E 首跑段崩溃、二跑会话蒸发的根因；用户 map 同受影响）；修复：GC 模式节点改 GC_malloc 且 htab_del/htab_clear 跳过 free（gate 在 g.gc，默认 malloc 模式 IR 逐字节不变，不动点复验 267,261 行一致）。
+- **bootstrap 形态差异**（文档化）：bootstrap 端 `[Role]` 守卫（BootEnforceRole）无烘焙 define，程序使用会编译期报 undefined 符号——host 专属（同 v0.9.0 已知债 FileBytes/Download 等）。
+- **限制**：会话存内存（重启失效）、CSRF token 成功 POST 后轮换、`__perms` 登录快照（改角色需重登录）、op_logs 为调用点静态路由记录（TRequest 无 Method/Path 槽）。
+
 ## v0.9.0 — 1.0.0-rc 打磨 ✅（2026-09-18 发布）
+
 
 ### P1.6 模板 layout/partials ✅
 
