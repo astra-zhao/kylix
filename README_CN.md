@@ -103,14 +103,51 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后�
 
 ### 方式一：下载预编译二进制（GitHub Release）
 
-每个 Release 附带 linux/amd64、linux/arm64、darwin/amd64、darwin/arm64、windows/amd64 预编译二进制，以及各平台的 **bootstrap tarball**（自举原生编译器 `main_self`，无需 Go）：
+每个 Release 附带这些资产：
+
+| 资产 | 内容 |
+|---|---|
+| `kylix-linux-amd64` / `kylix-linux-arm64` / `kylix-darwin-amd64` / `kylix-darwin-arm64` / `kylix-windows-amd64.exe` | `kylix` CLI（单个 Go 二进制——内置 Go 后端；LLVM 后端需本机工具链，见下） |
+| `kylix-bootstrap-linux-amd64.tar.gz` / `kylix-bootstrap-macos-arm64.tar.gz` | **自举编译器** `main_self`——Kylix 自己编译自己，纯原生二进制**运行时无 Go 依赖**，附 `USAGE.md`（[docs/BOOTSTRAP_USAGE.md](docs/BOOTSTRAP_USAGE.md)） |
+| `llvm-mingw-ucrt-x86_64.zip` | Windows 原生 LLVM 工具链（llc/opt/clang + mingw-w64 sysroot），供 Windows 端 LLVM 后端使用 |
+
+**Linux / macOS**（选择对应平台资产）：
 
 ```bash
-gh release download v0.9.0          # 或到 Releases 页面下载
-chmod +x kylix-*                    # 重命名为 kylix，放入 PATH
+gh release download v0.9.0 -p 'kylix-linux-amd64'    # 或到 Releases 页面下载
+mv kylix-linux-amd64 kylix && chmod +x kylix
+sudo mv kylix /usr/local/bin/    # 或任意 PATH 目录
+./kylix doctor                   # 诊断 go / llc / clang / opt / sqlite3 / curl / openssl
 ```
 
-说明：`kylix` 二进制内置 LLVM 后端的 IR 生成，但链接仍需本机 `llc` + `clang`（见下）；bootstrap tarball 运行时另需 `libcrypto`/`libsqlite3`/`libcurl`。
+macOS 注意：
+
+- 若用**浏览器**下载，二进制会带 Gatekeeper 隔离属性、启动即被杀——执行一次
+  `xattr -dr com.apple.quarantine kylix` 即可（curl/`gh` 下载不受影响）
+- LLVM 后端需 `brew install llvm`（确保 `llc`/`clang` 在 PATH 上）；机器上没有
+  Go 工具链时 `kylix run` 会自动回退 LLVM 后端
+
+**Windows**：
+
+```bat
+ren kylix-windows-amd64.exe kylix.exe
+kylix.exe doctor
+```
+
+- Go 后端需要 Go 工具链；**LLVM 后端**需下载 `llvm-mingw-ucrt-x86_64.zip` 资产，
+  解压后把其中 `bin\` 目录加入 `PATH`，或把解压出的工具链放到 `kylix.exe` 旁
+  （FindLLVM 也会在可执行文件旁找 `llvm\bin`）
+
+**Bootstrap tarball**（可选——无 Go 编译器）：
+
+```bash
+tar xzf kylix-bootstrap-macos-arm64.tar.gz    # main_self + USAGE.md
+```
+
+自举编译器在**没有 Go 工具链**的机器上把 Kylix 编译为 LLVM IR（
+`main_self --emit-llvm hello.klx`），再用 `llc`/`clang` 链接为原生二进制——
+完整链路与运行时库要求（`libcrypto`/`libsqlite3`/`libcurl`）见
+[docs/BOOTSTRAP_USAGE.md](docs/BOOTSTRAP_USAGE.md)。
 
 ### 方式二：源码构建
 

@@ -194,6 +194,7 @@ func (g *Generator) emitDbCloseBody() {
 //	    if arg is Integer: sqlite3_bind_int64(stmt, i, val)
 //	  sqlite3_step(stmt)
 //	  sqlite3_finalize(stmt)
+//
 // emitDbBindArgs evaluates args[offset:] and emits one sqlite3_bind_* call
 // per argument against the prepared statement (1-based bind indices):
 // String (ptr) args bind as text, Integer (i64) args bind as int64.

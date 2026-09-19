@@ -100,18 +100,54 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go or to native 
 
 ### Option 1: Download a prebuilt binary (GitHub Release)
 
-Every release ships prebuilt binaries for linux/amd64, linux/arm64,
-darwin/amd64, darwin/arm64 and windows/amd64, plus a **bootstrap tarball**
-(the self-hosted native compiler `main_self`, no Go required) per platform:
+Every release ships these assets:
+
+| Asset | What it is |
+|---|---|
+| `kylix-linux-amd64` / `kylix-linux-arm64` / `kylix-darwin-amd64` / `kylix-darwin-arm64` / `kylix-windows-amd64.exe` | the `kylix` CLI (single Go binary — Go backend built in; LLVM backend needs a local toolchain, see below) |
+| `kylix-bootstrap-linux-amd64.tar.gz` / `kylix-bootstrap-macos-arm64.tar.gz` | the **bootstrap compiler** `main_self` — Kylix compiled by itself, a pure native binary with **no Go at runtime** + a `USAGE.md` ([docs/BOOTSTRAP_USAGE.md](docs/BOOTSTRAP_USAGE.md)) |
+| `llvm-mingw-ucrt-x86_64.zip` | Windows-native LLVM toolchain for the LLVM backend on Windows (llc/opt/clang + mingw-w64 sysroot) |
+
+**Linux / macOS** (pick the asset matching your platform):
 
 ```bash
-gh release download v0.9.0          # or download from the Releases page
-chmod +x kylix-*                    # rename to `kylix`, put on PATH
+gh release download v0.9.0 -p 'kylix-linux-amd64'    # or from the Releases page
+mv kylix-linux-amd64 kylix && chmod +x kylix
+sudo mv kylix /usr/local/bin/    # or any directory on PATH
+./kylix doctor                   # verify go / llc / clang / opt / sqlite3 / curl / openssl
 ```
 
-Notes: the `kylix` binary bundles the LLVM backend's IR generation, but
-linking still needs `llc` + `clang` locally (see below); the bootstrap
-tarball additionally needs `libcrypto`/`libsqlite3`/`libcurl` at runtime.
+macOS notes:
+
+- if you downloaded the binary with a **browser** it carries Gatekeeper's
+  quarantine flag and will be killed on launch — clear it once:
+  `xattr -dr com.apple.quarantine kylix` (curl/`gh` downloads are unaffected)
+- the LLVM backend needs `brew install llvm` (ensure `llc`/`clang` are on
+  PATH); without a Go toolchain `kylix run` automatically falls back to LLVM
+
+**Windows**:
+
+```bat
+ren kylix-windows-amd64.exe kylix.exe
+kylix.exe doctor
+```
+
+- the Go backend needs a Go toolchain; for the **LLVM backend** download the
+  `llvm-mingw-ucrt-x86_64.zip` asset, unpack it, and either put its `bin\`
+  directory on `PATH` or place the unpacked toolchain next to `kylix.exe`
+  (FindLLVM also looks for `llvm\bin` beside the executable)
+
+**Bootstrap tarball** (optional — no-Go compiler):
+
+```bash
+tar xzf kylix-bootstrap-macos-arm64.tar.gz    # main_self + USAGE.md
+```
+
+The bootstrap compiler compiles Kylix to LLVM IR (`main_self --emit-llvm
+hello.klx`) with no Go toolchain installed; the IR is then lowered with
+`llc`/`clang` — the full loop and its runtime library requirements
+(`libcrypto`/`libsqlite3`/`libcurl`) are documented in
+[docs/BOOTSTRAP_USAGE.md](docs/BOOTSTRAP_USAGE.md).
 
 ### Option 2: Build from source
 
