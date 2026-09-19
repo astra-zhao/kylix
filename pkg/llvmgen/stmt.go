@@ -1162,6 +1162,18 @@ func (g *Generator) emitAssign(s *ast.AssignmentStatement) error {
 		actualType = "ptr"
 	} else if allocaReg == "%result" && t != "" {
 		actualType = t
+		// v0.10.0 P2: stdlib pseudo-type returns (TDatabase, TDateTime, ...)
+		// are ptr-backed handles. `result := DbOpenSQLite(...)` in a
+		// TDatabase-returning function used to emit an invalid
+		// `store TDatabase` — normalize to ptr, mirroring the var-decl
+		// inference normalization above.
+		switch actualType {
+		case "i1", "i64", "double", "ptr", "void":
+		default:
+			if !strings.HasPrefix(actualType, "{") && !strings.HasPrefix(actualType, "[") {
+				actualType = "ptr"
+			}
+		}
 	} else if gt, ok := g.globalTypes[varName]; ok {
 		// v0.5.4: global variable — use its declared LLVM type for the store.
 		actualType = gt

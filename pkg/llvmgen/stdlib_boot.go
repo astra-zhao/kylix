@@ -16,6 +16,11 @@ var bootOpaqueTypes = map[string]bool{
 	"TResponse":    true,
 	"BootRequest":  true,
 	"BootResponse": true,
+	// v0.10.0 P2: the db handle is opaque too — TDatabase in user-declared
+	// function signatures (AdminOpen etc.) must lower to ptr, not the i64
+	// fallback, or call sites type-mismatch against sqlite3_* (ptr...).
+	"TDatabase": true,
+	"Database":  true,
 }
 
 // stdlib_boot.go — LLVM IR for the `boot` (KylixBoot) stdlib module.
@@ -285,9 +290,10 @@ func (g *Generator) emitBootBody(funcName string) {
 		// Returns null = pass, or a 401 response handle on missing/invalid auth.
 		g.emitBootEnforceAuthBody()
 	case "BootEnforceRole":
-		g.line("define ptr @__kylix_boot_BootEnforceRole(ptr %req, ptr %role) {")
-		g.line("  ret ptr null")
-		g.line("}")
+		// v0.10.0 P2: real guard (replaces the always-pass stub) — checks the
+		// comma-separated __roles session key, mirroring Go EnforceRole's
+		// session-first path. null = pass, or a 403 response handle.
+		g.emitBootEnforceRoleBody()
 	case "BootReadJSON":
 		g.line("define i64 @__kylix_boot_BootReadJSON(ptr %req, ptr %dst) {")
 		g.line("  ret i64 0")
@@ -404,6 +410,9 @@ func (g *Generator) emitBootEnforceAuthBody() {
 	}
 	g.line("define ptr @__kylix_boot_BootEnforceAuth(ptr %req) {")
 	g.line("entry:")
+	// secretOp must be computed in the entry block: it emits a gep
+	// instruction, and the pass label below terminates with `ret` — any
+	// instruction after it would be dead-on-arrival inside the wrong block.
 	secretOp := ""
 	if g.bootJwtSecretConst != "" {
 		// Load the global's value (the string ptr) inside the function body.
@@ -413,6 +422,35 @@ func (g *Generator) emitBootEnforceAuthBody() {
 	} else {
 		secretOp = g.ptrTo(secretConst, 1)
 	}
+	// v0.10.0 P2 session-first (Go pkg/boot/security.go parity): a live
+	// session with a non-empty __user key passes without touching the
+	// Bearer path. Session may be null in exotic non-BootRun contexts —
+	// fall through to the Bearer check either way.
+	sess0 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", sess0, g.bootReqField("%req", 48)))
+	sessNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", sessNull, sess0))
+	userChkLbl := g.label()
+	bearerLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", sessNull, bearerLbl, userChkLbl))
+	g.line(fmt.Sprintf("%s:", userChkLbl))
+	userKey := g.ptrTo(g.addString("__user"), 7)
+	user := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", user, sess0, userKey))
+	userNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", userNull, user))
+	userLenChkLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", userNull, bearerLbl, userLenChkLbl))
+	g.line(fmt.Sprintf("%s:", userLenChkLbl))
+	ulen := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %s)", ulen, user))
+	uok := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ugt i64 %s, 0", uok, ulen))
+	passLbl0 := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", uok, passLbl0, bearerLbl))
+	g.line(fmt.Sprintf("%s:", passLbl0))
+	g.line("  ret ptr null")
+	g.line(fmt.Sprintf("%s:", bearerLbl))
 	headers := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", headers, g.bootReqField("%req", 16)))
 	// find "Authorization:" in the header block.
@@ -481,6 +519,86 @@ func (g *Generator) emitBootEnforceAuthBody() {
 	g.line(fmt.Sprintf("  ret ptr %s", denyRes))
 	g.line("}")
 	g.line("")
+}
+
+// emitBootEnforceRoleBody — ptr @__kylix_boot_BootEnforceRole(ptr %req,
+// ptr %role). v0.10.0 P2: reads the comma-separated __roles session key and
+// passes when any token equals %role (Go pkg/boot/security.go EnforceRole
+// session path parity; no JWT roles fallback on the LLVM side — documented).
+// null = pass; otherwise a {403, "Forbidden"} response handle. Assumes the
+// caller ran BootEnforceAuth first (the route guard prologue emits both).
+func (g *Generator) emitBootEnforceRoleBody() {
+	g.needHashtab = true
+	g.enqueueStdlib("boot", "BootText", "BootText", 0)
+	c := func(format string, args ...interface{}) { g.line(fmt.Sprintf(format, args...)) }
+	c("define ptr @__kylix_boot_BootEnforceRole(ptr %%req, ptr %%role) {")
+	c("entry:")
+	sess := g.tmp()
+	c("  %s = load ptr, ptr %s", sess, g.bootReqField("%req", 48))
+	sessNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", sessNull, sess)
+	chkKeyLbl := g.label()
+	denyLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", sessNull, denyLbl, chkKeyLbl)
+	// roles = session["__roles"] — absent ⇒ deny.
+	c("%s:", chkKeyLbl)
+	rolesKey := g.ptrTo(g.addString("__roles"), 8)
+	roles := g.tmp()
+	c("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", roles, sess, rolesKey)
+	rolesNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", rolesNull, roles)
+	loopInitLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", rolesNull, denyLbl, loopInitLbl)
+	// Walk the comma-separated tokens; match when a token equals %role.
+	c("%s:", loopInitLbl)
+	pSlot := g.tmp()
+	c("  %s = alloca ptr, align 8", pSlot)
+	c("  store ptr %s, ptr %s", roles, pSlot)
+	loopCondLbl := g.label()
+	c("  br label %%%s", loopCondLbl)
+	c("%s:", loopCondLbl)
+	p := g.tmp()
+	c("  %s = load ptr, ptr %s", p, pSlot)
+	comma := g.tmp()
+	c("  %s = call ptr @strchr(ptr %s, i32 44)", comma, p) // ','
+	commaNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", commaNull, comma)
+	// Token length: up to the comma, or strlen for the last token.
+	pAddr := g.tmp()
+	c("  %s = ptrtoint ptr %s to i64", pAddr, p)
+	commaAddr := g.tmp()
+	c("  %s = ptrtoint ptr %s to i64", commaAddr, comma)
+	diff := g.tmp()
+	c("  %s = sub i64 %s, %s", diff, commaAddr, pAddr)
+	pLen := g.tmp()
+	c("  %s = call i64 @strlen(ptr %s)", pLen, p)
+	tokLen := g.tmp()
+	c("  %s = select i1 %s, i64 %s, i64 %s", tokLen, commaNull, pLen, diff)
+	rLen := g.tmp()
+	c("  %s = call i64 @strlen(ptr %%role)", rLen)
+	lenEq := g.tmp()
+	c("  %s = icmp eq i64 %s, %s", lenEq, tokLen, rLen)
+	tokCmpLbl := g.label()
+	tokNextLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", lenEq, tokCmpLbl, tokNextLbl)
+	c("%s:", tokCmpLbl)
+	m := g.tmp()
+	c("  %s = call i32 @strncmp(ptr %s, ptr %%role, i64 %s)", m, p, tokLen)
+	mEq := g.tmp()
+	c("  %s = icmp eq i32 %s, 0", mEq, m)
+	passLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", mEq, passLbl, tokNextLbl)
+	c("%s:", tokNextLbl)
+	c("  br i1 %s, label %%%s, label %%%s", commaNull, denyLbl, loopCondLbl)
+	c("%s:", passLbl)
+	c("  ret ptr null")
+	c("%s:", denyLbl)
+	denyRes := g.tmp()
+	c("  %s = call ptr @__kylix_boot_BootText(i64 403, ptr %s)", denyRes,
+		g.ptrTo(g.addString("Forbidden"), 10))
+	c("  ret ptr %s", denyRes)
+	c("}")
+	c("")
 }
 
 func (g *Generator) emitBootStubCall(funcName string, args []ast.Expression, retType string) (string, string, error) {

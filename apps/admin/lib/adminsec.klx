@@ -1,0 +1,134 @@
+// adminsec.klx — KylixAdmin authentication core (v0.10.0 P2)
+//
+// DoLogin / DoLogout / ClientIP / HasPerm. Pure Kylix, both backends from
+// this one source. Session layout (framework keys are __-prefixed and
+// reserved; the framework owns __user/__roles, the app owns __perms):
+//   __user   username of the logged-in user
+//   __roles  comma-joined role names (read by the [Role] guard)
+//   __perms  comma-joined permission codes, snapshotted at login — role
+//            changes take effect on next login (documented behavior)
+unit adminsec;
+
+uses db, boot, datetime, crypto, admindb, stringutil;
+
+const
+  LockThreshold = 5;    // failed attempts before the account locks
+  LockSeconds = 900;    // 15 minutes
+
+// ClientIP resolves the caller IP: X-Forwarded-For -> X-Real-IP -> unknown.
+// (Both backends identically; RemoteAddr is deliberately not used.)
+function ClientIP(req: TRequest): String;
+begin
+  result := req.Header('X-Forwarded-For');
+  if result = '' then
+    result := req.Header('X-Real-IP');
+  if result = '' then
+    result := 'unknown';
+end;
+
+// HasPerm reports whether a comma-joined permission string contains the
+// exact code. Sentinel commas make it a boundary-safe token lookup.
+function HasPerm(perms: String; code: String): Boolean;
+begin
+  result := Contains(',' + perms + ',', ',' + code + ',');
+end;
+
+// BoolStr renders a flag as '1'/'0' for the template engine (its #if
+// treats '' and '0' as false, everything else true).
+function BoolStr(b: Boolean): String;
+begin
+  if b then
+    result := '1'
+  else
+    result := '0';
+end;
+
+// DoLogin validates credentials, enforces the failure lockout, writes
+// login_logs and establishes the session. Returns '' on success, or the
+// error message to show on the login form.
+//
+// Lockout is persisted in users (failed_attempts / locked_until), so it
+// survives restarts and behaves identically on both backends.
+function DoLogin(db: TDatabase; req: TRequest; username: String; password: String): String;
+var
+  now: Integer;
+  hash: String;
+  isActive: Integer;
+  failCount: Integer;
+  lockedUntil: Integer;
+  ip: String;
+  ua: String;
+  roles: String;
+  perms: String;
+begin
+  result := '';
+  now := Now().Unix();
+  ip := ClientIP(req);
+  ua := req.Header('User-Agent');
+  var rows := DbQueryRows(db, 'SELECT id, password, is_active, failed_attempts, locked_until FROM users WHERE username = ?', username);
+  if Length(rows) = 0 then
+  begin
+    WriteLoginLog(db, username, ip, ua, false, 'no such user');
+    result := 'Invalid username or password';
+  end
+  else
+  begin
+    hash := VariantToStr(rows[0]['password']);
+    isActive := StrToInt(VariantToStr(rows[0]['is_active']));
+    failCount := StrToInt(VariantToStr(rows[0]['failed_attempts']));
+    lockedUntil := StrToInt(VariantToStr(rows[0]['locked_until']));
+    if isActive = 0 then
+    begin
+      WriteLoginLog(db, username, ip, ua, false, 'account disabled');
+      result := 'Account disabled';
+    end
+    else if lockedUntil > now then
+    begin
+      WriteLoginLog(db, username, ip, ua, false, 'locked');
+      result := 'Account locked; try again later';
+    end
+    else if not Pbkdf2Compare(password, hash) then
+    begin
+      failCount := failCount + 1;
+      if failCount >= LockThreshold then
+      begin
+        DbExec(db, 'UPDATE users SET failed_attempts = ?, locked_until = ?, updated_at = ? WHERE username = ?', IntToStr(failCount), IntToStr(now + LockSeconds), IntToStr(now), username);
+        WriteLoginLog(db, username, ip, ua, false, 'locked after 5 failures');
+        result := 'Too many failed attempts; account locked for 15 minutes';
+      end
+      else
+      begin
+        DbExec(db, 'UPDATE users SET failed_attempts = ?, updated_at = ? WHERE username = ?', IntToStr(failCount), IntToStr(now), username);
+        WriteLoginLog(db, username, ip, ua, false, 'bad password');
+        result := 'Invalid username or password';
+      end;
+    end
+    else
+    begin
+      // success: reset counters, rotate the session (fixation defense) and
+      // record the login state.
+      roles := RolesOf(db, username);
+      perms := PermsOf(db, username);
+      DbExec(db, 'UPDATE users SET failed_attempts = 0, locked_until = 0, updated_at = ? WHERE username = ?', IntToStr(now), username);
+      req.SessionRegenerate();
+      req.SessionSet('__user', username);
+      req.SessionSet('__roles', roles);
+      req.SessionSet('__perms', perms);
+      if req.Form('remember') = '1' then
+        req.SessionMarkRemember();
+      WriteLoginLog(db, username, ip, ua, true, '');
+    end;
+  end;
+end;
+
+// DoLogout clears the login state and destroys the session server-side
+// (the framework also drops the cookie).
+procedure DoLogout(req: TRequest);
+begin
+  req.SessionDelete('__user');
+  req.SessionDelete('__roles');
+  req.SessionDelete('__perms');
+  req.SessionDestroy();
+end;
+
+end.

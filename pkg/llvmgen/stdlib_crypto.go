@@ -40,6 +40,10 @@ func (g *Generator) emitCryptoCall(funcName string, args []ast.Expression) (stri
 		return g.emitCryptoBcryptHashCall(args)
 	case "BCryptCompare":
 		return g.emitCryptoBcryptCompareCall(args)
+	case "Pbkdf2Hash":
+		return g.emitCryptoPbkdf2HashCall(args)
+	case "Pbkdf2Compare":
+		return g.emitCryptoPbkdf2CompareCall(args)
 	default:
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; crypto.%s not implemented", r, funcName))
@@ -64,6 +68,10 @@ func (g *Generator) emitCryptoBody(funcName string) {
 		g.emitCryptoBcryptHashBody()
 	case "BCryptCompare":
 		g.emitCryptoBcryptCompareBody()
+	case "Pbkdf2Hash":
+		g.emitCryptoPbkdf2HashBody()
+	case "Pbkdf2Compare":
+		g.emitCryptoPbkdf2CompareBody()
 	}
 }
 
@@ -746,6 +754,202 @@ func (g *Generator) emitCryptoBcryptCompareBody() {
 	g.line(fmt.Sprintf("  %s = call i32 @strcmp(ptr %s, ptr %s)", cmp, cHex, oHex))
 	eq := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", eq, cmp))
+	g.line(fmt.Sprintf("  ret i1 %s", eq))
+	g.line(fmt.Sprintf("%s:", retFalseLbl))
+	g.line("  ret i1 false")
+	g.line("}")
+	g.line("")
+}
+
+// ---- Pbkdf2Hash: ptr @__kylix_crypto_Pbkdf2Hash(ptr %password, i64 %iter) ----
+//
+//	v0.10.0 P2: the portable cross-backend password hash. Same envelope as
+//	BCryptHash ("pbkdf2$sha256$<field3>$<hex_salt(16B)>$<hex_out(32B)>") but
+//	field 3 is the DIRECT iteration count (BCrypt stores a log2 cost there —
+//	the two formats coexist; Pbkdf2Compare rejects BCrypt hashes because cost
+//	values sit below the minimum iteration count). iterations clamps to
+//	[1000, 2^24] — the stored value wins at verify time, so raising the
+//	default later needs no migration.
+func (g *Generator) emitCryptoPbkdf2HashCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("crypto.Pbkdf2Hash expects 2 arguments, got %d", len(args))
+	}
+	pwReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	itReg, itType, err := g.emitExpr(args[1])
+	if err != nil {
+		return "", "", err
+	}
+	if itType != "i64" {
+		c := g.tmp()
+		g.line(fmt.Sprintf("  %s = zext %s %s to i64", c, itType, itReg))
+		itReg = c
+	}
+	g.enqueueStdlib("crypto", "Pbkdf2Hash", "Pbkdf2Hash", 0)
+	g.needLibcrypto = true
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_crypto_Pbkdf2Hash(ptr %s, i64 %s)", r, pwReg, itReg))
+	return r, "ptr", nil
+}
+
+func (g *Generator) emitCryptoPbkdf2HashBody() {
+	g.line("define ptr @__kylix_crypto_Pbkdf2Hash(ptr %password, i64 %iter) {")
+	g.line("entry:")
+	// Clamp iterations to [1000, 16777216] (selects, no branches).
+	lo := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp slt i64 %%iter, %d", lo, 1000))
+	t1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, i64 %d, i64 %%iter", t1, lo, 1000))
+	hi := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sgt i64 %s, %d", hi, t1, 1<<24))
+	it := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, i64 %d, i64 %s", it, hi, 1<<24, t1))
+	// salt[16] — random; out[32] — PBKDF2 digest.
+	salt := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [16 x i8], align 1", salt))
+	g.line(fmt.Sprintf("  call i32 @RAND_bytes(ptr %s, i32 16)", salt))
+	out := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [32 x i8], align 1", out))
+	pl := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %%password)", pl))
+	plI32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = trunc i64 %s to i32", plI32, pl))
+	dg := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @EVP_sha256()", dg))
+	g.line(fmt.Sprintf("  call i32 @PKCS5_PBKDF2_HMAC(ptr %%password, i32 %s, ptr %s, i32 16, i64 %s, ptr %s, i32 32, ptr %s)", plI32, salt, it, dg, out))
+	sHex := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_crypto_hexbytes(ptr %s, i64 16)", sHex, salt))
+	oHex := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_crypto_hexbytes(ptr %s, i64 32)", oHex, out))
+	// Format "pbkdf2$sha256$<iter>$<salt_hex>$<out_hex>" into a 256-byte buf.
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall("256")))
+	fmtStr := g.addString("pbkdf2$sha256$%lld$%s$%s")
+	fmtPtr := g.ptrTo(fmtStr, 25)
+	g.line(fmt.Sprintf("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 256, ptr %s, i64 %s, ptr %s, ptr %s)", buf, fmtPtr, it, sHex, oHex))
+	g.line(fmt.Sprintf("  ret ptr %s", buf))
+	g.line("}")
+	g.line("")
+}
+
+// ---- Pbkdf2Compare: i1 @__kylix_crypto_Pbkdf2Compare(ptr %password, ptr %hash) ----
+//
+//	Parses the "pbkdf2$sha256$<iter>$<hex_salt>$<hex_out>" envelope with
+//	sscanf, rejects out-of-range iteration counts (fail closed — a crafted
+//	hash must not force a huge recompute), recomputes PBKDF2-HMAC-SHA256,
+//	and compares the 64 hex chars with an XOR accumulator — no early exit.
+func (g *Generator) emitCryptoPbkdf2CompareCall(args []ast.Expression) (string, string, error) {
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("crypto.Pbkdf2Compare expects 2 arguments, got %d", len(args))
+	}
+	pwReg, _, err := g.emitExpr(args[0])
+	if err != nil {
+		return "", "", err
+	}
+	hashReg, _, err := g.emitExpr(args[1])
+	if err != nil {
+		return "", "", err
+	}
+	g.enqueueStdlib("crypto", "Pbkdf2Compare", "Pbkdf2Compare", 0)
+	g.needLibcrypto = true
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i1 @__kylix_crypto_Pbkdf2Compare(ptr %s, ptr %s)", r, pwReg, hashReg))
+	return r, "i1", nil
+}
+
+func (g *Generator) emitCryptoPbkdf2CompareBody() {
+	g.ensureCryptoHexdecode()
+	g.line("define i1 @__kylix_crypto_Pbkdf2Compare(ptr %password, ptr %hash) {")
+	g.line("entry:")
+	// Parsed fields: iter (i64), salt_hex[33], out_hex[65].
+	itSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", itSlot))
+	sHex := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [33 x i8], align 1", sHex))
+	oHex := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [65 x i8], align 1", oHex))
+	// sscanf(hash, "pbkdf2$sha256$%lld$%32[^$]$%64[^$]", &iter, salt_hex, out_hex)
+	fmtStr := g.addString("pbkdf2$sha256$%lld$%32[^$]$%64[^$]")
+	fmtPtr := g.ptrTo(fmtStr, 35)
+	n := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 (ptr, ptr, ...) @sscanf(ptr %%hash, ptr %s, ptr %s, ptr %s, ptr %s)", n, fmtPtr, itSlot, sHex, oHex))
+	// If sscanf didn't match all 3 fields, bail with false.
+	ok := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 3", ok, n))
+	chkIterLbl := g.label()
+	retFalseLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", ok, chkIterLbl, retFalseLbl))
+	// Fail closed on out-of-range iterations (DoS guard).
+	g.line(fmt.Sprintf("%s:", chkIterLbl))
+	it := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", it, itSlot))
+	ge := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sge i64 %s, %d", ge, it, 1000))
+	le := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp sle i64 %s, %d", le, it, 1<<24))
+	valid := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i1 %s, %s", valid, ge, le))
+	proceedLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", valid, proceedLbl, retFalseLbl))
+	g.line(fmt.Sprintf("%s:", proceedLbl))
+	// salt = hexdecode(salt_hex); recompute the digest.
+	salt := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_crypto_hexdecode(ptr %s)", salt, sHex))
+	out := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [32 x i8], align 1", out))
+	pl := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %%password)", pl))
+	plI32 := g.tmp()
+	g.line(fmt.Sprintf("  %s = trunc i64 %s to i32", plI32, pl))
+	dg := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @EVP_sha256()", dg))
+	g.line(fmt.Sprintf("  call i32 @PKCS5_PBKDF2_HMAC(ptr %%password, i32 %s, ptr %s, i32 16, i64 %s, ptr %s, i32 32, ptr %s)", plI32, salt, it, dg, out))
+	// computed_hex = hexbytes(out, 32); constant-time compare vs stored hex.
+	cHex := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_crypto_hexbytes(ptr %s, i64 32)", cHex, out))
+	iSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", iSlot))
+	accSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i8, align 1", accSlot))
+	g.line(fmt.Sprintf("  store i8 0, ptr %s", accSlot))
+	condLbl := g.label()
+	bodyLbl := g.label()
+	doneLbl := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	g.line(fmt.Sprintf("%s:", condLbl))
+	i := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", i, iSlot))
+	more := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp slt i64 %s, 64", more, i))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", more, bodyLbl, doneLbl))
+	g.line(fmt.Sprintf("%s:", bodyLbl))
+	cp := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", cp, cHex, i))
+	cb := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", cb, cp))
+	op := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 %s", op, oHex, i))
+	ob := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", ob, op))
+	xb := g.tmp()
+	g.line(fmt.Sprintf("  %s = xor i8 %s, %s", xb, cb, ob))
+	acc0 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", acc0, accSlot))
+	acc1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i8 %s, %s", acc1, acc0, xb))
+	g.line(fmt.Sprintf("  store i8 %s, ptr %s", acc1, accSlot))
+	iNext := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", iNext, i))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", iNext, iSlot))
+	g.line(fmt.Sprintf("  br label %%%s", condLbl))
+	g.line(fmt.Sprintf("%s:", doneLbl))
+	acc := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i8, ptr %s", acc, accSlot))
+	eq := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 0", eq, acc))
 	g.line(fmt.Sprintf("  ret i1 %s", eq))
 	g.line(fmt.Sprintf("%s:", retFalseLbl))
 	g.line("  ret i1 false")

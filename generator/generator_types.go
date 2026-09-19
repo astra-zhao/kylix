@@ -610,6 +610,15 @@ func (g *Generator) generateTypeExpression(expr ast.Expression) {
 				return
 			}
 		}
+		if g.usedModules["db"] {
+			// v0.10.0 P2: TDatabase in declared types (parameters, returns,
+			// locals) — mirrors the boot TRequest/TResponse mapping above.
+			// The db function return-type table alone only covers inference.
+			if typeName == "TDatabase" || typeName == "Database" {
+				g.write("*stdlib.Database")
+				return
+			}
+		}
 		if g.usesPolymorphism && g.classIsBase[typeName] {
 			// v0.5.2: base class under polymorphism → interface (no pointer), so
 			// `[]TBase` holds subclasses and `x.(*TSub)` assertions are valid.

@@ -1,0 +1,120 @@
+// main.klx — KylixAdmin console (v0.10.0 P2: auth + RBAC foundation)
+//
+// Phase 2 slice: login/logout/lockout/remember-me + the session-first
+// [Authenticated] guard end to end. RBAC pages (users/roles/logs) and the
+// audit wrapper arrive in the phase 3 slice.
+//
+// Multi-file build (both backends, same sources):
+//   kylix build stdlib/stringutil.klx stdlib/template_engine.klx \
+//     apps/admin/lib/admindb.klx apps/admin/lib/adminsec.klx apps/admin/main.klx
+//
+// Run from apps/admin/ (views/ + static/ are relative paths); KYADMIN_DB
+// and KYADMIN_PASSWORD override the database path and seed password.
+program KylixAdmin;
+
+uses boot, db, admindb, adminsec, template, sysutil;
+
+[Controller('')]
+type
+  TAuthController = class
+    [Get('/login')]
+    function LoginPage(req: TRequest): TResponse;
+    var
+      eng: TTemplateEngine;
+      tpl: String;
+    begin
+      eng := TTemplateEngine.Create();
+      eng.AddVar('page_title', 'Sign in');
+      eng.AddVar('user', '');
+      eng.AddVar('csrf', req.SessionCSRFToken());
+      eng.AddVar('error', '');
+      eng.AddVar('nav_dashboard', '0');
+      eng.AddVar('nav_users', '0');
+      eng.AddVar('nav_roles', '0');
+      eng.AddVar('nav_logs', '0');
+      tpl := ReadFile('views/login.tpl');
+      eng.AddTemplate('base', ReadFile('views/base.tpl'));
+      result := BootHTML(200, eng.RenderString(tpl));
+    end;
+
+    [Post('/login')]
+    function LoginSubmit(req: TRequest): TResponse;
+    var
+      eng: TTemplateEngine;
+      tpl: String;
+      db: TDatabase;
+      user: String;
+      pass: String;
+      errMsg: String;
+    begin
+      user := req.Form('username');
+      pass := req.Form('password');
+      db := AdminOpen('admin.db');
+      errMsg := DoLogin(db, req, user, pass);
+      if errMsg <> '' then
+      begin
+        eng := TTemplateEngine.Create();
+        eng.AddVar('page_title', 'Sign in');
+        eng.AddVar('user', '');
+        eng.AddVar('csrf', req.SessionCSRFToken());
+        eng.AddVar('error', errMsg);
+        eng.AddVar('nav_dashboard', '0');
+        eng.AddVar('nav_users', '0');
+        eng.AddVar('nav_roles', '0');
+        eng.AddVar('nav_logs', '0');
+        tpl := ReadFile('views/login.tpl');
+        eng.AddTemplate('base', ReadFile('views/base.tpl'));
+        result := BootHTML(200, eng.RenderString(tpl));
+      end
+      else
+        result := BootHTML(302, '').Redirect('/dashboard');
+    end;
+
+    [Post('/logout')]
+    function Logout(req: TRequest): TResponse;
+    begin
+      DoLogout(req);
+      result := BootHTML(302, '').Redirect('/login');
+    end;
+  end;
+
+  TPageController = class
+    [Get('/dashboard')]
+    [Authenticated]
+    function Dashboard(req: TRequest): TResponse;
+    var
+      eng: TTemplateEngine;
+      tpl: String;
+      db: TDatabase;
+      perms: String;
+    begin
+      db := AdminOpen('admin.db');
+      perms := req.SessionGet('__perms');
+      eng := TTemplateEngine.Create();
+      eng.AddVar('page_title', 'Dashboard');
+      eng.AddVar('user', req.SessionGet('__user'));
+      eng.AddVar('csrf', req.SessionCSRFToken());
+      eng.AddVar('nav_dashboard', '1');
+      eng.AddVar('nav_users', BoolStr(HasPerm(perms, 'users.read')));
+      eng.AddVar('nav_roles', BoolStr(HasPerm(perms, 'roles.read')));
+      eng.AddVar('nav_logs', BoolStr(HasPerm(perms, 'logs.read')));
+      eng.AddVar('perms', perms);
+      tpl := ReadFile('views/dashboard.tpl');
+      eng.AddTemplate('base', ReadFile('views/base.tpl'));
+      result := BootHTML(200, eng.RenderString(tpl));
+    end;
+  end;
+
+var
+  db: TDatabase;
+
+begin
+  db := AdminOpen('admin.db');
+  EnsureSchema(db);
+  SeedIfEmpty(db);
+  BootUseCSRF();
+  BootStatic('static');
+  BootNotFoundPage('<html><body><h1>404 Not Found</h1><p><a href="/login">Sign in</a></p></body></html>');
+  WriteLn('kylixadmin listening on :8090');
+  BootRun(8090);
+end.

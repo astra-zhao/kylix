@@ -1016,6 +1016,9 @@ func (g *Generator) emitBootRequestMethodCall(req, method string, args []ast.Exp
 		return g.emitBootReqSessionMarkRemember(req, args)
 	case "SessionDestroy":
 		return g.emitBootReqSessionDestroy(req, args)
+	case "SessionRegenerate":
+		// v0.10.0 P2: rotate the session ID at login (fixation defense).
+		return g.emitBootReqSessionRegenerate(req, args)
 	case "SessionCSRFToken":
 		return g.emitBootReqSessionCSRFToken(req, args)
 	case "File":
@@ -1214,6 +1217,10 @@ func (g *Generator) emitBootReqHeader(req string, args []ast.Expression) (string
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", val0, valSlot))
 	trimLbl := g.label()
 	trimDoneLbl := g.label()
+	// v0.10.0 P2: the skip-space block used to be the hardcoded label "sp" —
+	// emitting this helper twice into one function (ClientIP reads XFF then
+	// X-Real-IP) duplicated the label and broke the module.
+	skipLbl := g.label()
 	g.line(fmt.Sprintf("  br label %%%s", trimLbl))
 	g.line(fmt.Sprintf("%s:", trimLbl))
 	valStart := g.tmp()
@@ -1226,8 +1233,8 @@ func (g *Generator) emitBootReqHeader(req string, args []ast.Expression) (string
 	g.line(fmt.Sprintf("  %s = icmp eq i8 %s, 9", isTb, sc))
 	isWs := g.tmp()
 	g.line(fmt.Sprintf("  %s = or i1 %s, %s", isWs, isSp, isTb))
-	g.line(fmt.Sprintf("  br i1 %s, label %%sp, label %%%s", isWs, trimDoneLbl))
-	g.line("sp:")
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isWs, skipLbl, trimDoneLbl))
+	g.line(fmt.Sprintf("%s:", skipLbl))
 	vs := g.tmp()
 	g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 1", vs, valStart))
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", vs, valSlot))

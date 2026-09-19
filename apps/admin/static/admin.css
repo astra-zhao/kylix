@@ -1,0 +1,106 @@
+/* admin.css — KylixAdmin (v0.10.0 P2). Self-contained, no CDN, dark-aware
+   via prefers-color-scheme. */
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --text: #1c2330;
+  --muted: #67707f;
+  --line: #d9dee5;
+  --accent: #2563eb;
+  --accent-contrast: #ffffff;
+  --danger: #b91c1c;
+  --danger-bg: #fee2e2;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b;
+    --panel: #1b202a;
+    --text: #e6e9ef;
+    --muted: #98a1b0;
+    --line: #2c3442;
+    --accent: #3b82f6;
+    --accent-contrast: #0b1020;
+    --danger: #f87171;
+    --danger-bg: #3f1d1d;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+.layout { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 200px;
+  flex: none;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.brand { font-weight: 700; font-size: 16px; padding: 0 8px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+.sidebar nav a {
+  color: var(--text);
+  text-decoration: none;
+  padding: 7px 10px;
+  border-radius: 6px;
+}
+.sidebar nav a:hover { background: var(--bg); }
+.logoutform { margin-top: auto; }
+.who { color: var(--muted); font-size: 13px; margin-bottom: 6px; padding: 0 8px; }
+.main { flex: 1; padding: 24px 28px; max-width: 960px; }
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 22px;
+}
+.muted { color: var(--muted); }
+code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+.loginbox {
+  max-width: 340px;
+  margin: 12vh auto 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 26px 28px;
+}
+.loginhead { font-weight: 700; font-size: 19px; margin-bottom: 16px; }
+label { display: block; margin: 12px 0 4px; font-size: 13px; color: var(--muted); }
+label.check { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
+input[name="username"], input[name="password"], input[type="text"], input[type="password"] {
+  width: 100%;
+  padding: 8px 10px;
+  margin-top: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+button {
+  margin-top: 16px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font: inherit;
+  cursor: pointer;
+}
+.alert {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-radius: 6px;
+  padding: 9px 12px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+table { width: 100%; border-collapse: collapse; background: var(--panel); }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }

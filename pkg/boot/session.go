@@ -105,6 +105,25 @@ func (r *Request) SessionMarkRemember() {
 	r.Session.CookieDirty = true
 }
 
+// SessionRegenerate rotates the session ID, preserving all session values.
+// Called at login to defeat session fixation: the pre-authentication session
+// entry (and its ID) is discarded server-side and a fresh ID takes over —
+// mirrors the LLVM @__kylix_boot_session_regen sequence (v0.10.0 P2).
+func (r *Request) SessionRegenerate() {
+	if r.Session == nil || r.Session.store == nil {
+		return
+	}
+	old := r.Session
+	newS := old.store.Create(old.Remember)
+	for k, v := range old.data {
+		newS.Set(k, v)
+	}
+	old.store.Delete(old.ID)
+	old.Destroyed = true // the middleware drops the old cookie value
+	newS.CookieDirty = true
+	r.Session = newS
+}
+
 // SessionDestroy deletes the session server-side and drops the cookie.
 func (r *Request) SessionDestroy() {
 	if r.Session == nil {

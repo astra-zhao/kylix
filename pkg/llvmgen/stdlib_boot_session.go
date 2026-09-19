@@ -57,12 +57,18 @@ const (
 )
 
 // bootDeclareSessionsGlobal emits the outer session-table global once.
+// v0.10.0 P2: buffered into pendingModuleGlobals instead of written with
+// g.line() — req.SessionRegenerate/SessionDestroy now reference this global
+// from user-function bodies, and a direct write would land the global line
+// inside the current define (invalid IR). Flushed at top level by
+// emitPendingStdlib; LLVM allows forward references to globals.
 func (g *Generator) bootDeclareSessionsGlobal() {
 	if g.bootSessionsDeclared {
 		return
 	}
 	g.bootSessionsDeclared = true
-	g.line(fmt.Sprintf("%s = global ptr null", bootSessionsGlobal))
+	g.pendingModuleGlobals = append(g.pendingModuleGlobals,
+		fmt.Sprintf("%s = global ptr null", bootSessionsGlobal))
 }
 
 // emitBootSessionResolveBody — void @__kylix_boot_session_resolve(ptr %req,
@@ -640,6 +646,76 @@ func (g *Generator) emitBootReqSessionCSRFToken(req string, args []ast.Expressio
 	tok := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", tok, tokSlot))
 	return tok, "ptr", nil
+}
+
+// emitBootReqSessionRegenerate — req.SessionRegenerate() (v0.10.0 P2,
+// session-fixation defense at login): mints a fresh SID, moves the session
+// entry in the outer table from the old SID to the new one, re-persists
+// __sid, and flags the cookie dirty so finish re-sends it. Mirrors Go
+// pkg/boot SessionRegenerate. The per-session htab (and thus all values,
+// including __user/__roles) carries over untouched.
+func (g *Generator) emitBootReqSessionRegenerate(req string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TRequest.SessionRegenerate expects 0 arguments, got %d", len(args))
+	}
+	g.needHashtab = true
+	g.enqueueStdlib("boot", "randhex", "randhex", 0)
+	g.bootDeclareSessionsGlobal()
+	sess := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", sess, g.bootReqField(req, 48)))
+	sessNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", sessNull, sess))
+	doneLbl := g.label()
+	regenLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", sessNull, doneLbl, regenLbl))
+	g.line(fmt.Sprintf("%s:", regenLbl))
+	// oldSid = session["__sid"] (null when the session was never persisted).
+	sidKey := g.ptrTo(g.addString(bootSessionKeySID), len(bootSessionKeySID)+1)
+	oldSid := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_get(ptr %s, ptr %s)", oldSid, sess, sidKey))
+	oldNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", oldNull, oldSid))
+	newSid := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_boot_rand_hex(i64 32)", newSid))
+	delLbl := g.label()
+	putLbl := g.label()
+	delDoLbl := g.label()
+	putDoLbl := g.label()
+	finishLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", oldNull, putLbl, delLbl))
+	g.line(fmt.Sprintf("%s:", delLbl))
+	tbl := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", tbl, bootSessionsGlobal))
+	tblNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", tblNull, tbl))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", tblNull, putLbl, delDoLbl))
+	g.line(fmt.Sprintf("%s:", delDoLbl))
+	g.line(fmt.Sprintf("  call void @__kylix_htab_del(ptr %s, ptr %s)", tbl, oldSid))
+	g.line(fmt.Sprintf("  br label %%%s", putLbl))
+	g.line(fmt.Sprintf("%s:", putLbl))
+	tbl2 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", tbl2, bootSessionsGlobal))
+	tbl2Null := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", tbl2Null, tbl2))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", tbl2Null, finishLbl, putDoLbl))
+	g.line(fmt.Sprintf("%s:", putDoLbl))
+	g.line(fmt.Sprintf("  call void @__kylix_htab_put(ptr %s, ptr %s, ptr %s)", tbl2, newSid, sess))
+	dupSid := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_strdup(ptr %s)", dupSid, newSid))
+	g.line(fmt.Sprintf("  call void @__kylix_htab_put(ptr %s, ptr %s, ptr %s)", sess, sidKey, dupSid))
+	g.line(fmt.Sprintf("  br label %%%s", finishLbl))
+	g.line(fmt.Sprintf("%s:", finishLbl))
+	flagsSlot := g.bootReqField(req, 56)
+	f0 := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", f0, flagsSlot))
+	f1 := g.tmp()
+	g.line(fmt.Sprintf("  %s = or i64 %s, %d", f1, f0, bootSessFlagDirty))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", f1, flagsSlot))
+	g.line(fmt.Sprintf("  br label %%%s", doneLbl))
+	g.line(fmt.Sprintf("%s:", doneLbl))
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 0, 0", r))
+	return r, "i64", nil
 }
 
 // ---- v0.9.0 P1.7 CSRF (pkg/boot/csrf.go parity) ----

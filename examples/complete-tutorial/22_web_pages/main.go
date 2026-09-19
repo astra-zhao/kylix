@@ -17,33 +17,35 @@ Prefixes []string
 PrefixCount int64
 Indexes []int64
 LastError string
+Templates map[string]string
+Depth int64
 }
 
 func (self *TTemplateEngine) PushScope(prefix string, idx int64) {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:59
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:71
 if (self.PrefixCount < int64(len(self.Prefixes)))	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:60
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:72
 self.Prefixes[self.PrefixCount] = prefix
 }	 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:62
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:74
 self.Prefixes = append(self.Prefixes, prefix)
 	}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:63
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:75
 if (self.PrefixCount < int64(len(self.Indexes)))	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:64
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:76
 self.Indexes[self.PrefixCount] = idx
 }	 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:66
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:78
 self.Indexes = append(self.Indexes, idx)
 	}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:67
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:79
 self.PrefixCount = (self.PrefixCount + 1)
 }
 
 func (self *TTemplateEngine) PopScope() {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:72
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:84
 if (self.PrefixCount > 0)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:73
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:85
 self.PrefixCount = (self.PrefixCount - 1)
 }	
 }
@@ -53,70 +55,88 @@ var tmpMap map[string]string = map[string]string{}
 var tmpMapI map[string]int64 = map[string]int64{}
 var tmpArr []string
 var tmpArrI []int64
+var tmpTpl map[string]string = map[string]string{}
 _ = tmpMap
 _ = tmpMapI
 _ = tmpArr
 _ = tmpArrI
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:84
+_ = tmpTpl
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:97
 self.Scalars = tmpMap
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:85
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:98
 self.ListLens = tmpMapI
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:86
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:99
 self.Prefixes = tmpArr
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:87
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:100
 self.Indexes = tmpArrI
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:88
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:101
 self.PrefixCount = 0
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:89
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:102
 self.CurList = ""
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:90
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:103
 self.CurIdx = 0
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:91
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:104
 self.ItemStarted = false
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:92
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:105
 self.LastError = ""
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:106
+self.Templates = tmpTpl
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:107
+self.Depth = 0
 }
 
 func (self *TTemplateEngine) AddVar(name string, value string) {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:100
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:115
 self.Scalars[name] = value
 }
 
 func (self *TTemplateEngine) AddInt(name string, value int64) {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:106
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:121
 self.Scalars[name] = fmt.Sprintf("%d", value)
 }
 
 func (self *TTemplateEngine) AddVariant(name string, value interface{}) {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:115
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:130
 self.Scalars[name] = fmt.Sprintf("%v", value)
 }
 
 func (self *TTemplateEngine) SetContext(m map[string]string) {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:124
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:139
 self.Scalars = m
 }
 
 func (self *TTemplateEngine) AddListLen(name string, count int64) {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:133
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:148
 self.ListLens[name] = count
 }
 
 func (self *TTemplateEngine) BeginList(name string) {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:139
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:154
 self.CurList = name
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:140
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:155
 self.CurIdx = 0
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:141
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:156
 self.ItemStarted = false
 }
 
+func (self *TTemplateEngine) AddTemplate(name string, src string) {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:167
+self.Templates[name] = src
+}
+
+func (self *TTemplateEngine) HasTemplate(name string) bool {
+var result bool
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:173
+result = (self.Templates[name] != "")
+	return result
+}
+
 func (self *TTemplateEngine) AddItem(value string) {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:148
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:180
 self.Scalars[((self.CurList + ".") + fmt.Sprintf("%d", self.CurIdx))] = value
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:149
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:181
 self.CurIdx = (self.CurIdx + 1)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:150
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:182
 self.ItemStarted = false
 }
 
@@ -124,42 +144,42 @@ func (self *TTemplateEngine) BeginItem() {
 }
 
 func (self *TTemplateEngine) ItemField(key string, value string) {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:169
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:201
 self.Scalars[((((self.CurList + ".") + fmt.Sprintf("%d", self.CurIdx)) + ".") + key)] = value
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:170
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:202
 self.ItemStarted = true
 }
 
 func (self *TTemplateEngine) NextItem() {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:176
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:208
 if self.ItemStarted	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:177
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:209
 self.CurIdx = (self.CurIdx + 1)
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:178
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:210
 self.ItemStarted = false
 }
 
 func (self *TTemplateEngine) EndList() {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:185
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:217
 if self.ItemStarted	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:186
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:218
 self.ListLens[self.CurList] = (self.CurIdx + 1)
 }	 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:188
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:220
 self.ListLens[self.CurList] = self.CurIdx
 	}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:189
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:221
 self.CurList = ""
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:190
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:222
 self.CurIdx = 0
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:191
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:223
 self.ItemStarted = false
 }
 
 func (self *TTemplateEngine) ListLen(name string) int64 {
 var result int64
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:197
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:229
 result = self.ListLens[name]
 	return result
 }
@@ -168,48 +188,50 @@ func (self *TTemplateEngine) RenderString(tpl string) string {
 var result string
 var out string
 _ = out
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:212
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:244
 self.LastError = ""
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:213
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:245
 self.PrefixCount = 0
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:214
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:246
+self.Depth = 0
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:247
 out = TplRenderInto(self, tpl)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:215
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:248
 result = out
 	return result
 }
 
 func (self *TTemplateEngine) ErrorMsg() string {
 var result string
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:222
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:255
 result = self.LastError
 	return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:232
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:265
 func TplFindFrom(hay string, needle string, from int64) int64 {
 var result int64
 var n int64
 var m int64
 var i int64
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:238
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:271
 n = int64(len(hay))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:239
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:272
 m = int64(len(needle))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:240
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:273
 result = (-1)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:241
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:274
 i = from
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:242
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:275
 for ((i + m) <= n)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:244
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:277
 if (hay[i:(i + m)] == needle)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:246
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:279
 result = i
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:247
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:280
 return result
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:249
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:282
 i = (i + 1)
 	}
 _ = n
@@ -218,65 +240,65 @@ _ = i
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:254
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:287
 func TplSlice(hay string, from int64, n int64) string {
 var result string
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:256
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:289
 result = hay[from:(from + n)]
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:260
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:293
 func TplStartsWith(hay string, needle string, start int64) bool {
 var result bool
 var part string
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:264
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:297
 result = false
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:265
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:298
 if ((start + int64(len(needle))) > int64(len(hay)))	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:266
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:299
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:267
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:300
 part = hay[start:(start + int64(len(needle)))]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:268
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:301
 if (part == needle)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:269
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:302
 result = true
 }	
 _ = part
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:273
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:306
 func TplIsSpace(c string) bool {
 var result bool
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:275
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:308
 result = false
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:276
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:309
 if (c == " ")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:277
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:310
 result = true
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:278
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:311
 if (c == "\t")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:279
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:312
 result = true
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:280
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:313
 if (c == "\n")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:281
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:314
 result = true
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:282
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:315
 if (c == "\r")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:283
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:316
 result = true
 }	
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:287
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:320
 func TplTrim(s string) string {
 var result string
 var n int64
@@ -284,55 +306,55 @@ var start int64
 var fin int64
 var c string
 var running bool
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:295
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:328
 n = int64(len(s))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:296
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:329
 start = 0
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:297
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:330
 running = true
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:298
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:331
 for running	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:300
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:333
 if (start >= n)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:301
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:334
 running = false
 }		 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:304
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:337
 c = s[start:(start + 1)]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:305
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:338
 if TplIsSpace(c)			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:306
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:339
 start = (start + 1)
 }			 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:308
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:341
 running = false
 			}
 		}
 	}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:311
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:344
 fin = n
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:312
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:345
 running = true
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:313
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:346
 for running	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:315
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:348
 if (fin <= start)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:316
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:349
 running = false
 }		 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:319
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:352
 c = s[(fin - 1):fin]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:320
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:353
 if TplIsSpace(c)			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:321
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:354
 fin = (fin - 1)
 }			 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:323
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:356
 running = false
 			}
 		}
 	}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:326
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:359
 result = s[start:fin]
 _ = n
 _ = start
@@ -342,55 +364,55 @@ _ = running
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:330
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:363
 func TplEscape(s string) string {
 var result string
 var i int64
 var n int64
 var c string
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:336
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:369
 result = ""
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:337
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:370
 n = int64(len(s))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:338
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:371
 i = 0
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:339
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:372
 for (i < n)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:341
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:374
 c = s[i:(i + 1)]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:342
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:375
 if (c == "&")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:343
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:376
 result = (result + "&amp;")
 }		 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:344
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:377
 if (c == "<")			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:345
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:378
 result = (result + "&lt;")
 }			 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:346
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:379
 if (c == ">")				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:347
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:380
 result = (result + "&gt;")
 }				 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:348
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:381
 if (c == "\"")					 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:349
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:382
 result = (result + "&quot;")
 }					 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:350
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:383
 if (func() int64 { if len(c) == 0 { return 0 }; return int64(c[0]) }() == 39)						 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:353
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:386
 result = (result + "&#39;")
 }						 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:355
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:388
 result = (result + c)
 						}
 					}
 				}
 			}
 		}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:356
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:389
 i = (i + 1)
 	}
 _ = i
@@ -399,26 +421,26 @@ _ = c
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:363
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:396
 func TplCharIsLetter(c string) bool {
 var result bool
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:365
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:398
 result = false
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:366
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:399
 if (c >= "a")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:368
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:401
 if (c <= "z")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:369
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:402
 result = true
 }		
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:371
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:404
 if (result == false)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:373
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:406
 if (c >= "A")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:375
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:408
 if (c <= "Z")			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:376
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:409
 result = true
 }			
 }		
@@ -426,86 +448,114 @@ result = true
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:382
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:415
 func TplIsTruthy(s string) bool {
 var result bool
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:384
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:417
 result = true
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:385
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:418
 if (s == "")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:386
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:419
 result = false
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:387
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:420
 if (s == "0")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:388
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:421
 result = false
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:389
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:422
 if (s == "false")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:390
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:423
 result = false
 }	
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:400
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:428
+func TplCleanName(s string) string {
+var result string
+var n int64
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:432
+result = TplTrim(s)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:433
+if TplStartsWith(result, "layout ", 0)	 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:434
+result = TplTrim(result[7:int64(len(result))])
+}	
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:435
+n = int64(len(result))
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:436
+if (n >= 2)	 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:438
+if (result[0:1] == "\"")		 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:440
+if (result[(n - 1):n] == "\"")			 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:441
+result = result[1:(n - 1)]
+}			
+}		
+}	
+_ = n
+return result
+}
+
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:453
 func TplResolve(eng *TTemplateEngine, path string) string {
 var result string
 var k int64
 var p string
 var v string
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:406
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:459
 result = ""
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:407
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:460
 if (path == "@index")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:409
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:462
 if (eng.PrefixCount > 0)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:411
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:464
 result = fmt.Sprintf("%d", eng.Indexes[(eng.PrefixCount - 1)])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:412
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:465
 return result
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:414
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:467
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:416
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:469
 if (path == ".")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:418
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:471
 if (eng.PrefixCount > 0)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:421
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:474
 p = eng.Prefixes[(eng.PrefixCount - 1)]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:422
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:475
 result = eng.Scalars[p[0:(int64(len(p)) - 1)]]
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:424
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:477
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:427
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:480
 v = eng.Scalars[path]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:428
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:481
 if (v != "")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:430
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:483
 result = v
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:431
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:484
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:434
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:487
 k = eng.PrefixCount
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:435
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:488
 for (k > 0)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:437
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:490
 p = eng.Prefixes[(k - 1)]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:438
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:491
 v = eng.Scalars[(p + path)]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:439
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:492
 if (v != "")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:441
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:494
 result = v
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:442
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:495
 return result
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:444
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:497
 k = (k - 1)
 	}
 _ = k
@@ -514,39 +564,39 @@ _ = v
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:450
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:503
 func TplResolveKey(eng *TTemplateEngine, path string) string {
 var result string
 var k int64
 var p string
 var v string
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:456
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:509
 result = ""
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:457
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:510
 v = eng.Scalars[path]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:458
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:511
 if (v != "")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:460
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:513
 result = path
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:461
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:514
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:463
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:516
 k = eng.PrefixCount
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:464
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:517
 for (k > 0)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:466
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:519
 p = eng.Prefixes[(k - 1)]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:467
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:520
 v = eng.Scalars[(p + path)]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:468
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:521
 if (v != "")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:470
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:523
 result = (p + path)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:471
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:524
 return result
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:473
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:526
 k = (k - 1)
 	}
 _ = k
@@ -555,54 +605,54 @@ _ = v
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:482
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:535
 func TplResolveListLen(eng *TTemplateEngine, name string) int64 {
 var result int64
 var k int64
 var p string
 var v int64
 var s string
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:489
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:542
 result = eng.ListLens[name]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:490
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:543
 if (result > 0)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:491
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:544
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:496
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:549
 s = eng.Scalars[(name + "#len")]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:497
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:550
 if (s != "")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:499
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:552
 result = func() int64 { v, _ := strconv.ParseInt(s, 10, 64); return v }()
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:500
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:553
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:502
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:555
 k = eng.PrefixCount
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:503
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:556
 for (k > 0)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:505
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:558
 p = eng.Prefixes[(k - 1)]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:506
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:559
 v = eng.ListLens[(p + name)]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:507
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:560
 if (v > 0)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:509
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:562
 result = v
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:510
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:563
 return result
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:512
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:565
 s = eng.Scalars[((p + name) + "#len")]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:513
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:566
 if (s != "")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:515
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:568
 result = func() int64 { v, _ := strconv.ParseInt(s, 10, 64); return v }()
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:516
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:569
 return result
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:518
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:571
 k = (k - 1)
 	}
 _ = k
@@ -612,7 +662,7 @@ _ = s
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:528
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:581
 func TplApplyOneFilter(s string, spec string) string {
 var result string
 var name string
@@ -627,238 +677,238 @@ var c string
 var prevLetter bool
 var first string
 var rest string
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:543
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:596
 result = s
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:544
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:597
 colon = TplFindFrom(spec, ":", 0)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:545
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:598
 if (colon < 0)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:547
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:600
 name = spec
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:548
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:601
 arg = ""
 }	 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:552
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:605
 name = TplTrim(spec[0:colon])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:553
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:606
 arg = TplTrim(spec[(colon + 1):int64(len(spec))])
 	}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:556
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:609
 if (name == "upper")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:558
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:611
 result = strings.ToUpper(s)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:559
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:612
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:561
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:614
 if (name == "lower")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:563
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:616
 result = strings.ToLower(s)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:564
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:617
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:566
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:619
 if (name == "trim")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:568
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:621
 result = TplTrim(s)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:569
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:622
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:571
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:624
 if (name == "escape")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:573
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:626
 result = TplEscape(s)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:574
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:627
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:576
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:629
 if (name == "length")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:578
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:631
 result = fmt.Sprintf("%d", int64(len(s)))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:579
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:632
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:581
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:634
 if (name == "nl2br")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:585
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:638
 result = ""
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:586
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:639
 i = 0
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:587
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:640
 n = int64(len(s))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:588
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:641
 for (i < n)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:590
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:643
 c = s[i:(i + 1)]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:591
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:644
 if (c == "\\")			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:593
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:646
 if TplStartsWith(s, "\n", i)				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:595
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:648
 result = (result + "<br>")
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:596
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:649
 i = (i + 2)
 }				 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:600
-result = (result + c)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:601
-i = (i + 1)
-				}
-}			 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:606
-result = (result + c)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:607
-i = (i + 1)
-			}
-		}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:610
-return result
-}	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:612
-if (name == "capitalize")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:614
-if (int64(len(s)) == 0)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:615
-return result
-}		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:616
-first = s[0:1]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:617
-rest = s[1:int64(len(s))]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:618
-result = (strings.ToUpper(first) + rest)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:619
-return result
-}	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:621
-if (name == "title")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:624
-result = ""
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:625
-prevLetter = false
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:626
-i = 0
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:627
-n = int64(len(s))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:628
-for (i < n)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:630
-c = s[i:(i + 1)]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:631
-if TplCharIsLetter(c)			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:633
-if prevLetter				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:634
-result = (result + c)
-}				 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:636
-result = (result + strings.ToUpper(c))
-				}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:637
-prevLetter = true
-}			 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:641
-result = (result + c)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:642
-prevLetter = false
-			}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:644
-i = (i + 1)
-		}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:646
-return result
-}	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:648
-if (name == "default")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:650
-result = s
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:651
-if (s == "")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:652
-result = arg
-}		
 //line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:653
-return result
-}	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:655
-if (name == "truncate")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:657
-n = func() int64 { v, _ := strconv.ParseInt(arg, 10, 64); return v }()
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:658
-if (int64(len(s)) <= n)		 {
+result = (result + c)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:654
+i = (i + 1)
+				}
+}			 else {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:659
+result = (result + c)
 //line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:660
-result = s
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:661
-return result
-}		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:663
-if (n > 3)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:664
-result = (s[0:(n - 3)] + "...")
-}		 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:666
-result = s[0:n]
+i = (i + 1)
+			}
 		}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:667
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:663
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:669
-if (name == "replace")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:672
-sep = TplFindFrom(arg, ":", 0)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:673
-if (sep < 0)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:674
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:665
+if (name == "capitalize")	 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:667
+if (int64(len(s)) == 0)		 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:668
 return result
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:675
-a = arg[0:sep]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:676
-b = arg[(sep + 1):int64(len(arg))]
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:669
+first = s[0:1]
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:670
+rest = s[1:int64(len(s))]
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:671
+result = (strings.ToUpper(first) + rest)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:672
+return result
+}	
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:674
+if (name == "title")	 {
 //line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:677
 result = ""
 //line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:678
-i = 0
+prevLetter = false
 //line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:679
-n = int64(len(s))
+i = 0
 //line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:680
+n = int64(len(s))
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:681
 for (i < n)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:682
-if TplStartsWith(s, a, i)			 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:683
+c = s[i:(i + 1)]
 //line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:684
-result = (result + b)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:685
-i = (i + int64(len(a)))
+if TplCharIsLetter(c)			 {
 //line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:686
-if (int64(len(a)) == 0)				 {
+if prevLetter				 {
 //line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:687
+result = (result + c)
+}				 else {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:689
+result = (result + strings.ToUpper(c))
+				}
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:690
+prevLetter = true
+}			 else {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:694
+result = (result + c)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:695
+prevLetter = false
+			}
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:697
+i = (i + 1)
+		}
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:699
+return result
+}	
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:701
+if (name == "default")	 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:703
+result = s
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:704
+if (s == "")		 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:705
+result = arg
+}		
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:706
+return result
+}	
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:708
+if (name == "truncate")	 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:710
+n = func() int64 { v, _ := strconv.ParseInt(arg, 10, 64); return v }()
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:711
+if (int64(len(s)) <= n)		 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:713
+result = s
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:714
+return result
+}		
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:716
+if (n > 3)		 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:717
+result = (s[0:(n - 3)] + "...")
+}		 else {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:719
+result = s[0:n]
+		}
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:720
+return result
+}	
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:722
+if (name == "replace")	 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:725
+sep = TplFindFrom(arg, ":", 0)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:726
+if (sep < 0)		 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:727
+return result
+}		
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:728
+a = arg[0:sep]
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:729
+b = arg[(sep + 1):int64(len(arg))]
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:730
+result = ""
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:731
+i = 0
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:732
+n = int64(len(s))
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:733
+for (i < n)		 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:735
+if TplStartsWith(s, a, i)			 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:737
+result = (result + b)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:738
+i = (i + int64(len(a)))
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:739
+if (int64(len(a)) == 0)				 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:740
 i = (i + 1)
 }				
 }			 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:691
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:744
 result = (result + s[i:(i + 1)])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:692
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:745
 i = (i + 1)
 			}
 		}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:695
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:748
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:697
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:750
 if (name == "wordwrap")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:700
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:753
 result = s
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:701
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:754
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:703
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:756
 if (name == "raw")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:706
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:759
 result = s
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:707
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:760
 return result
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:710
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:763
 result = s
 _ = name
 _ = arg
@@ -875,50 +925,50 @@ _ = rest
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:716
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:769
 func TplHasRawFilter(spec string) bool {
 var result bool
 var rest string
 var pipe int64
 var part string
 var fname string
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:723
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:776
 result = false
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:724
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:777
 rest = TplTrim(spec)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:725
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:778
 for (rest != "")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:727
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:780
 pipe = TplFindFrom(rest, "|", 0)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:728
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:781
 if (pipe < 0)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:730
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:783
 part = TplTrim(rest)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:731
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:784
 rest = ""
 }		 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:735
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:788
 part = TplTrim(rest[0:pipe])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:736
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:789
 rest = TplTrim(rest[(pipe + 1):int64(len(rest))])
 		}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:738
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:791
 if (part == "")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:739
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:792
 			continue
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:740
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:793
 fname = part
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:741
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:794
 if (TplFindFrom(part, ":", 0) >= 0)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:742
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:795
 fname = TplTrim(part[0:TplFindFrom(part, ":", 0)])
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:743
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:796
 if (fname == "raw")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:745
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:798
 result = true
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:746
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:799
 return result
 }		
 	}
@@ -929,39 +979,39 @@ _ = fname
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:753
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:806
 func TplApplyFilters(s string, spec string) string {
 var result string
 var rest string
 var pipe int64
 var part string
 var fname string
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:760
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:813
 result = s
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:761
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:814
 rest = TplTrim(spec)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:762
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:815
 for (rest != "")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:764
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:817
 pipe = TplFindFrom(rest, "|", 0)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:765
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:818
 if (pipe < 0)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:767
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:820
 part = TplTrim(rest)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:768
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:821
 rest = ""
 }		 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:772
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:825
 part = TplTrim(rest[0:pipe])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:773
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:826
 rest = TplTrim(rest[(pipe + 1):int64(len(rest))])
 		}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:775
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:828
 if (part == "")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:776
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:829
 			continue
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:777
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:830
 result = TplApplyOneFilter(result, part)
 	}
 _ = rest
@@ -971,7 +1021,7 @@ _ = fname
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:788
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:841
 func TplFindBlockEnd(tpl string, from int64, kind string) int64 {
 var result int64
 var openTag string
@@ -979,47 +1029,47 @@ var closeTag string
 var depth int64
 var pos int64
 var o int64
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:796
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:849
 result = (-1)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:797
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:850
 openTag = ("{{#" + kind)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:798
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:851
 closeTag = ("{{/" + kind)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:799
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:852
 depth = 1
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:800
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:853
 pos = from
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:801
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:854
 for (pos < int64(len(tpl)))	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:803
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:856
 o = TplFindFrom(tpl, "{{", pos)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:804
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:857
 if (o < 0)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:805
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:858
 return result
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:806
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:859
 if TplStartsWith(tpl, openTag, o)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:808
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:861
 depth = (depth + 1)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:809
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:862
 pos = (o + 2)
 }		 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:811
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:864
 if TplStartsWith(tpl, closeTag, o)			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:813
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:866
 depth = (depth - 1)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:814
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:867
 if (depth == 0)				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:816
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:869
 result = o
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:817
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:870
 return result
 }				
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:819
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:872
 pos = (o + 2)
 }			 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:822
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:875
 pos = (o + 2)
 			}
 		}
@@ -1032,7 +1082,7 @@ _ = o
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:828
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:881
 func TplFindElse(tpl string, from int64, endPos int64) int64 {
 var result int64
 var depth int64
@@ -1040,63 +1090,63 @@ var pos int64
 var o int64
 var close int64
 var inner string
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:836
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:889
 result = (-1)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:837
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:890
 depth = 0
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:838
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:891
 pos = from
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:839
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:892
 for (pos < endPos)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:841
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:894
 o = TplFindFrom(tpl, "{{", pos)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:842
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:895
 if (o < 0)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:843
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:896
 return result
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:844
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:897
 if (o >= endPos)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:845
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:898
 return result
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:846
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:899
 if TplStartsWith(tpl, "{{#", o)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:848
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:901
 depth = (depth + 1)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:849
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:902
 pos = (o + 2)
 }		 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:851
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:904
 if TplStartsWith(tpl, "{{/", o)			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:853
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:906
 depth = (depth - 1)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:854
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:907
 pos = (o + 2)
 }			 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:858
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:911
 if (depth == 0)				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:860
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:913
 close = TplFindFrom(tpl, "}}", o)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:861
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:914
 if (close < 0)					 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:862
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:915
 return result
 }					
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:863
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:916
 if (close <= endPos)					 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:865
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:918
 inner = TplTrim(tpl[(o + 2):close])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:866
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:919
 if (inner == "else")						 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:868
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:921
 result = o
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:869
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:922
 return result
 }						
 }					
 }				
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:873
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:926
 pos = (o + 2)
 			}
 		}
@@ -1109,16 +1159,16 @@ _ = inner
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:883
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:936
 func TplRenderErr(eng *TTemplateEngine, msg string) {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:885
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:938
 if (eng.LastError == "")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:886
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:939
 eng.LastError = msg
 }	
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:891
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:944
 func TplRenderVar(eng *TTemplateEngine, inner string) string {
 var result string
 var pipe int64
@@ -1126,39 +1176,39 @@ var path string
 var spec string
 var val string
 var hasRaw bool
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:899
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:952
 result = ""
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:900
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:953
 pipe = TplFindFrom(inner, "|", 0)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:901
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:954
 if (pipe < 0)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:903
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:956
 path = TplTrim(inner)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:904
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:957
 spec = ""
 }	 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:908
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:961
 path = TplTrim(inner[0:pipe])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:909
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:962
 spec = inner[(pipe + 1):int64(len(inner))]
 	}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:911
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:964
 val = TplResolve(eng, path)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:912
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:965
 hasRaw = false
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:913
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:966
 if (spec != "")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:915
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:968
 val = TplApplyFilters(val, spec)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:916
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:969
 hasRaw = TplHasRawFilter(spec)
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:919
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:972
 if (hasRaw == false)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:920
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:973
 val = TplEscape(val)
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:921
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:974
 result = val
 _ = pipe
 _ = path
@@ -1168,7 +1218,7 @@ _ = hasRaw
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:925
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:978
 func TplRenderInto(eng *TTemplateEngine, tpl string) string {
 var result string
 var out string
@@ -1194,260 +1244,365 @@ var listKey string
 var prefix string
 var child string
 var elseEnd int64
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:951
+var pname string
+var psrc string
+var lname string
+var lsrc string
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1008
 out = ""
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:952
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1009
 pos = 0
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:953
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1010
 n = int64(len(tpl))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:954
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1011
 for (pos < n)	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:956
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1013
 open = TplFindFrom(tpl, "{{", pos)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:957
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1014
 if (open < 0)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:959
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1016
 out = (out + tpl[pos:n])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:960
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1017
 			break
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:962
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1019
 out = (out + tpl[pos:open])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:964
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1021
 if TplStartsWith(tpl, "{{{", open)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:966
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1023
 close = TplFindFrom(tpl, "}}}", (open + 3))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:967
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1024
 if (close < 0)			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:969
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1026
 TplRenderErr(eng, "unclosed {{{ tag")
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:970
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1027
 				break
 }			
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:972
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1029
 inner = TplTrim(tpl[(open + 3):close])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:973
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1030
 raw = true
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:974
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1031
 after = (close + 3)
 }		 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:978
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1035
 close = TplFindFrom(tpl, "}}", (open + 2))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:979
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1036
 if (close < 0)			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:981
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1038
 TplRenderErr(eng, "unclosed {{ tag")
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:982
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1039
 				break
 }			
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:984
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1041
 inner = TplTrim(tpl[(open + 2):close])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:985
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1042
 raw = false
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:986
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1043
 after = (close + 2)
 		}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:989
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1046
 if (inner == "")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:991
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1048
 pos = after
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:992
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1049
 			continue
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:995
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1052
 c = inner[0:1]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:996
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1053
 if (c == "!")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:999
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1056
 pos = after
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1000
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1057
 			continue
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1003
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1060
 if (c == "/")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1005
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1062
 TplRenderErr(eng, (("unexpected close tag {{" + inner) + "}}"))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1006
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1063
 pos = after
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1007
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1064
 			continue
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1010
-if (c == "#")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1012
-sp = TplFindFrom(inner, " ", 1)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1013
-if (sp < 0)			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1015
-TplRenderErr(eng, (("missing block name in {{" + inner) + "}}"))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1016
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1067
+if (c == ">")		 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1071
+pname = TplCleanName(inner[1:int64(len(inner))])
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1072
+psrc = eng.Templates[pname]
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1073
+if (psrc == "")			 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1075
+TplRenderErr(eng, ("unknown partial: " + pname))
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1076
 pos = after
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1017
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1077
 				continue
 }			
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1019
-kw = TplTrim(inner[1:sp])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1020
-arg = TplTrim(inner[(sp + 1):int64(len(inner))])
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1022
-if (kw == "each")			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1024
-endPos = TplFindBlockEnd(tpl, after, "each")
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1025
-if (endPos < 0)				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1027
-TplRenderErr(eng, "unclosed {{#each}}")
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1028
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1079
+eng.Depth = (eng.Depth + 1)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1080
+if (eng.Depth > 32)			 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1083
+eng.Depth = (eng.Depth - 1)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1084
+TplRenderErr(eng, ("partial recursion too deep: " + pname))
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1085
 pos = after
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1029
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1086
+				continue
+}			
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1088
+child = TplRenderInto(eng, psrc)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1089
+eng.Depth = (eng.Depth - 1)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1090
+out = (out + child)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1091
+if (eng.LastError != "")			 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1092
+pos = n
+}			 else {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1094
+pos = after
+			}
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1095
+			continue
+}		
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1098
+if (c == "<")		 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1103
+lname = TplCleanName(inner[1:int64(len(inner))])
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1104
+lsrc = eng.Templates[lname]
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1105
+if (lsrc == "")			 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1107
+TplRenderErr(eng, ("unknown layout: " + lname))
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1108
+pos = after
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1109
+				continue
+}			
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1111
+body = TplRenderInto(eng, tpl[after:n])
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1112
+if (eng.LastError != "")			 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1114
+out = (out + body)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1115
+pos = n
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1116
+				continue
+}			
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1118
+eng.Scalars["content"] = body
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1119
+eng.Depth = (eng.Depth + 1)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1120
+if (eng.Depth > 32)			 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1122
+eng.Depth = (eng.Depth - 1)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1123
+eng.Scalars["content"] = ""
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1124
+TplRenderErr(eng, ("layout recursion too deep: " + lname))
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1125
+pos = n
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1126
+				continue
+}			
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1128
+child = TplRenderInto(eng, lsrc)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1129
+eng.Depth = (eng.Depth - 1)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1130
+eng.Scalars["content"] = ""
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1131
+out = (out + child)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1132
+pos = n
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1133
+			continue
+}		
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1136
+if (c == "#")		 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1138
+sp = TplFindFrom(inner, " ", 1)
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1139
+if (sp < 0)			 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1141
+TplRenderErr(eng, (("missing block name in {{" + inner) + "}}"))
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1142
+pos = after
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1143
+				continue
+}			
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1145
+kw = TplTrim(inner[1:sp])
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1146
+arg = TplTrim(inner[(sp + 1):int64(len(inner))])
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1148
+if (kw == "each")			 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1150
+endPos = TplFindBlockEnd(tpl, after, "each")
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1151
+if (endPos < 0)				 {
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1153
+TplRenderErr(eng, "unclosed {{#each}}")
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1154
+pos = after
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1155
 					continue
 }				
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1031
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1157
 body = tpl[after:endPos]
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1032
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1158
 ln = TplResolveListLen(eng, arg)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1033
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1159
 listKey = TplResolveKey(eng, arg)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1034
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1160
 if (listKey == "")				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1035
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1161
 listKey = arg
 }				
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1036
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1162
 i = 0
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1037
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1163
 for (i < ln)				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1039
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1165
 prefix = (((listKey + ".") + fmt.Sprintf("%d", i)) + ".")
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1040
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1166
 eng.PushScope(prefix, i)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1041
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1167
 child = TplRenderInto(eng, body)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1042
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1168
 if (eng.LastError != "")					 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1045
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1171
 out = (out + child)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1046
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1172
 pos = n
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1047
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1173
 						continue
 }					
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1049
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1175
 out = (out + child)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1050
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1176
 eng.PopScope()
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1051
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1177
 i = (i + 1)
 				}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1054
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1180
 close = TplFindFrom(tpl, "}}", endPos)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1055
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1181
 if (close < 0)				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1056
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1182
 close = n
 }				 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1058
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1184
 close = (close + 2)
 				}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1059
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1185
 pos = close
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1060
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1186
 				continue
 }			
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1063
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1189
 if (kw == "if")			 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1065
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1191
 endPos = TplFindBlockEnd(tpl, after, "if")
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1066
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1192
 if (endPos < 0)				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1068
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1194
 TplRenderErr(eng, "unclosed {{#if}}")
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1069
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1195
 pos = after
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1070
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1196
 					continue
 }				
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1072
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1198
 elsePos = TplFindElse(tpl, after, endPos)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1073
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1199
 cond = TplResolve(eng, arg)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1074
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1200
 if TplIsTruthy(cond)				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1076
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1202
 if (elsePos >= 0)					 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1077
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1203
 body = tpl[after:elsePos]
 }					 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1079
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1205
 body = tpl[after:endPos]
 					}
 }				 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1083
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1209
 if (elsePos >= 0)					 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1086
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1212
 elseEnd = TplFindFrom(tpl, "}}", elsePos)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1087
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1213
 if (elseEnd < 0)						 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1088
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1214
 elseEnd = endPos
 }						 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1090
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1216
 elseEnd = (elseEnd + 2)
 						}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1091
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1217
 body = tpl[elseEnd:endPos]
 }					 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1094
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1220
 body = ""
 					}
 				}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1096
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1222
 child = TplRenderInto(eng, body)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1097
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1223
 if (eng.LastError != "")				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1099
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1225
 out = (out + child)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1100
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1226
 pos = n
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1101
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1227
 					continue
 }				
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1103
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1229
 out = (out + child)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1104
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1230
 close = TplFindFrom(tpl, "}}", endPos)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1105
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1231
 if (close < 0)				 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1106
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1232
 close = n
 }				 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1108
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1234
 close = (close + 2)
 				}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1109
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1235
 pos = close
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1110
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1236
 				continue
 }			
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1113
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1239
 TplRenderErr(eng, (("unknown block {{#" + kw) + "}}"))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1114
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1240
 pos = after
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1115
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1241
 			continue
 }		
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1119
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1245
 out = (out + TplRenderVarRaw(eng, inner, raw))
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1120
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1246
 if (eng.LastError != "")		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1121
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1247
 pos = n
 }		 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1123
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1249
 pos = after
 		}
 	}
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1125
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1251
 result = out
 _ = out
 _ = pos
@@ -1472,48 +1627,52 @@ _ = listKey
 _ = prefix
 _ = child
 _ = elseEnd
+_ = pname
+_ = psrc
+_ = lname
+_ = lsrc
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1131
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1257
 func TplRenderVarRaw(eng *TTemplateEngine, inner string, raw bool) string {
 var result string
 var spec string
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1135
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1261
 if raw	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1137
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1263
 if (TplFindFrom(inner, "|", 0) >= 0)		 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1138
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1264
 result = TplRenderVar(eng, (inner + "|raw"))
 }		 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1140
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1266
 result = TplRenderVar(eng, (inner + " | raw"))
 		}
 }	 else {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1143
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1269
 result = TplRenderVar(eng, inner)
 	}
 _ = spec
 return result
 }
 
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1151
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1277
 func RenderTemplate(eng *TTemplateEngine, tpl string) (string, error) {
 var out string
 var msg string
 _ = out
 _ = msg
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1156
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1282
 out = eng.RenderString(tpl)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1157
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1283
 msg = eng.ErrorMsg()
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1158
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1284
 if (msg != "")	 {
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1159
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1285
 return "", errors.New(msg)
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1160
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1286
 }	
-//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1162
+//line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:1288
 return out, nil
 }
 

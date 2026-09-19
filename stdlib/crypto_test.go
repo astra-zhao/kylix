@@ -2,6 +2,7 @@ package stdlib
 
 import (
 	"encoding/base64"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -95,5 +96,64 @@ func TestCrypto_RandomTokenURLSafe(t *testing.T) {
 	}
 	if strings.ContainsAny(tok, "+/=") {
 		t.Fatalf("RandomToken should be URL-safe, got %q", tok)
+	}
+}
+
+func TestCrypto_Pbkdf2RoundTrip(t *testing.T) {
+	h := Pbkdf2Hash("hunter2", 210000)
+	// Shared envelope: pbkdf2$sha256$<iter>$<hex_salt(32)>$<hex_out(64)>.
+	re := regexp.MustCompile(`^pbkdf2\$sha256\$(\d+)\$[0-9a-f]{32}\$[0-9a-f]{64}$`)
+	m := re.FindStringSubmatch(h)
+	if m == nil {
+		t.Fatalf("Pbkdf2Hash envelope mismatch: %q", h)
+	}
+	if m[1] != "210000" {
+		t.Fatalf("iteration count not preserved verbatim: %q", h)
+	}
+	if !Pbkdf2Compare("hunter2", h) {
+		t.Fatal("Pbkdf2Compare should accept the original password")
+	}
+	if Pbkdf2Compare("wrong", h) {
+		t.Fatal("Pbkdf2Compare should reject a wrong password")
+	}
+}
+
+func TestCrypto_Pbkdf2IterationsClamp(t *testing.T) {
+	lo := Pbkdf2Hash("x", 0)
+	if !strings.Contains(lo, "pbkdf2$sha256$1000$") {
+		t.Fatalf("low iterations should clamp to 1000: %q", lo)
+	}
+	hi := Pbkdf2Hash("x", 1<<30)
+	if !strings.Contains(hi, "pbkdf2$sha256$16777216$") {
+		t.Fatalf("high iterations should clamp to 2^24: %q", hi)
+	}
+}
+
+func TestCrypto_Pbkdf2CompareFailsClosed(t *testing.T) {
+	cases := []string{
+		"",
+		"garbage",
+		"$2a$10$abcdefghijklmnopqrstuv",  // bcrypt format
+		"pbkdf2$sha256$12$abcdef$abcdef", // BCrypt-style cost in field 3
+		"pbkdf2$sha256$999$00$00",        // below min iterations
+		"pbkdf2$sha256$16777217$00$00",   // above max iterations
+		"pbkdf2$sha1$1000$00$00",         // wrong digest name
+		"pbkdf2$sha256$1000$" + strings.Repeat("0", 31) + "$" + strings.Repeat("0", 64), // short salt
+	}
+	for _, h := range cases {
+		if Pbkdf2Compare("x", h) {
+			t.Fatalf("Pbkdf2Compare accepted malformed hash %q", h)
+		}
+	}
+}
+
+func TestCrypto_Pbkdf2UniqueSalts(t *testing.T) {
+	a := Pbkdf2Hash("same", 1000)
+	b := Pbkdf2Hash("same", 1000)
+	if a == b {
+		t.Fatal("Pbkdf2Hash should use a fresh salt per call")
+	}
+	if !Pbkdf2Compare("same", a) || !Pbkdf2Compare("same", b) {
+		t.Fatal("both hashes should verify")
 	}
 }

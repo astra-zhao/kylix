@@ -62,6 +62,10 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"DirExists": true, "CreateDir": true, "DeleteFile": true,
 		"AppendFile": true, "CopyFile": true, "GetFileSize": true,
 		"GetWorkingDir": true, "SetWorkingDir": true, "GetTempDir": true,
+		// v0.10.0 P2: env access (KylixAdmin seed password override). The Go
+		// host also lists SetEnv/Sleep here; they stay unimplemented on the
+		// LLVM side until a consumer needs them.
+		"GetEnv": true,
 	},
 	"regex": {
 		"IsEmail": true, "IsURL": true, "IsNumeric": true,
@@ -90,6 +94,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"Sha256": true, "Md5": true, "HmacSha256": true,
 		"AesEncrypt": true, "AesDecrypt": true,
 		"BCryptHash": true, "BCryptCompare": true,
+		"Pbkdf2Hash": true, "Pbkdf2Compare": true,
 		"Sha512": true,
 	},
 	"db": {
@@ -223,6 +228,12 @@ func (g *Generator) enqueueStdlib(module, name, bodyKey string, argCount int) bo
 // module-level defines. Called once at the end of emitProgram (after lambdas,
 // before string constants). Each emitter writes its own `define ... { ... }`.
 func (g *Generator) emitPendingStdlib() {
+	// v0.10.0 P2: flush module-level globals declared while a define body was
+	// being emitted (see pendingModuleGlobals) before any body define.
+	for _, gl := range g.pendingModuleGlobals {
+		g.line(gl)
+	}
+	g.pendingModuleGlobals = nil
 	// v0.6.3: use an index loop so bodies enqueued while emitting (e.g.
 	// JwtSign enqueues crypto.HmacSha256 + its b64url/hexdecode helpers) are
 	// also emitted in the same pass — a range loop snapshot would skip them.

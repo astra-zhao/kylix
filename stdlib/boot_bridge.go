@@ -77,6 +77,17 @@ func BootUseRequestID() {
 	boot.Use(boot.RequestID())
 }
 
+// BootUseCSRF installs the CSRF (synchronizer-token) middleware — v0.10.0
+// P2: was declared in boot.klx and implemented on the LLVM backend
+// (stdlib_boot_session.go) but missing from the Go bridge. The session
+// middleware is installed first: CSRF verification reads the session-stored
+// token, and the LLVM backend's session support is unconditional, so
+// arming CSRF implies sessions on both ends.
+func BootUseCSRF() {
+	boot.Use(boot.Sessions())
+	boot.Use(boot.CSRF())
+}
+
 // BootText creates a plain text response.
 func BootText(status int64, body string) *boot.Response {
 	return boot.Text(int(status), body)

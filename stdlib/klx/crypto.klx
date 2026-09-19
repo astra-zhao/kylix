@@ -11,8 +11,14 @@ function AesEncrypt(key: String; plaintext: String): String;
 function AesDecrypt(key: String; ciphertext: String): String;
 
 // ===== BCrypt =====
+// Deprecated / Go-only: real bcrypt ($2a$) on the Go backend, PBKDF2-based
+// substitute on LLVM — the two are NOT cross-compatible. Use Pbkdf2* instead.
 function BCryptHash(password: String; cost: Integer): String;
 function BCryptCompare(password: String; hash: String): Boolean;
+
+// ===== PBKDF2 (v0.10.0 P2: portable cross-backend password hash) =====
+function Pbkdf2Hash(password: String; iterations: Integer): String;
+function Pbkdf2Compare(password: String; hash: String): Boolean;
 
 // ===== Random =====
 function RandomBytes(n: Integer): String;

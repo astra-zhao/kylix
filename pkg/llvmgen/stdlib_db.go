@@ -12,14 +12,17 @@ import (
 //
 //   DbOpenSQLite(path)        -> ptr (TDatabase)    sqlite3_open
 //   DbClose(db)               -> void               sqlite3_close
-//   DbExec(db, sql, args...)  -> void               prepare+bind+step+finalize
-//   DbQueryScalar(db, sql)    -> ptr (String)       prepare+step+column_text+strdup
+//   DbExec(db, sql, args...)  -> i64 (rows changed) prepare+bind+step+finalize
+//   DbQueryScalar(db, sql, args...) -> ptr (String) prepare+bind+step+column_text+strdup
+//   DbQueryRows(db, sql, args...)   -> {ptr,i64,i64} prepare+bind+row loop
 //
-// DbExec's variadic args are handled by inlining the prepare/bind/step
-// sequence at each call site (each call generates a bespoke snippet with the
-// right number of sqlite3_bind_text calls). This avoids needing a variadic
-// ABI — the Kylix-level variadic is flattened into N bind calls at codegen
-// time.
+// The Kylix-level variadic is flattened at codegen time: DbExec and
+// DbQueryScalar inline the prepare/bind/step sequence at each call site with
+// the right number of sqlite3_bind_* calls. DbQueryRows defers to a module
+// body; the 2-arg form calls @__kylix_db_DbQueryRows (unchanged shape), the
+// bound form packs the args into stack arrays and calls
+// @__kylix_db_DbQueryRowsB(db, sql, argc, argv, argtypes), which binds them
+// in a loop before stepping (v0.10.0 P2).
 
 const dbHandleTypeName = "TDatabase"
 
@@ -57,6 +60,8 @@ func (g *Generator) emitDbBody(funcName string) {
 		g.emitDbCloseBody()
 	case "DbQueryRows":
 		g.emitDbQueryRowsBody()
+	case "DbQueryRowsB":
+		g.emitDbQueryRowsBodyB()
 	}
 }
 
@@ -189,6 +194,28 @@ func (g *Generator) emitDbCloseBody() {
 //	    if arg is Integer: sqlite3_bind_int64(stmt, i, val)
 //	  sqlite3_step(stmt)
 //	  sqlite3_finalize(stmt)
+// emitDbBindArgs evaluates args[offset:] and emits one sqlite3_bind_* call
+// per argument against the prepared statement (1-based bind indices):
+// String (ptr) args bind as text, Integer (i64) args bind as int64.
+// Shared by the inlined DbExec and DbQueryScalar call sites.
+func (g *Generator) emitDbBindArgs(stmt string, args []ast.Expression, offset int) error {
+	for i, arg := range args[offset:] {
+		argReg, argType, err := g.emitExpr(arg)
+		if err != nil {
+			return err
+		}
+		idx := i + 1 // sqlite3 bind indices are 1-based
+		if argType == "ptr" {
+			// bind_text(stmt, idx, val, -1, -1)
+			g.line(fmt.Sprintf("  call i32 @sqlite3_bind_text(ptr %s, i32 %d, ptr %s, i32 -1, i64 -1)", stmt, idx, argReg))
+		} else {
+			// bind_int64(stmt, idx, val)
+			g.line(fmt.Sprintf("  call i32 @sqlite3_bind_int64(ptr %s, i32 %d, i64 %s)", stmt, idx, argReg))
+		}
+	}
+	return nil
+}
+
 func (g *Generator) emitDbExecCall(args []ast.Expression) (string, string, error) {
 	if len(args) < 2 {
 		return "", "", fmt.Errorf("db.DbExec expects at least 2 arguments (db, sql), got %d", len(args))
@@ -212,19 +239,8 @@ func (g *Generator) emitDbExecCall(args []ast.Expression) (string, string, error
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", stmt, stmtSlot))
 
 	// bind each arg (args[2:])
-	for i, arg := range args[2:] {
-		argReg, argType, err := g.emitExpr(arg)
-		if err != nil {
-			return "", "", err
-		}
-		idx := i + 1 // sqlite3 bind indices are 1-based
-		if argType == "ptr" {
-			// bind_text(stmt, idx, val, -1, -1)
-			g.line(fmt.Sprintf("  call i32 @sqlite3_bind_text(ptr %s, i32 %d, ptr %s, i32 -1, i64 -1)", stmt, idx, argReg))
-		} else {
-			// bind_int64(stmt, idx, val)
-			g.line(fmt.Sprintf("  call i32 @sqlite3_bind_int64(ptr %s, i32 %d, i64 %s)", stmt, idx, argReg))
-		}
+	if err := g.emitDbBindArgs(stmt, args, 2); err != nil {
+		return "", "", err
 	}
 
 	// step (INSERT/CREATE returns SQLITE_DONE=100; errors are ignored)
@@ -250,8 +266,8 @@ func (g *Generator) emitDbExecCall(args []ast.Expression) (string, string, error
 //	  sqlite3_finalize(stmt)
 //	  ret result  (null if no row)
 func (g *Generator) emitDbQueryScalarCall(args []ast.Expression) (string, string, error) {
-	if len(args) != 2 {
-		return "", "", fmt.Errorf("db.DbQueryScalar expects 2 arguments, got %d", len(args))
+	if len(args) < 2 {
+		return "", "", fmt.Errorf("db.DbQueryScalar expects at least 2 arguments (db, sql), got %d", len(args))
 	}
 	dbReg, _, err := g.emitExpr(args[0])
 	if err != nil {
@@ -275,6 +291,11 @@ func (g *Generator) emitDbQueryScalarCall(args []ast.Expression) (string, string
 	g.line(fmt.Sprintf("  call i32 @sqlite3_prepare_v2(ptr %s, ptr %s, i32 -1, ptr %s, ptr null)", dbReg, sqlReg, stmtSlot))
 	stmt := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", stmt, stmtSlot))
+
+	// bind each arg (args[2:]) — v0.10.0 P2: parameterized scalars
+	if err := g.emitDbBindArgs(stmt, args, 2); err != nil {
+		return "", "", err
+	}
 
 	// step
 	stepRc := g.tmp()
@@ -327,8 +348,8 @@ func (g *Generator) emitDbQueryScalarCall(args []ast.Expression) (string, string
 // rows[i] reads a box (IsVariant array index); row['col'] lowers to
 // @__kylix_variant_map_get (array.go emitVariantMapIndex). v0.6.4.
 func (g *Generator) emitDbQueryRowsCall(args []ast.Expression) (string, string, error) {
-	if len(args) != 2 {
-		return "", "", fmt.Errorf("db.DbQueryRows expects 2 arguments, got %d", len(args))
+	if len(args) < 2 {
+		return "", "", fmt.Errorf("db.DbQueryRows expects at least 2 arguments (db, sql), got %d", len(args))
 	}
 	dbReg, _, err := g.emitExpr(args[0])
 	if err != nil {
@@ -342,14 +363,64 @@ func (g *Generator) emitDbQueryRowsCall(args []ast.Expression) (string, string, 
 	g.needHashtab = true
 	g.needVariantRuntime = true
 	g.needMemcpy = true // append copies the slice buffer
-	g.enqueueStdlib("db", "DbQueryRows", "DbQueryRows", 0)
 	r := g.tmp()
-	g.line(fmt.Sprintf("  %s = call { ptr, i64, i64 } @__kylix_db_DbQueryRows(ptr %s, ptr %s)", r, dbReg, sqlReg))
+	if len(args) == 2 {
+		// 2-arg form: unchanged shape (the module body binds nothing).
+		g.enqueueStdlib("db", "DbQueryRows", "DbQueryRows", 0)
+		g.line(fmt.Sprintf("  %s = call { ptr, i64, i64 } @__kylix_db_DbQueryRows(ptr %s, ptr %s)", r, dbReg, sqlReg))
+		return r, "{ ptr, i64, i64 }", nil
+	}
+	// Bound form (v0.10.0 P2): pack the args into stack arrays —
+	// argv[i] = i64 payload (ptrtoint of a String pointer, or the integer
+	// value), argtypes[i] = 0 (text) / 1 (int) — and hand them to the
+	// DbQueryRowsB body, which binds them after prepare.
+	n := len(args) - 2
+	argvSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [%d x i64], align 8", argvSlot, n))
+	typesSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca [%d x i32], align 4", typesSlot, n))
+	for i, arg := range args[2:] {
+		argReg, argType, err := g.emitExpr(arg)
+		if err != nil {
+			return "", "", err
+		}
+		argElem := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i64, ptr %s, i64 %d", argElem, argvSlot, i))
+		typElem := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i32, ptr %s, i64 %d", typElem, typesSlot, i))
+		if argType == "ptr" {
+			asInt := g.tmp()
+			g.line(fmt.Sprintf("  %s = ptrtoint ptr %s to i64", asInt, argReg))
+			g.line(fmt.Sprintf("  store i64 %s, ptr %s", asInt, argElem))
+			g.line(fmt.Sprintf("  store i32 0, ptr %s", typElem))
+		} else {
+			g.line(fmt.Sprintf("  store i64 %s, ptr %s", argReg, argElem))
+			g.line(fmt.Sprintf("  store i32 1, ptr %s", typElem))
+		}
+	}
+	g.enqueueStdlib("db", "DbQueryRowsB", "DbQueryRowsB", 0)
+	g.line(fmt.Sprintf("  %s = call { ptr, i64, i64 } @__kylix_db_DbQueryRowsB(ptr %s, ptr %s, i64 %d, ptr %s, ptr %s)", r, dbReg, sqlReg, n, argvSlot, typesSlot))
 	return r, "{ ptr, i64, i64 }", nil
 }
 
 func (g *Generator) emitDbQueryRowsBody() {
-	g.line("define { ptr, i64, i64 } @__kylix_db_DbQueryRows(ptr %db, ptr %sql) {")
+	// 2-arg form: the original shape (no binding) — kept byte-identical so
+	// existing programs' IR does not move.
+	g.emitDbQueryRowsBodyImpl(false)
+}
+
+// emitDbQueryRowsBodyB emits the bound-form module body: same row loop, but
+// it first binds argc/argv/argtypes (packed at the call site) after prepare.
+func (g *Generator) emitDbQueryRowsBodyB() {
+	g.emitDbQueryRowsBodyImpl(true)
+}
+
+func (g *Generator) emitDbQueryRowsBodyImpl(bound bool) {
+	if bound {
+		g.line("define { ptr, i64, i64 } @__kylix_db_DbQueryRowsB(ptr %db, ptr %sql, i64 %argc, ptr %argv, ptr %argtypes) {")
+	} else {
+		g.line("define { ptr, i64, i64 } @__kylix_db_DbQueryRows(ptr %db, ptr %sql) {")
+	}
 	g.line("entry:")
 	// prepare
 	stmtSlot := g.tmp()
@@ -358,6 +429,57 @@ func (g *Generator) emitDbQueryRowsBody() {
 	g.line(fmt.Sprintf("  call i32 @sqlite3_prepare_v2(ptr %%db, ptr %%sql, i32 -1, ptr %s, ptr null)", stmtSlot))
 	stmt := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", stmt, stmtSlot))
+	if bound {
+		// bind loop: for i in 0..argc-1 — text (type 0) vs int (type 1);
+		// argv[i] carries the i64 payload (a String pointer arrived here
+		// via ptrtoint at the call site).
+		idxSlot := g.tmp()
+		g.line(fmt.Sprintf("  %s = alloca i32, align 4", idxSlot))
+		g.line(fmt.Sprintf("  store i32 0, ptr %s", idxSlot))
+		bindLoop := g.label()
+		bindBody := g.label()
+		bindText := g.label()
+		bindInt := g.label()
+		bindNext := g.label()
+		bindDone := g.label()
+		g.line(fmt.Sprintf("  br label %%%s", bindLoop))
+		g.line(fmt.Sprintf("%s:", bindLoop))
+		bi := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i32, ptr %s", bi, idxSlot))
+		bi64 := g.tmp()
+		g.line(fmt.Sprintf("  %s = zext i32 %s to i64", bi64, bi))
+		bcont := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp slt i64 %s, %%argc", bcont, bi64))
+		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", bcont, bindBody, bindDone))
+		g.line(fmt.Sprintf("%s:", bindBody))
+		bp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i64, ptr %%argv, i64 %s", bp, bi64))
+		payload := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i64, ptr %s", payload, bp))
+		tp := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i32, ptr %%argtypes, i64 %s", tp, bi64))
+		bt := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i32, ptr %s", bt, tp))
+		bidx := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i32 %s, 1", bidx, bi))
+		isText := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", isText, bt))
+		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isText, bindText, bindInt))
+		g.line(fmt.Sprintf("%s:", bindText))
+		sp := g.tmp()
+		g.line(fmt.Sprintf("  %s = inttoptr i64 %s to ptr", sp, payload))
+		g.line(fmt.Sprintf("  call i32 @sqlite3_bind_text(ptr %s, i32 %s, ptr %s, i32 -1, i64 -1)", stmt, bidx, sp))
+		g.line(fmt.Sprintf("  br label %%%s", bindNext))
+		g.line(fmt.Sprintf("%s:", bindInt))
+		g.line(fmt.Sprintf("  call i32 @sqlite3_bind_int64(ptr %s, i32 %s, i64 %s)", stmt, bidx, payload))
+		g.line(fmt.Sprintf("  br label %%%s", bindNext))
+		g.line(fmt.Sprintf("%s:", bindNext))
+		bn := g.tmp()
+		g.line(fmt.Sprintf("  %s = add i32 %s, 1", bn, bi))
+		g.line(fmt.Sprintf("  store i32 %s, ptr %s", bn, idxSlot))
+		g.line(fmt.Sprintf("  br label %%%s", bindLoop))
+		g.line(fmt.Sprintf("%s:", bindDone))
+	}
 	nCol := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i32 @sqlite3_column_count(ptr %s)", nCol, stmt))
 	// result slice {data,len,cap} accumulator + column-index slot

@@ -21,6 +21,27 @@ type
     function Form(name: String): String;
     // Cookie returns a request cookie value ("Cookie: a=1; b=2"), or ''.
     function Cookie(name: String): String;
+    // SessionGet returns the server-side session value for key ('' when absent).
+    function SessionGet(key: String): String;
+    // SessionSet stores a server-side session value.
+    procedure SessionSet(key: String; value: String);
+    // SessionDelete removes a session key.
+    procedure SessionDelete(key: String);
+    // SessionMarkRemember flips the session cookie to a 30-day persistent one.
+    procedure SessionMarkRemember();
+    // SessionRegenerate rotates the session ID, preserving all values — call
+    // at login to defeat session fixation.
+    procedure SessionRegenerate();
+    // SessionDestroy deletes the session server-side and drops the cookie.
+    procedure SessionDestroy();
+    // SessionCSRFToken returns (minting on first call) the session CSRF token
+    // rendered into forms as a hidden _csrf field.
+    function SessionCSRFToken(): String;
+    // File returns the uploaded file's content for a multipart form field
+    // ('' when absent).
+    function File(name: String): String;
+    // SaveFile writes an uploaded file's content to path on disk.
+    procedure SaveFile(name: String; path: String);
   end;
 
   TResponse = class
@@ -37,6 +58,10 @@ type
     // Redirect sets the response to 302 with a Location header (fluent).
     // Typical handler use: Result := res.Redirect('/login');
     function Redirect(url: String): TResponse;
+    // Download sends bytes as a file attachment (Content-Disposition).
+    function Download(filename: String; data: String): TResponse;
+    // FileBytes sends a file from disk as the response body.
+    function FileBytes(path: String): TResponse;
   end;
 
   TServer = class

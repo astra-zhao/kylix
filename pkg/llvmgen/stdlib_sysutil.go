@@ -51,6 +51,9 @@ func stdlibSysutilFuncSig(name string) (retType string, params []string, ok bool
 		return "ptr", nil, true
 	case "GetFileSize":
 		return "i64", []string{"ptr"}, true
+	// v0.10.0 P2: env access. Missing key → "" (matches Go os.Getenv).
+	case "GetEnv":
+		return "ptr", []string{"ptr"}, true
 	}
 	return "", nil, false
 }
@@ -161,6 +164,8 @@ func (g *Generator) emitSysutilBody(name string, argCount int) {
 		g.emitSysutilGetTempDir()
 	case "GetFileSize":
 		g.emitSysutilGetFileSize()
+	case "GetEnv":
+		g.emitSysutilGetEnv()
 	}
 }
 
@@ -521,6 +526,23 @@ func (g *Generator) emitSysutilGetTempDir() {
 	tmpPtr := g.ptrTo(tmpStr, 5)
 	ret := g.tmp()
 	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", ret, isNull, tmpPtr, env))
+	g.line(fmt.Sprintf("  ret ptr %s", ret))
+	g.line("}")
+	g.line("")
+}
+
+// ---- GetEnv: ptr @__kylix_sysutil_GetEnv(ptr %key) ----
+// v0.10.0 P2. getenv(key); missing key → "" via the shared empty-string
+// global (matches Go os.Getenv semantics).
+func (g *Generator) emitSysutilGetEnv() {
+	g.line("define ptr @__kylix_sysutil_GetEnv(ptr %key) {")
+	g.line("entry:")
+	v := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @getenv(ptr %%key)", v))
+	isNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", isNull, v))
+	ret := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr @__kylix_emptystr, ptr %s", ret, isNull, v))
 	g.line(fmt.Sprintf("  ret ptr %s", ret))
 	g.line("}")
 	g.line("")

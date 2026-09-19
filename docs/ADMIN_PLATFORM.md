@@ -29,7 +29,7 @@
 | 参数校验 | `[Required]`/`[Email]`/`[Min]`/`[Max]`/`[MinLen]`/`[MaxLen]` + `IsValid()` | Bean Validation |
 | 请求体绑定 | JSON 绑定 + Form/Cookie | @RequestBody/@RequestParam |
 | ORM | `[Entity]`/`[Column]`/`[PrimaryKey]`/`[Repository]`/`[Query]` → CRUD + ToRow/FromRow + QueryBuilder + MigrationManager + **事务（Database.Begin 已有）** | Spring Data JPA（简化版） |
-| 安全 | JwtSign/JwtVerify/claims + `[Authenticated]`/`[Role]` + BCryptHash | Spring Security（JWT 路线） |
+| 安全 | JwtSign/JwtVerify/claims + `[Authenticated]`/`[Role]` + Pbkdf2Hash/Pbkdf2Compare | Spring Security（JWT 路线） |
 | 中间件 | Logger/Recover/CORS/RateLimit/RequestID/Auth（pkg/boot + stdlib/middleware 双套） | FilterChain |
 | API 文档 | OpenAPI 3.1 自动生成（kylix doc --openapi） | springdoc-openapi |
 | 模板 | template_engine.klx：Mustache 风格、**默认 HTML 转义（XSS 安全）**+ raw + 12 过滤器 + each/if，三端同源 | Thymeleaf |
@@ -86,7 +86,7 @@
 
 ### P2 认证与 RBAC（平台骨架）
 
-- 登录/登出/会话管理：BCrypt 验证 + Session + CSRF + 失败 5 次锁 15 分钟 + Remember-me（30 天）
+- 登录/登出/会话管理：Pbkdf2Compare 验证（PBKDF2-HMAC-SHA256，默认 210000 迭代）+ Session + CSRF + 失败 5 次锁 15 分钟 + Remember-me（30 天）
 - RBAC 完整模型：用户 / 角色 / 权限点 / 用户-角色 / 角色-权限 五表 + `[Role("admin")]` 守卫贯通 + 菜单按权限渲染
 - 审计：登录日志（IP/UA/成败）+ 操作日志（谁/何时/对什么/做了什么，中间件自动记录写操作）
 
@@ -130,5 +130,5 @@ apps/admin/            # KylixAdmin 源码（Kylix）
 - [ ] Chrome/Safari/Firefox 人工走查通过；亮/暗主题切换正常
 - [ ] Go 后端与 LLVM 原生二进制两形态行为逐字一致（复用 sweep diff 方法论）
 - [ ] sqlite ↔ postgres 切换平台代码零改动
-- [ ] 安全清单：BCrypt 存储 / session 固定防护 / CSRF 覆盖全部写操作 / XSS（模板默认转义 + 审计）/ 越权（RBAC 守卫全覆盖）/ 上传类型白名单 / SQL 注入（全参数化）
+- [ ] 安全清单：PBKDF2-HMAC-SHA256 口令存储（Pbkdf2Hash，信封格式迭代数随哈希存储）/ session 固定防护（登录成功 SessionRegenerate） / CSRF 覆盖全部写操作 / XSS（模板默认转义 + 审计）/ 越权（RBAC 守卫全覆盖）/ 上传类型白名单 / SQL 注入（全参数化）
 - [ ] 全量回归持续绿：16 包 + Go/LLVM sweep + bootstrap sweep + IR 不动点

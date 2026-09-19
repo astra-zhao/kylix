@@ -53,6 +53,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"Sha256", "Sha512", "Md5", "HmacSha256",
 		"AesEncrypt", "AesDecrypt",
 		"BCryptHash", "BCryptCompare",
+		"Pbkdf2Hash", "Pbkdf2Compare",
 		"RandomBytes", "RandomToken",
 	),
 	"encoding": strToSet(

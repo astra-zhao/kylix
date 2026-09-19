@@ -1,0 +1,140 @@
+// admindb.klx — KylixAdmin database layer (v0.10.0 P2)
+//
+// Schema (7 tables), seed data (admin user + admin/viewer roles + 5
+// permission points) and RBAC lookups. Pure Kylix: compiled by the Go and
+// LLVM backends from this one source (multi-file build with main.klx).
+//
+// Conventions:
+//   - SQLite only, TEXT/INTEGER columns, every statement parameterized (?).
+//   - Timestamps are Unix seconds (INTEGER). Bound as TEXT — SQLite's
+//     INTEGER column affinity coerces them back on storage and comparison.
+//   - All cross-unit public functions take >= 1 parameter (host Go codegen
+//     drops the call parentheses on zero-arg cross-unit calls used as
+//     arguments — TECHNICAL_DEBT).
+unit admindb;
+
+uses db, crypto, datetime, sysutil;
+
+// ---------------------------------------------------------------------------
+// schema + seed
+// ---------------------------------------------------------------------------
+
+procedure EnsureSchema(db: TDatabase);
+begin
+  DbExec(db, 'PRAGMA journal_mode=WAL');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password TEXT, display_name TEXT, is_active INTEGER, failed_attempts INTEGER, locked_until INTEGER, created_at INTEGER, updated_at INTEGER)');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS roles (id INTEGER PRIMARY KEY, name TEXT UNIQUE, description TEXT)');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS permissions (id INTEGER PRIMARY KEY, code TEXT UNIQUE, description TEXT)');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS user_roles (user_id INTEGER, role_id INTEGER, PRIMARY KEY (user_id, role_id))');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS role_permissions (role_id INTEGER, permission_id INTEGER, PRIMARY KEY (role_id, permission_id))');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS login_logs (id INTEGER PRIMARY KEY, username TEXT, ip TEXT, user_agent TEXT, success INTEGER, reason TEXT, created_at INTEGER)');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS op_logs (id INTEGER PRIMARY KEY, username TEXT, method TEXT, path TEXT, status INTEGER, ip TEXT, created_at INTEGER)');
+end;
+
+procedure SeedIfEmpty(db: TDatabase);
+var
+  cnt: String;
+  pw: String;
+  hash: String;
+  now: Integer;
+  adminRole: String;
+  viewerRole: String;
+  uid: String;
+begin
+  cnt := DbQueryScalar(db, 'SELECT COUNT(*) FROM users');
+  if cnt = '0' then
+  begin
+    pw := GetEnv('KYADMIN_PASSWORD');
+    if pw = '' then
+    begin
+      pw := 'Admin@123';
+      WriteLn('[kyadmin] WARNING: KYADMIN_PASSWORD is not set; the default password is in use');
+    end;
+    now := Now().Unix();
+    hash := Pbkdf2Hash(pw, 210000);
+    DbExec(db, 'INSERT INTO users (username, password, display_name, is_active, failed_attempts, locked_until, created_at, updated_at) VALUES (?, ?, ?, 1, 0, 0, ?, ?)', 'admin', hash, 'Administrator', IntToStr(now), IntToStr(now));
+    DbExec(db, 'INSERT INTO roles (name, description) VALUES (?, ?)', 'admin', 'Full access');
+    DbExec(db, 'INSERT INTO roles (name, description) VALUES (?, ?)', 'viewer', 'Read-only access');
+    DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'users.read', 'View users');
+    DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'users.write', 'Manage users');
+    DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'roles.read', 'View roles');
+    DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'roles.write', 'Manage roles');
+    DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'logs.read', 'View audit logs');
+    adminRole := DbQueryScalar(db, 'SELECT id FROM roles WHERE name = ?', 'admin');
+    viewerRole := DbQueryScalar(db, 'SELECT id FROM roles WHERE name = ?', 'viewer');
+    uid := DbQueryScalar(db, 'SELECT id FROM users WHERE username = ?', 'admin');
+    DbExec(db, 'INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)', uid, adminRole);
+    // admin -> all five permission points
+    DbExec(db, 'INSERT INTO role_permissions (role_id, permission_id) SELECT ?, id FROM permissions', adminRole);
+    // viewer -> the three read points only
+    DbExec(db, 'INSERT INTO role_permissions (role_id, permission_id) SELECT ?, id FROM permissions WHERE code = ?', viewerRole, 'users.read');
+    DbExec(db, 'INSERT INTO role_permissions (role_id, permission_id) SELECT ?, id FROM permissions WHERE code = ?', viewerRole, 'roles.read');
+    DbExec(db, 'INSERT INTO role_permissions (role_id, permission_id) SELECT ?, id FROM permissions WHERE code = ?', viewerRole, 'logs.read');
+  end;
+end;
+
+// AdminOpen opens (or reopens) the admin database. Handlers call this per
+// request with the default path; KYADMIN_DB overrides it (E2E isolation).
+function AdminOpen(dbPath: String): TDatabase;
+var
+  env: String;
+begin
+  env := GetEnv('KYADMIN_DB');
+  if env <> '' then
+    dbPath := env;
+  result := DbOpenSQLite(dbPath);
+end;
+
+// ---------------------------------------------------------------------------
+// RBAC lookups
+// ---------------------------------------------------------------------------
+
+// RolesOf returns the user's role names, comma-joined ('' when none).
+function RolesOf(db: TDatabase; username: String): String;
+var
+  i: Integer;
+begin
+  result := '';
+  var rows := DbQueryRows(db, 'SELECT r.name AS name FROM roles r JOIN user_roles ur ON ur.role_id = r.id JOIN users u ON u.id = ur.user_id WHERE u.username = ?', username);
+  i := 0;
+  while i < Length(rows) do
+  begin
+    if result <> '' then
+      result := result + ',';
+    result := result + VariantToStr(rows[i]['name']);
+    i := i + 1;
+  end;
+end;
+
+// PermsOf returns the user's permission codes, comma-joined ('' when none).
+function PermsOf(db: TDatabase; username: String): String;
+var
+  i: Integer;
+begin
+  result := '';
+  var rows := DbQueryRows(db, 'SELECT p.code AS code FROM permissions p JOIN role_permissions rp ON rp.permission_id = p.id JOIN user_roles ur ON ur.role_id = rp.id JOIN users u ON u.id = ur.user_id WHERE u.username = ?', username);
+  i := 0;
+  while i < Length(rows) do
+  begin
+    if result <> '' then
+      result := result + ',';
+    result := result + VariantToStr(rows[i]['code']);
+    i := i + 1;
+  end;
+end;
+
+// WriteLoginLog appends one row to login_logs (success = 1/0).
+procedure WriteLoginLog(db: TDatabase; username: String; ip: String; ua: String; ok: Boolean; reason: String);
+var
+  now: Integer;
+  okInt: String;
+begin
+  now := Now().Unix();
+  if ok then
+    okInt := '1'
+  else
+    okInt := '0';
+  DbExec(db, 'INSERT INTO login_logs (username, ip, user_agent, success, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)', username, ip, ua, okInt, reason, IntToStr(now));
+end;
+
+end.

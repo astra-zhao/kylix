@@ -11,6 +11,15 @@ package boot
 
 import "strings"
 
+// Session keys the session-first auth model reads (v0.10.0 P2). The LLVM
+// backend hardcodes the same literals in emitBootEnforceAuthBody /
+// BootEnforceRole — keep the three in sync. Applications write them at
+// login (see the session-first contract in docs/ADMIN_PLATFORM.md).
+const (
+	sessionUserKey  = "__user"  // logged-in username; empty/absent = anonymous
+	sessionRolesKey = "__roles" // comma-separated role names
+)
+
 var (
 	authValidator func(token string) (user string, ok bool)
 	rolesProvider func(user string) []string
@@ -24,11 +33,22 @@ func RegisterAuthValidator(v func(token string) (string, bool)) { authValidator 
 // [Role] annotation guards.
 func RegisterRolesProvider(p func(user string) []string) { rolesProvider = p }
 
-// EnforceAuth verifies a Bearer token from the request and populates
-// req.User on success. Returns a 401 Response on any failure; nil on success.
+// EnforceAuth authenticates the request, session-first (v0.10.0 P2): a live
+// session with a non-empty __user key passes (req.User/Roles populated from
+// __user/__roles) — the HTML form-login path. Otherwise the Bearer/JWT API
+// path runs unchanged: the Authorization header is verified with the
+// registered authValidator. Returns a 401 Response on any failure; nil on
+// success. The LLVM backend mirrors this order in emitBootEnforceAuthBody.
 func EnforceAuth(req *Request) *Response {
 	if req == nil || req.Request == nil {
 		return JSON(401, map[string]string{"error": "unauthorized"})
+	}
+	if req.Session != nil {
+		if user := req.Session.Get(sessionUserKey); user != "" {
+			req.User = user
+			req.Roles = splitSessionRoles(req.Session.Get(sessionRolesKey))
+			return nil
+		}
 	}
 	header := req.Header("Authorization")
 	if !strings.HasPrefix(header, "Bearer ") {
@@ -47,6 +67,17 @@ func EnforceAuth(req *Request) *Response {
 		req.Roles = rolesProvider(user)
 	}
 	return nil
+}
+
+// splitSessionRoles parses the comma-separated __roles session value.
+func splitSessionRoles(v string) []string {
+	var roles []string
+	for _, r := range strings.Split(v, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			roles = append(roles, r)
+		}
+	}
+	return roles
 }
 
 // EnforceRole returns a 403 Response unless req.User has the given role.

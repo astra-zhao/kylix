@@ -126,6 +126,15 @@ type Generator struct {
 	// emitted first declares it once.
 	bootSessionsDeclared bool
 
+	// pendingModuleGlobals holds module-level `@global = global ...` lines
+	// declared while a define body was being emitted (v0.10.0 P2: a user
+	// function calling req.SessionRegenerate is the first code path to hit
+	// this). Writing them directly with g.line() would drop the global line
+	// INSIDE the current function body (invalid IR). LLVM textual IR allows
+	// forward references to globals, so the safe fix is to buffer them and
+	// flush at top level in emitPendingStdlib, before the first body define.
+	pendingModuleGlobals []string
+
 	// bootCsrfEnabledDeclared guards `@__kylix_boot_csrf_enabled = global i1
 	// false` (v0.9.0 P1.7 CSRF): BootRun's gate always loads it, BootUseCSRF
 	// stores into it — whichever is emitted first declares it once.
@@ -709,6 +718,17 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	if g.needClassRTTI {
 		g.emitClassRuntime()
 	}
+
+	// v0.10.0 P2: flush any module-level globals that were buffered while a
+	// define body was being emitted (pendingModuleGlobals). The pre-loop flush
+	// in emitPendingStdlib misses declarations made by bodies emitted inside
+	// that loop (session_resolve declares @__kylix_boot_sessions while being
+	// emitted) and by the later runtime emitters; LLVM allows forward
+	// references, so top-level placement anywhere before use-lookup is fine.
+	for _, gl := range g.pendingModuleGlobals {
+		g.line(gl)
+	}
+	g.pendingModuleGlobals = nil
 
 	// Emit string constants at the end
 	g.emitStringConsts()

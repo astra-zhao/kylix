@@ -179,3 +179,41 @@ func TestSession_NilSafeAccessors(t *testing.T) {
 		t.Fatalf("got %d %q", w.Code, w.Body.String())
 	}
 }
+
+func TestSession_Regenerate(t *testing.T) {
+	store := NewSessionStore()
+	var oldID string
+	_, _, _ = runWithSession(t, store, "", func(req *Request) *Response {
+		oldID = req.Session.ID
+		req.SessionSet("uid", "42")
+		req.SessionRegenerate()
+		if req.Session.ID == oldID {
+			t.Error("session ID must rotate")
+		}
+		if req.Session.Get("uid") != "42" {
+			t.Error("session values must carry over")
+		}
+		if !req.Session.CookieDirty {
+			t.Error("regenerated session must re-send the cookie")
+		}
+		return Text(200, "new:"+req.Session.ID)
+	})
+	if store.Get(oldID) != nil {
+		t.Error("old session entry must be deleted server-side")
+	}
+	// The fresh SID is live and the new cookie rebinds the browser.
+	code, body, cookies := runWithSession(t, store, "", func(req *Request) *Response {
+		req.SessionSet("post", "login")
+		return Text(200, "sid:"+req.Session.ID)
+	})
+	_ = code
+	var setCookie string
+	for _, c := range cookies {
+		if c.Name == SessionCookieName {
+			setCookie = c.Value
+		}
+	}
+	if setCookie == "" || setCookie != body[len("sid:"):] {
+		t.Fatalf("Set-Cookie mismatch: cookie=%q body=%q", setCookie, body)
+	}
+}

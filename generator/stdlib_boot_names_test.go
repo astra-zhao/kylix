@@ -13,6 +13,7 @@ package generator_test
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -150,5 +151,29 @@ func TestBootNames_Dispatchable(t *testing.T) {
 	if len(unhandled) > 0 {
 		t.Fatalf("boot names in internal/bootapi with no emitBootCall case and no bootStubReturnTypes entry: %v\n"+
 			"add a case in pkg/llvmgen/stdlib_boot.go or a bootStubReturnTypes entry (return type defaults to i64)", unhandled)
+	}
+}
+
+// TestBootNames_BridgeCoverage: every name in the single-source boot surface
+// must have a Go bridge function in the stdlib package — the v0.10.0 P2
+// slice found BootUseCSRF declared + LLVM-implemented but missing there, so
+// the Go host linked fine and failed at `go build` time instead. Boot* may
+// live in boot_bridge.go (the usual home) or another stdlib file (jwt.go
+// bridges BootRegisterJwtAuth).
+func TestBootNames_BridgeCoverage(t *testing.T) {
+	files, err := filepath.Glob("../stdlib/*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("glob stdlib bridge sources: %v", err)
+	}
+	var bridge strings.Builder
+	for _, f := range files {
+		bridge.WriteString(readSrc(t, f))
+	}
+	src := bridge.String()
+	for _, name := range bootapi.BootFunctions {
+		if !strings.Contains(src, "func "+name+"(") {
+			t.Fatalf("boot name %q has no Go bridge function in stdlib/: func %s(...)\n"+
+				"(declared in boot.klx, compiled on both backends, but the Go host would fail to link)", name, name)
+		}
 	}
 }

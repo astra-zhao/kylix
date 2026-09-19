@@ -728,12 +728,14 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 	}
 
 	// v0.5.4: StrToInt64(s) → atoll(s) (i64); StrToFloat(s) → strtod(s, nil) (double).
-	if (funcName == "StrToInt64" || funcName == "StrToFloat") && len(e.Arguments) == 1 {
+	// v0.10.0 P2: StrToInt is a host-side alias for StrToInt64 (v0.7.0 P1);
+	// map it to the same atoll path instead of an undefined @StrToInt call.
+	if (funcName == "StrToInt64" || funcName == "StrToInt" || funcName == "StrToFloat") && len(e.Arguments) == 1 {
 		s, _, err := g.emitExpr(e.Arguments[0])
 		if err != nil {
 			return "", "", err
 		}
-		if funcName == "StrToInt64" {
+		if funcName == "StrToInt64" || funcName == "StrToInt" {
 			g.needAtoll = true
 			r := g.tmp()
 			g.line(fmt.Sprintf("  %s = call i64 @atoll(ptr %s)", r, s))
