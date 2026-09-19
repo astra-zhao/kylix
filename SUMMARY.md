@@ -2,7 +2,7 @@
 
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
-[![版本](https://img.shields.io/badge/version-0.9.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.10.0-blue.svg)](CHANGELOG.md)
 [![许可证](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-IR%20%E4%B8%8D%E5%8A%A8%E7%82%B9-brightgreen.svg)](docs/SELFHOSTING_DEV_GUIDE.md)
 
@@ -10,13 +10,13 @@
 
 Kylix 是一个现代化的 Pascal 编译器：默认把 Kylix 源码转译为可读的 Go 代码（`go build` 编译运行）；也可以通过 **LLVM 原生后端**（`--backend=llvm`）直接产出 LLVM IR 并链接为原生二进制——**运行时完全不依赖 Go 工具链**。它结合了 Pascal 的清晰性和简洁性，同时添加了现代语言特性，并配备完整的 IDE 工具链、编辑器集成与无 Go 自举闭环。
 
-**当前版本**：v0.9.0（1.0.0-rc 打磨，规划项全部完成，待发版）
+**当前版本**：v0.10.0（KylixAdmin P0+P2）
 
 **项目地址**：https://github.com/astra-zhao/kylix
 
 **官方网站**：https://kylix.top
 
-> 🔥 **重大里程碑 (v0.9.0)**：**1.0.0-rc 打磨**——KylixBoot 框架补齐（Session + CSRF、multipart 文件上传、`TResponse.Download/FileBytes/CSV`、分页、模板 layout/partials 三端同源）；**bootstrap boot server 落地**（example60 E2E 解除 SKIP，无 Go 编译器可编译并服务真实 HTTP 应用）；stdlib IR 重烘链路闭环（verify 门 + 139→179 签名）；**CI 三平台 10 job 全绿**（2026-08-13 起首次）+ 性能回归门禁 + **API 稳定性冻结承诺**（[docs/API_STABILITY.md](docs/API_STABILITY.md)）。v0.6.9 的 IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。详见 [CHANGELOG.md](CHANGELOG.md)。
+> 🔥 **重大里程碑 (v0.10.0)**：**KylixAdmin 启航**——**LLVM 后端 Boehm GC**（`--gc=boehm` opt-in：~110 处用户数据分配点路由 `GC_malloc`，默认 malloc 模式 IR 逐字节不变，GC 教程 maxRSS 62MB→22MB，issue #1 闭环）；**KylixAdmin P2 认证与 RBAC**（纯 Kylix `apps/admin/`：PBKDF2-HMAC-SHA256 口令哈希、SessionRegenerate 防固定、session-first `[Authenticated]`、`[Role]` 守卫真体化、失败锁定、Remember-me，4 控制器 15 路由）；**双端 E2E**（`apps/admin/e2e.sh`，12 curl 场景 Go/LLVM 归一化逐字 diff，已入 CI）；htab GC 混搭分配器 bug 修复。**CI 11 job 全绿**。v0.6.9 的 IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -26,7 +26,7 @@ Kylix 是一个现代化的 Pascal 编译器：默认把 Kylix 源码转译为�
 
 ```bash
 # 方式一：下载预编译二进制（GitHub Release，5 平台 + bootstrap tarball）
-gh release download v0.9.0
+gh release download v0.10.0
 
 # 方式二：源码构建
 git clone https://github.com/astra-zhao/kylix.git
@@ -108,16 +108,17 @@ kylix version           # 显示版本信息
 
 ---
 
-## 测试状态（v0.9.0）
+## 测试状态（v0.10.0）
 
 | 项目 | 结果 |
 |------|------|
 | Go 单元测试 | ✅ 16 包全绿 |
-| 教程 sweep（Go 后端） | ✅ 57/57（56 示例，多文件模块记 2 项） |
-| 教程 sweep（LLVM 后端） | ✅ 56/56（含 example60 server E2E） |
-| 自举 sweep（无 Go） | ✅ 56 PASS + 1 SKIP（example60 E2E，v0.9.0 经 bootstrap boot server 落地后解除） |
+| 教程 sweep（Go 后端） | ✅ 58/58（57 示例，多文件模块记 2 项） |
+| 教程 sweep（LLVM 后端） | ✅ 58/58（含 example60 server E2E + example64 GC parity） |
+| 自举 sweep（无 Go） | ✅ 57 PASS + 1 SKIP（example60 E2E） |
 | 自举 IR 不动点 | ✅ gen1 ≡ gen2（26.7 万行逐字节） |
-| CI | ✅ 三平台 10 job 全绿（linux/darwin/windows + arm64 + selfrepro + perf-gate） |
+| KylixAdmin E2E | ✅ 双端 12 场景归一化逐字 diff（`apps/admin/e2e.sh`，CI job） |
+| CI | ✅ 11 job 全绿（三平台 + arm64 + selfrepro + perf-gate + admin-e2e） |
 
 ---
 
@@ -132,14 +133,14 @@ kylix version           # 显示版本信息
 
 ### 双后端 ✅
 - **Go 后端**：可读代码生成 + 智能导入 + 增量编译缓存（55× 加速）+ 纯 Kylix 模板引擎（v0.7.0）
-- **LLVM 后端**：完整 stdlib IR 实现（crypto AES/SHA、httpclient libcurl、websocket RFC 6455、sqlite3 数据库、JWT HS256、boot HTTP server、Variant 运行时、DWARF 调试）+ DCE 优化 + 跨平台（含 Windows Winsock 真实现 + llvm-mingw 交叉链接，v0.7.1）
+- **LLVM 后端**：完整 stdlib IR 实现（crypto AES/SHA/PBKDF2、httpclient libcurl、websocket RFC 6455、sqlite3 数据库、JWT HS256、boot HTTP server、Variant 运行时、DWARF 调试）+ DCE 优化 + 跨平台（含 Windows Winsock 真实现 + llvm-mingw 交叉链接，v0.7.1）+ **Boehm GC**（v0.10.0，`--gc=boehm` opt-in）
 - **纯 Kylix stdlib unit（三端同源）**：regex 回溯引擎（v0.7.1）、stringutil 20 函数（v0.8.0）、template_engine 含 layout/partials（v0.9.0）
 
 ### KylixBoot 框架 ✅
 - `[Controller]`/`[Get]`/`[Post]` 路由自动装配、`[Service]`/`[Inject]` DI、`[Required]`/`[Email]` 等字段校验、`[Authenticated]`/`[Role]` 安全守卫、`[Entity]`/`[Repository]`/`[Query]` ORM 注解、`[Body(TEntity)]` 请求体绑定、JWT 一键接入、OpenAPI 3.1 自动生成
 - **v0.9.0 框架补齐**：服务端 Session + CSRF、multipart 文件上传、`TResponse.Download/FileBytes/CSV`、分页 BootPagerHTML、模板 layout/partials
 
-### 自举编译器 ✅（v0.5.2 → v0.9.0）
+### 自举编译器 ✅（v0.5.2 → v0.9.0 bootstrap boot server）
 - `src/*.klx`（token/error/ast/lexer/parser/generator/llvmgen + stdlib IR 烘焙）9 文件
 - v0.5.2 构建打通 → v0.5.3 round-trip + 自繁殖 → v0.5.6 LLVM self-host 51/51 → v0.5.7 self-reproduction 不动点 → **v0.6.9 无 Go 闭环**（stdlib IR 烘焙 + emitter 补缺 20+ 项 + gen2 诞生 + IR 不动点）→ v0.7.0 模板引擎三端同源 + Release 工作流（预编译二进制 + bootstrap tarball）→ **v0.9.0 bootstrap boot server 落地**（example60 E2E 解除 SKIP）+ stdlib IR 重烘链路闭环（139→179 签名）
 
@@ -237,7 +238,8 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 | v0.7.0 | 2026-09-06 | web 页面开发 + web 框架：error 类型（三端）、纯 Kylix 模板引擎、页面渲染 API、example60 server E2E |
 | v0.7.1-0.7.2 | 2026-09-10 | Windows 一等公民（Winsock/regex 引擎/交叉链接）+ CI 全绿 + selfrepro 改走 --emit-llvm IR 链 |
 | v0.8.0 | 2026-09-11 | 自举 stdlib：纯 Kylix stringutil 三端同源 + per-request arena + htab magic 校验加固 |
-| **v0.9.0** | **进行中（待发版）** | **1.0.0-rc 打磨：KylixBoot 补齐（Session/CSRF/上传/Download/分页/layout）+ bootstrap boot server（example60 E2E）+ 重烘闭环 + CI 三平台全绿 + 性能门禁 + API 稳定性冻结** |
+| **v0.9.0** | **2026-09-13** | **1.0.0-rc 打磨：KylixBoot 补齐（Session/CSRF/上传/Download/分页/layout）+ bootstrap boot server（example60 E2E）+ 重烘闭环 + CI 三平台全绿 + 性能门禁 + API 稳定性冻结** |
+| **v0.10.0** | **2026-09-19** | **KylixAdmin P0+P2：LLVM 后端 Boehm GC（`--gc=boehm`，issue #1）+ 后台认证与 RBAC（PBKDF2/Session/锁定/RBAC/审计，15 路由，双端 E2E 入 CI）+ htab GC bug 修复** |
 
 详细更新日志见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -245,7 +247,7 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 
 ## 后续规划
 
-- **v0.10.0–v0.12.0 — KylixAdmin 后台管理平台**（旗舰 showcase，见 [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)）：认证 RBAC（登录/角色/权限五表/审计）→ 通用 CRUD 引擎（`[Entity]` 元数据驱动）→ 自研 UI 设计系统 → postgres 方言 + 一键部署单二进制
+- **v0.11.0–v0.12.0 — KylixAdmin 后台管理平台后半程**（旗舰 showcase，见 [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)；P0 GC 与 P2 认证 RBAC 已于 v0.10.0 完成）：通用 CRUD 引擎（`[Entity]` 元数据驱动）→ 自研 UI 设计系统 → postgres 方言 + 一键部署单二进制
 - **v0.13.0–v0.15.0 — 多端平台**（见 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）：H5 PWA → 编译器多端能力（C ABI export + android/ios triple）→ 示例应用（Kotlin+JNI / SwiftUI 壳）+ wasm32
 - **1.0.0**：v0.7.1–v0.15.0 gate 全过后发布正式版（KylixAdmin + 多端为旗舰 showcase）
 

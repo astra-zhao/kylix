@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-0.9.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.10.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后端编译为原生二进制。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
+>
+> 🚀 **v0.10.0**: **KylixAdmin 启航。** **LLVM 后端 Boehm GC**（`--gc=boehm` opt-in：~110 处用户数据分配点路由 `GC_malloc`；默认 malloc 模式 IR 逐字节不变；GC 教程 maxRSS 62MB→22MB）——issue #1 闭环，内存语义与 Go 后端对齐。外加 **KylixAdmin P2**：纯 Kylix 后台应用（`apps/admin/`）认证与 RBAC——PBKDF2-HMAC-SHA256（`Pbkdf2Hash/Pbkdf2Compare`，替代跨形态哈希不兼容的 BCrypt）、`SessionRegenerate`（防会话固定）、session-first `[Authenticated]`、**`[Role]` 守卫真体化**（LLVM 端原为空桩）、失败锁定持久化、Remember-me、users/roles/logs 页面（4 控制器 15 路由）、**双端 E2E**（`apps/admin/e2e.sh`，12 curl 场景 Go/LLVM 归一化逐字 diff，已入 CI）。另：修复混搭分配器 GC bug（htab 节点裸 malloc 而 key/value 走 GC——活 map/会话数据可能被错收）。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
 > 🚀 **v0.9.0**: **1.0.0-rc 打磨。** KylixBoot 框架补齐（Session + CSRF、multipart 文件上传、`TResponse.Download/FileBytes/CSV`、分页、模板 layout/partials——三端同源）、**bootstrap boot server 落地**（example60 的 SKIP 解除：无 Go 编译器现在能编译并服务真实 HTTP 应用）、stdlib IR 重烘链路闭环（`scripts/rebake_stdlib_ir.sh` 含 `opt -passes=verify` 门，139→179 签名）、**CI 三平台重回全绿**（10 job，2026-08-13 起首次）+ 性能回归门禁 + API 稳定性冻结承诺（[docs/API_STABILITY.md](docs/API_STABILITY.md)）。IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
@@ -87,8 +89,8 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后�
 - **调试器**: `kylix debug` 集成 Delve (v0.2.3)
 - **WebAssembly**: `kylix build --wasm` 编译为 .wasm (v0.2.3)
 - **WASI**: `kylix build --wasi` 编译为 WASI 目标 (v0.3.0-alpha)
-- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链。**56 个教程全部在 LLVM 后端编译+运行 (100%，含 example60 真实 HTTP server E2E)**（Go 后端 sweep 57/57——多文件模块示例记 2 项），支持逐行 DWARF 调试（`-g`，LLDB 逐行单步 + 变量检视，含类方法/lambda DISubprogram + 块作用域 DILexicalBlock）、泛型类方法（TStack<T>.Push/Pop）、静态数组真实下界，以及日益完善的**真实 IR stdlib**：db（DbOpen/DbExec/DbQueryScalar/**DbQueryRows**）、**websocket**（RFC 6455 客户端+服务端）、jwt（HS256）、httpclient、sysutil、datetime、jsonutil、crypto、encoding、cache、boot，外加三端同源的纯 Kylix unit：**regex**（回溯引擎，v0.7.1）、**stringutil**（v0.8.0）、**template_engine** 含 layout/partials（v0.9.0）。
-- **Bootstrap 无 Go 闭环 (v0.6.9)**: 编译器自身源码（`src/*.klx`）经 `--emit-llvm` 产出 IR，链接成零 Go 依赖的原生 `gen2` 编译器，迭代至**逐字节 IR 不动点**（gen1 ≡ gen2，~26.7 万行）。stdlib 以烘焙 IR 数据（`src/stdlib_ir.klx`）进入 bootstrap。**教程 sweep 56 PASS + 1 SKIP**（bootstrap-vs-host 逐字 diff，`scripts/test_bootstrap_all.sh`；SKIP 为 example60 的 launch+curl E2E，v0.9.0 经 bootstrap boot server 落地后解除）。
+- **LLVM 后端**: `kylix build --backend=llvm` 原生代码，绕过 Go 工具链。**57 个教程全部在 LLVM 后端编译+运行 (100%，含 example60 真实 HTTP server E2E)**（Go 后端 sweep 58/58——多文件模块示例记 2 项），支持逐行 DWARF 调试（`-g`，LLDB 逐行单步 + 变量检视，含类方法/lambda DISubprogram + 块作用域 DILexicalBlock）、泛型类方法（TStack<T>.Push/Pop）、静态数组真实下界，以及日益完善的**真实 IR stdlib**：db（DbOpen/DbExec/DbQueryScalar/**DbQueryRows**）、**websocket**（RFC 6455 客户端+服务端）、jwt（HS256）、httpclient、sysutil、datetime、jsonutil、crypto（含 **PBKDF2**，v0.10.0）、encoding、cache、boot，外加三端同源的纯 Kylix unit：**regex**（回溯引擎，v0.7.1）、**stringutil**（v0.8.0）、**template_engine** 含 layout/partials（v0.9.0）。还有：`--target` 交叉编译（v0.6.2）、`--llvm-opt=2` 优化通道、**`--gc=boehm`**（v0.10.0，opt-in Boehm GC）、`kylix doctor` 环境预检、**`--emit-llvm`**（v0.6.9，bootstrap 无 Go 自举链路的基础）。
+- **Bootstrap 无 Go 闭环 (v0.6.9)**: 编译器自身源码（`src/*.klx`）经 `--emit-llvm` 产出 IR，链接成零 Go 依赖的原生 `gen2` 编译器，迭代至**逐字节 IR 不动点**（gen1 ≡ gen2，~26.7 万行）。stdlib 以烘焙 IR 数据（`src/stdlib_ir.klx`）进入 bootstrap。**教程 sweep 57 PASS + 1 SKIP**（bootstrap-vs-host 逐字 diff，`scripts/test_bootstrap_all.sh`；SKIP 为 example60 的 launch+curl E2E，v0.9.0 经 bootstrap boot server 落地后解除）。
 - **KylixBoot 框架**: Spring Boot 式注解驱动的 Web 应用 (v0.3.1)
 - **注解自动装配**: `[Controller]`/`[Get]`/`[Post]`/`[Put]`/`[Delete]` 自动路由注册 (v0.3.2)
 - **依赖注入**: `[Service]`/`[Component]`/`[Inject]` 编译期自动装配 (v0.3.2)
@@ -114,7 +116,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后�
 **Linux / macOS**（选择对应平台资产）：
 
 ```bash
-gh release download v0.9.0 -p 'kylix-linux-amd64'    # 或到 Releases 页面下载
+gh release download v0.10.0 -p 'kylix-linux-amd64'    # 或到 Releases 页面下载
 mv kylix-linux-amd64 kylix && chmod +x kylix
 sudo mv kylix /usr/local/bin/    # 或任意 PATH 目录
 ./kylix doctor                   # 诊断 go / llc / clang / opt / sqlite3 / curl / openssl
@@ -1102,7 +1104,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 
 ## 路线图
 
-当前状态：**v0.9.0（1.0.0-rc 打磨）**—— KylixBoot 框架补齐（Session/CSRF、multipart 上传、Download/FileBytes/CSV、分页、模板 layout/partials）、bootstrap boot server 落地（example60 E2E 解除 SKIP）、stdlib IR 重烘链路闭环、CI 三平台全绿（10 job）+ 性能门禁 + API 稳定性冻结（[docs/API_STABILITY.md](docs/API_STABILITY.md)）。IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。下一步：**v0.10.0 KylixAdmin 后台管理平台**（见 [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)）。完整路线图见 [ROADMAP.md](ROADMAP.md)。
+当前状态：**v0.10.0（KylixAdmin P0+P2）**—— **LLVM 后端 Boehm GC**（`--gc=boehm` opt-in，~110 处分配点路由 GC_malloc，默认 malloc 模式 IR 逐字节不变，GC 教程 maxRSS 62MB→22MB，issue #1 闭环）+ **KylixAdmin 认证与 RBAC**（纯 Kylix `apps/admin/`：PBKDF2 口令哈希、SessionRegenerate 防固定、session-first `[Authenticated]`、`[Role]` 守卫真体化、失败锁定、Remember-me，4 控制器 15 路由；双端 E2E `apps/admin/e2e.sh` 12 场景逐字 diff 已入 CI）+ htab GC 混搭分配器 bug 修复。CI **11 job 全绿**（run 35427853523）。IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。下一步：**v0.11.0 KylixAdmin P3 后半 + P4**（通用 CRUD 引擎 + 自研 UI 设计系统，见 [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)）。完整路线图见 [ROADMAP.md](ROADMAP.md)。
 
 ## 跨平台编译
 
@@ -1226,6 +1228,7 @@ WsClose(ws);
 | 版本 | 亮点 |
 |------|------|
 | v0.9.0 | 1.0.0-rc 打磨：KylixBoot 补齐（Session/CSRF/上传/Download/分页/layout）、bootstrap boot server（example60 E2E）、stdlib IR 重烘链路、CI 三平台全绿 + 性能门禁 + API 稳定性冻结 |
+| v0.10.0 | KylixAdmin P0+P2：LLVM 后端 Boehm GC（`--gc=boehm`，issue #1）+ 后台认证与 RBAC（PBKDF2/session/锁定/RBAC/审计，15 路由，双端 E2E 入 CI） |
 | v0.8.0 | 自举 stdlib：纯 Kylix stringutil（三端单源）、per-request arena、htab magic 校验加固 |
 | v0.7.2 | CI 全绿 + selfrepro 改走真实 --emit-llvm IR 链 + LLVM 类方法多返回 + Boot* 单一来源表 |
 | v0.7.1 | Windows 一等公民：纯 Kylix regex 引擎、Winsock 网络、--target windows 交叉链接（llvm-mingw） |

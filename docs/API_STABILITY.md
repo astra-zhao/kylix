@@ -1,6 +1,6 @@
-# API 稳定性承诺（v0.9.0 → 1.0.0）
+# API 稳定性承诺（v0.10.0 → 1.0.0）
 
-> v0.9.0 的目标之一是 1.0.0-rc 打磨。本文档划定 **1.0.0 将冻结的公开 API 面**，
+> v0.9.0 起进入 1.0.0-rc 打磨阶段。本文档划定 **1.0.0 将冻结的公开 API 面**，
 > 以及冻结后的破坏性变更 / 弃用流程约定。1.0.0 发布时本文档即生效。
 
 ## 承诺分级
@@ -28,8 +28,8 @@ flag 面（全部经 Go `flag` 包定义，`-flag` 与 `--flag` 双形式等价�
 
 | 子命令 | flags |
 |--------|-------|
-| `build` | `-o` `-v` `-g` `--time` `--backend go\|llvm` `--llvm-opt 0..3` `--target os/arch` `--wasm` `--wasi` `--tinygo` |
-| `run` | `-keep` `-v` `-g` `--backend auto\|go\|llvm` `--llvm-opt 0..3` |
+| `build` | `-o` `-v` `-g` `--time` `--backend go\|llvm` `--llvm-opt 0..3` `--target os/arch` `--gc boehm` `--wasm` `--wasi` `--tinygo` |
+| `run` | `-keep` `-v` `-g` `--backend auto\|go\|llvm` `--llvm-opt 0..3` `--gc boehm` |
 | `check` | `--syntax` |
 | `test` | `-v` `-tap` `-dir` `-filter` `-backend auto\|go\|llvm` |
 | `bench` | `-count N` `-mem` |
