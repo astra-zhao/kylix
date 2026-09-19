@@ -1,0 +1,40 @@
+// audit.klx — KylixAdmin operation audit trail (v0.10.0 P2 phase 3)
+//
+// WriteOpLog appends to op_logs; PageOf/OffsetOf back the list pages'
+// pagination. Pure Kylix, both backends from this one source.
+//
+// The boot runtime does not expose the request method/path to handlers, so
+// WriteOpLog takes them as parameters — each mutating handler supplies the
+// statically-known route it was generated for.
+unit audit;
+
+uses db, boot, datetime, adminsec;
+
+// WriteOpLog appends one row to op_logs. Call from mutating handlers after
+// the operation, with the route (method/path) and final status code.
+procedure WriteOpLog(db: TDatabase; req: TRequest; method: String; path: String; status: Integer);
+var
+  now: Integer;
+begin
+  now := Now().Unix();
+  DbExec(db, 'INSERT INTO op_logs (username, method, path, status, ip, created_at) VALUES (?, ?, ?, ?, ?, ?)', req.SessionGet('__user'), method, path, IntToStr(status), ClientIP(req), IntToStr(now));
+end;
+
+// PageOf parses the ?page= query parameter (default 1; clamps to >= 1).
+function PageOf(req: TRequest): Integer;
+var
+  n: Integer;
+begin
+  n := StrToInt(req.Query('page'));
+  if n < 1 then
+    n := 1;
+  result := n;
+end;
+
+// OffsetOf converts a 1-based page number to a SQL OFFSET.
+function OffsetOf(page: Integer; size: Integer): Integer;
+begin
+  result := (page - 1) * size;
+end;
+
+end.

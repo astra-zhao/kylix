@@ -104,3 +104,51 @@ button {
 table { width: 100%; border-collapse: collapse; background: var(--panel); }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
 th { color: var(--muted); font-weight: 600; font-size: 13px; }
+.cardhead { display: flex; align-items: center; justify-content: space-between; }
+.cardhead h1 { margin: 0; }
+.card h1 { margin-top: 0; }
+.btn {
+  display: inline-block;
+  padding: 7px 14px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  text-decoration: none;
+  font: inherit;
+  border: 1px solid var(--accent);
+  cursor: pointer;
+}
+.btn.ghost { background: transparent; color: var(--accent); }
+form.stack { max-width: 420px; }
+form.stack div { margin-top: 16px; }
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 14px 0 0;
+  padding: 10px 14px;
+}
+legend { color: var(--muted); font-size: 13px; padding: 0 6px; }
+fieldset label.check { margin-top: 8px; }
+.inline { display: inline; }
+.inline button { margin-top: 0; padding: 3px 10px; font-size: 13px; }
+.actions { white-space: nowrap; }
+.actions a { color: var(--accent); text-decoration: none; margin-right: 8px; }
+.flash { border-radius: 6px; padding: 9px 12px; }
+.flash.bad { background: var(--danger-bg); color: var(--danger); }
+.ok { color: #15803d; }
+.bad { color: var(--danger); }
+@media (prefers-color-scheme: dark) {
+  .ok { color: #4ade80; }
+}
+.pager { margin-top: 14px; display: flex; gap: 6px; align-items: center; }
+.pager a, .pager span {
+  display: inline-block;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--text);
+  font-size: 13px;
+}
+.pager .cur { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+.pager .gap { border: 0; color: var(--muted); }

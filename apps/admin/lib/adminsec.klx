@@ -131,4 +131,21 @@ begin
   req.SessionDestroy();
 end;
 
+// H escapes a value for safe interpolation into HTML text and attribute
+// values (usernames/display names are user-entered).
+function H(s: String): String;
+begin
+  result := Replace(s, '&', '&amp;');
+  result := Replace(result, '<', '&lt;');
+  result := Replace(result, '>', '&gt;');
+  result := Replace(result, '"', '&quot;');
+end;
+
+// Forbidden renders the 403 page shown when a page-level permission check
+// fails (the [Authenticated] route guard has already passed).
+function Forbidden(msg: String): TResponse;
+begin
+  result := BootHTML(403, '<!doctype html><html><head><meta charset="utf-8"><title>403 KylixAdmin</title><link rel="stylesheet" href="/static/admin.css"></head><body><div class="loginbox"><h1>403 Forbidden</h1><p>' + H(msg) + '</p><p><a href="/dashboard">Back to dashboard</a></p></div></body></html>');
+end;
+
 end.

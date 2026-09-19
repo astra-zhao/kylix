@@ -776,7 +776,18 @@ func (g *Generator) emitVarDeclSingle(name string, varType ast.Expression) error
 	if varType != nil {
 		tname := typeExprName(varType)
 		kylixType = tname
-		llvmT = LLVMType(tname)
+		if bootOpaqueTypes[tname] {
+			// v0.10.0 P2: opaque stdlib handle types (TDatabase) must lower to
+			// ptr here too — the LLVMType i64 fallback made `db: TDatabase`
+			// locals load i64 at stdlib DB call sites (DbQueryRowsB expects
+			// ptr), while function signatures via llvmTypeOfExpr already say
+			// ptr. Suffix `_str` matches the ptr convention the load/assign
+			// paths key on (same as opaque-typed params and inferred vars).
+			llvmT = "ptr"
+			suffix = "_str"
+		} else {
+			llvmT = LLVMType(tname)
+		}
 		switch strings.ToLower(tname) {
 		case "boolean", "bool":
 			suffix = "_bool"

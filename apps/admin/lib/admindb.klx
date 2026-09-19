@@ -112,7 +112,7 @@ var
   i: Integer;
 begin
   result := '';
-  var rows := DbQueryRows(db, 'SELECT p.code AS code FROM permissions p JOIN role_permissions rp ON rp.permission_id = p.id JOIN user_roles ur ON ur.role_id = rp.id JOIN users u ON u.id = ur.user_id WHERE u.username = ?', username);
+  var rows := DbQueryRows(db, 'SELECT p.code AS code FROM permissions p JOIN role_permissions rp ON rp.permission_id = p.id JOIN user_roles ur ON ur.role_id = rp.role_id JOIN users u ON u.id = ur.user_id WHERE u.username = ?', username);
   i := 0;
   while i < Length(rows) do
   begin

@@ -236,6 +236,8 @@ func (g *Generator) emitDatetimeMethodCall(receiver string, method string, args 
 		return g.emitDatetimeMinuteCall(receiver, args)
 	case "Second":
 		return g.emitDatetimeSecondCall(receiver, args)
+	case "Unix":
+		return g.emitDatetimeUnixCall(receiver, args)
 	case "DayOfWeek":
 		return g.emitDatetimeDayOfWeekCall(receiver, args)
 	case "FormatDate":
@@ -318,6 +320,17 @@ func (g *Generator) emitDatetimeSecondCall(receiver string, args []ast.Expressio
 	g.enqueueStdlib("datetime", "Second", "Second", 0)
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i64 @__kylix_datetime_Second(ptr %s)", r, receiver))
+	return r, "i64", nil
+}
+
+// emitDatetimeUnixCall emits dt.Unix() -> i64 (seconds since epoch).
+func (g *Generator) emitDatetimeUnixCall(receiver string, args []ast.Expression) (string, string, error) {
+	if len(args) != 0 {
+		return "", "", fmt.Errorf("TDateTime.Unix expects 0 arguments, got %d", len(args))
+	}
+	g.enqueueStdlib("datetime", "Unix", "Unix", 0)
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @__kylix_datetime_Unix(ptr %s)", r, receiver))
 	return r, "i64", nil
 }
 
@@ -546,6 +559,18 @@ func (g *Generator) emitDatetimeSecondBody() {
 	g.line("")
 }
 
+// emitDatetimeUnixBody emits @__kylix_datetime_Unix(ptr %self) -> i64 — the
+// wrapped time_t itself (seconds since epoch).
+func (g *Generator) emitDatetimeUnixBody() {
+	g.line("define i64 @__kylix_datetime_Unix(ptr %self) {")
+	g.line("entry:")
+	v := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %%self", v))
+	g.line(fmt.Sprintf("  ret i64 %s", v))
+	g.line("}")
+	g.line("")
+}
+
 // emitDatetimeDayOfWeekBody emits @__kylix_datetime_DayOfWeek(ptr %self) -> i64
 func (g *Generator) emitDatetimeDayOfWeekBody() {
 	g.line("define i64 @__kylix_datetime_DayOfWeek(ptr %self) {")
@@ -690,6 +715,8 @@ func (g *Generator) emitDatetimeBody(funcName string, argCount int) {
 		g.emitDatetimeMinuteBody()
 	case "Second":
 		g.emitDatetimeSecondBody()
+	case "Unix":
+		g.emitDatetimeUnixBody()
 	case "DayOfWeek":
 		g.emitDatetimeDayOfWeekBody()
 	case "FormatDate":
