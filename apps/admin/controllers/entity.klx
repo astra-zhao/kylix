@@ -1,0 +1,280 @@
+// entity.klx — the generic CRUD routes (v0.11.0 P3)
+//
+// Six routes serve every registered entity; the table name arrives as the
+// :entity path segment and is used only to look metadata up (it never reaches a
+// statement — the engine builds SQL from the metadata's own column names).
+//
+//   GET  /admin/:entity          list   (search, sort, pager)
+//   GET  /admin/:entity/new      create form
+//   POST /admin/:entity          create
+//   GET  /admin/:entity/edit     edit form (?id=)
+//   POST /admin/:entity/update   update
+//   POST /admin/:entity/delete   delete
+//
+// Permission points are derived from the table name: <table>.read for the list
+// and forms, <table>.write for anything that mutates. [ReadOnly] entities
+// refuse the mutating routes outright.
+//
+// NOTE: handler names must not be `Create` — the LLVM backend treats that name
+// as a class constructor and the process dies at startup.
+unit entity;
+
+uses boot, db, crud, crudrender, crudhooks, adminpage, admindb, adminsec, audit, stringutil;
+
+const
+  CrudPageSize = 10;
+
+// CrudPageNotFound renders the 404 for an unknown :entity segment.
+function CrudPageNotFound(name: String): TResponse;
+begin
+  result := BootHTML(404, '<!doctype html><html><body><h1>404</h1><p>Unknown entity: ' + H(name) + '</p></body></html>');
+end;
+
+// CrudFormPage renders the create/edit form. `id` is '' when creating.
+function CrudFormPage(db: TDatabase; req: TRequest; entity: String; perms: String; id: String; err: String): TResponse;
+var
+  eng: TTemplateEngine;
+  isCreate: Boolean;
+  vals: array of String;
+  base: String;
+begin
+  isCreate := id = '';
+  if err <> '' then
+    vals := CrudHookSubmittedValues(db, entity, req)
+  else
+    vals := CrudFormValues(db, entity, id, isCreate);
+  eng := TTemplateEngine.Create();
+  base := '/admin/' + entity;
+  if isCreate then
+    AddPageVars(eng, req, 'New ' + CrudLabel(entity), perms)
+  else
+    AddPageVars(eng, req, 'Edit ' + CrudLabel(entity), perms);
+  eng.AddVar('form_title', CrudLabel(entity));
+  if isCreate then
+    eng.AddVar('form_action', base)
+  else
+    eng.AddVar('form_action', base + '/update');
+  eng.AddVar('back_url', base);
+  eng.AddVar('row_id', id);
+  eng.AddVar('fields', CrudFormHTML(entity, vals, isCreate));
+  eng.AddVar('err', err);
+  result := BootHTML(200, RenderView(eng, 'entity_form'));
+end;
+
+[Controller('')]
+type
+  TEntityController = class
+    [Get('/admin/:entity')]
+    [Authenticated]
+    function EntityList(req: TRequest): TResponse;
+    var
+      eng: TTemplateEngine;
+      db: TDatabase;
+      perms: String;
+      entity: String;
+      q: String;
+      sort: String;
+      dir: String;
+      page: Integer;
+      size: Integer;
+      off: Integer;
+      total: Integer;
+      canWrite: Boolean;
+    begin
+      entity := req.Param('entity');
+      perms := req.SessionGet('__perms');
+      if not CrudKnown(entity) then
+        result := CrudPageNotFound(entity)
+      else if not HasPerm(perms, entity + '.read') then
+        result := Forbidden('You do not have permission to view this table')
+      else
+      begin
+        db := AdminOpen('admin.db');
+        q := req.Query('q');
+        sort := req.Query('sort');
+        dir := req.Query('dir');
+        page := PageOf(req);
+        size := CrudPageSize;
+        off := OffsetOf(page, size);
+        canWrite := HasPerm(perms, entity + '.write') and (not CrudReadOnly(entity));
+        total := CrudCountRows(db, entity, q);
+        eng := TTemplateEngine.Create();
+        AddPageVars(eng, req, CrudLabel(entity), perms);
+        eng.AddVar('entity', entity);
+        eng.AddVar('entity_label', CrudLabel(entity));
+        eng.AddVar('base', '/admin/' + entity);
+        eng.AddVar('q', q);
+        eng.AddVar('searching', BoolStr(q <> ''));
+        eng.AddVar('sort', sort);
+        eng.AddVar('dir', dir);
+        eng.AddVar('table_head', CrudHeaderHTML(entity, canWrite));
+        eng.AddVar('rows', CrudRowsHTML(db, entity, q, sort, dir, size, off, perms, req.SessionCSRFToken()));
+        eng.AddVar('pager', CrudPagerHTML('/admin/' + entity, q, sort, dir, page, size, total));
+        eng.AddVar('can_write', BoolStr(canWrite));
+        eng.AddVar('readonly', BoolStr(CrudReadOnly(entity)));
+        eng.AddVar('err', CrudErrorText(req.Query('e')));
+        result := BootHTML(200, RenderView(eng, 'entity_list'));
+      end;
+    end;
+
+    [Get('/admin/:entity/new')]
+    [Authenticated]
+    function EntityNew(req: TRequest): TResponse;
+    var
+      db: TDatabase;
+      perms: String;
+      entity: String;
+    begin
+      entity := req.Param('entity');
+      perms := req.SessionGet('__perms');
+      if not CrudKnown(entity) then
+        result := CrudPageNotFound(entity)
+      else if CrudReadOnly(entity) or (not HasPerm(perms, entity + '.write')) then
+        result := Forbidden('You do not have permission to change this table')
+      else
+      begin
+        db := AdminOpen('admin.db');
+        result := CrudFormPage(db, req, entity, perms, '', '');
+      end;
+    end;
+
+    [Get('/admin/:entity/edit')]
+    [Authenticated]
+    function EntityEdit(req: TRequest): TResponse;
+    var
+      db: TDatabase;
+      perms: String;
+      entity: String;
+      id: String;
+    begin
+      entity := req.Param('entity');
+      perms := req.SessionGet('__perms');
+      id := req.Query('id');
+      if not CrudKnown(entity) then
+        result := CrudPageNotFound(entity)
+      else if CrudReadOnly(entity) or (not HasPerm(perms, entity + '.write')) then
+        result := Forbidden('You do not have permission to change this table')
+      else
+      begin
+        db := AdminOpen('admin.db');
+        if not CrudExistsPK(db, entity, id) then
+          result := BootHTML(302, '').Redirect('/admin/' + entity)
+        else
+          result := CrudFormPage(db, req, entity, perms, id, '');
+      end;
+    end;
+
+    [Post('/admin/:entity')]
+    [Authenticated]
+    function EntitySave(req: TRequest): TResponse;
+    var
+      db: TDatabase;
+      perms: String;
+      entity: String;
+      err: String;
+      vals: array of String;
+      newID: String;
+    begin
+      entity := req.Param('entity');
+      perms := req.SessionGet('__perms');
+      if not CrudKnown(entity) then
+        result := CrudPageNotFound(entity)
+      else if CrudReadOnly(entity) or (not HasPerm(perms, entity + '.write')) then
+        result := Forbidden('You do not have permission to change this table')
+      else
+      begin
+        db := AdminOpen('admin.db');
+        err := CrudValidate(entity, req, True);
+        if err = '' then
+          err := CrudHookBeforeSave(db, entity, req, '0', True);
+        if err <> '' then
+          result := CrudFormPage(db, req, entity, perms, '', err)
+        else
+        begin
+          vals := CrudHookPrepareValues(db, entity, req, '', True);
+          CrudInsert(db, entity, vals);
+          newID := DbQueryScalar(db, 'SELECT MAX(' + CrudPK(entity) + ') FROM ' + entity);
+          CrudHookAfterSave(db, entity, req, newID);
+          WriteOpLog(db, req, 'POST', '/admin/' + entity, 200);
+          result := BootHTML(302, '').Redirect('/admin/' + entity);
+        end;
+      end;
+    end;
+
+    [Post('/admin/:entity/update')]
+    [Authenticated]
+    function EntityUpdate(req: TRequest): TResponse;
+    var
+      db: TDatabase;
+      perms: String;
+      entity: String;
+      id: String;
+      err: String;
+      vals: array of String;
+    begin
+      entity := req.Param('entity');
+      perms := req.SessionGet('__perms');
+      id := req.Form('id');
+      if not CrudKnown(entity) then
+        result := CrudPageNotFound(entity)
+      else if CrudReadOnly(entity) or (not HasPerm(perms, entity + '.write')) then
+        result := Forbidden('You do not have permission to change this table')
+      else
+      begin
+        db := AdminOpen('admin.db');
+        if not CrudExistsPK(db, entity, id) then
+          result := BootHTML(302, '').Redirect('/admin/' + entity)
+        else
+        begin
+          err := CrudValidate(entity, req, False);
+          if err = '' then
+            err := CrudHookBeforeSave(db, entity, req, id, False);
+          if err <> '' then
+            result := CrudFormPage(db, req, entity, perms, id, err)
+          else
+          begin
+            vals := CrudHookPrepareValues(db, entity, req, id, False);
+            CrudUpdate(db, entity, vals, id);
+            CrudHookAfterSave(db, entity, req, id);
+            WriteOpLog(db, req, 'POST', '/admin/' + entity + '/update', 200);
+            result := BootHTML(302, '').Redirect('/admin/' + entity);
+          end;
+        end;
+      end;
+    end;
+
+    [Post('/admin/:entity/delete')]
+    [Authenticated]
+    function EntityDelete(req: TRequest): TResponse;
+    var
+      db: TDatabase;
+      perms: String;
+      entity: String;
+      id: String;
+      code: String;
+    begin
+      entity := req.Param('entity');
+      perms := req.SessionGet('__perms');
+      id := req.Form('id');
+      if not CrudKnown(entity) then
+        result := CrudPageNotFound(entity)
+      else if CrudReadOnly(entity) or (not HasPerm(perms, entity + '.write')) then
+        result := Forbidden('You do not have permission to change this table')
+      else
+      begin
+        db := AdminOpen('admin.db');
+        code := CrudHookBeforeDelete(db, entity, req, id);
+        if code <> '' then
+          result := BootHTML(302, '').Redirect('/admin/' + entity + '?e=' + code)
+        else
+        begin
+          CrudHookAfterDelete(db, entity, req, id);
+          CrudDelete(db, entity, id);
+          WriteOpLog(db, req, 'POST', '/admin/' + entity + '/delete', 200);
+          result := BootHTML(302, '').Redirect('/admin/' + entity);
+        end;
+      end;
+    end;
+  end;
+
+end.

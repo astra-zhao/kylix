@@ -1,0 +1,45 @@
+// adminpage.klx — shared page plumbing (v0.11.0 P3)
+//
+// The layout variables every authenticated page needs, plus the template
+// rendering helper. The sidebar is generated from the entity metadata rather
+// than from hand-written flags, so a new entity shows up in the menu as soon as
+// its [Entity] class exists and its permission points are seeded.
+unit adminpage;
+
+uses boot, template, sysutil, crud, crudrender, adminsec;
+
+// AddPageVars fills the layout context: identity, CSRF token and the sidebar.
+procedure AddPageVars(eng: TTemplateEngine; req: TRequest; title: String; perms: String);
+begin
+  eng.AddVar('page_title', title);
+  eng.AddVar('user', req.SessionGet('__user'));
+  eng.AddVar('csrf', req.SessionCSRFToken());
+  eng.AddVar('nav', CrudNavHTML(perms));
+  eng.AddVar('perms', perms);
+end;
+
+// RenderView registers the base layout and renders one page template
+// (ReadFile('views/<name>.tpl')).
+function RenderView(eng: TTemplateEngine; name: String): String;
+begin
+  eng.AddTemplate('base', ReadFile('views/base.tpl'));
+  result := eng.RenderString(ReadFile('views/' + name + '.tpl'));
+end;
+
+// CrudErrorText maps the ?e= codes the engine redirects with onto the message
+// the list page shows.
+function CrudErrorText(code: String): String;
+begin
+  if code = 'self' then
+    result := 'You cannot delete your own account'
+  else if code = 'admin' then
+    result := 'The seed admin account cannot be deleted'
+  else if code = 'dupe' then
+    result := 'That value already exists'
+  else if code = 'noperm' then
+    result := 'You do not have permission to change this table'
+  else
+    result := '';
+end;
+
+end.

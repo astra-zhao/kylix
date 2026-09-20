@@ -50,7 +50,9 @@ end.`
 	assertContains(t, out, `stdlib.RegisterEntityField("users", "username|text|Username|required,minlen=3,searchable")`)
 	assertContains(t, out, `stdlib.RegisterEntityField("users", "password|password|Password|secret")`)
 	assertContains(t, out, `stdlib.RegisterEntityField("users", "is_active|checkbox|IsActive|")`)
-	assertContains(t, out, `stdlib.RegisterEntityField("users", "failed_attempts|number|FailedAttempts|")`)
+	// [Hidden] columns carry the hidden flag so the engine keeps them out of
+	// both the list and the form.
+	assertContains(t, out, `stdlib.RegisterEntityField("users", "failed_attempts|number|FailedAttempts|hidden")`)
 	assertContains(t, out, `stdlib.SetEntityNames("users")`)
 }
 

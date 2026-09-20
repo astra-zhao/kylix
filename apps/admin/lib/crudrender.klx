@@ -1,0 +1,257 @@
+// crudrender.klx — HTML rendering for the generic CRUD engine (v0.11.0 P3)
+//
+// Rows, form controls, the pager and the sidebar are built here from entity
+// metadata. They are assembled in Kylix rather than in the template because the
+// column and field sets are only known at runtime — a static template cannot
+// express a dynamic column list.
+//
+// Every value that comes from the database or from a request is passed through
+// H() (the four-character HTML escaper), so the pages stay XSS-safe without
+// relying on the template engine's escaping.
+//
+// The data-* attributes (data-row / data-f / data-pager) are stable hooks for
+// the E2E transcript: assertions bind to them rather than to tag structure, so
+// a CSS redesign cannot invalidate the suite.
+unit crudrender;
+
+uses boot, db, crud, crudhooks, adminsec, encoding, stringutil;
+
+// ── list page ───────────────────────────────────────────────────────────────
+
+// CrudHeaderHTML renders the table head. The action column only appears when
+// the caller may write and the entity is not read-only.
+function CrudHeaderHTML(entity: String; canWrite: Boolean): String;
+var
+  i: Integer;
+  out: String;
+begin
+  out := '<tr>';
+  i := 0;
+  while i < CrudFieldCount(entity) do
+  begin
+    if CrudListable(entity, i) then
+      out := out + '<th>' + H(CrudFieldLabel(entity, i)) + '</th>';
+    i := i + 1;
+  end;
+  out := out + CrudHookListHeader(entity);
+  if canWrite then
+    out := out + '<th>Actions</th>';
+  result := out + '</tr>';
+end;
+
+// CrudRowsHTML runs the list query and renders the table body. The query lives
+// here rather than in the caller because a row slice cannot cross a function
+// boundary: DbQueryRows yields []map[string]interface{} in Go, which no Kylix
+// parameter annotation reproduces.
+function CrudRowsHTML(db: TDatabase; entity: String; q: String; sort: String; dir: String; size: Integer; off: Integer; perms: String; csrf: String): String;
+var
+  i: Integer;
+  j: Integer;
+  out: String;
+  pk: String;
+  col: String;
+  val: String;
+  canWrite: Boolean;
+  base: String;
+begin
+  canWrite := HasPerm(perms, entity + '.write') and (not CrudReadOnly(entity));
+  base := '/admin/' + entity;
+  out := '';
+  var rows := DbQueryRows(db, CrudSelectSQL(entity, sort, dir), q, CrudLike(q), CrudLike(q), CrudLike(q), IntToStr(size), IntToStr(off));
+  i := 0;
+  while i < Length(rows) do
+  begin
+    pk := VariantToStr(rows[i][CrudPK(entity)]);
+    out := out + '<tr data-row="' + H(entity) + '" data-id="' + H(pk) + '">';
+    j := 0;
+    while j < CrudFieldCount(entity) do
+    begin
+      if CrudListable(entity, j) then
+      begin
+        col := CrudColumn(entity, j);
+        val := VariantToStr(rows[i][col]);
+        if CrudKind(entity, j) = 'checkbox' then
+        begin
+          if val = '1' then
+            val := 'yes'
+          else
+            val := 'no';
+        end
+        else if CrudIsTimestamp(col) then
+          val := CrudFormatUnix(StrToInt(val));
+        out := out + '<td data-f="' + H(col) + '">' + H(val) + '</td>';
+      end;
+      j := j + 1;
+    end;
+    out := out + CrudHookListCell(db, entity, pk);
+    if canWrite then
+      out := out + '<td class="actions" data-a="1">' +
+        '<a href="' + base + '/edit?id=' + H(pk) + '">Edit</a> ' +
+        '<form method="post" action="' + base + '/delete" class="inline" data-confirm="Delete this row?">' +
+        '<input type="hidden" name="_csrf" value="' + H(csrf) + '">' +
+        '<input type="hidden" name="id" value="' + H(pk) + '">' +
+        '<button type="submit">Delete</button></form></td>';
+    out := out + '</tr>';
+    i := i + 1;
+  end;
+  result := out;
+end;
+
+// CrudQuerySuffix rebuilds the preserved part of the query string (search and
+// sort), URL-encoded and in a fixed order so both backends emit identical
+// links.
+function CrudQuerySuffix(q: String; sort: String; dir: String): String;
+var
+  out: String;
+begin
+  out := '';
+  if q <> '' then
+    out := out + '&q=' + UrlEncode(q);
+  if sort <> '' then
+    out := out + '&sort=' + UrlEncode(sort);
+  if dir <> '' then
+    out := out + '&dir=' + UrlEncode(dir);
+  result := out;
+end;
+
+// CrudPageURL renders one pager link target.
+function CrudPageURL(base: String; q: String; sort: String; dir: String; page: Integer): String;
+begin
+  result := base + '?page=' + IntToStr(page) + CrudQuerySuffix(q, sort, dir);
+end;
+
+// CrudPagerHTML renders the pager. It is built here rather than via
+// BootPagerHTML because the two backends disagree on how that merges an
+// existing query string (Go re-encodes and sorts the parameters, the LLVM side
+// appends verbatim), which would make the E2E transcripts diverge.
+function CrudPagerHTML(base: String; q: String; sort: String; dir: String; page: Integer; size: Integer; total: Integer): String;
+var
+  pages: Integer;
+  window: Integer;
+  i: Integer;
+  out: String;
+begin
+  window := 2;
+  pages := total div size;
+  if (total mod size) <> 0 then
+    pages := pages + 1;
+  if pages < 1 then
+    pages := 1;
+  out := '<nav class="pager" data-pager="1" data-page="' + IntToStr(page) + '" data-pages="' + IntToStr(pages) + '">';
+  if page > 1 then
+    out := out + '<a class="pager-prev" href="' + H(CrudPageURL(base, q, sort, dir, page - 1)) + '">‹ Prev</a>'
+  else
+    out := out + '<span class="pager-prev pager-disabled">‹ Prev</span>';
+  i := 1;
+  while i <= pages do
+  begin
+    if (i = 1) or (i = pages) or ((i >= page - window) and (i <= page + window)) then
+    begin
+      if i = page then
+        out := out + '<span class="pager-current">' + IntToStr(i) + '</span>'
+      else
+        out := out + '<a class="pager-link" href="' + H(CrudPageURL(base, q, sort, dir, i)) + '">' + IntToStr(i) + '</a>';
+    end
+    else if (i = page - window - 1) or (i = page + window + 1) then
+      out := out + '<span class="pager-ellipsis">…</span>';
+    i := i + 1;
+  end;
+  if page < pages then
+    out := out + '<a class="pager-next" href="' + H(CrudPageURL(base, q, sort, dir, page + 1)) + '">Next ›</a>'
+  else
+    out := out + '<span class="pager-next pager-disabled">Next ›</span>';
+  result := out + '</nav>';
+end;
+
+// ── form page ───────────────────────────────────────────────────────────────
+
+// CrudFormHTML renders the create/edit form fields from the entity metadata,
+// prefilled from `vals` (metadata order, matching CrudValuesFromRow).
+function CrudFormHTML(entity: String; vals: array of String; isCreate: Boolean): String;
+var
+  i: Integer;
+  n: Integer;
+  col: String;
+  kind: String;
+  label: String;
+  flags: String;
+  val: String;
+  out: String;
+  required: String;
+begin
+  out := '';
+  n := 0;
+  i := 0;
+  while i < CrudFieldCount(entity) do
+  begin
+    if CrudFormable(entity, i) then
+    begin
+      col := CrudColumn(entity, i);
+      kind := CrudKind(entity, i);
+      label := CrudFieldLabel(entity, i);
+      flags := CrudFieldFlags(entity, i);
+      if n < Length(vals) then
+        val := vals[n]
+      else
+        val := '';
+      if CrudHasFlag(flags, 'required') then
+        required := ' <span class="req">*</span>'
+      else
+        required := '';
+      out := out + '<div class="field" data-field="' + H(col) + '">';
+      if kind = 'checkbox' then
+      begin
+        if val = '1' then
+          out := out + '<label class="check"><input type="checkbox" name="' + H(col) + '" value="1" checked> ' + H(label) + '</label>'
+        else
+          out := out + '<label class="check"><input type="checkbox" name="' + H(col) + '" value="1"> ' + H(label) + '</label>';
+      end
+      else
+      begin
+        out := out + '<label for="f_' + H(col) + '">' + H(label) + required + '</label>';
+        if kind = 'password' then
+        begin
+          if isCreate then
+            out := out + '<input id="f_' + H(col) + '" type="password" name="' + H(col) + '" value="" autocomplete="new-password">'
+          else
+            out := out + '<input id="f_' + H(col) + '" type="password" name="' + H(col) + '" value="" placeholder="unchanged" autocomplete="new-password">';
+        end
+        else if kind = 'number' then
+          out := out + '<input id="f_' + H(col) + '" type="number" name="' + H(col) + '" value="' + H(val) + '">'
+        else
+          out := out + '<input id="f_' + H(col) + '" type="text" name="' + H(col) + '" value="' + H(val) + '">';
+      end;
+      out := out + '</div>';
+      n := n + 1;
+    end;
+    i := i + 1;
+  end;
+  result := out + CrudHookFormExtra(entity, vals);
+end;
+
+// ── sidebar ─────────────────────────────────────────────────────────────────
+
+// CrudNavHTML renders the sidebar entries for every registered entity the
+// signed-in user may read, so a new entity appears in the menu without touching
+// the layout template.
+function CrudNavHTML(perms: String): String;
+var
+  names: array of String;
+  i: Integer;
+  t: String;
+  out: String;
+begin
+  out := '<a href="/dashboard">Dashboard</a>';
+  names := Split(EntityNames(), ',');
+  i := 0;
+  while i < Length(names) do
+  begin
+    t := names[i];
+    if HasPerm(perms, t + '.read') then
+      out := out + '<a href="/admin/' + H(t) + '">' + H(CrudLabel(t)) + '</a>';
+    i := i + 1;
+  end;
+  result := out;
+end;
+
+end.

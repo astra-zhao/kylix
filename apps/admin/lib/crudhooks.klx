@@ -1,0 +1,317 @@
+// crudhooks.klx — per-entity customisation for the CRUD engine (v0.11.0 P3)
+//
+// Kylix has no usable callback arrays here: the boot wrapper ABI on the LLVM
+// backend is `ptr (ptr)`, which a closure environment would break. The hooks
+// are therefore a plain if/else chain over the entity name, compiled into both
+// backends from this one source — no dynamic dispatch, and the two forms behave
+// identically by construction.
+//
+// Four extension points:
+//   CrudHookListHeader(entity)                      extra <th> for the list
+//   CrudHookListCell(db, entity, pk)                extra <td> per row
+//   CrudHookFormExtra(entity, vals)                 extra controls in the form
+//   CrudHookBeforeSave(db, entity, req, id, vals)   fix up values / reject
+//   CrudHookAfterSave(db, entity, req, id)          write related rows
+//   CrudHookBeforeDelete(db, entity, req, id)       refuse protected rows
+unit crudhooks;
+
+uses db, boot, crud, admindb, adminsec, stringutil, datetime;
+
+// ── users ───────────────────────────────────────────────────────────────────
+
+// UsersHashPassword replaces a submitted plaintext password with its PBKDF2
+// hash, and — on edit — substitutes the stored hash when the field was left
+// blank, so "leave empty to keep the current password" needs no special case in
+// the engine's write path.
+function UsersHashPassword(db: TDatabase; req: TRequest; id: String; isCreate: Boolean; vals: array of String): array of String;
+var
+  out: array of String;
+  i: Integer;
+  col: String;
+  v: String;
+  hash: String;
+begin
+  // Rebuild the array rather than editing `vals` in place: dynamic arrays are
+  // slices on both backends, so writing through the parameter would mutate the
+  // caller's copy.
+  out := vals;
+  i := 0;
+  while i < CrudFieldCount('users') do
+  begin
+    if CrudFormable('users', i) then
+    begin
+      col := CrudColumn('users', i);
+      if col = 'password' then
+      begin
+        v := Trim(req.Form('password'));
+        if v <> '' then
+          hash := Pbkdf2Hash(v, 210000)
+        else if isCreate then
+          hash := Pbkdf2Hash('', 210000)
+        else
+          hash := DbQueryScalar(db, 'SELECT password FROM users WHERE id = ?', id);
+        out[CrudFormableIndex('users', i)] := hash;
+      end;
+    end;
+    i := i + 1;
+  end;
+  result := out;
+end;
+
+// ── hook dispatch ───────────────────────────────────────────────────────────
+
+function CrudHookListHeader(entity: String): String;
+begin
+  if entity = 'roles' then
+    result := '<th>Permissions</th>'
+  else
+    result := '';
+end;
+
+function CrudHookListCell(db: TDatabase; entity: String; pk: String): String;
+var
+  i: Integer;
+  codes: String;
+begin
+  if entity <> 'roles' then
+    result := ''
+  else
+  begin
+    codes := '';
+    var rows := DbQueryRows(db, 'SELECT p.code AS code FROM permissions p JOIN role_permissions rp ON rp.permission_id = p.id WHERE rp.role_id = ? ORDER BY p.id', pk);
+    i := 0;
+    while i < Length(rows) do
+    begin
+      if codes <> '' then
+        codes := codes + ', ';
+      codes := codes + VariantToStr(rows[i]['code']);
+      i := i + 1;
+    end;
+    result := '<td data-f="perm_codes"><code>' + H(codes) + '</code></td>';
+  end;
+end;
+
+// CrudHookFormExtra renders the permission matrix on the role form. `vals`
+// carries the role's current permission codes (comma-joined) as its last
+// element, so the engine's generic value flow can carry it.
+function CrudHookFormExtra(entity: String; vals: array of String): String;
+var
+  i: Integer;
+  code: String;
+  current: String;
+  out: String;
+  checked: String;
+begin
+  if entity <> 'roles' then
+    result := ''
+  else
+  begin
+    current := '';
+    if Length(vals) > 0 then
+      current := vals[Length(vals) - 1];
+    out := '<fieldset><legend>Permissions</legend>';
+    var rows := DbQueryRows(AdminOpen('admin.db'), 'SELECT code, description FROM permissions ORDER BY id');
+    i := 0;
+    while i < Length(rows) do
+    begin
+      code := VariantToStr(rows[i]['code']);
+      if Contains(',' + current + ',', ',' + code + ',') then
+        checked := ' checked'
+      else
+        checked := '';
+      out := out + '<label class="check"><input type="checkbox" name="perm_' + H(code) + '" value="1"' + checked + '> ' + H(code) + '</label>';
+      i := i + 1;
+    end;
+    result := out + '</fieldset>';
+  end;
+end;
+
+// CrudHookFormContext supplies the trailing context value the form carries for
+// entity-specific widgets. For roles it is the comma-joined permission codes so
+// the matrix can render its checkboxes pre-ticked.
+function CrudHookFormContext(db: TDatabase; entity: String; id: String): String;
+var
+  i: Integer;
+  codes: String;
+begin
+  if (entity <> 'roles') or (id = '') then
+    result := ''
+  else
+  begin
+    codes := '';
+    var rows := DbQueryRows(db, 'SELECT p.code AS code FROM permissions p JOIN role_permissions rp ON rp.permission_id = p.id WHERE rp.role_id = ? ORDER BY p.id', id);
+    i := 0;
+    while i < Length(rows) do
+    begin
+      if codes <> '' then
+        codes := codes + ',';
+      codes := codes + VariantToStr(rows[i]['code']);
+      i := i + 1;
+    end;
+    result := codes;
+  end;
+end;
+
+// CrudHookPrepareValues turns the submitted form into the value list the
+// engine writes: the generic read of the formable columns, then the
+// entity-specific rewrite (users hashes the password).
+function CrudHookPrepareValues(db: TDatabase; entity: String; req: TRequest; id: String; isCreate: Boolean): array of String;
+var
+  vals: array of String;
+begin
+  vals := CrudValuesFromRequest(entity, req);
+  if entity = 'users' then
+    vals := UsersHashPassword(db, req, id, isCreate, vals);
+  result := vals;
+end;
+
+// CrudHookSubmittedContext mirrors CrudHookFormContext for a submission that
+// failed validation, so the re-rendered form keeps the boxes the user ticked.
+function CrudHookSubmittedContext(db: TDatabase; entity: String; req: TRequest): String;
+var
+  i: Integer;
+  code: String;
+  codes: String;
+begin
+  if entity <> 'roles' then
+    result := ''
+  else
+  begin
+    codes := '';
+    var rows := DbQueryRows(db, 'SELECT code FROM permissions ORDER BY id');
+    i := 0;
+    while i < Length(rows) do
+    begin
+      code := VariantToStr(rows[i]['code']);
+      if req.Form('perm_' + code) = '1' then
+      begin
+        if codes <> '' then
+          codes := codes + ',';
+        codes := codes + code;
+      end;
+      i := i + 1;
+    end;
+    result := codes;
+  end;
+end;
+
+// CrudHookSubmittedValues rebuilds the form values from the request after a
+// validation failure (so the user's input is not lost) and appends the hook
+// context the form widgets need.
+function CrudHookSubmittedValues(db: TDatabase; entity: String; req: TRequest): array of String;
+begin
+  result := append(CrudValuesFromRequest(entity, req), CrudHookSubmittedContext(db, entity, req));
+end;
+
+// CrudHookBeforeSave applies entity-specific validation and value rewriting.
+// Returns an error message (the form is re-rendered) or '' to continue.
+function CrudHookBeforeSave(db: TDatabase; entity: String; req: TRequest; id: String; isCreate: Boolean): String;
+var
+  uname: String;
+  rname: String;
+  n: Integer;
+begin
+  if entity = 'users' then
+  begin
+    uname := Trim(req.Form('username'));
+    if isCreate then
+      n := CrudCountWhere(db, 'users', 'username', uname, '0')
+    else
+      n := CrudCountWhere(db, 'users', 'username', uname, id);
+    if n > 0 then
+      result := 'That username already exists'
+    else if isCreate and (Trim(req.Form('password')) = '') then
+      result := 'Password is required'
+    else
+      result := '';
+  end
+  else if entity = 'roles' then
+  begin
+    rname := Trim(req.Form('name'));
+    if isCreate then
+      n := CrudCountWhere(db, 'roles', 'name', rname, '0')
+    else
+      n := CrudCountWhere(db, 'roles', 'name', rname, id);
+    if n > 0 then
+      result := 'That role name already exists'
+    else
+      result := '';
+  end
+  else
+    result := '';
+end;
+
+// CrudHookAfterSave writes the rows that live outside the entity's own table —
+// the role → permission links, which the generic column list cannot express.
+function CrudHookAfterSave(db: TDatabase; entity: String; req: TRequest; id: String): Integer;
+var
+  i: Integer;
+  code: String;
+  now: Integer;
+begin
+  // Columns the engine never writes (the internal counters and the timestamps
+  // are [Hidden]) start at zero via the DDL defaults; stamp the times here so
+  // a created row reads sensibly, and keep the lockout counters at 0 so a
+  // fresh account is not born locked.
+  now := Now().Unix();
+  if entity = 'users' then
+  begin
+    DbExec(db, 'UPDATE users SET failed_attempts = 0, locked_until = 0, updated_at = ? WHERE id = ?', IntToStr(now), id);
+    if DbQueryScalar(db, 'SELECT created_at FROM users WHERE id = ?', id) = '0' then
+      DbExec(db, 'UPDATE users SET created_at = ? WHERE id = ?', IntToStr(now), id);
+  end
+  else if entity = 'notes' then
+  begin
+    if DbQueryScalar(db, 'SELECT created_at FROM notes WHERE id = ?', id) = '0' then
+      DbExec(db, 'UPDATE notes SET created_at = ? WHERE id = ?', IntToStr(now), id);
+  end;
+  if entity <> 'roles' then
+    result := 0
+  else
+  begin
+    DbExec(db, 'DELETE FROM role_permissions WHERE role_id = ?', id);
+    var rows := DbQueryRows(db, 'SELECT code FROM permissions ORDER BY id');
+    i := 0;
+    while i < Length(rows) do
+    begin
+      code := VariantToStr(rows[i]['code']);
+      if req.Form('perm_' + code) = '1' then
+        DbExec(db, 'INSERT INTO role_permissions (role_id, permission_id) SELECT ?, id FROM permissions WHERE code = ?', id, code);
+      i := i + 1;
+    end;
+    result := 1;
+  end;
+end;
+
+// CrudHookBeforeDelete refuses the protected rows: the seed administrator
+// (id=1) and the account currently signed in. The returned string is the
+// `?e=` code the handler redirects with.
+function CrudHookBeforeDelete(db: TDatabase; entity: String; req: TRequest; id: String): String;
+var
+  uname: String;
+begin
+  if entity <> 'users' then
+    result := ''
+  else
+  begin
+    uname := DbQueryScalar(db, 'SELECT username FROM users WHERE id = ?', id);
+    if id = '1' then
+      result := 'admin'
+    else if uname = req.SessionGet('__user') then
+      result := 'self'
+    else
+      result := '';
+  end;
+end;
+
+// CrudHookAfterDelete removes dependent rows the foreign keys would otherwise
+// leave behind.
+function CrudHookAfterDelete(db: TDatabase; entity: String; req: TRequest; id: String): Integer;
+begin
+  if entity = 'users' then
+    result := DbExec(db, 'DELETE FROM user_roles WHERE user_id = ?', id)
+  else
+    result := 0;
+end;
+
+end.

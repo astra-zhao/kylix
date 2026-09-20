@@ -62,6 +62,16 @@ func TestFieldFlags(t *testing.T) {
 			"text", "nullable,searchable",
 		},
 		{
+			"hidden",
+			[]*ast.Attribute{attr("Hidden")},
+			"text", "hidden",
+		},
+		{
+			"default seeds the create form",
+			[]*ast.Attribute{attr("Default", str("1"))},
+			"checkbox", "default=1",
+		},
+		{
 			"password is always secret",
 			[]*ast.Attribute{attr("Required")},
 			"password", "required,secret",

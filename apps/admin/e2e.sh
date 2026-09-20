@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# e2e.sh — KylixAdmin dual-backend parity E2E (v0.10.0 P2 phase 4)
+# e2e.sh — KylixAdmin dual-backend parity E2E (v0.11.0 P3)
 #
 # Builds the Go and LLVM forms of apps/admin from the same Kylix sources,
-# runs the same 12-scenario curl sequence against each, and diffs the
-# normalized transcripts (scenarios print deterministic key=value lines only
-# — CSRF tokens / session IDs / timestamps never enter the transcript).
+# runs the same scenario sequence against each, and diffs the normalized
+# transcripts (scenarios print deterministic key=value lines only — CSRF
+# tokens / session IDs / timestamps never enter the transcript).
 # Exit 0 iff both forms behave identically and every assertion passes.
+#
+# v0.11.0: every data table is served by the generic CRUD engine at
+# /admin/:entity, so the assertions bind to the stable data-* hooks the engine
+# emits (data-row / data-f / data-pager) rather than to tag structure — a CSS
+# redesign must not be able to invalidate this suite.
 #
 # Environment:
 #   KYLIX    path to the kylix CLI (default /tmp/kylix_bin; built by CI)
@@ -24,8 +29,14 @@
 #   S8  no session GET /users -> 401
 #   S9  remember=1 -> Set-Cookie Max-Age=2592000
 #   S10 5 wrong logins -> locked; correct password still locked
-#   S11 /logs renders login_logs + op_logs (page + sqlite)
+#   S11 the two log entities render (page + sqlite)
 #   S12 logout -> old cookie -> 401
+#   S13 search + sort + pager preserve the query string
+#   S14 unknown entity -> 404
+#   S15 read-only entity refuses writes -> 403
+#   S16 generic CRUD on the demo entity (notes) + op_logs
+#   S17 validation failure re-renders the form with the error
+#   S18 password columns are never listed
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -42,6 +53,13 @@ fail() { echo "E2E-FAIL: $*" >&2; exit 1; }
 command -v sqlite3 >/dev/null || fail "sqlite3 required"
 command -v curl >/dev/null || fail "curl required"
 
+# A stale server from an interrupted run would answer the probes with a
+# different database (and the new server would die on bind), silently turning
+# every assertion into a false result — refuse to start.
+if curl -s --max-time 1 -o /dev/null "$BASE/login" 2>/dev/null; then
+  fail "port $PORT is already serving — kill the stale KylixAdmin server first"
+fi
+
 SRV_PID=""
 cleanup() {
   if [ -n "$SRV_PID" ]; then
@@ -49,6 +67,12 @@ cleanup() {
     sleep 0.2
     kill -9 "$SRV_PID" 2>/dev/null
   fi
+  # wait for the port to actually free before the next form binds it
+  local i
+  for i in $(seq 1 25); do
+    curl -s --max-time 1 -o /dev/null "$BASE/login" 2>/dev/null || break
+    sleep 0.2
+  done
   if [ "${KEEP:-0}" != "1" ]; then
     rm -rf "$WORK" "$GOGEN"
   else
@@ -66,7 +90,9 @@ trap cleanup EXIT
 mkdir -p "$GOGEN"
 (cd "$ADMIN" && "$KYLIX" build --backend=go -o "$GOGEN/main.go" \
   ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
-  lib/admindb.klx lib/adminsec.klx lib/audit.klx main.klx) \
+  entities/admin_entities.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
+  lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
+  controllers/entity.klx main.klx) \
   || fail "Go-form codegen failed"
 (cd "$ROOT" && go build -o "$WORK/go_bin" ./.e2e_admin) || fail "Go-form go build failed"
 
@@ -75,7 +101,9 @@ LL_BIN="$WORK/ll_bin"
 build_ll() {
   (cd "$ADMIN" && "$KYLIX" build --backend=llvm $1 -o "$LL_BIN" \
     ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
-    lib/admindb.klx lib/adminsec.klx lib/audit.klx main.klx \
+    entities/admin_entities.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
+    lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
+    controllers/entity.klx main.klx \
     > "$WORK/ll_build.log" 2>&1)
 }
 LL_FLAGS=""
@@ -141,49 +169,50 @@ scenarios() {
   C=$(fresh_csrf "$J/a" /login)
   code=$(curl -s -b "$J/a" -c "$J/a" -o /dev/null -w '%{http_code} %{redirect_url}' \
     -d "username=admin&password=Admin@123&_csrf=$C" "$BASE/login" | sed 's|http://localhost:[0-9]*||')
-  local dash users_p roles_p logs_p
+  local dash users_p roles_p logs_p notes_p
   dash=$(curl -s -b "$J/a" -o "$J/dash" -w '%{http_code}' "$BASE/dashboard")
-  users_p=$(curl -s -b "$J/a" -o "$J/users" -w '%{http_code}' "$BASE/users")
-  roles_p=$(curl -s -b "$J/a" -o "$J/roles" -w '%{http_code}' "$BASE/roles")
-  logs_p=$(curl -s -b "$J/a" -o "$J/logs" -w '%{http_code}' "$BASE/logs")
-  echo "S3 login=$code dash=$dash users=$users_p roles=$roles_p logs=$logs_p" >> "$T"
+  users_p=$(curl -s -b "$J/a" -o "$J/users" -w '%{http_code}' "$BASE/admin/users")
+  roles_p=$(curl -s -b "$J/a" -o "$J/roles" -w '%{http_code}' "$BASE/admin/roles")
+  logs_p=$(curl -s -b "$J/a" -o "$J/logins" -w '%{http_code}' "$BASE/admin/login_logs")
+  notes_p=$(curl -s -b "$J/a" -o "$J/notes" -w '%{http_code}' "$BASE/admin/notes")
+  echo "S3 login=$code dash=$dash users=$users_p roles=$roles_p logins=$logs_p notes=$notes_p" >> "$T"
 
   # S4 create bob/viewer/lockme -> rows + op_logs (one op_log per create)
   local u
   for u in bob viewer lockme; do
-    C=$(fresh_csrf "$J/a" /users/new)
-    curl -s -b "$J/a" -o /dev/null -d "username=$u&password=${u}@12345&display_name=$u&_csrf=$C" "$BASE/users"
+    C=$(fresh_csrf "$J/a" /admin/users/new)
+    curl -s -b "$J/a" -o /dev/null -d "username=$u&password=${u}@12345&display_name=$u&is_active=1&_csrf=$C" "$BASE/admin/users"
   done
-  curl -s -b "$J/a" -o "$J/users2" "$BASE/users"
-  echo "S4 bob=$(has "$J/users2" '<td>bob</td>') viewer=$(has "$J/users2" '<td>viewer</td>') lockme=$(has "$J/users2" '<td>lockme</td>')" \
-      "oplogs=$(sqlite3 "$DB" "SELECT COUNT(*) FROM op_logs WHERE path='/users' AND method='POST'")" >> "$T"
+  curl -s -b "$J/a" -o "$J/users2" "$BASE/admin/users"
+  echo "S4 bob=$(has "$J/users2" 'data-f="username">bob<') viewer=$(has "$J/users2" 'data-f="username">viewer<') lockme=$(has "$J/users2" 'data-f="username">lockme<')" \
+      "oplogs=$(sqlite3 "$DB" "SELECT COUNT(*) FROM op_logs WHERE path='/admin/users' AND method='POST'")" >> "$T"
 
   # S5 delete: temp user removable, seed admin guarded, no-perm user 403
-  C=$(fresh_csrf "$J/a" /users/new)
-  curl -s -b "$J/a" -o /dev/null -d "username=temp1&password=Temp@12345&display_name=T&_csrf=$C" "$BASE/users"
+  C=$(fresh_csrf "$J/a" /admin/users/new)
+  curl -s -b "$J/a" -o /dev/null -d "username=temp1&password=Temp@12345&display_name=T&is_active=1&_csrf=$C" "$BASE/admin/users"
   local tid; tid=$(sqlite3 "$DB" "SELECT id FROM users WHERE username='temp1'")
-  C=$(fresh_csrf "$J/a" /users/new)
-  curl -s -b "$J/a" -o /dev/null -d "id=$tid&_csrf=$C" "$BASE/users/delete"
+  C=$(fresh_csrf "$J/a" /admin/users/new)
+  curl -s -b "$J/a" -o /dev/null -d "id=$tid&_csrf=$C" "$BASE/admin/users/delete"
   local after_del; after_del=$(sqlite3 "$DB" "SELECT COUNT(*) FROM users WHERE username='temp1'")
-  C=$(fresh_csrf "$J/a" /users/new)
-  local guard; guard=$(curl -s -b "$J/a" -o /dev/null -w '%{redirect_url}' -d "id=1&_csrf=$C" "$BASE/users/delete" | sed 's|http://localhost:[0-9]*||')
+  C=$(fresh_csrf "$J/a" /admin/users/new)
+  local guard; guard=$(curl -s -b "$J/a" -o /dev/null -w '%{redirect_url}' -d "id=1&_csrf=$C" "$BASE/admin/users/delete" | sed 's|http://localhost:[0-9]*||')
   # bob (no roles -> no perms): the users.write page guard fires -> 403 page
   curl -s -c "$J/bob" -o "$J/bob_l" "$BASE/login"; C=$(fresh_csrf "$J/bob" /login)
   curl -s -b "$J/bob" -c "$J/bob" -o /dev/null -d "username=bob&password=bob@12345&_csrf=$C" "$BASE/login"
   C=$(fresh_csrf "$J/bob" /dashboard)
-  curl -s -b "$J/bob" -o "$J/bob_d" -d "id=2&_csrf=$C" "$BASE/users/delete"
+  curl -s -b "$J/bob" -o "$J/bob_d" -d "id=2&_csrf=$C" "$BASE/admin/users/delete"
   echo "S5 temp-gone=$after_del admin-guard=$guard bob-403=$(has "$J/bob_d" '403 Forbidden')" >> "$T"
 
   # S6 perm-less user GET /users -> 403 Forbidden
-  local v6; v6=$(curl -s -b "$J/bob" -o "$J/bob_u" -w '%{http_code}' "$BASE/users")
+  local v6; v6=$(curl -s -b "$J/bob" -o "$J/bob_u" -w '%{http_code}' "$BASE/admin/users")
   echo "S6 status=$v6 forbidden=$(has "$J/bob_u" '403 Forbidden')" >> "$T"
 
   # S7 POST /users without csrf -> 403
-  code=$(curl -s -b "$J/a" -o /dev/null -w '%{http_code}' -d "username=x&password=x&display_name=x" "$BASE/users")
+  code=$(curl -s -b "$J/a" -o /dev/null -w '%{http_code}' -d "username=x&password=x&display_name=x" "$BASE/admin/users")
   echo "S7 nocsrf=$code" >> "$T"
 
   # S8 no session GET /users -> 401
-  code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/users")
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/admin/users")
   echo "S8 nosession=$code" >> "$T"
 
   # S9 remember=1 -> persistent cookie (Max-Age = 30 days)
@@ -207,17 +236,63 @@ scenarios() {
   grep -q 'Account locked; try again later' "$J/lk_r" && msgs="$msgs 6=still-locked"
   echo "S10 lockout:$msgs" >> "$T"
 
-  # S11 /logs renders both tables + sqlite row counts
-  curl -s -b "$J/a" -o "$J/logs2" "$BASE/logs"
-  echo "S11 logins_head=$(has "$J/logs2" '<h1>Logins</h1>') ops_head=$(has "$J/logs2" '<h1>Operations</h1>')" \
-      "oprows=$(has "$J/logs2" '<td>POST</td><td>/users</td>')" \
+  # S11 both read-only log entities render + sqlite row counts
+  curl -s -b "$J/a" -o "$J/logins2" "$BASE/admin/login_logs"
+  curl -s -b "$J/a" -o "$J/ops2" "$BASE/admin/op_logs"
+  echo "S11 logins_head=$(has "$J/logins2" 'data-f="username"') ops_head=$(has "$J/ops2" 'data-f="method"')" \
+      "oprows=$(has "$J/ops2" 'data-f="path">/admin/users<')" \
       "db_ops=$(sqlite3 "$DB" 'SELECT COUNT(*) FROM op_logs')" >> "$T"
 
   # S12 logout -> old cookie rejected
   C=$(fresh_csrf "$J/a" /dashboard)
   local lo; lo=$(curl -s -b "$J/a" -c "$J/a" -o /dev/null -w '%{http_code} %{redirect_url}' -d "_csrf=$C" "$BASE/logout" | sed 's|http://localhost:[0-9]*||')
-  local old; old=$(curl -s -b "$J/a" -o /dev/null -w '%{http_code}' "$BASE/users")
+  local old; old=$(curl -s -b "$J/a" -o /dev/null -w '%{http_code}' "$BASE/admin/users")
   echo "S12 logout=$lo oldcookie=$old" >> "$T"
+
+  # S12 logs out; sign back in for the remaining scenarios.
+  curl -s -c "$J/a2" -o /dev/null "$BASE/login"; C=$(fresh_csrf "$J/a2" /login)
+  local relog; relog=$(curl -s -b "$J/a2" -c "$J/a2" -o /dev/null -w '%{http_code}' -d "username=admin&password=Admin@123&_csrf=$C" "$BASE/login")
+  echo "S12b relogin=$relog" >> "$T"
+
+  # S13 search + sort + pager: the pager keeps ?q=/?sort=/?dir= in a fixed order
+  curl -s -b "$J/a2" -o "$J/s13" "$BASE/admin/users?q=bob&sort=username&dir=desc"
+  echo "S13 hit=$(has "$J/s13" 'data-f="username">bob<') miss=$(has "$J/s13" 'data-f="username">lockme<')" \
+      "pager=$(has "$J/s13" 'pager-next')" >> "$T"
+  curl -s -b "$J/a2" -o "$J/s13b" "$BASE/admin/users?q=zzz-no-such-user"
+  echo "S13b empty=$(has "$J/s13b" 'data-row=')" >> "$T"
+
+  # S14 unknown entity -> 404
+  code=$(curl -s -b "$J/a2" -o "$J/s14" -w '%{http_code}' "$BASE/admin/nosuchtable")
+  echo "S14 status=$code body=$(has "$J/s14" 'Unknown entity')" >> "$T"
+
+  # S15 read-only entity refuses writes (no permission point, and [ReadOnly])
+  C=$(fresh_csrf "$J/a2" /dashboard)
+  code=$(curl -s -b "$J/a2" -o "$J/s15" -w '%{http_code}' -d "id=1&_csrf=$C" "$BASE/admin/op_logs/delete")
+  echo "S15 status=$code forbidden=$(has "$J/s15" '403 Forbidden')" >> "$T"
+
+  # S16 generic CRUD on the demonstration entity: create, update, delete
+  C=$(fresh_csrf "$J/a2" /admin/notes/new)
+  curl -s -b "$J/a2" -o /dev/null -d "title=first note&body=hello&_csrf=$C" "$BASE/admin/notes"
+  local nid; nid=$(sqlite3 "$DB" "SELECT id FROM notes WHERE title='first note'")
+  C=$(fresh_csrf "$J/a2" /admin/notes/new)
+  curl -s -b "$J/a2" -o /dev/null -d "id=$nid&title=renamed note&body=hello&done=1&_csrf=$C" "$BASE/admin/notes/update"
+  curl -s -b "$J/a2" -o "$J/s16" "$BASE/admin/notes"
+  echo "S16 renamed=$(has "$J/s16" 'data-f="title">renamed note<') done=$(has "$J/s16" 'data-f="done">yes<')" \
+      "db=$(sqlite3 "$DB" "SELECT COUNT(*) FROM notes")" >> "$T"
+  C=$(fresh_csrf "$J/a2" /admin/notes/new)
+  curl -s -b "$J/a2" -o /dev/null -d "id=$nid&_csrf=$C" "$BASE/admin/notes/delete"
+  echo "S16b after-delete=$(sqlite3 "$DB" "SELECT COUNT(*) FROM notes")" \
+      "oplogs=$(sqlite3 "$DB" "SELECT COUNT(*) FROM op_logs WHERE path LIKE '/admin/notes%'")" >> "$T"
+
+  # S17 validation failure re-renders the form with the submitted value kept
+  C=$(fresh_csrf "$J/a2" /admin/notes/new)
+  code=$(curl -s -b "$J/a2" -o "$J/s17" -w '%{http_code}' -d "title=&body=x&_csrf=$C" "$BASE/admin/notes")
+  echo "S17 status=$code error=$(has "$J/s17" 'Title is required')" \
+      "kept=$(has "$J/s17" 'data-field="body"')" >> "$T"
+
+  # S18 password columns never reach a list page
+  curl -s -b "$J/a2" -o "$J/s18" "$BASE/admin/users"
+  echo "S18 password_listed=$(has "$J/s18" 'data-f="password"') hash_leak=$(has "$J/s18" 'pbkdf2$')" >> "$T"
 
   # stop the server and wait until the port is actually free — the other
   # form reuses it, and a stale listener would make its ready-probe hit the
@@ -252,4 +327,4 @@ else
   tail -5 "$WORK/srv_ll_bin.log" 2>/dev/null
   fail "dual-backend transcripts differ"
 fi
-echo "KylixAdmin dual-backend E2E: PASS (12 scenarios x 2 forms)"
+echo "KylixAdmin dual-backend E2E: PASS (18 scenarios x 2 forms)"

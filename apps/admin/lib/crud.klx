@@ -1,0 +1,678 @@
+// crud.klx — generic CRUD engine (v0.11.0 P3)
+//
+// Everything the engine knows about a table comes from the [Entity] metadata
+// the compiler registered at startup (see entities/admin_entities.klx and the
+// entitymeta module). From that it derives the list SQL, the form controls, the
+// validators and the write statements — so a new admin screen costs one
+// annotated class plus a CREATE TABLE, with no new handler or template.
+//
+// ── Determinism rules (both backends must render byte-identical pages) ──────
+//   * No floats anywhere: FloatToStr differs between backends
+//     (Go "%v" vs LLVM "%.17g"), so every number here is an Integer.
+//   * GET parameters (q/sort/dir/page) come from req.Query — req.Form does not
+//     fall back to the query string on the LLVM backend.
+//   * ORDER BY always appends the primary key, otherwise rows sharing a sort
+//     value come back in an unspecified order and the E2E diff flakes.
+//   * The pager is built here rather than via BootPagerHTML: the two backends
+//     disagree on how that merges an existing query string.
+//
+// ── SQL safety ──────────────────────────────────────────────────────────────
+// Column names and the sort key only ever come from the metadata whitelist;
+// every value is bound as a `?` parameter. The :entity path segment is used
+// solely to look metadata up — it never reaches a statement.
+//
+// ── Call-site arity ─────────────────────────────────────────────────────────
+// Kylix calls stdlib functions with a fixed argument count, so the search
+// predicate always binds exactly CrudSearchSlots+1 values (unused slots are
+// padded with an always-false `length(?) < 0`) and writes dispatch over the
+// formable-column count (CrudMaxCols).
+unit crud;
+
+uses db, boot, entitymeta, stringutil, datetime, regex;
+
+const
+  CrudSearchSlots = 3;
+  CrudMaxCols = 8;
+
+// ── metadata ────────────────────────────────────────────────────────────────
+
+// CrudKnown reports whether the compiler registered this table.
+function CrudKnown(entity: String): Boolean;
+begin
+  result := EntityMetaOf(entity) <> '';
+end;
+
+// CrudPart splits a "|"-separated metadata string and returns field n
+// (0-based), or '' when it is absent.
+function CrudPart(s: String; n: Integer): String;
+var
+  parts: array of String;
+begin
+  parts := Split(s, '|');
+  if (n >= 0) and (n < Length(parts)) then
+    result := parts[n]
+  else
+    result := '';
+end;
+
+function CrudPK(entity: String): String;
+begin
+  result := CrudPart(EntityMetaOf(entity), 0);
+end;
+
+function CrudLabel(entity: String): String;
+begin
+  result := CrudPart(EntityMetaOf(entity), 1);
+end;
+
+function CrudReadOnly(entity: String): Boolean;
+begin
+  result := CrudHasFlag(CrudPart(EntityMetaOf(entity), 2), 'readonly');
+end;
+
+function CrudFieldCount(entity: String): Integer;
+begin
+  result := EntityFieldCount(entity);
+end;
+
+// CrudField returns part n of field i: 0 column, 1 kind, 2 label, 3 flags.
+function CrudField(entity: String; i: Integer; n: Integer): String;
+begin
+  result := CrudPart(EntityFieldAt(entity, i), n);
+end;
+
+function CrudColumn(entity: String; i: Integer): String;
+begin
+  result := CrudField(entity, i, 0);
+end;
+
+function CrudKind(entity: String; i: Integer): String;
+begin
+  result := CrudField(entity, i, 1);
+end;
+
+function CrudFieldLabel(entity: String; i: Integer): String;
+begin
+  result := CrudField(entity, i, 2);
+end;
+
+function CrudFieldFlags(entity: String; i: Integer): String;
+begin
+  result := CrudField(entity, i, 3);
+end;
+
+// CrudHasFlag tests a comma-separated flag list for an exact token.
+function CrudHasFlag(flags: String; name: String): Boolean;
+begin
+  result := Contains(',' + flags + ',', ',' + name + ',');
+end;
+
+// CrudFlagInt reads an "name=N" flag value, or -1 when absent.
+function CrudFlagInt(flags: String; name: String): Integer;
+var
+  parts: array of String;
+  i: Integer;
+  p: String;
+begin
+  result := -1;
+  parts := Split(flags, ',');
+  i := 0;
+  while i < Length(parts) do
+  begin
+    p := parts[i];
+    if StartsWith(p, name + '=') then
+      result := StrToInt(Substring(p, Length(name) + 1, 12));
+    i := i + 1;
+  end;
+end;
+
+// CrudListable reports whether field i appears in the list table. Password
+// fields never do (the column holds a hash), and [Hidden] columns (internal
+// counters, timestamps) stay out of both the list and the form.
+function CrudListable(entity: String; i: Integer): Boolean;
+var
+  flags: String;
+begin
+  flags := CrudFieldFlags(entity, i);
+  result := not (CrudHasFlag(flags, 'secret') or CrudHasFlag(flags, 'hidden'));
+end;
+
+// CrudFormable reports whether field i appears in the create/edit form: the
+// primary key and [Hidden] columns are excluded, password fields are included
+// (that is how a password gets set).
+function CrudFormable(entity: String; i: Integer): Boolean;
+var
+  col: String;
+begin
+  col := CrudColumn(entity, i);
+  result := (col <> CrudPK(entity)) and (not CrudHasFlag(CrudFieldFlags(entity, i), 'hidden'));
+end;
+
+function CrudFormableCount(entity: String): Integer;
+var
+  i: Integer;
+begin
+  result := 0;
+  i := 0;
+  while i < CrudFieldCount(entity) do
+  begin
+    if CrudFormable(entity, i) then
+      result := result + 1;
+    i := i + 1;
+  end;
+end;
+
+// CrudSearchColumn returns the n-th searchable column (0-based), or ''.
+function CrudSearchColumn(entity: String; n: Integer): String;
+var
+  i: Integer;
+  seen: Integer;
+begin
+  result := '';
+  seen := 0;
+  i := 0;
+  while i < CrudFieldCount(entity) do
+  begin
+    if CrudHasFlag(CrudFieldFlags(entity, i), 'searchable') then
+    begin
+      if seen = n then
+      begin
+        result := CrudColumn(entity, i);
+        i := CrudFieldCount(entity);
+      end;
+      seen := seen + 1;
+    end;
+    i := i + 1;
+  end;
+end;
+
+// ── SQL construction ────────────────────────────────────────────────────────
+
+// CrudSelectColumns renders the SELECT list — plain column names only.
+// Timestamps are formatted on the Kylix side by CrudFormatUnix: the lexer has
+// no escape sequence for a single quote, so a strftime() call cannot be written
+// as a literal here (the alternative — binding the format string as a
+// parameter — would make the statement's arity depend on the column set).
+function CrudSelectColumns(entity: String): String;
+var
+  i: Integer;
+  col: String;
+  out: String;
+begin
+  out := '';
+  i := 0;
+  while i < CrudFieldCount(entity) do
+  begin
+    if CrudListable(entity, i) then
+    begin
+      col := CrudColumn(entity, i);
+      if out <> '' then
+        out := out + ', ';
+      out := out + col;
+    end;
+    i := i + 1;
+  end;
+  result := out;
+end;
+
+// CrudPad2 zero-pads a non-negative number to two digits.
+function CrudPad2(n: Integer): String;
+begin
+  if n < 10 then
+    result := '0' + IntToStr(n)
+  else
+    result := IntToStr(n);
+end;
+
+// CrudFormatUnix renders a Unix-second timestamp as "YYYY-MM-DD HH:MM" using
+// integer arithmetic only (Howard Hinnant's civil-from-days). It runs
+// identically on both backends — no SQL strftime, no locale, no floats.
+function CrudFormatUnix(ts: Integer): String;
+var
+  days: Integer;
+  secs: Integer;
+  z: Integer;
+  era: Integer;
+  doe: Integer;
+  yoe: Integer;
+  doy: Integer;
+  mp: Integer;
+  y: Integer;
+  m: Integer;
+  d: Integer;
+begin
+  days := ts div 86400;
+  secs := ts mod 86400;
+  if secs < 0 then
+  begin
+    secs := secs + 86400;
+    days := days - 1;
+  end;
+  z := days + 719468;
+  era := z div 146097;
+  doe := z - era * 146097;
+  yoe := (doe - doe div 1460 + doe div 36524 - doe div 146096) div 365;
+  y := yoe + era * 400;
+  doy := doe - (365 * yoe + yoe div 4 - yoe div 100);
+  mp := (5 * doy + 2) div 153;
+  d := doy - (153 * mp + 2) div 5 + 1;
+  m := mp + 3;
+  if mp >= 10 then
+    m := mp - 9;
+  if m <= 2 then
+    y := y + 1;
+  result := IntToStr(y) + '-' + CrudPad2(m) + '-' + CrudPad2(d) + ' ' +
+    CrudPad2(secs div 3600) + ':' + CrudPad2((secs mod 3600) div 60);
+end;
+
+// CrudIsTimestamp reports whether a column carries a Unix-second timestamp
+// (the "_at" naming convention).
+function CrudIsTimestamp(col: String): Boolean;
+begin
+  result := EndsWith(col, '_at');
+end;
+
+// CrudSearchPredicate renders the WHERE clause with exactly CrudSearchSlots+1
+// placeholders: the first tests whether the search box is empty, the rest are
+// LIKEs over the searchable columns (unused slots are an always-false test that
+// still consumes one placeholder, keeping the call arity fixed).
+//
+// The empty test is `length(?) = 0` rather than `? = ''`: a Kylix string
+// literal cannot contain a single quote (the lexer has no escape), so an SQL
+// empty-string literal cannot be written here.
+function CrudSearchPredicate(entity: String): String;
+var
+  n: Integer;
+  col: String;
+  pred: String;
+begin
+  pred := '(length(?) = 0';
+  n := 0;
+  while n < CrudSearchSlots do
+  begin
+    col := CrudSearchColumn(entity, n);
+    if col <> '' then
+      pred := pred + ' OR ' + col + ' LIKE ?'
+    else
+      pred := pred + ' OR (length(?) < 0)';
+    n := n + 1;
+  end;
+  result := pred + ')';
+end;
+
+// CrudSortColumn validates ?sort= against the entity's columns, falling back to
+// the primary key. The returned name is always a metadata column.
+function CrudSortColumn(entity: String; sort: String): String;
+var
+  i: Integer;
+  ok: Boolean;
+begin
+  ok := False;
+  i := 0;
+  while i < CrudFieldCount(entity) do
+  begin
+    if CrudColumn(entity, i) = sort then
+      ok := True;
+    i := i + 1;
+  end;
+  if ok then
+    result := sort
+  else
+    result := CrudPK(entity);
+end;
+
+// CrudSortDir normalises ?dir= to ASC/DESC.
+function CrudSortDir(dir: String): String;
+begin
+  if LowerCase(dir) = 'desc' then
+    result := 'DESC'
+  else
+    result := 'ASC';
+end;
+
+function CrudSelectSQL(entity: String; sort: String; dir: String): String;
+begin
+  result := 'SELECT ' + CrudSelectColumns(entity) + ' FROM ' + entity +
+    ' WHERE ' + CrudSearchPredicate(entity) +
+    ' ORDER BY ' + CrudSortColumn(entity, sort) + ' ' + CrudSortDir(dir) +
+    ', ' + CrudPK(entity) + ' ASC LIMIT ? OFFSET ?';
+end;
+
+function CrudCountSQL(entity: String): String;
+begin
+  result := 'SELECT COUNT(*) FROM ' + entity + ' WHERE ' + CrudSearchPredicate(entity);
+end;
+
+// CrudLike wraps the search term for LIKE.
+function CrudLike(q: String): String;
+begin
+  result := '%' + q + '%';
+end;
+
+// ── reads ───────────────────────────────────────────────────────────────────
+
+function CrudCountRows(db: TDatabase; entity: String; q: String): Integer;
+begin
+  result := StrToInt(DbQueryScalar(db, CrudCountSQL(entity), q, CrudLike(q), CrudLike(q), CrudLike(q)));
+end;
+
+// ── validation ──────────────────────────────────────────────────────────────
+
+// CrudValidate checks the submitted form against the field flags. It returns an
+// empty string when the submission is acceptable.
+function CrudValidate(entity: String; req: TRequest; isCreate: Boolean): String;
+var
+  i: Integer;
+  flags: String;
+  col: String;
+  val: String;
+  label: String;
+  n: Integer;
+  msg: String;
+  skip: Boolean;
+begin
+  msg := '';
+  i := 0;
+  while i < CrudFieldCount(entity) do
+  begin
+    if CrudFormable(entity, i) then
+    begin
+      flags := CrudFieldFlags(entity, i);
+      col := CrudColumn(entity, i);
+      label := CrudFieldLabel(entity, i);
+      val := Trim(req.Form(col));
+      // A blank password on edit means "keep the current one" — the hook
+      // substitutes the stored hash, so required-ness only applies on create.
+      // A blank password on edit means "keep the current one": skip the
+      // required/length checks for it (the hook substitutes the stored hash).
+      skip := CrudHasFlag(flags, 'secret') and (not isCreate) and (val = '');
+      if skip then
+        msg := msg
+      else if CrudHasFlag(flags, 'required') and (val = '') then
+      begin
+        if msg = '' then
+          msg := label + ' is required';
+      end
+      else if val <> '' then
+      begin
+        if CrudHasFlag(flags, 'email') and (not IsEmail(val)) then
+        begin
+          if msg = '' then
+            msg := label + ' must be a valid email address';
+        end;
+        n := CrudFlagInt(flags, 'minlen');
+        if (n >= 0) and (Length(val) < n) then
+        begin
+          if msg = '' then
+            msg := label + ' must be at least ' + IntToStr(n) + ' characters';
+        end;
+        n := CrudFlagInt(flags, 'maxlen');
+        if (n >= 0) and (Length(val) > n) then
+        begin
+          if msg = '' then
+            msg := label + ' must be at most ' + IntToStr(n) + ' characters';
+        end;
+        n := CrudFlagInt(flags, 'min');
+        if (n >= 0) and (StrToInt(val) < n) then
+        begin
+          if msg = '' then
+            msg := label + ' must be at least ' + IntToStr(n);
+        end;
+        n := CrudFlagInt(flags, 'max');
+        if (n >= 0) and (StrToInt(val) > n) then
+        begin
+          if msg = '' then
+            msg := label + ' must be at most ' + IntToStr(n);
+        end;
+      end;
+    end;
+    i := i + 1;
+  end;
+  result := msg;
+end;
+
+// CrudValuesFromRequest collects the formable columns' submitted values, in
+// metadata order — the order the write statements bind them in.
+function CrudValuesFromRequest(entity: String; req: TRequest): array of String;
+var
+  i: Integer;
+  vals: array of String;
+  empty: array of String;
+  col: String;
+  v: String;
+begin
+  vals := empty;
+  i := 0;
+  while i < CrudFieldCount(entity) do
+  begin
+    if CrudFormable(entity, i) then
+    begin
+      col := CrudColumn(entity, i);
+      if CrudKind(entity, i) = 'checkbox' then
+      begin
+        if req.Form(col) = '1' then
+          v := '1'
+        else
+          v := '0';
+      end
+      else
+        v := Trim(req.Form(col));
+      vals := append(vals, v);
+    end;
+    i := i + 1;
+  end;
+  result := vals;
+end;
+
+// CrudFormableIndex returns the position of field i within the formable
+// columns — the index its value occupies in the arrays the writers bind.
+function CrudFormableIndex(entity: String; i: Integer): Integer;
+var
+  k: Integer;
+  n: Integer;
+begin
+  n := 0;
+  k := 0;
+  while k < i do
+  begin
+    if CrudFormable(entity, k) then
+      n := n + 1;
+    k := k + 1;
+  end;
+  result := n;
+end;
+
+// CrudFormValues assembles the values the form should show: from the stored
+// row when editing (password columns blank — the stored value is a hash), from
+// empty strings when creating. A trailing hook context value rides along so
+// entity-specific widgets (the role permission matrix) can be rendered by the
+// same generic flow.
+function CrudFormValues(db: TDatabase; entity: String; id: String; isCreate: Boolean): array of String;
+var
+  vals: array of String;
+  i: Integer;
+  col: String;
+  cols: String;
+  empty: array of String;
+begin
+  vals := empty;
+  if isCreate then
+  begin
+    i := 0;
+    while i < CrudFieldCount(entity) do
+    begin
+      if CrudFormable(entity, i) then
+      begin
+        if CrudHasFlag(CrudFieldFlags(entity, i), 'default=1') then
+          vals := append(vals, '1')
+        else if CrudKind(entity, i) = 'checkbox' then
+          vals := append(vals, '0')
+        else
+          vals := append(vals, '');
+      end;
+      i := i + 1;
+    end;
+  end
+  else
+  begin
+    cols := '';
+    i := 0;
+    while i < CrudFieldCount(entity) do
+    begin
+      col := CrudColumn(entity, i);
+      if cols <> '' then
+        cols := cols + ', ';
+      cols := cols + col;
+      i := i + 1;
+    end;
+    var rows := DbQueryRows(db, 'SELECT ' + cols + ' FROM ' + entity + ' WHERE ' + CrudPK(entity) + ' = ?', id);
+    i := 0;
+    while i < CrudFieldCount(entity) do
+    begin
+      if CrudFormable(entity, i) then
+      begin
+        col := CrudColumn(entity, i);
+        if CrudKind(entity, i) = 'password' then
+          vals := append(vals, '')
+        else if Length(rows) > 0 then
+          vals := append(vals, VariantToStr(rows[0][col]))
+        else
+          vals := append(vals, '');
+      end;
+      i := i + 1;
+    end;
+  end;
+  result := append(vals, CrudHookFormContext(db, entity, id));
+end;
+
+// ── writes ──────────────────────────────────────────────────────────────────
+//
+// The INSERT/UPDATE column lists are metadata-derived, so their length varies
+// per entity while a Kylix call site has a fixed argument count. Both writers
+// therefore dispatch over the column count (1..CrudMaxCols); the SQL string
+// carries exactly that many placeholders.
+
+function CrudInsertSQL(entity: String; vals: array of String): String;
+var
+  cols: String;
+  marks: String;
+  i: Integer;
+  n: Integer;
+begin
+  cols := '';
+  marks := '';
+  n := 0;
+  i := 0;
+  while i < CrudFieldCount(entity) do
+  begin
+    if CrudFormable(entity, i) then
+    begin
+      if cols <> '' then
+      begin
+        cols := cols + ', ';
+        marks := marks + ', ';
+      end;
+      cols := cols + CrudColumn(entity, i);
+      marks := marks + '?';
+      n := n + 1;
+    end;
+    i := i + 1;
+  end;
+  result := 'INSERT INTO ' + entity + ' (' + cols + ') VALUES (' + marks + ')';
+end;
+
+function CrudUpdateSQL(entity: String; vals: array of String): String;
+var
+  sets: String;
+  i: Integer;
+begin
+  sets := '';
+  i := 0;
+  while i < CrudFieldCount(entity) do
+  begin
+    if CrudFormable(entity, i) then
+    begin
+      if sets <> '' then
+        sets := sets + ', ';
+      sets := sets + CrudColumn(entity, i) + ' = ?';
+    end;
+    i := i + 1;
+  end;
+  result := 'UPDATE ' + entity + ' SET ' + sets + ' WHERE ' + CrudPK(entity) + ' = ?';
+end;
+
+// CrudInsert writes one row. Returns the number of affected rows.
+function CrudInsert(db: TDatabase; entity: String; vals: array of String): Integer;
+var
+  sql: String;
+  n: Integer;
+begin
+  sql := CrudInsertSQL(entity, vals);
+  n := Length(vals);
+  if n = 1 then
+    result := DbExec(db, sql, vals[0])
+  else if n = 2 then
+    result := DbExec(db, sql, vals[0], vals[1])
+  else if n = 3 then
+    result := DbExec(db, sql, vals[0], vals[1], vals[2])
+  else if n = 4 then
+    result := DbExec(db, sql, vals[0], vals[1], vals[2], vals[3])
+  else if n = 5 then
+    result := DbExec(db, sql, vals[0], vals[1], vals[2], vals[3], vals[4])
+  else if n = 6 then
+    result := DbExec(db, sql, vals[0], vals[1], vals[2], vals[3], vals[4], vals[5])
+  else if n = 7 then
+    result := DbExec(db, sql, vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6])
+  else if n = 8 then
+    result := DbExec(db, sql, vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], vals[7])
+  else
+    result := 0;
+end;
+
+// CrudUpdate writes one row addressed by its primary key.
+function CrudUpdate(db: TDatabase; entity: String; vals: array of String; id: String): Integer;
+var
+  sql: String;
+  n: Integer;
+begin
+  sql := CrudUpdateSQL(entity, vals);
+  n := Length(vals);
+  if n = 1 then
+    result := DbExec(db, sql, vals[0], id)
+  else if n = 2 then
+    result := DbExec(db, sql, vals[0], vals[1], id)
+  else if n = 3 then
+    result := DbExec(db, sql, vals[0], vals[1], vals[2], id)
+  else if n = 4 then
+    result := DbExec(db, sql, vals[0], vals[1], vals[2], vals[3], id)
+  else if n = 5 then
+    result := DbExec(db, sql, vals[0], vals[1], vals[2], vals[3], vals[4], id)
+  else if n = 6 then
+    result := DbExec(db, sql, vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], id)
+  else if n = 7 then
+    result := DbExec(db, sql, vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], id)
+  else if n = 8 then
+    result := DbExec(db, sql, vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], vals[7], id)
+  else
+    result := 0;
+end;
+
+// CrudDelete removes one row by primary key.
+function CrudDelete(db: TDatabase; entity: String; id: String): Integer;
+begin
+  result := DbExec(db, 'DELETE FROM ' + entity + ' WHERE ' + CrudPK(entity) + ' = ?', id);
+end;
+
+// CrudExistsPK reports whether a row with that primary key exists.
+function CrudExistsPK(db: TDatabase; entity: String; id: String): Boolean;
+begin
+  result := DbQueryScalar(db, 'SELECT COUNT(*) FROM ' + entity + ' WHERE ' + CrudPK(entity) + ' = ?', id) <> '0';
+end;
+
+// CrudCountWhere counts rows matching a whitelisted column value.
+function CrudCountWhere(db: TDatabase; entity: String; col: String; val: String; exceptID: String): Integer;
+begin
+  result := StrToInt(DbQueryScalar(db, 'SELECT COUNT(*) FROM ' + entity + ' WHERE ' + col + ' = ? AND ' + CrudPK(entity) + ' <> ?', val, exceptID));
+end;
+
+end.

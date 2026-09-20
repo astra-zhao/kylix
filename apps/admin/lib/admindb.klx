@@ -22,13 +22,16 @@ uses db, crypto, datetime, sysutil;
 procedure EnsureSchema(db: TDatabase);
 begin
   DbExec(db, 'PRAGMA journal_mode=WAL');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password TEXT, display_name TEXT, is_active INTEGER, failed_attempts INTEGER, locked_until INTEGER, created_at INTEGER, updated_at INTEGER)');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password TEXT, display_name TEXT, is_active INTEGER DEFAULT 1, failed_attempts INTEGER DEFAULT 0, locked_until INTEGER DEFAULT 0, created_at INTEGER DEFAULT 0, updated_at INTEGER DEFAULT 0)');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS roles (id INTEGER PRIMARY KEY, name TEXT UNIQUE, description TEXT)');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS permissions (id INTEGER PRIMARY KEY, code TEXT UNIQUE, description TEXT)');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS user_roles (user_id INTEGER, role_id INTEGER, PRIMARY KEY (user_id, role_id))');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS role_permissions (role_id INTEGER, permission_id INTEGER, PRIMARY KEY (role_id, permission_id))');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS login_logs (id INTEGER PRIMARY KEY, username TEXT, ip TEXT, user_agent TEXT, success INTEGER, reason TEXT, created_at INTEGER)');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS op_logs (id INTEGER PRIMARY KEY, username TEXT, method TEXT, path TEXT, status INTEGER, ip TEXT, created_at INTEGER)');
+  // v0.11.0 P3: the demonstration business entity — the whole cost of a new
+  // admin screen is this line, its [Entity] class, and its permission rows.
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, title TEXT, body TEXT, done INTEGER DEFAULT 0, created_at INTEGER DEFAULT 0)');
 end;
 
 procedure SeedIfEmpty(db: TDatabase);
@@ -55,11 +58,17 @@ begin
     DbExec(db, 'INSERT INTO users (username, password, display_name, is_active, failed_attempts, locked_until, created_at, updated_at) VALUES (?, ?, ?, 1, 0, 0, ?, ?)', 'admin', hash, 'Administrator', IntToStr(now), IntToStr(now));
     DbExec(db, 'INSERT INTO roles (name, description) VALUES (?, ?)', 'admin', 'Full access');
     DbExec(db, 'INSERT INTO roles (name, description) VALUES (?, ?)', 'viewer', 'Read-only access');
+    // Permission points follow the table names the CRUD engine looks up:
+    // <table>.read for lists/forms, <table>.write for mutations. Read-only
+    // entities (the two log tables) get a read point only.
     DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'users.read', 'View users');
     DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'users.write', 'Manage users');
     DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'roles.read', 'View roles');
     DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'roles.write', 'Manage roles');
-    DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'logs.read', 'View audit logs');
+    DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'login_logs.read', 'View login log');
+    DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'op_logs.read', 'View operation log');
+    DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'notes.read', 'View notes');
+    DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'notes.write', 'Manage notes');
     adminRole := DbQueryScalar(db, 'SELECT id FROM roles WHERE name = ?', 'admin');
     viewerRole := DbQueryScalar(db, 'SELECT id FROM roles WHERE name = ?', 'viewer');
     uid := DbQueryScalar(db, 'SELECT id FROM users WHERE username = ?', 'admin');
@@ -69,7 +78,8 @@ begin
     // viewer -> the three read points only
     DbExec(db, 'INSERT INTO role_permissions (role_id, permission_id) SELECT ?, id FROM permissions WHERE code = ?', viewerRole, 'users.read');
     DbExec(db, 'INSERT INTO role_permissions (role_id, permission_id) SELECT ?, id FROM permissions WHERE code = ?', viewerRole, 'roles.read');
-    DbExec(db, 'INSERT INTO role_permissions (role_id, permission_id) SELECT ?, id FROM permissions WHERE code = ?', viewerRole, 'logs.read');
+    DbExec(db, 'INSERT INTO role_permissions (role_id, permission_id) SELECT ?, id FROM permissions WHERE code = ?', viewerRole, 'login_logs.read');
+    DbExec(db, 'INSERT INTO role_permissions (role_id, permission_id) SELECT ?, id FROM permissions WHERE code = ?', viewerRole, 'op_logs.read');
   end;
 end;
 

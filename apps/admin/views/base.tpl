@@ -11,10 +11,7 @@
   <aside class="sidebar">
     <div class="brand">KylixAdmin</div>
     <nav>
-      {{#if nav_dashboard}}<a href="/dashboard">Dashboard</a>{{/if}}
-      {{#if nav_users}}<a href="/users">Users</a>{{/if}}
-      {{#if nav_roles}}<a href="/roles">Roles</a>{{/if}}
-      {{#if nav_logs}}<a href="/logs">Logs</a>{{/if}}
+{{{ nav }}}
     </nav>
     {{#if user}}
     <form method="post" action="/logout" class="logoutform">

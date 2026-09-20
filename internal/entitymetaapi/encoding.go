@@ -57,8 +57,16 @@ func FieldFlags(attrs []*ast.Attribute, kind string) string {
 	if FindAttribute(attrs, "Nullable") != nil {
 		flags = append(flags, "nullable")
 	}
+	// [Default('v')] seeds the create form's initial value (an unchecked
+	// checkbox submits nothing, so a field that should start checked needs one).
+	if def, ok := StringArg(FindAttribute(attrs, "Default")); ok && def != "" {
+		flags = append(flags, "default="+def)
+	}
 	if FindAttribute(attrs, "Searchable") != nil {
 		flags = append(flags, "searchable")
+	}
+	if FindAttribute(attrs, "Hidden") != nil {
+		flags = append(flags, "hidden")
 	}
 	if kind == "password" {
 		flags = append(flags, "secret")

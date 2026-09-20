@@ -1,0 +1,198 @@
+// admin_entities.klx — KylixAdmin entity metadata (v0.11.0 P3)
+//
+// Every admin table is declared once as an [Entity] class. The compiler turns
+// these annotations into the runtime metadata the CRUD engine reads
+// (stdlib/entitymeta.go on the Go side, pkg/llvmgen/stdlib_entitymeta.go on the
+// LLVM side), so adding a business table is: declare the class here, add the
+// CREATE TABLE to admindb.klx, seed its permission points — no new handlers,
+// no new templates, no new SQL.
+//
+// Annotation reference:
+//   [Label('Users')]   class  — display name (page title, sidebar, list head)
+//   [ReadOnly]         class  — log tables: list/detail only, no create/edit/delete
+//   [Label('用户名')]   field  — column/form label (defaults to the field name)
+//   [Searchable]       field  — participates in the ?q= search box
+//   [Hidden]           field  — never shown in lists or forms (internal columns)
+//   [Nullable]         field  — may be submitted empty
+//   [Default('1')]     field  — initial value in the create form
+//   [Required] [Email] [MinLen(n)] [MaxLen(n)] [Min(n)] [Max(n)]  — validation
+//
+// A field whose name contains "password" becomes a password control and is
+// never listed (the column holds a PBKDF2 hash).
+unit admin_entities;
+
+uses orm, entitymeta;
+
+[Entity('users')]
+[Label('Users')]
+type
+  TAdminUser = class
+    [PrimaryKey]
+    [Column('id')]
+    Id: Integer;
+
+    [Column('username')]
+    [Label('Username')]
+    [Required]
+    [MinLen(3)]
+    [MaxLen(32)]
+    [Searchable]
+    Username: String;
+
+    [Column('password')]
+    [Label('Password')]
+    Password: String;
+
+    [Column('display_name')]
+    [Label('Display name')]
+    [Searchable]
+    DisplayName: String;
+
+    [Column('is_active')]
+    [Label('Active')]
+    [Default('1')]
+    IsActive: Boolean;
+
+    [Column('failed_attempts')]
+    [Hidden]
+    FailedAttempts: Integer;
+
+    [Column('locked_until')]
+    [Hidden]
+    LockedUntil: Integer;
+
+    [Column('created_at')]
+    [Hidden]
+    CreatedAt: Integer;
+
+    [Column('updated_at')]
+    [Hidden]
+    UpdatedAt: Integer;
+  end;
+
+[Entity('roles')]
+[Label('Roles')]
+type
+  TAdminRole = class
+    [PrimaryKey]
+    [Column('id')]
+    Id: Integer;
+
+    [Column('name')]
+    [Label('Name')]
+    [Required]
+    [MaxLen(32)]
+    [Searchable]
+    Name: String;
+
+    [Column('description')]
+    [Label('Description')]
+    [Nullable]
+    Description: String;
+  end;
+
+[Entity('login_logs')]
+[Label('Logins')]
+[ReadOnly]
+type
+  TLoginLog = class
+    [PrimaryKey]
+    [Column('id')]
+    Id: Integer;
+
+    [Column('username')]
+    [Label('User')]
+    [Searchable]
+    Username: String;
+
+    [Column('ip')]
+    [Label('IP')]
+    Ip: String;
+
+    [Column('user_agent')]
+    [Label('User agent')]
+    UserAgent: String;
+
+    [Column('success')]
+    [Label('Success')]
+    Success: Boolean;
+
+    [Column('reason')]
+    [Label('Reason')]
+    Reason: String;
+
+    [Column('created_at')]
+    [Label('When')]
+    CreatedAt: Integer;
+  end;
+
+[Entity('op_logs')]
+[Label('Operations')]
+[ReadOnly]
+type
+  TOpLog = class
+    [PrimaryKey]
+    [Column('id')]
+    Id: Integer;
+
+    [Column('username')]
+    [Label('User')]
+    [Searchable]
+    Username: String;
+
+    [Column('method')]
+    [Label('Method')]
+    [Searchable]
+    Method: String;
+
+    [Column('path')]
+    [Label('Path')]
+    [Searchable]
+    Path: String;
+
+    [Column('status')]
+    [Label('Status')]
+    Status: Integer;
+
+    [Column('ip')]
+    [Label('IP')]
+    Ip: String;
+
+    [Column('created_at')]
+    [Label('When')]
+    CreatedAt: Integer;
+  end;
+
+// A demonstration business entity: this class plus a CREATE TABLE and its
+// permission rows is the entire cost of a new admin screen.
+[Entity('notes')]
+[Label('Notes')]
+type
+  TNote = class
+    [PrimaryKey]
+    [Column('id')]
+    Id: Integer;
+
+    [Column('title')]
+    [Label('Title')]
+    [Required]
+    [MinLen(2)]
+    [MaxLen(64)]
+    [Searchable]
+    Title: String;
+
+    [Column('body')]
+    [Label('Body')]
+    [Nullable]
+    Body: String;
+
+    [Column('done')]
+    [Label('Done')]
+    Done: Boolean;
+
+    [Column('created_at')]
+    [Hidden]
+    CreatedAt: Integer;
+  end;
+
+end.
