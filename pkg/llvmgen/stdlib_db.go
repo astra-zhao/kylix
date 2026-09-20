@@ -318,11 +318,21 @@ func (g *Generator) emitDbQueryScalarCall(args []ast.Expression) (string, string
 	g.line(fmt.Sprintf("  br label %%%s", mergeLbl))
 
 	// row path: result = strdup(column_text(stmt, 0))
+	//
+	// sqlite3_column_text returns NULL for a NULL column, and strdup(NULL)
+	// would dereference it — a NULL column used to crash the process here.
+	// A NULL reads as the empty string, matching the Go backend (which maps a
+	// NULL scan target to "" as well).
 	g.line(fmt.Sprintf("%s:", rowLbl))
 	colText := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @sqlite3_column_text(ptr %s, i32 0)", colText, stmt))
+	colNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", colNull, colText))
+	colSafe := g.tmp()
+	emptyText := g.addString("")
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", colSafe, colNull, emptyText, colText))
 	dup := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_strdup(ptr %s)", dup, colText))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_strdup(ptr %s)", dup, colSafe))
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", dup, resultSlot))
 	g.line(fmt.Sprintf("  call i32 @sqlite3_finalize(ptr %s)", stmt))
 	g.line(fmt.Sprintf("  br label %%%s", mergeLbl))

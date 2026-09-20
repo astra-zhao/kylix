@@ -1,0 +1,120 @@
+// dashboard.klx — the landing page (v0.11.0 P4)
+//
+// Statistic cards plus a login bar chart drawn as inline SVG. The chart is
+// generated in Kylix from integer arithmetic only:
+//   * FloatToStr renders differently on the two backends (Go "%v" vs LLVM
+//     "%.17g"), so no float ever reaches the page.
+//   * Day buckets are UTC (CrudDayStart) — a local-time boundary would differ
+//     between the backends and between machines, breaking the parity diff.
+// No chart library, no CDN, no client-side rendering.
+unit dashboard;
+
+uses boot, db, crud, crudrender, adminpage, admindb, adminsec, audit, stringutil;
+
+const
+  ChartDays = 7;
+  ChartBarW = 30;
+  ChartGap = 14;
+  ChartH = 100;
+
+// DashStatCard renders one statistic card.
+function DashStatCard(label: String; value: String; hint: String): String;
+begin
+  result := '<div class="stat" data-stat="' + H(label) + '">' +
+    '<div class="stat-value">' + H(value) + '</div>' +
+    '<div class="stat-label">' + H(label) + '</div>' +
+    '<div class="stat-hint">' + H(hint) + '</div></div>';
+end;
+
+// DashLoginChart renders the last ChartDays days of logins as an SVG bar
+// chart. Bars are scaled with integer division against the busiest day.
+function DashLoginChart(db: TDatabase): String;
+var
+  i: Integer;
+  dayStart: Integer;
+  today: Integer;
+  counts: array of Integer;
+  labels: array of String;
+  maxCount: Integer;
+  c: Integer;
+  n: Integer;
+  barH: Integer;
+  x: Integer;
+  y: Integer;
+  width: Integer;
+  svg: String;
+  emptyI: array of Integer;
+  emptyS: array of String;
+begin
+  today := CrudDayStart(Now().Unix());
+  counts := emptyI;
+  labels := emptyS;
+  maxCount := 0;
+  i := ChartDays - 1;
+  while i >= 0 do
+  begin
+    dayStart := today - i * 86400;
+    n := StrToInt(DbQueryScalar(db, 'SELECT COUNT(*) FROM login_logs WHERE created_at >= ? AND created_at < ?', IntToStr(dayStart), IntToStr(dayStart + 86400)));
+    counts := append(counts, n);
+    labels := append(labels, Substring(CrudFormatDate(dayStart), 5, 5));
+    if n > maxCount then
+      maxCount := n;
+    i := i - 1;
+  end;
+  if maxCount = 0 then
+    maxCount := 1;
+  width := 10 + ChartDays * (ChartBarW + ChartGap);
+  svg := '<svg class="chart" data-chart="logins" viewBox="0 0 ' + IntToStr(width) + ' 130" width="' + IntToStr(width) + '" height="130" role="img">';
+  i := 0;
+  while i < ChartDays do
+  begin
+    barH := (counts[i] * ChartH) div maxCount;
+    x := 10 + i * (ChartBarW + ChartGap);
+    y := 110 - barH;
+    svg := svg + '<rect class="bar" data-day="' + H(labels[i]) + '" data-count="' + IntToStr(counts[i]) + '" x="' + IntToStr(x) + '" y="' + IntToStr(y) + '" width="' + IntToStr(ChartBarW) + '" height="' + IntToStr(barH) + '"></rect>';
+    svg := svg + '<text class="bar-label" x="' + IntToStr(x + ChartBarW div 2) + '" y="124" text-anchor="middle">' + H(labels[i]) + '</text>';
+    i := i + 1;
+  end;
+  result := svg + '</svg>';
+end;
+
+[Controller('')]
+type
+  TDashboardController = class
+    [Get('/dashboard')]
+    [Authenticated]
+    function Dashboard(req: TRequest): TResponse;
+    var
+      eng: TTemplateEngine;
+      db: TDatabase;
+      perms: String;
+      today: Integer;
+      users: String;
+      loginsToday: String;
+      opsToday: String;
+      notes: String;
+      cards: String;
+    begin
+      perms := req.SessionGet('__perms');
+      db := AdminOpen('admin.db');
+      today := CrudDayStart(Now().Unix());
+      users := DbQueryScalar(db, 'SELECT COUNT(*) FROM users');
+      loginsToday := DbQueryScalar(db, 'SELECT COUNT(*) FROM login_logs WHERE created_at >= ? AND created_at < ?', IntToStr(today), IntToStr(today + 86400));
+      opsToday := DbQueryScalar(db, 'SELECT COUNT(*) FROM op_logs WHERE created_at >= ?', IntToStr(today));
+      notes := DbQueryScalar(db, 'SELECT COUNT(*) FROM notes');
+      cards := '';
+      if HasPerm(perms, 'users.read') then
+        cards := cards + DashStatCard('Users', users, 'accounts');
+      if HasPerm(perms, 'notes.read') then
+        cards := cards + DashStatCard('Notes', notes, 'demo entity');
+      cards := cards + DashStatCard('Logins today', loginsToday, 'since 00:00 UTC');
+      cards := cards + DashStatCard('Operations today', opsToday, 'audited writes');
+      eng := TTemplateEngine.Create();
+      AddPageVars(eng, req, 'Dashboard', perms);
+      eng.AddVar('cards', cards);
+      eng.AddVar('chart', DashLoginChart(db));
+      result := BootHTML(200, RenderView(eng, 'dashboard'));
+    end;
+  end;
+
+end.

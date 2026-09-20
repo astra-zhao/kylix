@@ -53,6 +53,12 @@ type
     [Default('1')]
     IsActive: Boolean;
 
+    // Profile picture, stored as a data URL (the LLVM backend's multipart
+    // parser truncates binary at NUL, so the avatar travels as base64 text).
+    [Column('avatar')]
+    [Hidden]
+    Avatar: String;
+
     [Column('failed_attempts')]
     [Hidden]
     FailedAttempts: Integer;

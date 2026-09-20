@@ -86,6 +86,11 @@ end.`)
 	assertIRContains(t, ir, "call ptr @sqlite3_column_text")
 	// Uses htab_strdup to copy the column text
 	assertIRContains(t, ir, "call ptr @__kylix_htab_strdup")
+	// A NULL column must not reach strdup: sqlite3_column_text returns null for
+	// it, so the pointer is swapped for the empty string first (a NULL column
+	// used to segfault here, taking the admin profile page down).
+	assertIRContains(t, ir, "icmp eq ptr")
+	assertIRContains(t, ir, "select i1")
 }
 
 func TestDb_SqliteDeclarations(t *testing.T) {

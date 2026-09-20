@@ -22,7 +22,7 @@ uses db, crypto, datetime, sysutil;
 procedure EnsureSchema(db: TDatabase);
 begin
   DbExec(db, 'PRAGMA journal_mode=WAL');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password TEXT, display_name TEXT, is_active INTEGER DEFAULT 1, failed_attempts INTEGER DEFAULT 0, locked_until INTEGER DEFAULT 0, created_at INTEGER DEFAULT 0, updated_at INTEGER DEFAULT 0)');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password TEXT, display_name TEXT, is_active INTEGER DEFAULT 1, failed_attempts INTEGER DEFAULT 0, locked_until INTEGER DEFAULT 0, avatar TEXT, created_at INTEGER DEFAULT 0, updated_at INTEGER DEFAULT 0)');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS roles (id INTEGER PRIMARY KEY, name TEXT UNIQUE, description TEXT)');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS permissions (id INTEGER PRIMARY KEY, code TEXT UNIQUE, description TEXT)');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS user_roles (user_id INTEGER, role_id INTEGER, PRIMARY KEY (user_id, role_id))');

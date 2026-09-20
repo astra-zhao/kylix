@@ -1,0 +1,176 @@
+// profile.klx — personal centre (v0.11.0 P4)
+//
+// Change your own display name / password, and set an avatar.
+//
+// The avatar travels as a base64 data URL in an ordinary urlencoded form
+// rather than as multipart upload: the LLVM backend's CSRF gate reads the
+// token with the same urlencoded parser, so a multipart POST is rejected there
+// (PoC-verified), and its multipart parser truncates binary at the first NUL.
+// Base64 text sidesteps both, and the image is stored straight in the users
+// row as the data URL the <img> tag consumes.
+unit profile;
+
+uses boot, db, crud, crudrender, adminpage, admindb, adminsec, audit, stringutil, crypto;
+
+const
+  AvatarMaxLen = 262144; // 256 KiB of data-URL text (~192 KiB of image)
+
+// AvatarError validates a submitted data URL. Returns '' when acceptable.
+function AvatarError(dataUrl: String): String;
+begin
+  if dataUrl = '' then
+    result := ''
+  else if Length(dataUrl) > AvatarMaxLen then
+    result := 'Image is too large (max 256 KB encoded)'
+  else if not StartsWith(dataUrl, 'data:image/') then
+    result := 'Only image data URLs are accepted'
+  else if not Contains(dataUrl, ';base64,') then
+    result := 'Image must be base64 encoded'
+  else
+    result := '';
+end;
+
+// AvatarImg renders the <img> tag, or a placeholder when none is set.
+function AvatarImg(dataUrl: String; size: Integer): String;
+begin
+  if dataUrl = '' then
+    result := '<div class="avatar avatar-empty" data-avatar="0">?</div>'
+  else
+    result := '<img class="avatar" data-avatar="1" width="' + IntToStr(size) + '" height="' + IntToStr(size) +
+      '" src="' + H(dataUrl) + '" alt="avatar">';
+end;
+
+// ProfilePasswordError validates a password change against the stored hash.
+function ProfilePasswordError(db: TDatabase; req: TRequest; user: String): String;
+var
+  current: String;
+  new1: String;
+  new2: String;
+  storedHash: String;
+begin
+  current := req.Form('current_password');
+  new1 := req.Form('new_password');
+  new2 := req.Form('confirm_password');
+  storedHash := DbQueryScalar(db, 'SELECT password FROM users WHERE username = ?', user);
+  // NOTE: `stored` is a Kylix keyword (property modifier) — hence storedHash.
+  if not Pbkdf2Compare(current, storedHash) then
+    result := 'Current password is incorrect'
+  else if Length(new1) < 8 then
+    result := 'New password must be at least 8 characters'
+  else if new1 <> new2 then
+    result := 'The two new passwords do not match'
+  else
+    result := '';
+end;
+
+// ProfilePage renders the personal centre.
+function ProfilePage(db: TDatabase; req: TRequest; perms: String; err: String; ok: String): TResponse;
+var
+  eng: TTemplateEngine;
+  user: String;
+  row: String;
+  avatar: String;
+  display: String;
+begin
+  user := req.SessionGet('__user');
+  avatar := DbQueryScalar(db, 'SELECT avatar FROM users WHERE username = ?', user);
+  display := DbQueryScalar(db, 'SELECT display_name FROM users WHERE username = ?', user);
+  eng := TTemplateEngine.Create();
+  AddPageVars(eng, req, 'Profile', perms);
+  eng.AddVar('avatar_img', AvatarImg(avatar, 96));
+  eng.AddVar('has_avatar', BoolStr(avatar <> ''));
+  eng.AddVar('profile_user', user);
+  eng.AddVar('profile_display', display);
+  eng.AddVar('err', err);
+  eng.AddVar('ok', ok);
+  result := BootHTML(200, RenderView(eng, 'profile'));
+end;
+
+[Controller('')]
+type
+  TProfileController = class
+    [Get('/profile')]
+    [Authenticated]
+    function ProfileShow(req: TRequest): TResponse;
+    var
+      db: TDatabase;
+      perms: String;
+    begin
+      perms := req.SessionGet('__perms');
+      db := AdminOpen('admin.db');
+      result := ProfilePage(db, req, perms, '', '');
+    end;
+
+    [Post('/profile/display')]
+    [Authenticated]
+    function ProfileDisplay(req: TRequest): TResponse;
+    var
+      db: TDatabase;
+      perms: String;
+      user: String;
+      name: String;
+    begin
+      perms := req.SessionGet('__perms');
+      db := AdminOpen('admin.db');
+      user := req.SessionGet('__user');
+      name := Trim(req.Form('display_name'));
+      if name = '' then
+        result := ProfilePage(db, req, perms, 'Display name is required', '')
+      else
+      begin
+        DbExec(db, 'UPDATE users SET display_name = ?, updated_at = ? WHERE username = ?', name, IntToStr(Now().Unix()), user);
+        WriteOpLog(db, req, 'POST', '/profile/display', 200);
+        result := ProfilePage(db, req, perms, '', 'Display name updated');
+      end;
+    end;
+
+    [Post('/profile/password')]
+    [Authenticated]
+    function ProfilePassword(req: TRequest): TResponse;
+    var
+      db: TDatabase;
+      perms: String;
+      user: String;
+      err: String;
+    begin
+      perms := req.SessionGet('__perms');
+      db := AdminOpen('admin.db');
+      user := req.SessionGet('__user');
+      err := ProfilePasswordError(db, req, user);
+      if err <> '' then
+        result := ProfilePage(db, req, perms, err, '')
+      else
+      begin
+        DbExec(db, 'UPDATE users SET password = ?, updated_at = ? WHERE username = ?', Pbkdf2Hash(req.Form('new_password'), 210000), IntToStr(Now().Unix()), user);
+        WriteOpLog(db, req, 'POST', '/profile/password', 200);
+        result := ProfilePage(db, req, perms, '', 'Password changed');
+      end;
+    end;
+
+    [Post('/profile/avatar')]
+    [Authenticated]
+    function ProfileAvatar(req: TRequest): TResponse;
+    var
+      db: TDatabase;
+      perms: String;
+      user: String;
+      dataUrl: String;
+      err: String;
+    begin
+      perms := req.SessionGet('__perms');
+      db := AdminOpen('admin.db');
+      user := req.SessionGet('__user');
+      dataUrl := Trim(req.Form('avatar_data'));
+      err := AvatarError(dataUrl);
+      if err <> '' then
+        result := ProfilePage(db, req, perms, err, '')
+      else
+      begin
+        DbExec(db, 'UPDATE users SET avatar = ?, updated_at = ? WHERE username = ?', dataUrl, IntToStr(Now().Unix()), user);
+        WriteOpLog(db, req, 'POST', '/profile/avatar', 200);
+        result := ProfilePage(db, req, perms, '', 'Avatar updated');
+      end;
+    end;
+  end;
+
+end.

@@ -265,6 +265,23 @@ begin
     CrudPad2(secs div 3600) + ':' + CrudPad2((secs mod 3600) div 60);
 end;
 
+// CrudFormatDate renders a Unix-second timestamp as "YYYY-MM-DD".
+function CrudFormatDate(ts: Integer): String;
+var
+  full: String;
+begin
+  full := CrudFormatUnix(ts);
+  result := Substring(full, 0, 10);
+end;
+
+// CrudDayStart truncates a Unix timestamp to the start of its UTC day. The
+// dashboard buckets by UTC day on both backends — a local-time boundary would
+// differ between them (and between machines), breaking the parity diff.
+function CrudDayStart(ts: Integer): Integer;
+begin
+  result := ts - (ts mod 86400);
+end;
+
 // CrudIsTimestamp reports whether a column carries a Unix-second timestamp
 // (the "_at" naming convention).
 function CrudIsTimestamp(col: String): Boolean;

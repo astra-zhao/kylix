@@ -118,6 +118,11 @@ func DbQueryScalar(db *Database, query string, args ...interface{}) (string, err
 		}
 		return "", err
 	}
+	// A NULL column reads as the empty string, not "<nil>" — the LLVM backend
+	// returns "" for the same query (and used to crash on it).
+	if v == nil {
+		return "", nil
+	}
 	return fmt.Sprintf("%v", v), nil
 }
 

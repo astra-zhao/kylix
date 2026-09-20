@@ -9,13 +9,14 @@
 //   kylix build stdlib/stringutil.klx stdlib/template_engine.klx \
 //     entities/admin_entities.klx lib/admindb.klx lib/adminsec.klx \
 //     lib/audit.klx lib/crud.klx lib/crudrender.klx lib/crudhooks.klx \
-//     lib/adminpage.klx controllers/entity.klx main.klx
+//     lib/adminpage.klx controllers/entity.klx controllers/dashboard.klx \
+//     controllers/profile.klx main.klx
 //
 // Run from apps/admin/ (views/ + static/ are relative paths); KYADMIN_DB and
 // KYADMIN_PASSWORD override the database path and seed password.
 program KylixAdmin;
 
-uses boot, db, admindb, adminsec, audit, template, sysutil, adminpage, entity;
+uses boot, db, admindb, adminsec, audit, template, sysutil, adminpage, entity, dashboard, profile;
 
 [Controller('')]
 type
@@ -66,21 +67,6 @@ type
     begin
       DoLogout(req);
       result := BootHTML(302, '').Redirect('/login');
-    end;
-  end;
-
-  TPageController = class
-    [Get('/dashboard')]
-    [Authenticated]
-    function Dashboard(req: TRequest): TResponse;
-    var
-      eng: TTemplateEngine;
-      perms: String;
-    begin
-      perms := req.SessionGet('__perms');
-      eng := TTemplateEngine.Create();
-      AddPageVars(eng, req, 'Dashboard', perms);
-      result := BootHTML(200, RenderView(eng, 'dashboard'));
     end;
   end;
 

@@ -83,6 +83,25 @@ func TestDb_QueryScalarNoRows(t *testing.T) {
 	}
 }
 
+// A NULL column reads as the empty string on both backends. It used to be
+// "<nil>" here and a segmentation fault on the LLVM side (strdup(NULL) after
+// sqlite3_column_text returned NULL), which took the admin profile page down.
+func TestDb_QueryScalarNullColumn(t *testing.T) {
+	db, _ := DbOpenSQLite(":memory:")
+	defer DbClose(db)
+
+	DbExec(db, "CREATE TABLE t (s TEXT)")
+	DbExec(db, "INSERT INTO t VALUES (NULL)")
+
+	val, err := DbQueryScalar(db, "SELECT s FROM t")
+	if err != nil {
+		t.Fatalf("DbQueryScalar failed: %v", err)
+	}
+	if val != "" {
+		t.Errorf("scalar = %q, want empty for a NULL column", val)
+	}
+}
+
 func TestDb_NilGuards(t *testing.T) {
 	if _, err := DbExec(nil, "SELECT 1"); err == nil {
 		t.Error("DbExec(nil) should error")

@@ -92,7 +92,8 @@ mkdir -p "$GOGEN"
   ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
   entities/admin_entities.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
   lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
-  controllers/entity.klx main.klx) \
+  controllers/entity.klx controllers/dashboard.klx controllers/profile.klx \
+  main.klx) \
   || fail "Go-form codegen failed"
 (cd "$ROOT" && go build -o "$WORK/go_bin" ./.e2e_admin) || fail "Go-form go build failed"
 
@@ -103,7 +104,8 @@ build_ll() {
     ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
     entities/admin_entities.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
     lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
-    controllers/entity.klx main.klx \
+    controllers/entity.klx controllers/dashboard.klx controllers/profile.klx \
+    main.klx \
     > "$WORK/ll_build.log" 2>&1)
 }
 LL_FLAGS=""
@@ -294,6 +296,56 @@ scenarios() {
   curl -s -b "$J/a2" -o "$J/s18" "$BASE/admin/users"
   echo "S18 password_listed=$(has "$J/s18" 'data-f="password"') hash_leak=$(has "$J/s18" 'pbkdf2$')" >> "$T"
 
+  # S19 dashboard: stat cards + the integer-geometry SVG chart
+  curl -s -b "$J/a2" -o "$J/s19" "$BASE/dashboard"
+  echo "S19 stats=$(has "$J/s19" 'data-stats="1"') chart=$(has "$J/s19" 'data-chart="logins"')" \
+      "bars=$(grep -o 'data-day=' "$J/s19" | wc -l | tr -d ' ')" >> "$T"
+
+  # S20 profile: change the password, then prove the new one works and the old
+  # one does not (and that the change is audited).
+  curl -s -b "$J/a2" -o "$J/prof" "$BASE/profile"
+  C=$(grep -o 'name="_csrf" value="[^"]*"' "$J/prof" | head -1 | sed 's/.*value="//;s/"//')
+  code=$(curl -s -b "$J/a2" -o "$J/s20" -w '%{http_code}' \
+    -d "current_password=WRONG&new_password=NewPass@123&confirm_password=NewPass@123&_csrf=$C" "$BASE/profile/password")
+  echo "S20 wrong-current=$code msg=$(has "$J/s20" 'Current password is incorrect')" >> "$T"
+  C=$(grep -o 'name="_csrf" value="[^"]*"' "$J/s20" | head -1 | sed 's/.*value="//;s/"//')
+  code=$(curl -s -b "$J/a2" -o "$J/s20b" -w '%{http_code}' \
+    -d "current_password=Admin@123&new_password=NewPass@123&confirm_password=NewPass@123&_csrf=$C" "$BASE/profile/password")
+  local pw_ok pw_old
+  curl -s -c "$J/newpw" -o /dev/null "$BASE/login"; C=$(fresh_csrf "$J/newpw" /login)
+  pw_ok=$(curl -s -b "$J/newpw" -c "$J/newpw" -o /dev/null -w '%{http_code}' \
+    -d "username=admin&password=NewPass@123&_csrf=$C" "$BASE/login")
+  curl -s -c "$J/oldpw" -o /dev/null "$BASE/login"; C=$(fresh_csrf "$J/oldpw" /login)
+  pw_old=$(curl -s -b "$J/oldpw" -o "$J/s20c" -w '%{http_code}' \
+    -d "username=admin&password=Admin@123&_csrf=$C" "$BASE/login")
+  echo "S20b changed=$code new=$pw_ok old=$pw_old oldmsg=$(has "$J/s20c" 'Invalid username or password')" \
+      "audited=$(sqlite3 "$DB" "SELECT COUNT(*) FROM op_logs WHERE path='/profile/password'")" >> "$T"
+  # restore the seed password so the run ends in the state it started
+  C=$(fresh_csrf "$J/newpw" /profile)
+  curl -s -b "$J/newpw" -o /dev/null \
+    -d "current_password=NewPass@123&new_password=Admin@123&confirm_password=Admin@123&_csrf=$C" "$BASE/profile/password"
+
+  # S21 profile: display name + avatar (base64 data URL over a urlencoded form)
+  C=$(fresh_csrf "$J/a2" /profile)
+  curl -s -b "$J/a2" -o /dev/null -d "display_name=Administrator Renamed&_csrf=$C" "$BASE/profile/display"
+  echo "S21 display=$(sqlite3 "$DB" "SELECT display_name FROM users WHERE username='admin'")" >> "$T"
+  C=$(fresh_csrf "$J/a2" /profile)
+  # --data-urlencode, not -d: a data URL contains ';' and '+', which a browser
+  # percent-encodes when the form is submitted (Go's url.ParseQuery rejects a
+  # raw ';').
+  code=$(curl -s -b "$J/a2" -o "$J/s21" -w '%{http_code}' \
+    -d "_csrf=$C" \
+    --data-urlencode "avatar_data=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" \
+    "$BASE/profile/avatar")
+  echo "S21b avatar=$code shown=$(has "$J/s21" 'data-avatar="1"')" \
+      "stored=$(sqlite3 "$DB" "SELECT COUNT(*) FROM users WHERE username='admin' AND avatar LIKE 'data:image/png;base64,%'")" >> "$T"
+  C=$(fresh_csrf "$J/a2" /profile)
+  code=$(curl -s -b "$J/a2" -o "$J/s21c" -w '%{http_code}' -d "avatar_data=not-an-image&_csrf=$C" "$BASE/profile/avatar")
+  # the stored avatar survives a page reload
+  curl -s -b "$J/a2" -o "$J/s21d" "$BASE/profile"
+  echo "S21c bad-upload=$code rejected=$(has "$J/s21c" 'Only image data URLs are accepted')" \
+      "kept=$(has "$J/s21d" 'data-avatar="1"')" >> "$T"
+
   # stop the server and wait until the port is actually free — the other
   # form reuses it, and a stale listener would make its ready-probe hit the
   # corpse while the new server dies on bind.
@@ -327,4 +379,4 @@ else
   tail -5 "$WORK/srv_ll_bin.log" 2>/dev/null
   fail "dual-backend transcripts differ"
 fi
-echo "KylixAdmin dual-backend E2E: PASS (18 scenarios x 2 forms)"
+echo "KylixAdmin dual-backend E2E: PASS (21 scenarios x 2 forms)"

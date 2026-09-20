@@ -25,5 +25,6 @@
 {{{ content }}}
   </main>
 </div>
+<script src="/static/admin.js"></script>
 </body>
 </html>
