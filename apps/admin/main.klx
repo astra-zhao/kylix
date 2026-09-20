@@ -10,13 +10,14 @@
 //     entities/admin_entities.klx lib/admindb.klx lib/adminsec.klx \
 //     lib/audit.klx lib/crud.klx lib/crudrender.klx lib/crudhooks.klx \
 //     lib/adminpage.klx controllers/entity.klx controllers/dashboard.klx \
-//     controllers/profile.klx main.klx
+//     controllers/profile.klx controllers/theme.klx main.klx
 //
 // Run from apps/admin/ (views/ + static/ are relative paths); KYADMIN_DB and
 // KYADMIN_PASSWORD override the database path and seed password.
 program KylixAdmin;
 
-uses boot, db, admindb, adminsec, audit, template, sysutil, adminpage, entity, dashboard, profile;
+uses boot, db, admindb, adminsec, audit, template, sysutil, adminpage,
+  entity, dashboard, profile, theme;
 
 [Controller('')]
 type
@@ -32,6 +33,7 @@ type
       eng.AddVar('csrf', req.SessionCSRFToken());
       eng.AddVar('error', '');
       eng.AddVar('nav', '');
+      AddThemeVars(eng, req);
       result := BootHTML(200, RenderView(eng, 'login'));
     end;
 
@@ -56,6 +58,7 @@ type
         eng.AddVar('csrf', req.SessionCSRFToken());
         eng.AddVar('error', errMsg);
         eng.AddVar('nav', '');
+        AddThemeVars(eng, req);
         result := BootHTML(200, RenderView(eng, 'login'));
       end
       else

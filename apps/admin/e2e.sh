@@ -93,7 +93,7 @@ mkdir -p "$GOGEN"
   entities/admin_entities.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
   lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
   controllers/entity.klx controllers/dashboard.klx controllers/profile.klx \
-  main.klx) \
+  controllers/theme.klx main.klx) \
   || fail "Go-form codegen failed"
 (cd "$ROOT" && go build -o "$WORK/go_bin" ./.e2e_admin) || fail "Go-form go build failed"
 
@@ -105,7 +105,7 @@ build_ll() {
     entities/admin_entities.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
     lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
     controllers/entity.klx controllers/dashboard.klx controllers/profile.klx \
-    main.klx \
+    controllers/theme.klx main.klx \
     > "$WORK/ll_build.log" 2>&1)
 }
 LL_FLAGS=""
@@ -346,6 +346,21 @@ scenarios() {
   echo "S21c bad-upload=$code rejected=$(has "$J/s21c" 'Only image data URLs are accepted')" \
       "kept=$(has "$J/s21d" 'data-avatar="1"')" >> "$T"
 
+  # S22 theme: server-rendered data-theme from the cookie, and the switch
+  # endpoint refuses to be an open redirect.
+  local t302 tloc tcookie
+  t302=$(curl -s -b "$J/a2" -c "$J/theme" -o /dev/null -w '%{http_code}' "$BASE/theme?t=dark&next=/admin/users")
+  tloc=$(curl -s -b "$J/a2" -o /dev/null -w '%{redirect_url}' "$BASE/theme?t=dark&next=/admin/users" | sed 's|http://localhost:[0-9]*||')
+  tcookie=$(curl -s -b "$J/a2" -D - -o /dev/null "$BASE/theme?t=dark&next=/dashboard" | grep -ci 'set-cookie: theme=dark')
+  curl -s -b "$J/theme" -c "$J/theme" -o "$J/s22" "$BASE/admin/users"
+  local guard22; guard22=$(curl -s -b "$J/a2" -o /dev/null -w '%{redirect_url}' "$BASE/theme?t=dark&next=//evil.example/x" | sed 's|http://localhost:[0-9]*||')
+  local auto22; auto22=$(curl -s -b "$J/a2" -D - -o /dev/null "$BASE/theme?t=bogus" | grep -o 'theme=auto' | head -1)
+  echo "S22 status=$t302 loc=$tloc cookie=$tcookie dark=$(has "$J/s22" 'data-theme="dark"')" \
+      "toggle=$(has "$J/s22" 'data-theme-toggle="light"') guard=$guard22 bogus=$auto22" >> "$T"
+  # static assets the design system needs
+  echo "S22b css=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/static/admin.css")" \
+      "js=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/static/admin.js")" >> "$T"
+
   # stop the server and wait until the port is actually free — the other
   # form reuses it, and a stale listener would make its ready-probe hit the
   # corpse while the new server dies on bind.
@@ -379,4 +394,4 @@ else
   tail -5 "$WORK/srv_ll_bin.log" 2>/dev/null
   fail "dual-backend transcripts differ"
 fi
-echo "KylixAdmin dual-backend E2E: PASS (21 scenarios x 2 forms)"
+echo "KylixAdmin dual-backend E2E: PASS (22 scenarios x 2 forms)"

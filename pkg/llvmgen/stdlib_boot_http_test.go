@@ -34,6 +34,16 @@ func TestBoot_RunEmitsRealServer(t *testing.T) {
 	assertIRContains(t, ir, "define ptr @__kylix_boot_route_lookup(ptr %method, ptr %path, ptr %req)")
 }
 
+// The cookie parser must skip the space after each ';' separator: HTTP writes
+// cookies as "a=1; b=2", and without the skip every cookie but the first is
+// invisible (the session cookie only worked because it happened to come first).
+func TestBoot_CookieParserSkipsPairSeparatorSpace(t *testing.T) {
+	ir := generateIR(t, bootServerProgram)
+	assertIRContains(t, ir, "define ptr @__kylix_boot_cookie_get(ptr %headers, ptr %name)")
+	assertIRContains(t, ir, "pairspace:")
+	assertIRContains(t, ir, "pairsadv:")
+}
+
 func TestBoot_RouteTableGlobals(t *testing.T) {
 	ir := generateIR(t, bootServerProgram)
 	// Route table + counter are declared and written by Boot<M>.

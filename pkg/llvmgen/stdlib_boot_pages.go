@@ -1365,13 +1365,30 @@ func (g *Generator) emitBootCookieGetBody() {
 	np1 := g.tmp()
 	c("  %s = getelementptr inbounds i8, ptr %s, i64 1", np1, kk)
 	c("  store ptr %s, ptr %%pairStart", np1)
-	c("  br label %%pairloop")
+	c("  br label %%pairspace")
 	// skipsemi: after a skipped value's ';' — next pair starts at sv3+1.
 	c("skipsemi:")
 	ss1 := g.tmp()
 	c("  %s = getelementptr inbounds i8, ptr %s, i64 1", ss1, sv3)
 	c("  store ptr %s, ptr %%pairStart", ss1)
-	c("  br label %%pairloop")
+	c("  br label %%pairspace")
+
+	// pairspace: HTTP separates cookies with "; ", so every pair after the
+	// first starts with a space. Skipping it here is what lets a second cookie
+	// be found at all — without it the scanned key keeps the leading blank and
+	// never matches (the session cookie only worked because curl happened to
+	// send it first).
+	c("pairspace:")
+	psv := g.bootLoadPtr("%pairStart")
+	psc := g.bootLoadI8(psv)
+	psIsSp := g.tmp()
+	c("  %s = icmp eq i8 %s, 32", psIsSp, psc) // ' '
+	c("  br i1 %s, label %%pairsadv, label %%pairloop", psIsSp)
+	c("pairsadv:")
+	psv1 := g.tmp()
+	c("  %s = getelementptr inbounds i8, ptr %s, i64 1", psv1, psv)
+	c("  store ptr %s, ptr %%pairStart", psv1)
+	c("  br label %%pairspace")
 	c("miss:")
 	c("  br label %%done")
 	c("done:")

@@ -234,21 +234,32 @@ end;
 // CrudNavHTML renders the sidebar entries for every registered entity the
 // signed-in user may read, so a new entity appears in the menu without touching
 // the layout template.
-function CrudNavHTML(perms: String): String;
+function CrudNavHTML(perms: String; current: String): String;
 var
   names: array of String;
   i: Integer;
   t: String;
   out: String;
+  cls: String;
 begin
-  out := '<a href="/dashboard">Dashboard</a>';
+  if current = '/dashboard' then
+    cls := ' class="active"'
+  else
+    cls := '';
+  out := '<a href="/dashboard"' + cls + '>Dashboard</a>';
   names := Split(EntityNames(), ',');
   i := 0;
   while i < Length(names) do
   begin
     t := names[i];
     if HasPerm(perms, t + '.read') then
-      out := out + '<a href="/admin/' + H(t) + '">' + H(CrudLabel(t)) + '</a>';
+    begin
+      if current = '/admin/' + t then
+        cls := ' class="active"'
+      else
+        cls := '';
+      out := out + '<a href="/admin/' + H(t) + '"' + cls + '>' + H(CrudLabel(t)) + '</a>';
+    end;
     i := i + 1;
   end;
   result := out;

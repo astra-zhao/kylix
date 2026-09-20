@@ -6,7 +6,7 @@
 // its [Entity] class exists and its permission points are seeded.
 unit adminpage;
 
-uses boot, template, sysutil, crud, crudrender, adminsec;
+uses boot, template, sysutil, crud, crudrender, adminsec, theme;
 
 // AddPageVars fills the layout context: identity, CSRF token and the sidebar.
 procedure AddPageVars(eng: TTemplateEngine; req: TRequest; title: String; perms: String);
@@ -14,8 +14,24 @@ begin
   eng.AddVar('page_title', title);
   eng.AddVar('user', req.SessionGet('__user'));
   eng.AddVar('csrf', req.SessionCSRFToken());
-  eng.AddVar('nav', CrudNavHTML(perms));
+  eng.AddVar('nav', CrudNavHTML(perms, req.Path()));
   eng.AddVar('perms', perms);
+  // Server-rendered theme attribute: no flash of the wrong palette. The
+  // switch link carries the current path so the user lands back where they
+  // were; the path needs no URL-encoding (admin routes are metadata table
+  // names, never containing '&' or '?').
+  eng.AddVar('theme', ThemeOf(req));
+  eng.AddVar('theme_dark', BoolStr(ThemeOf(req) = 'dark'));
+  eng.AddVar('theme_next', req.Path());
+end;
+
+// AddThemeVars fills just the theme attributes, for pages that render the
+// layout without the authenticated context (the login screen).
+procedure AddThemeVars(eng: TTemplateEngine; req: TRequest);
+begin
+  eng.AddVar('theme', ThemeOf(req));
+  eng.AddVar('theme_dark', BoolStr(ThemeOf(req) = 'dark'));
+  eng.AddVar('theme_next', req.Path());
 end;
 
 // RenderView registers the base layout and renders one page template

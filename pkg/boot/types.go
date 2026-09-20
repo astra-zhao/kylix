@@ -49,6 +49,17 @@ func (r *Request) Param(name string) string {
 	return r.Params[name]
 }
 
+// Path returns the request path without its query string (v0.11.0), e.g.
+// "/admin/users" for "/admin/users?q=bob". The LLVM backend exposes the same
+// value from its request handle, so handlers can build self-referential links
+// (the theme switcher's ?next=) without hard-coding routes.
+func (r *Request) Path() string {
+	if r.Request == nil || r.Request.URL == nil {
+		return ""
+	}
+	return r.Request.URL.Path
+}
+
 // Query returns a URL query string value (?name=value).
 func (r *Request) Query(name string) string {
 	return r.Request.URL.Query().Get(name)

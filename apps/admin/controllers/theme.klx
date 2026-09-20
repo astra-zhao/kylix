@@ -1,0 +1,61 @@
+// theme.klx — light/dark theme switch (v0.11.0 P5)
+//
+// The theme lives in a cookie and is rendered server-side as
+// <html data-theme="...">, so a switch is a plain link and the page never
+// flashes the wrong palette (no client-side class swap after paint).
+//
+//   GET /theme?t=dark&next=/admin/users   -> Set-Cookie + 302 back
+//
+// `t` is whitelisted (light | dark | auto) and `next` must be a local path, so
+// the endpoint cannot be used as an open redirect. The route is a GET on a
+// single-segment path, which keeps it clear of the /admin/:entity table routes.
+unit theme;
+
+uses boot, adminsec, stringutil;
+
+const
+  ThemeCookie = 'theme';
+  ThemeMaxAge = 'Max-Age=31536000';
+
+// ThemeOf reads the cookie and normalises it to one of light | dark | auto.
+function ThemeOf(req: TRequest): String;
+var
+  v: String;
+begin
+  v := LowerCase(req.Cookie(ThemeCookie));
+  if (v = 'light') or (v = 'dark') then
+    result := v
+  else
+    result := 'auto';
+end;
+
+// ThemeNext validates the post-switch destination: a local absolute path only,
+// so ?next=//evil.example cannot bounce a signed-in user off-site.
+function ThemeNext(raw: String): String;
+begin
+  if (raw = '') or (Substring(raw, 0, 1) <> '/') or (Substring(raw, 0, 2) = '//') then
+    result := '/dashboard'
+  else
+    result := raw;
+end;
+
+[Controller('')]
+type
+  TThemeController = class
+    [Get('/theme')]
+    function Switch(req: TRequest): TResponse;
+    var
+      want: String;
+      target: String;
+    begin
+      want := LowerCase(req.Query('t'));
+      if (want <> 'light') and (want <> 'dark') then
+        want := 'auto';
+      target := ThemeNext(req.Query('next'));
+      // A session-scoped cookie here; the progressive-enhancement script
+      // re-writes it with a long Max-Age when JavaScript is available.
+      result := BootHTML(302, '').Redirect(target).WithCookie(ThemeCookie, want);
+    end;
+  end;
+
+end.

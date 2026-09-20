@@ -939,6 +939,18 @@ func (g *Generator) icmpSgt64(a string, v int64) string {
 // returned as a register — never `ret` (that would return from the caller).
 func (g *Generator) emitBootRequestMethodCall(req, method string, args []ast.Expression) (string, string, error) {
 	switch method {
+	case "Path":
+		// v0.11.0: req.Path() — the request path (query already stripped) from
+		// handle slot 8. Mirrors Go's Request.Path(); handlers use it to build
+		// self-referential links such as the theme switcher's ?next=.
+		if len(args) != 0 {
+			return "", "", fmt.Errorf("TRequest.Path expects no arguments, got %d", len(args))
+		}
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 8", r, req))
+		p := g.tmp()
+		g.line(fmt.Sprintf("  %s = load ptr, ptr %s", p, r))
+		return p, "ptr", nil
 	case "Param":
 		return g.emitBootReqParam(req, args)
 	case "Header":
