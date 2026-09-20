@@ -1,10 +1,10 @@
 package main
 
 import (
-	"strings"
-	"regexp"
 	"kylix/stdlib"
 	"fmt"
+	"strings"
+	"regexp"
 )
 
 type TCreateUser struct {
@@ -71,6 +71,11 @@ func main() {
 		}
 		return __kylix_ctrl_TUserController.CreateUser(req)
 	})
+	// --- entity metadata (v0.11.0 CRUD engine) ---
+	stdlib.RegisterEntity("users", "|users|")
+	stdlib.RegisterEntityField("users", "Email|text|Email|required,email")
+	stdlib.RegisterEntityField("users", "Password|password|Password|required,minlen=8,secret")
+	stdlib.SetEntityNames("users")
 //line example49_body_binding.klx:27
 fmt.Println("Body binding annotations OK")
 }

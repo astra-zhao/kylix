@@ -1,0 +1,31 @@
+// entitymeta.klx — [Entity] metadata registry declarations (v0.11.0).
+//
+// The compiler scans [Entity]/[Column]/[PrimaryKey] plus the CRUD annotations
+// ([Label]/[Searchable]/[Hidden]/[Nullable]/[ReadOnly]) and the validation
+// annotations, and emits a registration sequence at the top of main(). The
+// CRUD engine reads it back through the accessors below.
+//
+// Encoding (both backends produce identical strings):
+//   EntityMetaOf(table)   -> "<pk>|<label>|<flags>"          "" when unknown
+//   EntityFieldAt(t, i)   -> "<column>|<kind>|<label>|<flags>" "" when out of range
+//   EntityFieldCount(t)   -> number of registered columns (0 when unknown)
+//   EntityNames()         -> "users,roles,..." (registration order)
+//
+// kind is one of: text | number | checkbox | password
+// flags is a comma-joined list of: required, email, min=N, max=N, minlen=N,
+// maxlen=N, nullable, searchable, secret
+
+// RegisterEntity registers one [Entity] class. Emitted by the compiler; the
+// metadata argument is the pre-joined "<pk>|<label>|<flags>" string.
+procedure RegisterEntity(table: String; meta: String);
+
+// RegisterEntityField appends one column entry to a registered entity.
+procedure RegisterEntityField(table: String; entry: String);
+
+// SetEntityNames stores the comma-joined table list returned by EntityNames.
+procedure SetEntityNames(csv: String);
+
+function EntityMetaOf(table: String): String;
+function EntityFieldCount(table: String): Integer;
+function EntityFieldAt(table: String; index: Integer): String;
+function EntityNames(): String;

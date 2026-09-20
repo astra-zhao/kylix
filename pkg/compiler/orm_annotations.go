@@ -2,7 +2,10 @@ package compiler
 
 import (
 	"fmt"
+	"strings"
+
 	"kylix/ast"
+	"kylix/internal/entitymetaapi"
 )
 
 // CheckORMAnnotations validates [Entity], [Repository], and [Query] usage
@@ -59,6 +62,11 @@ func CheckORMAnnotations(programs []*ast.Program, files []string) []Diagnostic {
 				diags = append(diags, NewError(c.File, entityAttr.Token.Line, entityAttr.Token.Column,
 					ErrInvalidORM, "[Entity] requires a string table name argument"))
 			}
+			// v0.11.0: CRUD-engine annotations ([Label]/[Searchable]/[Hidden]/
+			// [Nullable]/[ReadOnly]). The runtime metadata encoding is
+			// "|"-separated and line-oriented, so a label carrying a separator
+			// would corrupt it — reject at compile time on both backends.
+			diags = append(diags, checkEntityCrudAnnotations(c.File, c.Class)...)
 			if repoAttr != nil {
 				diags = append(diags, NewError(c.File, repoAttr.Token.Line, repoAttr.Token.Column,
 					ErrInvalidORM, fmt.Sprintf("class %s cannot be both [Entity] and [Repository]", c.ClassName)))
@@ -115,6 +123,67 @@ func CheckORMAnnotations(programs []*ast.Program, files []string) []Diagnostic {
 func checkORMAnnotations(program *ast.Program, file string) []Diagnostic {
 	return CheckORMAnnotations([]*ast.Program{program}, []string{file})
 }
+
+// entityCrudClassAttrs are the class-level CRUD annotations (v0.11.0).
+var entityCrudClassAttrs = map[string]bool{
+	"label": true, "readonly": true,
+}
+
+// entityCrudFieldAttrs are the field-level CRUD annotations (v0.11.0).
+var entityCrudFieldAttrs = map[string]bool{
+	"label": true, "searchable": true, "hidden": true, "nullable": true,
+}
+
+// checkEntityCrudAnnotations validates the v0.11.0 CRUD annotations on an
+// [Entity] class and its fields. These annotations feed the runtime metadata
+// the CRUD engine renders pages from, so a malformed label would show up as a
+// broken page rather than a compile error — hence the checks here.
+func checkEntityCrudAnnotations(file string, class *ast.ClassDecl) []Diagnostic {
+	if class == nil {
+		return nil
+	}
+	var diags []Diagnostic
+	checkLabel := func(attr *ast.Attribute, owner string) {
+		label, ok := bootAnnotationStringArg(attr, "")
+		if !ok || label == "" {
+			diags = append(diags, NewError(file, attr.Token.Line, attr.Token.Column,
+				ErrInvalidORM, fmt.Sprintf("[Label] on %s requires a non-empty string argument", owner)))
+			return
+		}
+		if idx := strings.IndexAny(label, entityMetaSeparators); idx >= 0 {
+			diags = append(diags, NewErrorHint(file, attr.Token.Line, attr.Token.Column,
+				ErrInvalidORM,
+				fmt.Sprintf("[Label] on %s may not contain %q", owner, string(label[idx])),
+				"Labels are stored in a |-separated metadata string; use plain text."))
+		}
+	}
+	for _, attr := range class.Attributes {
+		name := strings.ToLower(attr.Name)
+		if !entityCrudClassAttrs[name] {
+			continue
+		}
+		if name == "label" {
+			checkLabel(attr, class.Name)
+		}
+	}
+	for _, field := range class.Fields {
+		owner := class.Name + "." + strings.Join(field.Names, ",")
+		for _, attr := range field.Attributes {
+			name := strings.ToLower(attr.Name)
+			if !entityCrudFieldAttrs[name] {
+				continue
+			}
+			if name == "label" {
+				checkLabel(attr, owner)
+			}
+		}
+	}
+	return diags
+}
+
+// entityMetaSeparators are the characters the runtime metadata encoding
+// reserves — the same constant the codegen side uses, so the two cannot drift.
+const entityMetaSeparators = entitymetaapi.Separators
 
 func validORMQueryReturn(method *ast.FunctionDecl, entities map[string]bool) bool {
 	if method == nil || method.ReturnType == nil {

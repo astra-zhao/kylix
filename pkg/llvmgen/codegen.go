@@ -90,7 +90,11 @@ type Generator struct {
 	// [Controller]/[Service]/[Component]/[Inject]/[Get]/[Post]/[Put]/[Delete]
 	// attributes and lowered to auto-wiring IR in emitMain (instance creation +
 	// route registration) plus wrapper defines at module end.
-	bootRoutes     []bootRoute
+	bootRoutes []bootRoute
+
+	// v0.11.0: [Entity] metadata for the CRUD engine, collected by
+	// scanEntityMeta and registered at the top of main (emitEntityMetaWiring).
+	entityMeta     []llvmEntity
 	bootComponents []bootComponent
 	bootInjects    []bootInject
 	bootWrappers   []bootWrapper
@@ -604,6 +608,12 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	g.scanBootAnnotations(prog)
 	g.emitBootGlobals()
 
+	// v0.11.0: collect [Entity] metadata (CRUD engine) — emitted at the top of
+	// main by emitEntityMetaWiring, gated on at least one [Entity] class.
+	if err := g.scanEntityMeta(prog); err != nil {
+		return err
+	}
+
 	g.collectGlobals(prog)
 
 	// Emit declarations and function bodies
@@ -1044,6 +1054,10 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	if err := g.emitBootAutoWiring(); err != nil {
 		return err
 	}
+
+	// v0.11.0: entity metadata for the CRUD engine — no-op unless the program
+	// declares [Entity] classes (see orm_annotations.go).
+	g.emitEntityMetaWiring()
 
 	for _, stmt := range stmts {
 		if err := g.emitStatement(stmt); err != nil {

@@ -10,6 +10,7 @@ package generator
 import (
 	"kylix/ast"
 	"kylix/internal/bootapi"
+	"kylix/internal/entitymetaapi"
 )
 
 // stdlibModuleFuncs maps module name → set of exported function names.
@@ -78,6 +79,10 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"db": strToSet(
 		"DbOpen", "DbOpenSQLite", "DbExec", "DbQueryRows", "DbQueryScalar", "DbClose",
 	),
+	// v0.11.0: [Entity] annotation metadata registry consumed by the pure-Kylix
+	// CRUD engine. The list lives in internal/entitymetaapi so the LLVM
+	// backend's module table cannot drift from this one.
+	"entitymeta": strToSet(entitymetaapi.EntityMetaFunctions...),
 	"cache": strToSet(
 		"NewCache",
 	),
@@ -195,6 +200,11 @@ var stdlibProcedureFuncs = map[string]bool{
 	"DeleteFile": true, "CopyFile": true, "WriteLines": true,
 	"SetWorkingDir": true, "SetEnv": true, "Sleep": true,
 	"Stdout": true, "Stderr": true, "WasiExit": true,
+	// v0.11.0: entity-metadata registration (emitted by codegen, listed here so
+	// the single-source list stays complete on both backends).
+	entitymetaapi.RegisterEntity:      true,
+	entitymetaapi.RegisterEntityField: true,
+	entitymetaapi.SetEntityNames:      true,
 }
 
 func strToSet(names ...string) map[string]bool {

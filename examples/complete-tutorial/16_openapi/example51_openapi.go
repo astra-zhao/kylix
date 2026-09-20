@@ -113,6 +113,12 @@ func main() {
 		if __r := stdlib.BootEnforceRole(req, "admin"); __r != nil { return __r }
 		return __kylix_ctrl_TUserController.DeleteUser(req)
 	})
+	// --- entity metadata (v0.11.0 CRUD engine) ---
+	stdlib.RegisterEntity("users", "|users|")
+	stdlib.RegisterEntityField("users", "Email|text|Email|required,email")
+	stdlib.RegisterEntityField("users", "Password|password|Password|required,minlen=8,secret")
+	stdlib.RegisterEntityField("users", "Age|number|Age|min=18")
+	stdlib.SetEntityNames("users")
 //line example51_openapi.klx:50
 fmt.Println("OpenAPI demo OK")
 }

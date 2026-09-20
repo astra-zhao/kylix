@@ -1,20 +1,39 @@
 package main
 
 import (
+	"regexp"
 	"kylix/stdlib"
 	"fmt"
+	"strings"
 )
 
 type TUser struct {
 Id int64
 Email string
+Nickname string
 Name string
+}
+
+func (self *TUser) Validate() map[string]string {
+	errors := map[string]string{}
+	if strings.TrimSpace(self.Email) == "" {
+		errors["Email"] = "is required"
+	}
+	if self.Email != "" && !regexp.MustCompile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$").MatchString(self.Email) {
+		errors["Email"] = "must be a valid email address"
+	}
+	return errors
+}
+
+func (self *TUser) IsValid() bool {
+	return len(self.Validate()) == 0
 }
 
 func (self *TUser) ToRow() map[string]interface{} {
 	return map[string]interface{}{
 		"Id": self.Id,
 		"email": self.Email,
+		"nickname": self.Nickname,
 		"Name": self.Name,
 	}
 }
@@ -25,6 +44,9 @@ func (self *TUser) FromRow(row map[string]interface{}) {
 	}
 	if v, ok := row["email"].(string); ok {
 		self.Email = v
+	}
+	if v, ok := row["nickname"].(string); ok {
+		self.Nickname = v
 	}
 	if v, ok := row["Name"].(string); ok {
 		self.Name = v
@@ -91,6 +113,13 @@ func (self *TUserRepository) All(orm *stdlib.ORM) []*TUser {
 }
 
 func main() {
-//line example47_orm_annotations.klx:27
+	// --- entity metadata (v0.11.0 CRUD engine) ---
+	stdlib.RegisterEntity("users", "Id|Users|")
+	stdlib.RegisterEntityField("users", "Id|number|Id|")
+	stdlib.RegisterEntityField("users", "email|text|Email|required,email,searchable")
+	stdlib.RegisterEntityField("users", "nickname|text|Nickname|nullable")
+	stdlib.RegisterEntityField("users", "Name|text|Name|")
+	stdlib.SetEntityNames("users")
+//line example47_orm_annotations.klx:38
 fmt.Println("KylixBoot ORM annotations OK")
 }

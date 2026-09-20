@@ -3,6 +3,8 @@ package llvmgen
 import (
 	"fmt"
 
+	"kylix/internal/entitymetaapi"
+
 	"kylix/ast"
 	"kylix/internal/bootapi"
 )
@@ -48,6 +50,7 @@ var knownStdlibModules = map[string]bool{
 	"httpclient": true,
 	"jwt":        true,
 	"websocket":  true, // v0.6.4: RFC 6455 client+server
+	"entitymeta": true, // v0.11.0: [Entity] metadata for the CRUD engine
 }
 
 // stdlibModuleFuncs maps each known stdlib module to the function names it
@@ -130,6 +133,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"WsDial": true, "WsAccept": true, "WsSend": true, "WsRecv": true, "WsClose": true,
 		"WsDialConnect": true, "WsDialFinish": true,
 	},
+	"entitymeta": entitymetaapi.FunctionSet(),
 }
 
 // resolveStdlibBareCall reports whether funcName is a bare-name stdlib call
@@ -200,6 +204,8 @@ func (g *Generator) emitStdlibCall(module, funcName string, args []ast.Expressio
 		return g.emitJwtCall(funcName, args)
 	case "websocket":
 		return g.emitWebsocketCall(funcName, args)
+	case "entitymeta":
+		return g.emitEntityMetaCall(funcName, args)
 	default:
 		// Not yet implemented for LLVM — fall back to a stub so IR stays legal.
 		r := g.tmp()
@@ -266,6 +272,8 @@ func (g *Generator) emitPendingStdlib() {
 			g.emitJwtBody(sf.name)
 		case "websocket":
 			g.emitWebsocketBody(sf.name)
+		case "entitymeta":
+			g.emitEntityMetaBody(sf.name)
 		}
 	}
 	// hexbytes helper is shared by all crypto hash functions; emit once if

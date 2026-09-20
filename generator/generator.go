@@ -191,6 +191,7 @@ func (g *Generator) Generate(program *ast.Program) string {
 		g.writeLine("func main() {")
 		g.indent++
 		g.emitBootAutoWiring()
+		g.emitEntityMetaWiring()
 		for _, stmt := range program.Statements {
 			g.generateStatement(stmt)
 		}
@@ -291,6 +292,7 @@ func (g *Generator) GenerateMulti(programs []*ast.Program) string {
 			g.writeLine("func main() {")
 			g.indent++
 			g.emitBootAutoWiring()
+			g.emitEntityMetaWiring()
 			for _, stmt := range prog.Statements {
 				g.generateStatement(stmt)
 			}
@@ -345,6 +347,7 @@ func (g *Generator) GenerateBody(program *ast.Program) string {
 		g.writeLine("func main() {")
 		g.indent++
 		g.emitBootAutoWiring()
+		g.emitEntityMetaWiring()
 		for _, stmt := range program.Statements {
 			g.generateStatement(stmt)
 		}

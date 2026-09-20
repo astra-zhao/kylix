@@ -3,14 +3,25 @@ package generator
 import (
 	"fmt"
 	"kylix/ast"
+	"kylix/internal/entitymetaapi"
 	"strings"
 )
 
 // ormColumn maps an entity field to its database column name.
+//
+// v0.11.0: Kind/Label/Flags carry the CRUD-engine metadata derived from the
+// field's type and its [Label]/[Searchable]/[Hidden]/[Nullable] plus the
+// validation annotations ([Required]/[Email]/[Min]/[Max]/[MinLen]/[MaxLen]).
+// See generator_entitymeta.go for the encoding.
 type ormColumn struct {
 	FieldName string
 	FieldType string
 	Column    string
+	Kind      string // text | number | checkbox | password
+	Label     string // display name (falls back to FieldName)
+	Flags     string // required,email,min=1,max=9,minlen=3,maxlen=8,nullable,searchable
+	Listable  bool   // shown in list pages
+	Formable  bool   // shown in create/edit forms
 }
 
 // ormEntity captures the table/column metadata declared by [Entity] annotations.
@@ -19,6 +30,9 @@ type ormEntity struct {
 	Table     string
 	PKField   string
 	PKColumn  string
+	Label     string // [Label] on the class; falls back to Table
+	Flags     string // readonly when the class carries [ReadOnly]
+	ReadOnly  bool
 	Fields    []ormColumn
 }
 
@@ -80,7 +94,16 @@ func (g *Generator) scanORMEntity(className string, attrs []*ast.Attribute, clas
 	if !ok || table == "" {
 		return // diagnostic emitted by compiler
 	}
-	entity := &ormEntity{ClassName: className, Table: table}
+	entity := &ormEntity{ClassName: className, Table: table, Label: table}
+	if labelAttr := findAttribute(attrs, "Label"); labelAttr != nil {
+		if label, ok := attributeStringArg(labelAttr, ""); ok && label != "" {
+			entity.Label = label
+		}
+	}
+	if findAttribute(attrs, "ReadOnly") != nil {
+		entity.ReadOnly = true
+		entity.Flags = "readonly"
+	}
 	for _, field := range classDecl.Fields {
 		colName := ""
 		if colAttr := findAttribute(field.Attributes, "Column"); colAttr != nil {
@@ -90,15 +113,34 @@ func (g *Generator) scanORMEntity(className string, attrs []*ast.Attribute, clas
 		}
 		isPK := findAttribute(field.Attributes, "PrimaryKey") != nil
 		fieldType, _ := fieldTypeName(field.Type)
+		fieldLabel := ""
+		if labelAttr := findAttribute(field.Attributes, "Label"); labelAttr != nil {
+			if label, ok := attributeStringArg(labelAttr, ""); ok {
+				fieldLabel = label
+			}
+		}
 		for _, name := range field.Names {
 			column := colName
 			if column == "" {
 				column = name
 			}
+			kind := entityMetaKind(name, fieldType)
+			label := fieldLabel
+			if label == "" {
+				label = name
+			}
 			entity.Fields = append(entity.Fields, ormColumn{
 				FieldName: name,
 				FieldType: fieldType,
 				Column:    column,
+				Kind:      kind,
+				Label:     label,
+				Flags:     entityMetaFieldFlags(field.Attributes, kind),
+				// Password fields are never listed; [Hidden] removes a column
+				// from both the list and the form (internal columns such as
+				// failed_attempts).
+				Listable: entitymetaapi.Listable(field.Attributes, kind),
+				Formable: entitymetaapi.Formable(field.Attributes),
 			})
 			if isPK && entity.PKField == "" {
 				entity.PKField = name

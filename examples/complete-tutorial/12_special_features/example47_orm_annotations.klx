@@ -1,14 +1,25 @@
 program ORMAnnotations;
-uses orm;
+uses orm, entitymeta;
 
+// v0.11.0: [Label]/[Searchable]/[Nullable] feed the CRUD-engine metadata the
+// compiler registers at the top of main (see apps/admin for the consumer).
 [Entity('users')]
+[Label('Users')]
 type
   TUser = class
     [PrimaryKey]
     Id: Integer;
 
     [Column('email')]
+    [Label('Email')]
+    [Required]
+    [Email]
+    [Searchable]
     Email: String;
+
+    [Column('nickname')]
+    [Nullable]
+    Nickname: String;
 
     Name: String;
   end;
