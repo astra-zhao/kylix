@@ -1,4 +1,4 @@
-# API 稳定性承诺（v0.10.0 → 1.0.0）
+# API 稳定性承诺（v0.11.0 → 1.0.0）
 
 > v0.9.0 起进入 1.0.0-rc 打磨阶段。本文档划定 **1.0.0 将冻结的公开 API 面**，
 > 以及冻结后的破坏性变更 / 弃用流程约定。1.0.0 发布时本文档即生效。
@@ -43,10 +43,16 @@ flag 面（全部经 Go `flag` 包定义，`-flag` 与 `--flag` 双形式等价�
 
 ### 2. stdlib 声明面（Kylix 源码 import 的单元）
 
-**内建/绑定模块**（`stdlib/klx/*.klx`，23 个 LSP 声明文件描述的行为面）：
+**内建/绑定模块**（`stdlib/klx/*.klx`，24 个 LSP 声明文件描述的行为面）：
 `boot` `cache` `config` `container` `crypto` `datetime` `db` `encoding`
-`exceptions` `httpclient` `jsonutil` `jwt` `middleware` `net` `orm` `regex`
-`sysutil` `template` `validation` `wasi` `web` `websocket` `autoconfig`
+`entitymeta` `exceptions` `httpclient` `jsonutil` `jwt` `middleware` `net`
+`orm` `regex` `sysutil` `template` `validation` `wasi` `web` `websocket`
+`autoconfig`
+
+`entitymeta`（v0.11.0）是 `[Entity]` 注解元数据的运行期读取面，冻结的是
+**编码格式与访问器语义**（`EntityMetaOf` → `"pk|label|flags"`、
+`EntityFieldAt` → `"column|kind|label|flags"`、越界/未知返回 `""`），
+注册函数由编译器发射、非用户调用面。
 
 **纯 Kylix 多文件单元**（三端同源，`stdlib/*.klx`）：
 `stringutil.klx` `regex_engine.klx` `template_engine.klx`
@@ -63,6 +69,20 @@ map / Variant / 动态数组 / 泛型 / is / as）、控制流（if/while/for/re
 case/forEach/match）、OOP（class/interface/继承/virtual/property）、
 多返回 + 解构、lambda、error 类型、try/except、字符串插值与切片、
 注解（KylixBoot 全家）、unit/uses、`*_test.klx` / `*_bench.klx` 约定。
+
+**注解面**（v0.11.0 起一并冻结）：`[Entity]` `[Column]` `[PrimaryKey]`
+`[Repository]` `[Query]` `[Controller]` `[Service]` `[Component]` `[Inject]`
+`[Get]/[Post]/[Put]/[Delete]` `[Authenticated]` `[Role]` `[Body]`
+`[Required]` `[Email]` `[Min]` `[Max]` `[MinLen]` `[MaxLen]`
+`[Label]` `[Searchable]` `[Hidden]` `[Nullable]` `[Default]` `[ReadOnly]`
+（后六项为 v0.11.0 新增的 CRUD 注解，语义见
+[docs/ADMIN_CRUD_GUIDE.md](ADMIN_CRUD_GUIDE.md)）。
+
+**TRequest/TResponse 方法面**（v0.11.0 增补）：`req.Path()` 与既有
+`Param/Query/Header/Body/Form/Cookie/Session*/File/SaveFile/PageNum` 同级冻结；
+`req.Form` 的**回退链差异**（Go 含 URL query 回退、LLVM 只查 body）按
+TECHNICAL_DEBT 记录的限制处理，不构成契约——应用代码应 GET 用 `Query`、
+POST 用 `Form`。
 
 关键字集合（`token/token.go`）与内置类型名（`Integer Real Boolean String
 Char Variant`）冻结——新增关键字属于破坏性变更（可能撞用户标识符），须走

@@ -2,7 +2,7 @@
 
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
-[![版本](https://img.shields.io/badge/version-0.10.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.11.0-blue.svg)](CHANGELOG.md)
 [![许可证](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-IR%20%E4%B8%8D%E5%8A%A8%E7%82%B9-brightgreen.svg)](docs/SELFHOSTING_DEV_GUIDE.md)
 
@@ -10,12 +10,14 @@
 
 Kylix 是一个现代化的 Pascal 编译器：默认把 Kylix 源码转译为可读的 Go 代码（`go build` 编译运行）；也可以通过 **LLVM 原生后端**（`--backend=llvm`）直接产出 LLVM IR 并链接为原生二进制——**运行时完全不依赖 Go 工具链**。它结合了 Pascal 的清晰性和简洁性，同时添加了现代语言特性，并配备完整的 IDE 工具链、编辑器集成与无 Go 自举闭环。
 
-**当前版本**：v0.10.0（KylixAdmin P0+P2）
+**当前版本**：v0.11.0（KylixAdmin P3+P4）
 
 **项目地址**：https://github.com/astra-zhao/kylix
 
 **官方网站**：https://kylix.top
 
+> 🔥 **重大里程碑 (v0.11.0)**：**KylixAdmin 进入生产力阶段**——**通用 CRUD 引擎**（`[Entity]` 元数据由编译器**两端**发射，新 stdlib 模块 `entitymeta`；LLVM 后端此前对 ORM/校验注解零支持）：写一个带注解的类即得到列表（搜索/排序/分页）、表单（含校验）、删除、审计、菜单项与权限点；全部业务表迁入引擎（`main.klx` 775 → 103 行）；**仪表盘**（统计卡 + 零依赖整数几何 SVG 图）+ **个人中心**（改密/头像）+ **UI 设计系统**（设计令牌/组件/服务端渲染三态主题/响应式）；顺带修复 LLVM cookie 解析器不跳 `;` 后空格（第二个及之后的 cookie 读不到）与 `DbQueryScalar` 遇 NULL 列崩溃；**双端 E2E 22 场景**逐字 diff。IR 不动点保持。详见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/ADMIN_CRUD_GUIDE.md](docs/ADMIN_CRUD_GUIDE.md)。
+>
 > 🔥 **重大里程碑 (v0.10.0)**：**KylixAdmin 启航**——**LLVM 后端 Boehm GC**（`--gc=boehm` opt-in：~110 处用户数据分配点路由 `GC_malloc`，默认 malloc 模式 IR 逐字节不变，GC 教程 maxRSS 62MB→22MB，issue #1 闭环）；**KylixAdmin P2 认证与 RBAC**（纯 Kylix `apps/admin/`：PBKDF2-HMAC-SHA256 口令哈希、SessionRegenerate 防固定、session-first `[Authenticated]`、`[Role]` 守卫真体化、失败锁定、Remember-me，4 控制器 15 路由）；**双端 E2E**（`apps/admin/e2e.sh`，12 curl 场景 Go/LLVM 归一化逐字 diff，已入 CI）；htab GC 混搭分配器 bug 修复。**CI 11 job 全绿**。v0.6.9 的 IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
@@ -26,7 +28,7 @@ Kylix 是一个现代化的 Pascal 编译器：默认把 Kylix 源码转译为�
 
 ```bash
 # 方式一：下载预编译二进制（GitHub Release，5 平台 + bootstrap tarball）
-gh release download v0.10.0
+gh release download v0.11.0
 
 # 方式二：源码构建
 git clone https://github.com/astra-zhao/kylix.git
@@ -108,16 +110,16 @@ kylix version           # 显示版本信息
 
 ---
 
-## 测试状态（v0.10.0）
+## 测试状态（v0.11.0）
 
 | 项目 | 结果 |
 |------|------|
-| Go 单元测试 | ✅ 16 包全绿 |
+| Go 单元测试 | ✅ 17 包全绿 |
 | 教程 sweep（Go 后端） | ✅ 58/58（57 示例，多文件模块记 2 项） |
 | 教程 sweep（LLVM 后端） | ✅ 58/58（含 example60 server E2E + example64 GC parity） |
 | 自举 sweep（无 Go） | ✅ 57 PASS + 1 SKIP（example60 E2E） |
 | 自举 IR 不动点 | ✅ gen1 ≡ gen2（26.7 万行逐字节） |
-| KylixAdmin E2E | ✅ 双端 12 场景归一化逐字 diff（`apps/admin/e2e.sh`，CI job） |
+| KylixAdmin E2E | ✅ 双端 22 场景归一化逐字 diff（`apps/admin/e2e.sh`，CI job） |
 | CI | ✅ 11 job 全绿（三平台 + arm64 + selfrepro + perf-gate + admin-e2e） |
 
 ---
@@ -139,6 +141,7 @@ kylix version           # 显示版本信息
 ### KylixBoot 框架 ✅
 - `[Controller]`/`[Get]`/`[Post]` 路由自动装配、`[Service]`/`[Inject]` DI、`[Required]`/`[Email]` 等字段校验、`[Authenticated]`/`[Role]` 安全守卫、`[Entity]`/`[Repository]`/`[Query]` ORM 注解、`[Body(TEntity)]` 请求体绑定、JWT 一键接入、OpenAPI 3.1 自动生成
 - **v0.9.0 框架补齐**：服务端 Session + CSRF、multipart 文件上传、`TResponse.Download/FileBytes/CSV`、分页 BootPagerHTML、模板 layout/partials
+- **v0.11.0 CRUD 元数据**：`[Entity]` 注解 → 编译器两端发射 `entitymeta` 注册序列（列表/表单/校验/权限全自动），新增注解 `[Label]`/`[Searchable]`/`[Hidden]`/`[Nullable]`/`[Default]`/`[ReadOnly]`（见 [docs/ADMIN_CRUD_GUIDE.md](docs/ADMIN_CRUD_GUIDE.md)）
 
 ### 自举编译器 ✅（v0.5.2 → v0.9.0 bootstrap boot server）
 - `src/*.klx`（token/error/ast/lexer/parser/generator/llvmgen + stdlib IR 烘焙）9 文件
@@ -167,7 +170,7 @@ kylix/
 │   └── klx/                # LSP 补全用 Kylix 声明文件
 ├── src/                    # 自举编译器源码（.klx，9 文件 + stdlib_ir.klx 烘焙数据）
 ├── scripts/                # 测试 sweep / stdlib IR 提取 / LLVM 捆绑脚本
-├── examples/               # 教程（complete-tutorial 25 章节 56 编号示例）+ 主题示例
+├── examples/               # 教程（complete-tutorial 26 章节 57 编号示例）+ 主题示例
 ├── vscode-ext/             # VS Code 扩展
 ├── jetbrains-plugin/       # JetBrains 插件（Gradle Kotlin）
 ├── html/                   # 官网页面
@@ -240,6 +243,7 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 | v0.8.0 | 2026-09-11 | 自举 stdlib：纯 Kylix stringutil 三端同源 + per-request arena + htab magic 校验加固 |
 | **v0.9.0** | **2026-09-13** | **1.0.0-rc 打磨：KylixBoot 补齐（Session/CSRF/上传/Download/分页/layout）+ bootstrap boot server（example60 E2E）+ 重烘闭环 + CI 三平台全绿 + 性能门禁 + API 稳定性冻结** |
 | **v0.10.0** | **2026-09-19** | **KylixAdmin P0+P2：LLVM 后端 Boehm GC（`--gc=boehm`，issue #1）+ 后台认证与 RBAC（PBKDF2/Session/锁定/RBAC/审计，15 路由，双端 E2E 入 CI）+ htab GC bug 修复** |
+| **v0.11.0** | **2026-09-21** | **KylixAdmin P3+P4：`[Entity]` 元数据驱动的通用 CRUD 引擎（编译器两端发射 `entitymeta`）+ 仪表盘（零依赖 SVG）+ 个人中心 + UI 设计系统（三态主题/响应式）；LLVM cookie 解析器与 `DbQueryScalar` NULL 修复；双端 E2E 22 场景** |
 
 详细更新日志见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -247,7 +251,7 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 
 ## 后续规划
 
-- **v0.11.0–v0.12.0 — KylixAdmin 后台管理平台后半程**（旗舰 showcase，见 [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)；P0 GC 与 P2 认证 RBAC 已于 v0.10.0 完成）：通用 CRUD 引擎（`[Entity]` 元数据驱动）→ 自研 UI 设计系统 → postgres 方言 + 一键部署单二进制
+- **v0.12.0 — KylixAdmin P5**（旗舰 showcase，见 [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)；P0 GC/P2 认证 RBAC/P3 CRUD 引擎/P4 UI 设计系统已分别于 v0.10.0、v0.11.0 完成）：postgres 方言抽象 + 连接池 + `[Entity]` 注解驱动自动建表/增量迁移 + 一键部署单二进制
 - **v0.13.0–v0.15.0 — 多端平台**（见 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）：H5 PWA → 编译器多端能力（C ABI export + android/ios triple）→ 示例应用（Kotlin+JNI / SwiftUI 壳）+ wasm32
 - **1.0.0**：v0.7.1–v0.15.0 gate 全过后发布正式版（KylixAdmin + 多端为旗舰 showcase）
 

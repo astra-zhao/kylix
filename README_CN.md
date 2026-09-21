@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-0.10.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.11.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后端编译为原生二进制。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
+>
+> 🚀 **v0.11.0**: **KylixAdmin 进入生产力阶段。** **通用 CRUD 引擎**——写一个带注解的类，得到列表（搜索/排序/分页）、新建/编辑表单（含校验）、删除、审计日志、菜单项与权限点，**不需要新 handler、新模板、新 SQL**（[指南](docs/ADMIN_CRUD_GUIDE.md)）。元数据由编译器在**两端**发射：新 stdlib 模块 `entitymeta`（LLVM 后端此前对 ORM/校验注解零支持）、新注解 `[Label]/[Searchable]/[Hidden]/[Nullable]/[Default]/[ReadOnly]`，且发射**以「程序含 `[Entity]`」为门**（无实体程序 IR 逐字节不变）。全部实体完成迁移——`main.klx` 从 775 行降到 103 行。另加**仪表盘**（统计卡 + 零依赖整数几何 SVG 图）、**个人中心**（改密、头像）与 **UI 设计系统**（设计令牌、组件、服务端渲染的三态亮暗主题、响应式）。顺带修复：LLVM cookie 解析器不跳 `;` 后空格（第二个及之后的 cookie 全都读不到）、`DbQueryScalar` 遇 NULL 列崩溃。双端 E2E 扩到 **22 场景**逐字对比。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
 > 🚀 **v0.10.0**: **KylixAdmin 启航。** **LLVM 后端 Boehm GC**（`--gc=boehm` opt-in：~110 处用户数据分配点路由 `GC_malloc`；默认 malloc 模式 IR 逐字节不变；GC 教程 maxRSS 62MB→22MB）——issue #1 闭环，内存语义与 Go 后端对齐。外加 **KylixAdmin P2**：纯 Kylix 后台应用（`apps/admin/`）认证与 RBAC——PBKDF2-HMAC-SHA256（`Pbkdf2Hash/Pbkdf2Compare`，替代跨形态哈希不兼容的 BCrypt）、`SessionRegenerate`（防会话固定）、session-first `[Authenticated]`、**`[Role]` 守卫真体化**（LLVM 端原为空桩）、失败锁定持久化、Remember-me、users/roles/logs 页面（4 控制器 15 路由）、**双端 E2E**（`apps/admin/e2e.sh`，12 curl 场景 Go/LLVM 归一化逐字 diff，已入 CI）。另：修复混搭分配器 GC bug（htab 节点裸 malloc 而 key/value 走 GC——活 map/会话数据可能被错收）。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
@@ -1104,7 +1106,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 
 ## 路线图
 
-当前状态：**v0.10.0（KylixAdmin P0+P2）**—— **LLVM 后端 Boehm GC**（`--gc=boehm` opt-in，~110 处分配点路由 GC_malloc，默认 malloc 模式 IR 逐字节不变，GC 教程 maxRSS 62MB→22MB，issue #1 闭环）+ **KylixAdmin 认证与 RBAC**（纯 Kylix `apps/admin/`：PBKDF2 口令哈希、SessionRegenerate 防固定、session-first `[Authenticated]`、`[Role]` 守卫真体化、失败锁定、Remember-me，4 控制器 15 路由；双端 E2E `apps/admin/e2e.sh` 12 场景逐字 diff 已入 CI）+ htab GC 混搭分配器 bug 修复。CI **11 job 全绿**（run 35427853523）。IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。下一步：**v0.11.0 KylixAdmin P3 后半 + P4**（通用 CRUD 引擎 + 自研 UI 设计系统，见 [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)）。完整路线图见 [ROADMAP.md](ROADMAP.md)。
+当前状态：**v0.11.0（KylixAdmin P3+P4）**—— `[Entity]` 元数据驱动的**通用 CRUD 引擎**（元数据由编译器两端发射，新 `entitymeta` 模块）、**仪表盘**（零依赖 SVG 图）、**个人中心**（改密/头像）、自研 **UI 设计系统**（服务端渲染三态主题）；全部业务表迁入引擎（每张表零 handler、零模板），双端 E2E 扩到 **22 场景**逐字 diff。IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。下一步：**v0.12.0 KylixAdmin P5**（postgres 方言抽象 + 一键部署单二进制，见 [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)）。完整路线图见 [ROADMAP.md](ROADMAP.md)。
 
 ## 跨平台编译
 
@@ -1228,6 +1230,7 @@ WsClose(ws);
 | 版本 | 亮点 |
 |------|------|
 | v0.9.0 | 1.0.0-rc 打磨：KylixBoot 补齐（Session/CSRF/上传/Download/分页/layout）、bootstrap boot server（example60 E2E）、stdlib IR 重烘链路、CI 三平台全绿 + 性能门禁 + API 稳定性冻结 |
+| v0.11.0 | KylixAdmin P3+P4：`[Entity]` 元数据驱动的通用 CRUD 引擎（编译器两端发射 `entitymeta` 模块）、仪表盘（零依赖 SVG 图）、个人中心、自研 UI 设计系统（三态主题）；双端 E2E 22 场景 |
 | v0.10.0 | KylixAdmin P0+P2：LLVM 后端 Boehm GC（`--gc=boehm`，issue #1）+ 后台认证与 RBAC（PBKDF2/session/锁定/RBAC/审计，15 路由，双端 E2E 入 CI） |
 | v0.8.0 | 自举 stdlib：纯 Kylix stringutil（三端单源）、per-request arena、htab magic 校验加固 |
 | v0.7.2 | CI 全绿 + selfrepro 改走真实 --emit-llvm IR 链 + LLVM 类方法多返回 + Boot* 单一来源表 |

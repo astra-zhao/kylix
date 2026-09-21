@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-0.10.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.11.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix is a modern reimagining of Pascal, designed to compile to Go or to native binaries via the LLVM backend. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
+>
+> 🚀 **v0.11.0**: **KylixAdmin gets productive.** The **generic CRUD engine** — annotate a class and get list/search/sort/pagination, create/edit forms with validation, delete, audit logging, a sidebar entry and permission points, with no new handler, template or SQL ([guide](docs/ADMIN_CRUD_GUIDE.md)). The metadata comes from the compiler on **both** backends: a new `entitymeta` stdlib module (the LLVM backend had no ORM/validation annotation support at all), new annotations `[Label]/[Searchable]/[Hidden]/[Nullable]/[Default]/[ReadOnly]`, and emission gated on the program actually declaring an `[Entity]` class (entity-free IR stays byte-identical). Every table migrated — `main.klx` went from 775 to 103 lines. Plus a **dashboard** (stat cards + a dependency-free integer-geometry SVG chart), a **personal centre** (password change, avatar), and a **UI design system** (design tokens, components, three-state light/dark theme rendered server-side, responsive). Also fixed on the way: the LLVM cookie parser never skipped the space after `;` (every cookie but the first was invisible), and `DbQueryScalar` crashed on a NULL column. Dual-backend E2E is now **22 scenarios** diffed byte-for-byte. See [CHANGELOG.md](CHANGELOG.md).
 >
 > 🚀 **v0.10.0**: **KylixAdmin begins.** **Boehm GC for the LLVM backend** (`--gc=boehm` opt-in: ~110 user-data allocation sites route to `GC_malloc`; default malloc-mode IR byte-identical; maxRSS 62MB→22MB on the GC tutorial) closes issue #1 — memory semantics now align with the Go backend. Plus **KylixAdmin P2**: authentication & RBAC for the pure-Kylix admin app (`apps/admin/`) — PBKDF2-HMAC-SHA256 (`Pbkdf2Hash/Pbkdf2Compare`, replacing the cross-backend-incompatible BCrypt), `SessionRegenerate` (fixation defense), session-first `[Authenticated]`, a **real `[Role]` guard** (the LLVM side was an empty stub), persistent failure lockout, Remember-me, users/roles/logs pages (4 controllers, 15 routes), and a **dual-backend E2E** (`apps/admin/e2e.sh`, 12 curl scenarios diffed byte-for-byte between the Go and LLVM forms, now a CI job). Also: a mixed-allocator GC bug fix (htab nodes were malloc'd while keys/values were GC'd — live map/session data could be wrongly collected). See [CHANGELOG.md](CHANGELOG.md).
 >
@@ -1062,7 +1064,7 @@ Kylix LSP supports any editor with LSP client:
 
 ## Roadmap
 
-Current status: **v0.10.0 (KylixAdmin P0+P2)** — Boehm GC for the LLVM backend (`--gc=boehm`, issue #1 closed) and KylixAdmin authentication & RBAC (`apps/admin/`: PBKDF2 + session/CSRF/lockout/remember-me, five-table RBAC, real `[Role]` guard on the LLVM side, audit logs, 15 routes, dual-backend E2E as a CI job). CI 11 jobs green on all three platforms. The IR fixed point holds (gen1 ≡ gen2, 267k lines byte-identical). Next up: **v0.11.0 KylixAdmin P3+P4** — generic CRUD engine + UI design system (see [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)). The full roadmap lives in [ROADMAP.md](ROADMAP.md).
+Current status: **v0.11.0 (KylixAdmin P3+P4)** — a generic CRUD engine driven by `[Entity]` metadata emitted by the compiler on both backends (new `entitymeta` module), a dashboard with a dependency-free SVG chart, a personal centre (password change, avatar) and a self-contained UI design system with a server-rendered three-state theme. Every admin table migrated to the engine (no per-table handler or template); dual-backend E2E now covers 22 scenarios diffed byte-for-byte. The IR fixed point holds (gen1 ≡ gen2, 267k lines byte-identical). Next up: **v0.12.0 KylixAdmin P5** — postgres dialect abstraction + one-binary deployment (see [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)). The full roadmap lives in [ROADMAP.md](ROADMAP.md).
 
 ## Cross-Platform Compilation
 
@@ -1205,6 +1207,7 @@ Recent releases (see [CHANGELOG.md](CHANGELOG.md) for the full history):
 | Version | Highlights |
 |---------|------------|
 | v0.9.0 | 1.0.0-rc polish: KylixBoot completion (Session/CSRF/upload/Download/pagination/layout), bootstrap boot server (example60 E2E), stdlib IR rebake loop, CI green on 3 platforms + perf gate + API stability freeze |
+| v0.11.0 | KylixAdmin P3+P4: generic CRUD engine driven by `[Entity]` metadata (compiler-emitted on both backends, `entitymeta` module), dashboard with a zero-dependency SVG chart, personal centre, self-contained UI design system with a three-state theme; 22-scenario dual-backend E2E |
 | v0.10.0 | KylixAdmin P0+P2: Boehm GC for the LLVM backend (`--gc=boehm`, issue #1) + admin authentication & RBAC (PBKDF2/session/lockout/RBAC/audit, 15 routes, dual-backend E2E as a CI job) |
 | v0.8.0 | Self-hosted stdlib: pure-Kylix stringutil (3 backends one source), per-request arena, htab magic-check hardening |
 | v0.7.2 | CI all green + selfrepro on the real --emit-llvm IR chain + LLVM class-method multi-returns + Boot* single-source table |

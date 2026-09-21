@@ -1,5 +1,19 @@
 # Kylix ORM 指南 / Kylix ORM Guide
 
+> ⚠️ **重要提示（2026-09-21 核对）**：本文档描述的 `TORM` / `TQueryBuilder` / `NewORM` / `MigrationManager`
+> 等 API **从未发布**——它们存在于 `stdlib/orm.go` 的 Go 实现里，但**没有暴露给 Kylix 语言层**
+> （不在 `generator/generator_stdlib.go` 的白名单/返回类型表中，`TORM`/`TQueryBuilder` 也没有类型映射），
+> 因此 Kylix 源码里写不出来（见 `examples/orm_example.klx` 的自述与
+> [TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md)）。
+>
+> **Kylix 代码中可用的数据库面**是 `db` 模块的六个函数：
+> `DbOpen` / `DbOpenSQLite` / `DbExec` / `DbQueryRows` / `DbQueryScalar` / `DbClose`（参数化 `?` 占位，双端可用）。
+> 需要完整的注解驱动 CRUD（列表/表单/校验/权限/审计自动产出）请看
+> [ADMIN_CRUD_GUIDE.md](ADMIN_CRUD_GUIDE.md)——那是 v0.11.0 落地的方案。
+>
+> 本文档保留作为**历史设计参考**，其 API 签名不构成任何契约。
+
+
 ## 概述 / Overview
 
 Kylix ORM 是一个轻量级的对象关系映射器，提供了：

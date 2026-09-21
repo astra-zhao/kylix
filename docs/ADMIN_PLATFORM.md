@@ -93,14 +93,14 @@
 - **双端 E2E**：`apps/admin/e2e.sh`——Go/LLVM 形态各跑同一 12 场景 curl 序列，归一化 transcript 逐字 diff；CI `admin-e2e` job；**不进三教程 sweep**（计数不变）
 - 限制（文档化）：会话存内存（重启失效）、CSRF token 成功 POST 后轮换、改角色需重登录、bootstrap 端 `[Role]` 守卫缺烘焙 define（编译期报错，host 专属）
 
-### P3 通用 CRUD 引擎（生产力核心）
+### P3 通用 CRUD 引擎（生产力核心）✅（v0.11.0，2026-09-21）
 
 - **元数据驱动 CRUD**：扫 `[Entity]` 注解生成列定义（类型/可空/校验/搜索性/列表可见性）→ 自动产出分页列表（搜索+排序+筛选）、新建/编辑表单（校验注解自动映射前端规则）、详情页、单条/批量删除——**新增业务实体只需写 Entity + 一行注册**
 - 内置示范实体：用户管理、角色管理、操作日志、登录日志
 - 仪表盘：统计卡片（用户数/今日登录/近期操作）+ 纯 SVG 折线图/柱状图（零外部依赖）
 - 个人中心：修改密码、头像上传（依赖 P1 文件上传）
 
-### P4 UI 设计系统（"界面漂亮"的落点）
+### P4 UI 设计系统（"界面漂亮"的落点）✅（v0.11.0，2026-09-21）
 
 自研轻量 CSS 设计系统（AdminLTE/Ant-Design 水准、自主版权、无 CDN 无构建链——纯静态文件走 BootStatic）：
 
@@ -120,18 +120,24 @@
 ## 五、目录结构（v0.10 起）
 
 ```
-apps/admin/            # KylixAdmin 源码（Kylix）
-  ├── entities/        # [Entity] 定义（用户/角色/权限/日志…）
-  ├── controllers/     # [Controller]（auth/users/roles/dashboard/upload…）
-  ├── views/           # 模板（base layout + 各页 partial）
-  ├── static/          # CSS/JS（自研设计系统，BootStatic 服务）
-  └── main.klx
+apps/admin/                 # KylixAdmin 源码（Kylix，Go/LLVM 双端同源）
+  ├── entities/             # [Entity] 元数据载体（users/roles/login_logs/op_logs/notes）
+  ├── controllers/          # 控制器：entity（6 条泛化 CRUD 路由）/dashboard/profile/theme
+  ├── lib/                  # crud（引擎）/crudrender（渲染）/crudhooks（实体定制）/adminpage
+  │                         # admindb（DDL+种子）/adminsec（认证+RBAC）/audit（审计）
+  ├── views/                # base layout + entity_list/entity_form/dashboard/profile/login
+  ├── static/               # admin.css 设计系统 + admin.js 渐进增强（BootStatic 服务）
+  ├── e2e.sh                # 双形态 22 场景 curl 序列 + 归一化 transcript 逐字 diff
+  └── main.klx              # 只剩认证控制器 + 启动（103 行）
 ```
+
+> v0.11.0 起，业务表**不再需要新的 handler 或模板**：写一个带注解的 `[Entity]` 类即可
+> （用法见 [ADMIN_CRUD_GUIDE.md](ADMIN_CRUD_GUIDE.md)）。
 
 ## 六、验收标准（1.0.0 时须达到）
 
-- [ ] Chrome/Safari/Firefox 人工走查通过；亮/暗主题切换正常
-- [ ] Go 后端与 LLVM 原生二进制两形态行为逐字一致（复用 sweep diff 方法论）
+- [ ] Chrome/Safari/Firefox 人工走查通过；亮/暗主题切换正常（v0.11.0 已实现三态主题 + 响应式，走查待做）
+- [x] Go 后端与 LLVM 原生二进制两形态行为逐字一致（`apps/admin/e2e.sh` 22 场景归一化 transcript 逐字 diff，CI `admin-e2e` job）
 - [ ] sqlite ↔ postgres 切换平台代码零改动
 - [ ] 安全清单：PBKDF2-HMAC-SHA256 口令存储（Pbkdf2Hash，信封格式迭代数随哈希存储）/ session 固定防护（登录成功 SessionRegenerate） / CSRF 覆盖全部写操作 / XSS（模板默认转义 + 审计）/ 越权（RBAC 守卫全覆盖）/ 上传类型白名单 / SQL 注入（全参数化）
 - [ ] 全量回归持续绿：16 包 + Go/LLVM sweep + bootstrap sweep + IR 不动点

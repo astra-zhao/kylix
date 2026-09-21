@@ -1,12 +1,36 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-09-11
-> 当前版本: v0.7.2 已发布；v0.8.0 开发完成（P1 stdlib + P2 内存 + P3 boot server + P4 评估）
+> 最后更新: 2026-09-21
+> 当前版本: v0.10.0 已发布；v0.11.0 开发完成（P3 CRUD 引擎 + P4 仪表盘/个人中心/UI 设计系统）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v0.3.1 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
 
 ---
+
+## 🚧 v0.11.0 已知问题（2026-09-21，KylixAdmin P3+P4 开发中发现）
+
+### 语言/编译器
+
+- [ ] **Kylix 字符串字面量没有转义**：词法器（`lexer/lexer.go` `readSingleQuotedString`）遇 `'` 即结束，因此**写不出含单引号的字符串**——SQL 里的 `''`（空串字面量）无法表达。v0.11.0 的规避：CRUD 引擎用 `length(?) = 0` 代替 `? = ''`，用纯 Kylix 整数换算代替 `strftime('%Y-%m-%d', ...)`（格式串也无法内联）。修复方向：支持 `''` 转义（Pascal 惯例）——**属于语言语义变更，须在 1.0 API 冻结前决定**。
+- [ ] **`stored` 是关键字**（`token.STORED`，property 修饰符），却极易被当作普通标识符使用——v0.11.0 中 `stored: String` 局部变量直接导致解析器报 "no prefix parse function"。修复方向：关键字误用时给出「这是保留字」的明确诊断（当前只有晦涩的解析错误）。
+- [ ] **跨 unit 零参函数调用丢括号**（沿 v0.6.9）：公开函数必须 ≥1 参数，v0.11.0 的 `emptyInts()`/`emptyStrings()` 因此改为局部空值变量。
+- [ ] **`array of Variant` 不能标注在函数参数/返回值上**：`DbQueryRows` 的 Go 类型是 `[]map[string]interface{}`，无 Kylix 标注可复现 → 行切片无法跨函数传递（CRUD 引擎因此把查询下沉进渲染函数）。修复方向：为行类型引入具名 Kylix 类型（如 `TRowSet`）。
+
+### LLVM 后端
+
+- [ ] **multipart 表单在 LLVM 端不可用（两重）**：(1) CSRF 门用 urlencoded 解析器读 `_csrf`，multipart body 上永远取不到 → 403；(2) multipart 解析按 NUL 截断二进制。v0.11.0 的头像上传因此改走 base64 + urlencoded。修复方向：CSRF 校验回退查 `mpFields` htab + 长度感知的 multipart 存储（**动安全关键路径，需专门 PoC**）。
+- [ ] **`FloatToStr` 两端实现不同**（Go `%v` 最短往返 vs LLVM `%.17g`）：`FloatToStr(0.1)` 分别是 `0.1` / `0.10000000000000001`。任何浮点进入渲染输出都会让双端 diff 分叉——v0.11.0 的仪表盘因此全程整数几何。修复方向：LLVM 端改用最短往返格式化（如 `%.17g` 后回缩）或统一到 `%g`。
+- [ ] **`BootPagerHTML` 带 query 的 base 两端不一致**：Go 走 `url.Values.Encode()`（按键排序 + 百分号编码），LLVM 原样追加 `&page=N`。v0.11.0 的 CRUD 引擎因此自带分页器。修复方向：把 Go 的 `Page.PageURL` 改为原样拼接（5 行），或 LLVM 端复刻排序/编码。
+- [ ] **未知方法名静默降级**：`emitBootRequestMethodCall` 的 `default:` 分支发 `inttoptr i64 0 to ptr` —— 方法名拼错不报错、运行期段错误。修复方向：未知 TRequest/TResponse 方法名给编译期错误。
+- [ ] **`[Entity]` 元数据在 bootstrap 形态缺失**：`src/llvmgen.klx` 无元数据扫描，bootstrap 编译含 `[Entity]` 的程序不注册元数据（admin 不在 bootstrap sweep 内，故未暴露）。
+
+### 应用/框架
+
+- [ ] **Kylix 层无事务桥接**：Go 有 `Database.Begin`，但未暴露给 Kylix；LLVM 端零事务 API。CRUD 引擎的多表写入（roles 的「先删后插」权限矩阵）在极端失败下可能留下空权限集。
+- [ ] **`req.Form` 两端语义不同**：Go 依次回退 urlencoded body → multipart → **URL query**；LLVM 只查 urlencoded body。应用层纪律：GET 参数用 `req.Query`、POST 字段用 `req.Form`（CRUD 引擎已遵守并文档化）。
+- [ ] **CRUD 引擎规模上限**：搜索列 ≤3、表单可写列 ≤8（调用点实参个数静态，靠分支/占位保持固定），实体 ≤64、列 ≤512（LLVM 固定数组）。超出需扩常量与分支。
+- [ ] **文档债**：`docs/ORM_GUIDE.md`（523 行）描述的是**从未 ship** 的 `TORM/TQueryBuilder` API（`examples/orm_example.klx` 自述 never shipped）；`stdlib/klx/web.klx` 的 `File/SaveFile/Download/FileBytes` 声明与实际签名不符；`stdlib/klx/template.klx` 缺 `AddVariant/SetContext/AddListLen/AddTemplate/HasTemplate`。修复方向：随 1.0 文档审查一并处理。
 
 ## 🚧 v0.9.0 已知问题（2026-09-16，P2 boot server 实施后）
 

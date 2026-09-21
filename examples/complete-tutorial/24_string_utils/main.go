@@ -1,8 +1,8 @@
 package main
 
 import (
-	"strings"
 	"fmt"
+	"strings"
 )
 
 //line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/stringutil.klx:42

@@ -222,10 +222,22 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] 审计（登录日志 login_logs + 操作日志 op_logs，变更路由调用点记录）✅
 - [x] 用户/角色管理页（sqlite，`apps/admin/`：4 控制器 15 路由 + 5 视图模板 + 自研 CSS；**双端 E2E** `apps/admin/e2e.sh`——Go/LLVM 同源 Kylix 代码跑同一 12 场景 curl 序列，归一化 transcript 逐字 diff + CI `admin-e2e` job）✅
 
-### v0.11.0 — KylixAdmin P3 后半 + P4
-- [ ] 通用 CRUD 引擎（扫 `[Entity]` 元数据驱动：列表/表单/详情/删除自动产出，新增实体只需 Entity + 一行注册）
-- [ ] 仪表盘（统计卡片 + 纯 SVG 图表零依赖）+ 个人中心（改密/头像上传）
-- [ ] UI 设计系统（自研 CSS：布局/表格/分页器/模态框/表单/亮暗主题/响应式，无 CDN 无构建链）
+### v0.11.0 — KylixAdmin P3 后半 + P4 ✅（2026-09-21）
+- [x] 通用 CRUD 引擎（扫 `[Entity]` 元数据驱动：列表/表单/详情/删除自动产出，新增实体只需 Entity + 一行注册）
+  - [x] **编译器元数据发射双端**：新 stdlib 模块 `entitymeta`（Go `stdlib/entitymeta.go` + LLVM `pkg/llvmgen/stdlib_entitymeta.go`，固定数组全局 + 线性扫描访问器），Go 端扩展 `ormEntity` 收集 + join 校验注解、LLVM 端**新写** `pkg/llvmgen/orm_annotations.go`（此前 LLVM 对 ORM/校验注解零支持）；注解扩展 `[Label]/[Searchable]/[Hidden]/[Nullable]/[Default]/[ReadOnly]`，编码规则单一来源 `internal/entitymetaapi`（两端共用，杜绝漂移）；编译期诊断拒绝标签中的分隔符
+  - [x] **纯 Kylix 引擎**：`lib/crud.klx`（元数据解析/白名单 SQL/校验/写入）+ `lib/crudrender.klx`（行/表单/分页器/侧栏）+ `lib/crudhooks.klx`（编译期分派钩子）+ `controllers/entity.klx`（6 条 `/admin/:entity` 泛化路由）；`[ReadOnly]` 实体拒写、白名单列 + 全参数化、`data-*` 稳定钩子
+  - [x] **全实体迁移**：users/roles/logs 手写 handler 删除（main.klx 775 → 103 行），日志页拆为两个只读实体；侧栏由元数据动态生成；演示实体 `notes`（新增业务表 = 注解类 + 一行 DDL + 权限种子）
+- [x] 仪表盘（统计卡片 + 纯 SVG 图表零依赖）+ 个人中心（改密/头像上传）
+  - [x] 仪表盘：统计卡（用户数/Notes/今日登录/今日操作）+ 近 7 天登录 SVG 柱状图（**整数几何**，零依赖、零浮点、UTC 日界保证双端一致）
+  - [x] 个人中心：改密（当前口令 `Pbkdf2Compare` 校验 + 长度/一致性 + 审计）、显示名、**头像**（base64 data URL 走 urlencoded 表单——LLVM 端 multipart 会被 CSRF 门拒绝且二进制按 NUL 截断，JS `FileReader` 渐进增强、无 JS 仍可用）
+- [x] UI 设计系统（自研 CSS：布局/表格/分页器/模态框/表单/亮暗主题/响应式，无 CDN 无构建链）
+  - [x] `static/admin.css` 设计令牌 + 组件（统计卡/表格斑马纹悬浮/分页器/表单校验/按钮三态/flash/徽章/头像/响应式 ≤900px）
+  - [x] **三态主题**：服务端按 cookie 渲染 `<html data-theme="light|dark|auto">`（首屏无闪烁），`auto` 跟随系统；`GET /theme?t=&next=` 切换（白名单 + 本地路径校验防开放重定向）
+  - [x] `static/admin.js` 渐进增强（删除确认/侧栏折叠记忆/主题 cookie 长效化/头像 base64/flash → toast）
+  - [x] 顺带修复：分页器 CSS 类名与两端实际发射不匹配（v0.10.0 起的死代码）
+- [x] 编译器配套修复：**LLVM cookie 解析器不跳过 `;` 后的空格** → 第二个及之后的 cookie 一律读不到（会话 cookie 恰好排第一才未暴露）；**`DbQueryScalar` 遇 NULL 列**：LLVM 段错误（`strdup(NULL)`）、Go 返回 `"<nil>"` → 两端统一为「NULL → 空串」；双端新增 `req.Path()`
+- [x] **双端 E2E 22 场景**（`apps/admin/e2e.sh`，Go/LLVM 归一化 transcript 逐字 diff）：新增搜索/排序/分页保序、未知实体 404、只读实体 403、演示实体全 CRUD + 审计、校验失败回填、口令列不外泄、仪表盘、改密、头像、主题切换与开放重定向守卫；CI `admin-e2e` job；**不进三教程 sweep**（Go 58/58、LLVM 58/58、bootstrap 57 PASS + 1 SKIP 计数不变）
+- 文档：新增 [docs/ADMIN_CRUD_GUIDE.md](docs/ADMIN_CRUD_GUIDE.md)（注解 → 页面的完整用法与双端 parity 约束说明）
 
 ### v0.12.0 — KylixAdmin P5（postgres + 发布）
 - [ ] ORM/QueryBuilder 方言抽象（类型映射 + LIMIT/OFFSET/UPSERT/RETURNING 收口）——sqlite ↔ postgres 业务代码零改动

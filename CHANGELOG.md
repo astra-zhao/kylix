@@ -12,6 +12,37 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
+## v0.11.0 — KylixAdmin P3+P4（2026-09-21）
+
+### P3 通用 CRUD 引擎（元数据驱动）
+
+- **编译器：`[Entity]` 元数据发射双端**。此前 `[Entity]` 的元数据只活在 Go 编译器内存里（不发射任何运行期结构），而 **LLVM 后端对 ORM/校验注解零支持**（`class.go` 把 `FindAll/IsValid` 等一律 stub）。本版新增 stdlib 模块 **`entitymeta`**：Go 端 `stdlib/entitymeta.go`，LLVM 端 `pkg/llvmgen/stdlib_entitymeta.go`（两张固定数组全局 64 表/512 列 + 线性扫描访问器，仿 boot 路由表）；两端在 main 顶部发射 `RegisterEntity/RegisterEntityField/SetEntityNames` 注册序列，**仅在程序含 `[Entity]` 时发射**（无实体的程序 IR 与 v0.10.0 逐字节一致，不动点保持）。
+- **注解扩展**（两端同步，可选、增量）：类级 `[Label('Users')]`、`[ReadOnly]`；字段级 `[Label]`、`[Searchable]`、`[Hidden]`、`[Nullable]`、`[Default('1')]`，与既有 `[Required]/[Email]/[Min]/[Max]/[MinLen]/[MaxLen]` 合并进 flags。控件类型由字段类型推导，字段名含 `password` → 口令控件且永不进列表。**编码规则单一来源** `internal/entitymetaapi`（`Kind`/`FieldFlags`/`Listable` 两端共用，杜绝漂移；单源名单 + `TestEntityMetaNames_Dispatchable` 守护）。编译期诊断拒绝标签中的 `|`/换行（`pkg/compiler/orm_annotations.go`）。
+- **LLVM 端 ORM 扫描器**：`pkg/llvmgen/orm_annotations.go`（新）——只收集元数据、不发射 ToRow/FromRow；容量超限编译期报错（LLVM 端固定数组，静默丢弃会造成两端元数据不一致）。
+- **纯 Kylix 引擎**（`apps/admin/lib/`）：`crud.klx`（元数据解析、列白名单 SQL、搜索/排序/分页、校验、写入）、`crudrender.klx`（行/表单/分页器/侧栏 HTML + `data-*` 稳定钩子）、`crudhooks.klx`（**编译期分派**的实体定制钩子——Kylix 无可用的回调数组，LLVM boot wrapper ABI 是 `ptr (ptr)`，闭包环境会破坏它）、`adminpage.klx`（共享页面装配）。
+- **泛化路由**（`controllers/entity.klx`）：6 条 `/admin/:entity`（list/new/create/edit/update/delete），表名只用于查元数据、绝不进 SQL；权限码按表名推导 `<table>.read|.write`；`[ReadOnly]` 实体写路由 403；未知实体 404。
+- **全实体迁移**：users/roles 迁入引擎、`/logs` 拆为两个只读实体 `login_logs`/`op_logs`，手写 handler 全删（**main.klx 775 → 103 行**）；侧栏由 `EntityNames()` + 权限动态生成；演示实体 `notes`（**新增业务表 = 一个注解类 + 一行 DDL + 权限种子**）。
+- **安全**：列名/排序键只来自元数据白名单，值全 `?` 参数化，输出全经 `H()` 转义，写操作在 `BootUseCSRF()` 全局门之后。
+
+### P4 仪表盘 + 个人中心
+
+- **仪表盘**（`controllers/dashboard.klx`）：统计卡（用户数/Notes/今日登录/今日操作，按权限渲染）+ **近 7 天登录 SVG 柱状图**——整数几何、零依赖、零 CDN、UTC 日界（本地时区会让两端与不同机器产生差异）。
+- **个人中心**（`controllers/profile.klx`）：改密（`Pbkdf2Compare` 校验当前口令 + 长度/一致性 + 审计）、显示名、**头像**。头像走 **base64 data URL + urlencoded 表单**：PoC 实测 LLVM 端 multipart 表单必被 CSRF 门拒绝（其 token 读取只认 urlencoded body），且其 multipart 解析按 NUL 截断二进制；JS `FileReader` 渐进增强，无 JS 时表单仍可用。
+- **UI 设计系统**（`static/admin.css` 382 行 + `static/admin.js` 79 行）：设计令牌、布局（可折叠侧栏 + 面包屑顶栏 + toast）、组件（统计卡/表格斑马纹悬浮/分页器/表单校验红字/按钮三态/flash/徽章/头像/空状态）、响应式（≤900px 侧栏转横排）。**三态主题**：服务端按 cookie 渲染 `<html data-theme="light|dark|auto">`（首屏无闪烁），`GET /theme?t=&next=` 切换（值白名单 + `next` 只接受本地路径，防开放重定向）。
+
+### 编译器配套修复
+
+- **LLVM cookie 解析器不跳过 `;` 后的空格**（`pkg/llvmgen/stdlib_boot_pages.go`）：HTTP 用 `"; "` 分隔 cookie，第二个及之后的 cookie 因键里带前导空格而**永远匹配失败**——会话 cookie 恰好是 curl 发送的第一个才一直未暴露。修复后加 IR 回归测试。
+- **`DbQueryScalar` 遇 NULL 列**：LLVM 端 `sqlite3_column_text` 返回 NULL → `strdup(NULL)` **段错误**（admin `/profile` 直接把服务打挂），Go 端返回 `"<nil>"`；两端统一为 **NULL → 空串**（`stdlib/db.go` + `pkg/llvmgen/stdlib_db.go`），各加单测/IR 断言。
+- **双端新增 `req.Path()`**（Go `pkg/boot/types.go` + LLVM `stdlib_boot_http.go`，handle 里本就有 path@8）：用于主题切换的返回链接与侧栏当前项高亮。
+- **顺带修复**：分页器 CSS 类名与两端实际发射不一致（CSS 写 `.cur`/`.gap`，实际是 `pager-current`/`pager-ellipsis`/…，v0.10.0 起的死代码，当前页从未高亮、省略号被画成按钮）。
+
+### 验证
+
+- **双端 E2E 22 场景**（`apps/admin/e2e.sh`）：Go 形态与 LLVM 形态（`--gc=boehm`）跑同一 curl 序列，归一化 transcript **逐字 diff**；新增搜索+排序+分页保序、未知实体 404、只读实体 403、演示实体全 CRUD + 审计落库、校验失败回填、口令列不外泄、仪表盘图表、改密全流程、头像上传（含非法值拒绝）、主题切换与开放重定向守卫、静态资源。
+- **全量回归**：17 包单测全绿；Go sweep 58/58；LLVM sweep 58/58；bootstrap sweep 57 PASS + 1 SKIP；IR 不动点输入逐字节未变；CI 11 job。
+- 文档：新增 [docs/ADMIN_CRUD_GUIDE.md](docs/ADMIN_CRUD_GUIDE.md)。
+
 ## v0.10.0 — KylixAdmin P0+P2 ✅（2026-09-19 发布）
 
 ### P0 LLVM 后端 Boehm GC（issue #1，✅ 2026-09-18 完成）
