@@ -12,7 +12,7 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
-## v0.11.0 — KylixAdmin P3+P4（2026-09-21）
+## v0.11.0 — KylixAdmin P3+P4 ✅（2026-09-21 发布）
 
 ### P3 通用 CRUD 引擎（元数据驱动）
 
