@@ -1,0 +1,250 @@
+// migrate.klx — schema creation and incremental migration from [Entity]
+// metadata (v0.12.0 P5e)
+//
+// The table definitions used to be hand-written SQL in admindb.klx, which meant
+// every new entity needed a matching CREATE TABLE by hand and nothing noticed
+// when the two drifted apart. Here the tables are derived from the same
+// metadata the CRUD engine renders from:
+//
+//   * a table that does not exist yet is created from its entity's columns
+//     (dialect types via SqlType/SqlPKColumn, [Unique] → UNIQUE,
+//     [Default('v')] → DEFAULT v);
+//   * a table that exists is introspected and any column the metadata declares
+//     but the table lacks is added with ALTER TABLE … ADD COLUMN;
+//   * a column whose declared type differs from the metadata is reported as a
+//     warning and left alone — changing a column type is a destructive
+//     operation that belongs in a reviewed migration, not in a startup pass.
+//
+// Tables that have no [Entity] class (permissions, user_roles,
+// role_permissions — the ones with composite primary keys) keep their
+// hand-written DDL in admindb.klx; this migrator only manages entity tables.
+//
+// A schema_migrations row records that the initial creation ran, so the
+// upgrade path is auditable rather than implicit.
+unit migrate;
+
+uses db, crud, dialect, datetime, stringutil;
+
+const
+  SchemaVersion = 1;
+
+// MigrateEnsureVersionTable creates the bookkeeping table if it is missing.
+procedure MigrateEnsureVersionTable(db: TDatabase);
+begin
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS schema_migrations (version ' + SqlIntType() + ' PRIMARY KEY, applied_at ' + SqlIntType() + ')');
+end;
+
+// MigrateAppliedVersion returns the highest recorded schema version (0 when the
+// bookkeeping table is empty).
+function MigrateAppliedVersion(db: TDatabase): Integer;
+var
+  v: String;
+begin
+  v := DbQueryScalar(db, 'SELECT COALESCE(MAX(version), 0) FROM schema_migrations');
+  result := StrToInt(v);
+end;
+
+// MigrateRecordVersion records a version once.
+procedure MigrateRecordVersion(db: TDatabase; version: Integer);
+begin
+  if DbQueryScalar(db, 'SELECT COUNT(*) FROM schema_migrations WHERE version = ?', IntToStr(version)) = '0' then
+    DbExec(db, 'INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)', IntToStr(version), IntToStr(Now().Unix()));
+end;
+
+// ── DDL generation ──────────────────────────────────────────────────────────
+
+// MigrateColumnDDL renders one column definition from the field metadata.
+function MigrateColumnDDL(entity: String; i: Integer): String;
+var
+  col: String;
+  kind: String;
+  flags: String;
+  def: String;
+  unique: String;
+begin
+  col := CrudColumn(entity, i);
+  if col = CrudPK(entity) then
+    result := SqlPKColumn(col)
+  else
+  begin
+    kind := CrudKind(entity, i);
+    flags := CrudFieldFlags(entity, i);
+    def := CrudFlagStr(flags, 'default');
+    if CrudHasFlag(flags, 'unique') then
+      unique := ' UNIQUE'
+    else
+      unique := '';
+    result := col + ' ' + SqlType(kind, flags) + SqlDefaultClause(def) + unique;
+  end;
+end;
+
+// MigrateCreateSQL renders the CREATE TABLE statement for an entity.
+function MigrateCreateSQL(entity: String): String;
+var
+  i: Integer;
+  cols: String;
+begin
+  cols := '';
+  i := 0;
+  while i < CrudFieldCount(entity) do
+  begin
+    if cols <> '' then
+      cols := cols + ', ';
+    cols := cols + MigrateColumnDDL(entity, i);
+    i := i + 1;
+  end;
+  result := 'CREATE TABLE IF NOT EXISTS ' + entity + ' (' + cols + ')';
+end;
+
+// ── introspection ───────────────────────────────────────────────────────────
+
+// MigrateExistingColumns returns the table's column names, comma-joined and
+// wrapped in commas so membership tests are exact (`Contains(',a,b,', ',a,')`).
+function MigrateExistingColumns(db: TDatabase; entity: String): String;
+var
+  rows: array of Variant;
+  i: Integer;
+  out: String;
+  nameField: String;
+begin
+  out := ',';
+  nameField := SqlColumnNameField();
+  // The entity name is bound as a parameter (postgres needs it); on sqlite the
+  // PRAGMA embeds the name and the extra bind is out of range — the driver
+  // ignores it. The name comes from metadata, never from a request.
+  var rws := DbQueryRows(db, SqlTableColumns(entity), entity);
+  i := 0;
+  while i < Length(rws) do
+  begin
+    out := out + VariantToStr(rws[i][nameField]) + ',';
+    i := i + 1;
+  end;
+  result := out;
+end;
+
+// MigrateColumnType returns the declared type of a column, or '' when the
+// column is absent.
+function MigrateColumnType(db: TDatabase; entity: String; col: String): String;
+var
+  i: Integer;
+  nameField: String;
+  typeField: String;
+  out: String;
+begin
+  out := '';
+  nameField := SqlColumnNameField();
+  typeField := SqlColumnTypeField();
+  var rws := DbQueryRows(db, SqlTableColumns(entity), entity);
+  i := 0;
+  while i < Length(rws) do
+  begin
+    if VariantToStr(rws[i][nameField]) = col then
+      out := VariantToStr(rws[i][typeField]);
+    i := i + 1;
+  end;
+  result := out;
+end;
+
+// ── the migration pass ──────────────────────────────────────────────────────
+
+// MigrateEntityTable brings one entity's table in line with its metadata and
+// returns a warning string ('' when nothing needs attention).
+function MigrateEntityTable(db: TDatabase; entity: String): String;
+var
+  existing: String;
+  i: Integer;
+  col: String;
+  ddl: String;
+  want: String;
+  got: String;
+  warn: String;
+begin
+  warn := '';
+  if DbQueryScalar(db, SqlTableExistsSQL(), SqlTableKind(), entity) = '0' then
+  begin
+    // No table yet: create it whole, then it is done.
+    DbExec(db, MigrateCreateSQL(entity));
+    result := '';
+  end
+  else
+  begin
+    existing := MigrateExistingColumns(db, entity);
+    i := 0;
+    while i < CrudFieldCount(entity) do
+    begin
+      col := CrudColumn(entity, i);
+      if not Contains(existing, ',' + col + ',') then
+      begin
+        // Missing column: add it. ADD COLUMN cannot carry a PRIMARY KEY or a
+        // UNIQUE constraint, which is why a primary key that appears later is
+        // reported instead of silently added.
+        if col = CrudPK(entity) then
+          warn := warn + ' [' + entity + '.' + col + ': primary key missing, recreate the table]'
+        else
+        begin
+          ddl := MigrateColumnDDL(entity, i);
+          if Contains(ddl, ' UNIQUE') then
+          begin
+            ddl := Replace(ddl, ' UNIQUE', '');
+            warn := warn + ' [' + entity + '.' + col + ': added without its UNIQUE constraint]';
+          end;
+          DbExec(db, 'ALTER TABLE ' + entity + ' ADD COLUMN ' + ddl);
+        end;
+      end
+      else if col <> CrudPK(entity) then
+      begin
+        // Present: compare the declared type and report drift without touching
+        // it — an ALTER of an existing column is a destructive change.
+        want := SqlType(CrudKind(entity, i), CrudFieldFlags(entity, i));
+        got := MigrateColumnType(db, entity, col);
+        if (got <> '') and (not TypeCompatible(want, got)) then
+          warn := warn + ' [' + entity + '.' + col + ': is ' + got + ', metadata says ' + want + ']';
+      end;
+      i := i + 1;
+    end;
+    result := warn;
+  end;
+end;
+
+// TypeCompatible compares a wanted type with what the database reports. The
+// comparison is deliberately loose: sqlite reports the declared text verbatim
+// (and treats INTEGER/BIGINT as the same storage class), while postgres
+// normalises through format_type.
+function TypeCompatible(want: String; got: String): Boolean;
+var
+  w: String;
+  g: String;
+begin
+  w := UpperCase(want);
+  g := UpperCase(got);
+  if w = g then
+    result := True
+  else if (w = 'INTEGER') or (w = 'BIGINT') then
+    result := (g = 'INTEGER') or (g = 'BIGINT') or (g = 'INT8') or (g = 'INT4')
+  else if w = 'TEXT' then
+    result := (g = 'TEXT') or (StartsWith(g, 'CHARACTER VARYING')) or (g = 'VARCHAR')
+  else
+    result := False;
+end;
+
+// MigrateAll runs the pass for every registered entity. It returns the
+// accumulated warnings, which the caller prints once at startup.
+function MigrateAll(db: TDatabase): String;
+var
+  names: array of String;
+  i: Integer;
+  warn: String;
+begin
+  warn := '';
+  names := Split(EntityNames(), ',');
+  i := 0;
+  while i < Length(names) do
+  begin
+    if names[i] <> '' then
+      warn := warn + MigrateEntityTable(db, names[i]);
+    i := i + 1;
+  end;
+  result := warn;
+end;
+
+end.

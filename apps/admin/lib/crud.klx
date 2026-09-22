@@ -126,6 +126,27 @@ begin
   end;
 end;
 
+// CrudFlagStr reads an "name=value" flag, or '' when absent. CrudFlagInt only
+// handles numeric values; the DDL generator needs the raw text of
+// [Default('...')].
+function CrudFlagStr(flags: String; name: String): String;
+var
+  parts: array of String;
+  i: Integer;
+  p: String;
+begin
+  result := '';
+  parts := Split(flags, ',');
+  i := 0;
+  while i < Length(parts) do
+  begin
+    p := parts[i];
+    if StartsWith(p, name + '=') then
+      result := Substring(p, Length(name) + 1, 64);
+    i := i + 1;
+  end;
+end;
+
 // CrudListable reports whether field i appears in the list table. Password
 // fields never do (the column holds a hash), [Hidden] columns (internal
 // counters, timestamps) stay out of both the list and the form, and the primary

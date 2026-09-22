@@ -437,6 +437,15 @@ jobs:
           PG_DSN="postgres://kylix:kylix@localhost:5432/kyadmin?sslmode=disable" \
           bash apps/admin/e2e.sh --pg
 
+      # The E2E always starts empty, so it only exercises table creation. This
+      # covers the other half: an existing partial table must gain the columns
+      # the metadata declares.
+      - name: Incremental migration check (postgres)
+        run: |
+          KYLIX=$PWD/kylix \
+          PG_DSN="postgres://kylix:kylix@localhost:5432/kyadmin?sslmode=disable" \
+          bash apps/admin/migrate_check.sh --pg
+
   admin-e2e:
     name: KylixAdmin E2E (dual-backend parity)
     runs-on: ubuntu-latest
@@ -464,6 +473,9 @@ jobs:
       # back to default malloc when libgc is missing.
       - name: Run KylixAdmin dual-backend E2E
         run: KYLIX=$PWD/kylix bash apps/admin/e2e.sh
+
+      - name: Incremental migration check (sqlite)
+        run: KYLIX=$PWD/kylix bash apps/admin/migrate_check.sh
 
   lint:
     name: Lint

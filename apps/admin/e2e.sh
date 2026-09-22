@@ -73,6 +73,16 @@ dbq() {
   fi
 }
 
+# colcount counts a table's columns — the entity tables are generated from
+# [Entity] metadata, so their shape is a proxy for "the migrator ran".
+colcount() {
+  if [ "$DB_MODE" = "pg" ]; then
+    psql "$PG_DSN" -tA -c "SELECT COUNT(*) FROM pg_catalog.pg_attribute WHERE attrelid = to_regclass('$1') AND attnum > 0 AND NOT attisdropped"
+  else
+    sqlite3 "$DB" "SELECT COUNT(*) FROM pragma_table_info('$1')"
+  fi
+}
+
 # db_reset returns the database to an empty state before a form runs. sqlite is
 # a file, so removing it is enough; postgres needs its schema dropped — without
 # this the second form would see the first form's rows, SeedIfEmpty would skip,
@@ -122,7 +132,7 @@ trap cleanup EXIT
 mkdir -p "$GOGEN"
 (cd "$ADMIN" && "$KYLIX" build --backend=go -o "$GOGEN/main.go" \
   ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
-  entities/admin_entities.klx lib/dialect.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
+  entities/admin_entities.klx lib/dialect.klx lib/migrate.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
   lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
   controllers/entity.klx controllers/dashboard.klx controllers/profile.klx \
   controllers/theme.klx main.klx) \
@@ -134,7 +144,7 @@ LL_BIN="$WORK/ll_bin"
 build_ll() {
   (cd "$ADMIN" && "$KYLIX" build --backend=llvm $1 -o "$LL_BIN" \
     ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
-    entities/admin_entities.klx lib/dialect.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
+    entities/admin_entities.klx lib/dialect.klx lib/migrate.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
     lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
     controllers/entity.klx controllers/dashboard.klx controllers/profile.klx \
     controllers/theme.klx main.klx \
@@ -396,6 +406,11 @@ scenarios() {
   echo "S22b css=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/static/admin.css")" \
       "js=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/static/admin.js")" >> "$T"
 
+  # S23 schema: the entity tables are generated from [Entity] metadata, and the
+  # version table records that the initial pass ran.
+  echo "S23 users_cols=$(colcount users) notes_cols=$(colcount notes) roles_cols=$(colcount roles)" \
+      "logs_cols=$(colcount op_logs) version=$(dbq "SELECT version FROM schema_migrations")" >> "$T"
+
   # stop the server and wait until the port is actually free — the other
   # form reuses it, and a stale listener would make its ready-probe hit the
   # corpse while the new server dies on bind.
@@ -461,7 +476,7 @@ if [ "$WITH_PG" = "1" ]; then
     tail -5 "$WORK/srv_ll_bin.log" 2>/dev/null
     fail "postgres forms differ between backends"
   fi
-  echo "KylixAdmin dual-backend E2E: PASS (22 scenarios x 4 forms: sqlite+pg x Go+LLVM)"
+  echo "KylixAdmin dual-backend E2E: PASS (23 scenarios x 4 forms: sqlite+pg x Go+LLVM)"
 else
-  echo "KylixAdmin dual-backend E2E: PASS (22 scenarios x 2 forms)"
+  echo "KylixAdmin dual-backend E2E: PASS (23 scenarios x 2 forms)"
 fi

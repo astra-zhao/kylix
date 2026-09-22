@@ -13,7 +13,7 @@
 //     arguments — TECHNICAL_DEBT).
 unit admindb;
 
-uses db, crypto, datetime, sysutil, dialect;
+uses db, crypto, datetime, sysutil, dialect, migrate;
 
 // Process-wide database handle (see AdminOpen).
 var
@@ -27,29 +27,29 @@ var
 procedure EnsureSchema(db: TDatabase);
 var
   wal: String;
-  pk: String;
   ts: String;
+  warn: String;
 begin
   // WAL is sqlite-only: SqlWAL returns '' on postgres, and an empty statement
   // is accepted silently by both drivers, so the guard has to be explicit.
   wal := SqlWAL();
   if wal <> '' then
     DbExec(db, wal);
-  // The primary-key clause differs per dialect: sqlite's `INTEGER PRIMARY KEY`
-  // is the rowid alias (implicit autoincrement), while postgres needs an
-  // explicit identity or an insert without an id violates NOT NULL.
-  pk := SqlPKColumn('id');
   ts := SqlIntType();
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS users (' + pk + ', username TEXT UNIQUE, password TEXT, display_name TEXT, is_active ' + ts + ' DEFAULT 1, failed_attempts ' + ts + ' DEFAULT 0, locked_until ' + ts + ' DEFAULT 0, avatar TEXT, created_at ' + ts + ' DEFAULT 0, updated_at ' + ts + ' DEFAULT 0)');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS roles (' + pk + ', name TEXT UNIQUE, description TEXT)');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS permissions (' + pk + ', code TEXT UNIQUE, description TEXT)');
+  // Tables without an [Entity] class keep their hand-written DDL: they have
+  // composite primary keys, which the metadata model does not express.
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS permissions (' + SqlPKColumn('id') + ', code TEXT UNIQUE, description TEXT)');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS user_roles (user_id ' + ts + ', role_id ' + ts + ', PRIMARY KEY (user_id, role_id))');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS role_permissions (role_id ' + ts + ', permission_id ' + ts + ', PRIMARY KEY (role_id, permission_id))');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS login_logs (' + pk + ', username TEXT, ip TEXT, user_agent TEXT, success ' + ts + ', reason TEXT, created_at ' + ts + ')');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS op_logs (' + pk + ', username TEXT, method TEXT, path TEXT, status ' + ts + ', ip TEXT, created_at ' + ts + ')');
-  // v0.11.0 P3: the demonstration business entity — the whole cost of a new
-  // admin screen is this line, its [Entity] class, and its permission rows.
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS notes (' + pk + ', title TEXT, body TEXT, done ' + ts + ' DEFAULT 0, created_at ' + ts + ' DEFAULT 0)');
+  // v0.12.0 P5e: the entity tables are generated from the [Entity] metadata —
+  // created when missing, extended with ADD COLUMN when the metadata has grown.
+  // The pass reports anything it will not change (type drift, a missing
+  // primary key) rather than altering it silently.
+  MigrateEnsureVersionTable(db);
+  warn := MigrateAll(db);
+  if warn <> '' then
+    WriteLn('[kyadmin] schema warning:' + warn);
+  MigrateRecordVersion(db, 1);
 end;
 
 procedure SeedIfEmpty(db: TDatabase);

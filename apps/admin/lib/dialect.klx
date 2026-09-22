@@ -143,13 +143,26 @@ end;
 // columns the connected role has privileges on, so a restricted deployment
 // would look like an empty table and the migrator would re-issue ADD COLUMN
 // forever.
+// The result carries two columns: `name` and `type` (SqlColumnNameField /
+// SqlColumnTypeField). postgres renders the type with format_type so the value
+// is comparable with what the migrator generates (BIGINT, TEXT, …); sqlite's
+// PRAGMA reports the declared type verbatim.
 function SqlTableColumns(table: String): String;
 begin
   if SqlIsPostgres() then
-    result := 'SELECT attname AS name FROM pg_catalog.pg_attribute WHERE attrelid = ' +
+    result := 'SELECT attname AS name, format_type(atttypid, atttypmod) AS ctype FROM pg_catalog.pg_attribute WHERE attrelid = ' +
       'to_regclass(?) AND attnum > 0 AND NOT attisdropped ORDER BY attnum'
   else
     result := 'PRAGMA table_info(' + table + ')';
+end;
+
+// SqlColumnTypeField is the result-set key holding a column type.
+function SqlColumnTypeField(): String;
+begin
+  if SqlIsPostgres() then
+    result := 'ctype'
+  else
+    result := 'type';
 end;
 
 // SqlTableExistsSQL returns a query yielding the table's row count, with two
@@ -159,7 +172,7 @@ end;
 function SqlTableExistsSQL(): String;
 begin
   if SqlIsPostgres() then
-    result := 'SELECT COUNT(*) FROM pg_catalog.pg_class WHERE relname = ? AND relkind = ?'
+    result := 'SELECT COUNT(*) FROM pg_catalog.pg_class WHERE relkind = ? AND relname = ?'
   else
     result := 'SELECT COUNT(*) FROM sqlite_master WHERE type = ? AND name = ?';
 end;
