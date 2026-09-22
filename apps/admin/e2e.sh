@@ -15,6 +15,11 @@
 # Environment:
 #   KYLIX    path to the kylix CLI (default /tmp/kylix_bin; built by CI)
 #   PORT     listen port (default 8091 — example60 uses 8090)
+#   PG_DSN   postgres DSN; with --pg the Go form also runs against postgres and
+#            its transcript is diffed against the sqlite one. The database must
+#            be created with LC_COLLATE 'C' (see docs/ADMIN_DEPLOY.md): the
+#            default collation orders differently from sqlite's BINARY, which
+#            would show up as a row-order diff rather than a bug.
 #   LLVM_GC  1 (default) = build the LLVM form with --gc=boehm (falls back
 #            to plain malloc build when libgc is missing)
 #
@@ -43,6 +48,10 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PORT="${PORT:-8091}"
 KYLIX="${KYLIX:-/tmp/kylix_bin}"
 LLVM_GC="${LLVM_GC:-1}"
+PG_DSN="${PG_DSN:-}"
+WITH_PG=0
+[ "${1:-}" = "--pg" ] && WITH_PG=1
+DB_MODE="sqlite"   # sqlite | pg — selects the probe helper inside scenarios()
 WORK="$(mktemp -d /tmp/kyadmin_e2e.XXXXXX)"
 ADMIN="$ROOT/apps/admin"
 GOGEN="$ROOT/.e2e_admin"
@@ -52,6 +61,29 @@ fail() { echo "E2E-FAIL: $*" >&2; exit 1; }
 [ -x "$KYLIX" ] || fail "kylix CLI not found at $KYLIX (set KYLIX=...)"
 command -v sqlite3 >/dev/null || fail "sqlite3 required"
 command -v curl >/dev/null || fail "curl required"
+
+# dbq runs a SQL probe against the form's database. The transcript is built from
+# these results, so the helper has to speak both dialects: sqlite3 for the file
+# backend, psql -tA for postgres (both print a bare value, no headers).
+dbq() {
+  if [ "$DB_MODE" = "pg" ]; then
+    psql "$PG_DSN" -tA -c "$1"
+  else
+    sqlite3 "$DB" "$1"
+  fi
+}
+
+# db_reset returns the database to an empty state before a form runs. sqlite is
+# a file, so removing it is enough; postgres needs its schema dropped — without
+# this the second form would see the first form's rows, SeedIfEmpty would skip,
+# and every id-based assertion would be off.
+db_reset() {
+  if [ "$DB_MODE" = "pg" ]; then
+    psql "$PG_DSN" -q -c "DROP SCHEMA IF EXISTS public CASCADE" -c "CREATE SCHEMA public" >/dev/null
+  else
+    rm -f "$DB"
+  fi
+}
 
 # A stale server from an interrupted run would answer the probes with a
 # different database (and the new server would die on bind), silently turning
@@ -129,12 +161,15 @@ scenarios() {
   local TAG; TAG=$(basename "$BIN")
   local J="$WORK/jars_$TAG"
   mkdir -p "$J"
-  rm -f "$DB"
+  db_reset
 
   # exec inside the subshell so $! is the binary itself and stays a child of
   # this script (the old `(... & echo $! > pid)` pattern orphaned the server,
   # leaving `wait` a no-op and the process alive after cleanup).
-  (cd "$ADMIN" && exec env KYADMIN_DB="$DB" KYADMIN_PASSWORD=Admin@123 KYADMIN_PORT="$PORT" "$BIN") \
+  # The DSN selects the dialect; KYADMIN_DB stays the sqlite path.
+  local SRV_ENV="KYADMIN_DB=$DB"
+  if [ "$DB_MODE" = "pg" ]; then SRV_ENV="KYADMIN_DSN=$PG_DSN"; fi
+  (cd "$ADMIN" && exec env $SRV_ENV KYADMIN_PASSWORD=Admin@123 KYADMIN_PORT="$PORT" "$BIN") \
     > "$WORK/srv_$TAG.log" 2>&1 &
   # global (not local) so the EXIT trap can kill it even on fail()
   SRV_PID=$!
@@ -165,7 +200,7 @@ scenarios() {
   code=$(curl -s -b "$J/a" -c "$J/a" -o "$J/p2" -w '%{http_code}' \
     -d "username=admin&password=WRONG&_csrf=$C" "$BASE/login")
   echo "S2 status=$code error=$(has "$J/p2" 'Invalid username or password')" \
-      "logfail=$(sqlite3 "$DB" 'SELECT COUNT(*) FROM login_logs WHERE success=0')" >> "$T"
+      "logfail=$(dbq 'SELECT COUNT(*) FROM login_logs WHERE success=0')" >> "$T"
 
   # S3 admin login -> 302 /dashboard, guarded pages 200
   C=$(fresh_csrf "$J/a" /login)
@@ -187,15 +222,15 @@ scenarios() {
   done
   curl -s -b "$J/a" -o "$J/users2" "$BASE/admin/users"
   echo "S4 bob=$(has "$J/users2" 'data-f="username">bob<') viewer=$(has "$J/users2" 'data-f="username">viewer<') lockme=$(has "$J/users2" 'data-f="username">lockme<')" \
-      "oplogs=$(sqlite3 "$DB" "SELECT COUNT(*) FROM op_logs WHERE path='/admin/users' AND method='POST'")" >> "$T"
+      "oplogs=$(dbq "SELECT COUNT(*) FROM op_logs WHERE path='/admin/users' AND method='POST'")" >> "$T"
 
   # S5 delete: temp user removable, seed admin guarded, no-perm user 403
   C=$(fresh_csrf "$J/a" /admin/users/new)
   curl -s -b "$J/a" -o /dev/null -d "username=temp1&password=Temp@12345&display_name=T&is_active=1&_csrf=$C" "$BASE/admin/users"
-  local tid; tid=$(sqlite3 "$DB" "SELECT id FROM users WHERE username='temp1'")
+  local tid; tid=$(dbq "SELECT id FROM users WHERE username='temp1'")
   C=$(fresh_csrf "$J/a" /admin/users/new)
   curl -s -b "$J/a" -o /dev/null -d "id=$tid&_csrf=$C" "$BASE/admin/users/delete"
-  local after_del; after_del=$(sqlite3 "$DB" "SELECT COUNT(*) FROM users WHERE username='temp1'")
+  local after_del; after_del=$(dbq "SELECT COUNT(*) FROM users WHERE username='temp1'")
   C=$(fresh_csrf "$J/a" /admin/users/new)
   local guard; guard=$(curl -s -b "$J/a" -o /dev/null -w '%{redirect_url}' -d "id=1&_csrf=$C" "$BASE/admin/users/delete" | sed 's|http://localhost:[0-9]*||')
   # bob (no roles -> no perms): the users.write page guard fires -> 403 page
@@ -243,7 +278,7 @@ scenarios() {
   curl -s -b "$J/a" -o "$J/ops2" "$BASE/admin/op_logs"
   echo "S11 logins_head=$(has "$J/logins2" 'data-f="username"') ops_head=$(has "$J/ops2" 'data-f="method"')" \
       "oprows=$(has "$J/ops2" 'data-f="path">/admin/users<')" \
-      "db_ops=$(sqlite3 "$DB" 'SELECT COUNT(*) FROM op_logs')" >> "$T"
+      "db_ops=$(dbq 'SELECT COUNT(*) FROM op_logs')" >> "$T"
 
   # S12 logout -> old cookie rejected
   C=$(fresh_csrf "$J/a" /dashboard)
@@ -275,16 +310,16 @@ scenarios() {
   # S16 generic CRUD on the demonstration entity: create, update, delete
   C=$(fresh_csrf "$J/a2" /admin/notes/new)
   curl -s -b "$J/a2" -o /dev/null -d "title=first note&body=hello&_csrf=$C" "$BASE/admin/notes"
-  local nid; nid=$(sqlite3 "$DB" "SELECT id FROM notes WHERE title='first note'")
+  local nid; nid=$(dbq "SELECT id FROM notes WHERE title='first note'")
   C=$(fresh_csrf "$J/a2" /admin/notes/new)
   curl -s -b "$J/a2" -o /dev/null -d "id=$nid&title=renamed note&body=hello&done=1&_csrf=$C" "$BASE/admin/notes/update"
   curl -s -b "$J/a2" -o "$J/s16" "$BASE/admin/notes"
   echo "S16 renamed=$(has "$J/s16" 'data-f="title">renamed note<') done=$(has "$J/s16" 'data-f="done">yes<')" \
-      "db=$(sqlite3 "$DB" "SELECT COUNT(*) FROM notes")" >> "$T"
+      "db=$(dbq "SELECT COUNT(*) FROM notes")" >> "$T"
   C=$(fresh_csrf "$J/a2" /admin/notes/new)
   curl -s -b "$J/a2" -o /dev/null -d "id=$nid&_csrf=$C" "$BASE/admin/notes/delete"
-  echo "S16b after-delete=$(sqlite3 "$DB" "SELECT COUNT(*) FROM notes")" \
-      "oplogs=$(sqlite3 "$DB" "SELECT COUNT(*) FROM op_logs WHERE path LIKE '/admin/notes%'")" >> "$T"
+  echo "S16b after-delete=$(dbq "SELECT COUNT(*) FROM notes")" \
+      "oplogs=$(dbq "SELECT COUNT(*) FROM op_logs WHERE path LIKE '/admin/notes%'")" >> "$T"
 
   # S17 validation failure re-renders the form with the submitted value kept
   C=$(fresh_csrf "$J/a2" /admin/notes/new)
@@ -319,7 +354,7 @@ scenarios() {
   pw_old=$(curl -s -b "$J/oldpw" -o "$J/s20c" -w '%{http_code}' \
     -d "username=admin&password=Admin@123&_csrf=$C" "$BASE/login")
   echo "S20b changed=$code new=$pw_ok old=$pw_old oldmsg=$(has "$J/s20c" 'Invalid username or password')" \
-      "audited=$(sqlite3 "$DB" "SELECT COUNT(*) FROM op_logs WHERE path='/profile/password'")" >> "$T"
+      "audited=$(dbq "SELECT COUNT(*) FROM op_logs WHERE path='/profile/password'")" >> "$T"
   # restore the seed password so the run ends in the state it started
   C=$(fresh_csrf "$J/newpw" /profile)
   curl -s -b "$J/newpw" -o /dev/null \
@@ -328,7 +363,7 @@ scenarios() {
   # S21 profile: display name + avatar (base64 data URL over a urlencoded form)
   C=$(fresh_csrf "$J/a2" /profile)
   curl -s -b "$J/a2" -o /dev/null -d "display_name=Administrator Renamed&_csrf=$C" "$BASE/profile/display"
-  echo "S21 display=$(sqlite3 "$DB" "SELECT display_name FROM users WHERE username='admin'")" >> "$T"
+  echo "S21 display=$(dbq "SELECT display_name FROM users WHERE username='admin'")" >> "$T"
   C=$(fresh_csrf "$J/a2" /profile)
   # --data-urlencode, not -d: a data URL contains ';' and '+', which a browser
   # percent-encodes when the form is submitted (Go's url.ParseQuery rejects a
@@ -338,7 +373,7 @@ scenarios() {
     --data-urlencode "avatar_data=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" \
     "$BASE/profile/avatar")
   echo "S21b avatar=$code shown=$(has "$J/s21" 'data-avatar="1"')" \
-      "stored=$(sqlite3 "$DB" "SELECT COUNT(*) FROM users WHERE username='admin' AND avatar LIKE 'data:image/png;base64,%'")" >> "$T"
+      "stored=$(dbq "SELECT COUNT(*) FROM users WHERE username='admin' AND avatar LIKE 'data:image/png;base64,%'")" >> "$T"
   C=$(fresh_csrf "$J/a2" /profile)
   code=$(curl -s -b "$J/a2" -o "$J/s21c" -w '%{http_code}' -d "avatar_data=not-an-image&_csrf=$C" "$BASE/profile/avatar")
   # the stored avatar survives a page reload
@@ -379,8 +414,18 @@ scenarios() {
 # ---------------------------------------------------------------------------
 # run both forms, diff transcripts
 # ---------------------------------------------------------------------------
+DB_MODE="sqlite"
 scenarios "$WORK/t_go.txt" "$WORK/go_bin" "$WORK/adm_go.db"
 scenarios "$WORK/t_ll.txt" "$LL_BIN" "$WORK/adm_ll.db"
+
+# --pg: the same Go binary against postgres. Same Kylix sources, different
+# database — so a diff here is a dialect bug, not a code difference.
+if [ "$WITH_PG" = "1" ]; then
+  [ -n "$PG_DSN" ] || fail "--pg needs PG_DSN (e.g. postgres://user@localhost/db?sslmode=disable)"
+  command -v psql >/dev/null || fail "psql required for --pg"
+  DB_MODE="pg"
+  scenarios "$WORK/t_gopg.txt" "$WORK/go_bin" ""
+fi
 
 echo "== Go transcript =="
 cat "$WORK/t_go.txt"
@@ -394,4 +439,18 @@ else
   tail -5 "$WORK/srv_ll_bin.log" 2>/dev/null
   fail "dual-backend transcripts differ"
 fi
-echo "KylixAdmin dual-backend E2E: PASS (22 scenarios x 2 forms)"
+if [ "$WITH_PG" = "1" ]; then
+  echo "== Go+postgres transcript =="
+  cat "$WORK/t_gopg.txt"
+  if diff "$WORK/t_go.txt" "$WORK/t_gopg.txt" > "$WORK/t.pgdiff"; then
+    echo "== sqlite ≡ postgres (same Kylix sources) =="
+  else
+    echo "== SQLITE vs POSTGRES DIFF =="
+    cat "$WORK/t.pgdiff"
+    tail -5 "$WORK/srv_go_bin.log" 2>/dev/null
+    fail "postgres and sqlite transcripts differ"
+  fi
+  echo "KylixAdmin dual-backend E2E: PASS (22 scenarios x 2 forms + postgres)"
+else
+  echo "KylixAdmin dual-backend E2E: PASS (22 scenarios x 2 forms)"
+fi

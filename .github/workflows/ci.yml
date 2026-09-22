@@ -387,6 +387,54 @@ jobs:
           ./gen2 --emit-llvm $FILES > fp2.ll
           cmp fp1.ll fp2.ll && echo "self-reproduction IR fixpoint OK (gen1 ≡ gen2)"
 
+  admin-e2e-pg:
+    name: KylixAdmin E2E (postgres dialect)
+    runs-on: ubuntu-latest
+    # v0.12.0 P5c: the same Kylix sources against postgres, diffed against the
+    # sqlite transcript — the evidence that the dialect layer makes the business
+    # code portable. POSTGRES_INITDB_ARGS pins the C collation: postgres'
+    # default (en_US.UTF-8) orders `alice,bob,Zed` where sqlite's BINARY orders
+    # `Zed,alice,bob`, which would show up as a spurious row-order diff.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kylix
+          POSTGRES_PASSWORD: kylix
+          POSTGRES_DB: kyadmin
+          POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install LLVM toolchain + stdlib native libs + psql
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev \
+            libssl-dev libgc-dev postgresql-client
+
+      - name: Build CLI
+        run: go build -o kylix ./cmd/kylix/
+
+      - name: Run KylixAdmin E2E against postgres
+        run: |
+          KYLIX=$PWD/kylix \
+          PG_DSN="postgres://kylix:kylix@localhost:5432/kyadmin?sslmode=disable" \
+          bash apps/admin/e2e.sh --pg
+
   admin-e2e:
     name: KylixAdmin E2E (dual-backend parity)
     runs-on: ubuntu-latest

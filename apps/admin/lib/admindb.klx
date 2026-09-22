@@ -25,18 +25,31 @@ var
 // ---------------------------------------------------------------------------
 
 procedure EnsureSchema(db: TDatabase);
+var
+  wal: String;
+  pk: String;
+  ts: String;
 begin
-  DbExec(db, 'PRAGMA journal_mode=WAL');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password TEXT, display_name TEXT, is_active INTEGER DEFAULT 1, failed_attempts INTEGER DEFAULT 0, locked_until INTEGER DEFAULT 0, avatar TEXT, created_at INTEGER DEFAULT 0, updated_at INTEGER DEFAULT 0)');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS roles (id INTEGER PRIMARY KEY, name TEXT UNIQUE, description TEXT)');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS permissions (id INTEGER PRIMARY KEY, code TEXT UNIQUE, description TEXT)');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS user_roles (user_id INTEGER, role_id INTEGER, PRIMARY KEY (user_id, role_id))');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS role_permissions (role_id INTEGER, permission_id INTEGER, PRIMARY KEY (role_id, permission_id))');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS login_logs (id INTEGER PRIMARY KEY, username TEXT, ip TEXT, user_agent TEXT, success INTEGER, reason TEXT, created_at INTEGER)');
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS op_logs (id INTEGER PRIMARY KEY, username TEXT, method TEXT, path TEXT, status INTEGER, ip TEXT, created_at INTEGER)');
+  // WAL is sqlite-only: SqlWAL returns '' on postgres, and an empty statement
+  // is accepted silently by both drivers, so the guard has to be explicit.
+  wal := SqlWAL();
+  if wal <> '' then
+    DbExec(db, wal);
+  // The primary-key clause differs per dialect: sqlite's `INTEGER PRIMARY KEY`
+  // is the rowid alias (implicit autoincrement), while postgres needs an
+  // explicit identity or an insert without an id violates NOT NULL.
+  pk := SqlPKColumn('id');
+  ts := SqlIntType();
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS users (' + pk + ', username TEXT UNIQUE, password TEXT, display_name TEXT, is_active ' + ts + ' DEFAULT 1, failed_attempts ' + ts + ' DEFAULT 0, locked_until ' + ts + ' DEFAULT 0, avatar TEXT, created_at ' + ts + ' DEFAULT 0, updated_at ' + ts + ' DEFAULT 0)');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS roles (' + pk + ', name TEXT UNIQUE, description TEXT)');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS permissions (' + pk + ', code TEXT UNIQUE, description TEXT)');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS user_roles (user_id ' + ts + ', role_id ' + ts + ', PRIMARY KEY (user_id, role_id))');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS role_permissions (role_id ' + ts + ', permission_id ' + ts + ', PRIMARY KEY (role_id, permission_id))');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS login_logs (' + pk + ', username TEXT, ip TEXT, user_agent TEXT, success ' + ts + ', reason TEXT, created_at ' + ts + ')');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS op_logs (' + pk + ', username TEXT, method TEXT, path TEXT, status ' + ts + ', ip TEXT, created_at ' + ts + ')');
   // v0.11.0 P3: the demonstration business entity — the whole cost of a new
   // admin screen is this line, its [Entity] class, and its permission rows.
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, title TEXT, body TEXT, done INTEGER DEFAULT 0, created_at INTEGER DEFAULT 0)');
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS notes (' + pk + ', title TEXT, body TEXT, done ' + ts + ' DEFAULT 0, created_at ' + ts + ' DEFAULT 0)');
 end;
 
 procedure SeedIfEmpty(db: TDatabase);
@@ -117,7 +130,10 @@ begin
       SqlUse(dsn)
     else
       SqlUse(dbPath);
-    gAdminDB := DbOpenSQLite(dbPath);
+    if SqlIsPostgres() then
+      gAdminDB := DbOpen('postgres', dsn)
+    else
+      gAdminDB := DbOpenSQLite(dbPath);
     // A single-process admin needs a handful of connections, not a hundred.
     DbSetMaxOpenConns(gAdminDB, 8);
     DbSetMaxIdleConns(gAdminDB, 4);
