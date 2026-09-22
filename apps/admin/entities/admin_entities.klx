@@ -14,7 +14,9 @@
 //   [Searchable]       field  — participates in the ?q= search box
 //   [Hidden]           field  — never shown in lists or forms (internal columns)
 //   [Nullable]         field  — may be submitted empty
-//   [Default('1')]     field  — initial value in the create form
+//   [Default('v')]     field  — initial value in the create form; also the DDL
+//                                default when the table is generated (v0.12.0)
+//   [Unique]           field  — UNIQUE constraint when the table is generated
 //   [Required] [Email] [MinLen(n)] [MaxLen(n)] [Min(n)] [Max(n)]  — validation
 //
 // A field whose name contains "password" becomes a password control and is
@@ -37,6 +39,7 @@ type
     [MinLen(3)]
     [MaxLen(32)]
     [Searchable]
+    [Unique]
     Username: String;
 
     [Column('password')]
@@ -61,18 +64,22 @@ type
 
     [Column('failed_attempts')]
     [Hidden]
+    [Default('0')]
     FailedAttempts: Integer;
 
     [Column('locked_until')]
     [Hidden]
+    [Default('0')]
     LockedUntil: Integer;
 
     [Column('created_at')]
     [Hidden]
+    [Default('0')]
     CreatedAt: Integer;
 
     [Column('updated_at')]
     [Hidden]
+    [Default('0')]
     UpdatedAt: Integer;
   end;
 
@@ -89,6 +96,7 @@ type
     [Required]
     [MaxLen(32)]
     [Searchable]
+    [Unique]
     Name: String;
 
     [Column('description')]
@@ -194,10 +202,12 @@ type
 
     [Column('done')]
     [Label('Done')]
+    [Default('0')]
     Done: Boolean;
 
     [Column('created_at')]
     [Hidden]
+    [Default('0')]
     CreatedAt: Integer;
   end;
 

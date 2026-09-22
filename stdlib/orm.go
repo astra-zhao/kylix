@@ -55,6 +55,13 @@ type Database struct {
 	maxIdle  int
 	maxOpen  int
 	lifetime time.Duration
+
+	// lastErr records the most recent statement error. The generated code
+	// discards the (T, error) results of the stdlib db functions, so a failed
+	// statement would otherwise be indistinguishable from one that simply
+	// matched nothing — on postgres that turns a syntax or type mismatch into a
+	// page that merely renders differently. DbLastError exposes it.
+	lastErr string
 }
 
 // NewDatabase opens and pings the database, applying sensible pool defaults.

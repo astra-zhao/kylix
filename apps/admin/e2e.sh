@@ -90,7 +90,7 @@ trap cleanup EXIT
 mkdir -p "$GOGEN"
 (cd "$ADMIN" && "$KYLIX" build --backend=go -o "$GOGEN/main.go" \
   ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
-  entities/admin_entities.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
+  entities/admin_entities.klx lib/dialect.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
   lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
   controllers/entity.klx controllers/dashboard.klx controllers/profile.klx \
   controllers/theme.klx main.klx) \
@@ -102,7 +102,7 @@ LL_BIN="$WORK/ll_bin"
 build_ll() {
   (cd "$ADMIN" && "$KYLIX" build --backend=llvm $1 -o "$LL_BIN" \
     ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
-    entities/admin_entities.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
+    entities/admin_entities.klx lib/dialect.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
     lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
     controllers/entity.klx controllers/dashboard.klx controllers/profile.klx \
     controllers/theme.klx main.klx \

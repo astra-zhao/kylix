@@ -78,6 +78,9 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	),
 	"db": strToSet(
 		"DbOpen", "DbOpenSQLite", "DbExec", "DbQueryRows", "DbQueryScalar", "DbClose",
+		// v0.12.0 P5: pool tuning + the error side channel (the generated code
+		// discards the (T, error) half of the other db calls).
+		"DbSetMaxOpenConns", "DbSetMaxIdleConns", "DbSetConnMaxLifetime", "DbLastError",
 	),
 	// v0.11.0: [Entity] annotation metadata registry consumed by the pure-Kylix
 	// CRUD engine. The list lives in internal/entitymetaapi so the LLVM
@@ -164,6 +167,7 @@ var stdlibErrorFuncReturnTypes = map[string]string{
 	"DbExec":          "int64",
 	"DbQueryRows":     "[]map[string]interface{}",
 	"DbQueryScalar":   "string",
+	"DbLastError":     "string", // v0.12.0: most recent statement error
 }
 
 // stdlibErrorFuncs are stdlib functions that return (T, error) in Go.
@@ -205,6 +209,8 @@ var stdlibProcedureFuncs = map[string]bool{
 	entitymetaapi.RegisterEntity:      true,
 	entitymetaapi.RegisterEntityField: true,
 	entitymetaapi.SetEntityNames:      true,
+	// v0.12.0 P5: pool tuning returns nothing.
+	"DbSetMaxOpenConns": true, "DbSetMaxIdleConns": true, "DbSetConnMaxLifetime": true,
 }
 
 func strToSet(names ...string) map[string]bool {

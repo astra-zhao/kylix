@@ -103,6 +103,10 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 	"db": {
 		"DbOpenSQLite": true, "DbOpen": true, "DbClose": true,
 		"DbExec": true, "DbQueryScalar": true, "DbQueryRows": true,
+		// v0.12.0 P5: pool tuning (no-ops on the LLVM backend, which has no
+		// pool) + the error side channel.
+		"DbSetMaxOpenConns": true, "DbSetMaxIdleConns": true, "DbSetConnMaxLifetime": true,
+		"DbLastError": true,
 	},
 	"jsonutil": {
 		"JsonIsValid": true, "JsonDecodeMap": true, "JsonDecode": true,

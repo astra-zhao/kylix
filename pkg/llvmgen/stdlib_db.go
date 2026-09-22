@@ -41,6 +41,40 @@ func (g *Generator) emitDbCall(funcName string, args []ast.Expression) (string, 
 		return g.emitDbQueryScalarCall(args)
 	case "DbQueryRows":
 		return g.emitDbQueryRowsCall(args)
+	case "DbLastError":
+		// v0.12.0 P5: the most recent error on this connection. The generated
+		// code discards the (T, error) results of the other db calls, so this
+		// is how a Kylix program notices a failed statement.
+		if len(args) != 1 {
+			return "", "", fmt.Errorf("db.DbLastError expects 1 argument, got %d", len(args))
+		}
+		dbReg, _, err := g.emitExpr(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		g.enqueueStdlib("db", "DbLastError", "DbLastError", 1)
+		g.needLibsqlite = true
+		r := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_db_DbLastError(ptr %s)", r, dbReg))
+		return r, "ptr", nil
+	case "DbSetMaxOpenConns", "DbSetMaxIdleConns", "DbSetConnMaxLifetime":
+		// The LLVM backend has no connection pool (one sqlite handle, one pg
+		// connection), so pool tuning is accepted and ignored — the call sites
+		// stay shared with the Go form.
+		if len(args) != 2 {
+			return "", "", fmt.Errorf("db.%s expects 2 arguments, got %d", funcName, len(args))
+		}
+		dbReg, _, err := g.emitExpr(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		nReg, _, err := g.emitExpr(args[1])
+		if err != nil {
+			return "", "", err
+		}
+		g.enqueueStdlib("db", funcName, funcName, 2)
+		g.line(fmt.Sprintf("  call void @__kylix_db_%s(ptr %s, i64 %s)", funcName, dbReg, nReg))
+		return "", "void", nil
 	default:
 		r := g.tmp()
 		g.line(fmt.Sprintf("  %s = add i64 0, 0 ; db.%s not implemented", r, funcName))
@@ -62,6 +96,10 @@ func (g *Generator) emitDbBody(funcName string) {
 		g.emitDbQueryRowsBody()
 	case "DbQueryRowsB":
 		g.emitDbQueryRowsBodyB()
+	case "DbLastError":
+		g.emitDbLastErrorBody()
+	case "DbSetMaxOpenConns", "DbSetMaxIdleConns", "DbSetConnMaxLifetime":
+		g.emitDbNoopSetterBody(funcName)
 	}
 }
 
@@ -342,6 +380,40 @@ func (g *Generator) emitDbQueryScalarCall(args []ast.Expression) (string, string
 	result := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", result, resultSlot))
 	return result, "ptr", nil
+}
+
+// ---- DbLastError: ptr @__kylix_db_DbLastError(ptr %db) ----
+//
+// sqlite3_errmsg reports the most recent error on the connection; it returns
+// "not an error" when the last statement succeeded, which is what the Go side
+// normalises to "" — the Kylix caller only tests for emptiness.
+func (g *Generator) emitDbLastErrorBody() {
+	g.line("define ptr @__kylix_db_DbLastError(ptr %db) {")
+	g.line("entry:")
+	// sqlite3_errmsg keeps returning the previous failure's text even after a
+	// later statement succeeds, so gate on errcode: SQLITE_OK (0) means the
+	// last statement was fine and the Go side reports "" for that case.
+	code := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @sqlite3_errcode(ptr %%db)", code))
+	ok := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", ok, code))
+	msg := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @sqlite3_errmsg(ptr %%db)", msg))
+	empty := g.addString("")
+	res := g.tmp()
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", res, ok, empty, msg))
+	g.line(fmt.Sprintf("  ret ptr %s", res))
+	g.line("}")
+	g.line("")
+}
+
+// emitDbNoopSetterBody emits the accepted-and-ignored pool setters.
+func (g *Generator) emitDbNoopSetterBody(funcName string) {
+	g.line(fmt.Sprintf("define void @__kylix_db_%s(ptr %%db, i64 %%n) {", funcName))
+	g.line("entry:")
+	g.line("  ret void")
+	g.line("}")
+	g.line("")
 }
 
 // ---- DbQueryRows: { ptr, i64, i64 } @__kylix_db_DbQueryRows(ptr %db, ptr %sql)

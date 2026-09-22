@@ -925,6 +925,8 @@ func (g *Generator) emitRuntimeDecls() {
 	g.line("declare double @sqlite3_column_double(ptr noundef, i32 noundef)")
 	g.line("declare i32 @sqlite3_finalize(ptr noundef)")
 	g.line("declare i32 @sqlite3_changes(ptr noundef)")
+	g.line("declare ptr @sqlite3_errmsg(ptr noundef)")
+	g.line("declare i32 @sqlite3_errcode(ptr noundef)")
 	g.line("; ===== libcurl (used by stdlib httpclient, v0.4.5 Phase 3) =====")
 	g.line("declare ptr @curl_easy_init()")
 	g.line("declare i32 @curl_easy_setopt(ptr noundef, i32 noundef, ...)")

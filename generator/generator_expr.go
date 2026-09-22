@@ -304,11 +304,16 @@ func (g *Generator) generateCallExpression(e *ast.CallExpression) {
 			// v0.7.0 P3: VariantToStr(v) → fmt.Sprintf("%v", box) — %v on an
 			// interface{} prints the dynamic value (int/str/bool/float), which
 			// matches the LLVM variant_as_str tag dispatch for the common cases.
+			//
+			// v0.12.0: a nil box renders as "" rather than "<nil>". The LLVM
+			// backend's variant_as_str returns "" for the nil tag, so a NULL
+			// column used to render differently per backend — which the postgres
+			// work would have hit on every nullable column.
 			if len(e.Arguments) == 1 {
 				g.imports["fmt"] = true
-				g.write(`fmt.Sprintf("%v", `)
+				g.write(`func() string { __v := `)
 				g.generateExpression(e.Arguments[0])
-				g.write(")")
+				g.write(`; if __v == nil { return "" }; return fmt.Sprintf("%v", __v) }()`)
 				return
 			}
 		case "StrToInt64":

@@ -68,6 +68,11 @@ func FieldFlags(attrs []*ast.Attribute, kind string) string {
 	if FindAttribute(attrs, "Hidden") != nil {
 		flags = append(flags, "hidden")
 	}
+	// v0.12.0: [Unique] becomes a schema constraint when tables are generated
+	// from metadata (and a hint for the generated forms).
+	if FindAttribute(attrs, "Unique") != nil {
+		flags = append(flags, "unique")
+	}
 	if kind == "password" {
 		flags = append(flags, "secret")
 	}

@@ -1,0 +1,185 @@
+// dialect.klx — SQL dialect knowledge (v0.12.0 P5)
+//
+// The parts of the SQL surface that differ between sqlite and postgres, kept in
+// one place. This unit is pure Kylix, so the Go and LLVM forms derive the same
+// statements from the same source.
+//
+// What lives here is *domain knowledge* (type mapping, LIKE semantics, schema
+// introspection). The mechanical `?` → `$n` placeholder rewrite deliberately
+// does NOT live here: it belongs at the single choke point inside each db
+// backend, because Kylix string literals have no escape sequence and a `?` can
+// legitimately appear inside SQL text — a rewrite driven by 73 call sites would
+// be one silent mistake away from shifting every parameter by one, and that
+// mistake is invisible on sqlite (where the rewrite is the identity).
+//
+// Dialect selection is a process-wide setting, chosen once at startup from the
+// DSN (see AdminOpen in admindb.klx).
+//
+// Two empirical rules drive the choices below (measured against PostgreSQL
+// 16.15 and SQLite, see docs/ADMIN_DEPLOY.md):
+//   * postgres' default collation orders `alice,bob,Zed` where sqlite's BINARY
+//     orders `Zed,alice,bob` — so a postgres deployment must be created with
+//     LC_COLLATE 'C', otherwise ORDER BY results differ per backend.
+//   * postgres' LIKE is case-sensitive, sqlite's is ASCII-case-insensitive —
+//     so the search predicate must use ILIKE on postgres.
+unit dialect;
+
+uses stringutil;
+
+const
+  DialectSQLite = 'sqlite';
+  DialectPostgres = 'postgres';
+
+var
+  gDialect: String;
+
+// SqlUse sets the process dialect from a DSN or driver name. Called once at
+// startup; anything that is not clearly postgres stays on sqlite.
+procedure SqlUse(dsn: String);
+var
+  d: String;
+begin
+  d := LowerCase(dsn);
+  if (StartsWith(d, 'postgres://')) or (StartsWith(d, 'postgresql://')) or
+     (d = 'postgres') or (d = 'postgresql') or (Contains(d, 'postgres')) then
+    gDialect := DialectPostgres
+  else
+    gDialect := DialectSQLite;
+end;
+
+// SqlDialect reports the active dialect ('sqlite' | 'postgres').
+function SqlDialect(): String;
+begin
+  if gDialect = DialectPostgres then
+    result := DialectPostgres
+  else
+    result := DialectSQLite;
+end;
+
+function SqlIsPostgres(): Boolean;
+begin
+  result := SqlDialect() = DialectPostgres;
+end;
+
+// ── types ───────────────────────────────────────────────────────────────────
+
+// SqlType maps a field kind (+ flags) to a column type. Both dialects avoid
+// BOOLEAN/TIMESTAMP/DATETIME/CHAR(n) on purpose: the sqlite driver converts a
+// column declared BOOLEAN to a Go bool and one declared TIMESTAMP to a
+// time.Time, while the LLVM backend's column_type dispatch reports the storage
+// class (integer) — the same schema would render `true` on one backend and `1`
+// on the other. Integers and text render identically everywhere.
+//
+// BIGINT on postgres (not INTEGER): the `_at` columns hold Unix seconds, and
+// int4 overflows in 2038.
+function SqlType(kind: String; flags: String): String;
+begin
+  if kind = 'checkbox' then
+    result := SqlIntType()
+  else if kind = 'number' then
+    result := SqlIntType()
+  else
+    result := 'TEXT';
+end;
+
+// SqlIntType is the integer column type for the active dialect.
+function SqlIntType(): String;
+begin
+  if SqlIsPostgres() then
+    result := 'BIGINT'
+  else
+    result := 'INTEGER';
+end;
+
+// SqlPKColumn renders the primary-key column definition. sqlite's
+// `INTEGER PRIMARY KEY` is an alias for the rowid (implicit autoincrement);
+// postgres needs an explicit identity.
+function SqlPKColumn(pk: String): String;
+begin
+  if SqlIsPostgres() then
+    result := pk + ' BIGSERIAL PRIMARY KEY'
+  else
+    result := pk + ' INTEGER PRIMARY KEY';
+end;
+
+// SqlDefaultClause renders a column default, or '' when there is none.
+function SqlDefaultClause(value: String): String;
+begin
+  if value = '' then
+    result := ''
+  else
+    result := ' DEFAULT ' + value;
+end;
+
+// ── statement fragments ─────────────────────────────────────────────────────
+
+// SqlWAL returns the sqlite WAL pragma, or '' on postgres (which has no
+// equivalent — the caller must skip the statement rather than send an empty
+// one: both drivers accept an empty statement without complaint, so an
+// unguarded send would silently do nothing and look like success).
+function SqlWAL(): String;
+begin
+  if SqlIsPostgres() then
+    result := ''
+  else
+    result := 'PRAGMA journal_mode=WAL';
+end;
+
+// SqlLike renders a case-insensitive LIKE for the active dialect. sqlite's LIKE
+// is already ASCII-case-insensitive; postgres' is case-sensitive, so it needs
+// ILIKE to match the same rows. The placeholder is appended by the caller.
+function SqlLike(col: String; ph: String): String;
+begin
+  if SqlIsPostgres() then
+    result := col + ' ILIKE ' + ph
+  else
+    result := col + ' LIKE ' + ph;
+end;
+
+// ── schema introspection ────────────────────────────────────────────────────
+
+// SqlTableColumns returns the query listing a table's columns. postgres uses
+// pg_catalog rather than information_schema.columns: the latter only shows
+// columns the connected role has privileges on, so a restricted deployment
+// would look like an empty table and the migrator would re-issue ADD COLUMN
+// forever.
+function SqlTableColumns(table: String): String;
+begin
+  if SqlIsPostgres() then
+    result := 'SELECT attname AS name FROM pg_catalog.pg_attribute WHERE attrelid = ' +
+      'to_regclass(?) AND attnum > 0 AND NOT attisdropped ORDER BY attnum'
+  else
+    result := 'PRAGMA table_info(' + table + ')';
+end;
+
+// SqlTableExistsSQL returns a query yielding the table's row count, with two
+// placeholders: (kind, name). The kind is a bound parameter rather than an
+// inline literal because a Kylix string literal cannot contain a single quote
+// (the lexer has no escape sequence), so `type = 'table'` is not writable.
+function SqlTableExistsSQL(): String;
+begin
+  if SqlIsPostgres() then
+    result := 'SELECT COUNT(*) FROM pg_catalog.pg_class WHERE relname = ? AND relkind = ?'
+  else
+    result := 'SELECT COUNT(*) FROM sqlite_master WHERE type = ? AND name = ?';
+end;
+
+// SqlTableKind is the first argument to SqlTableExistsSQL.
+function SqlTableKind(): String;
+begin
+  if SqlIsPostgres() then
+    result := 'r'
+  else
+    result := 'table';
+end;
+
+// SqlColumnNameField is the result-set key holding a column name in
+// SqlTableColumns' output (sqlite's PRAGMA reports `name`, the pg_catalog
+// query aliases it to `name` as well — kept as a function so a future dialect
+// can differ without touching call sites).
+function SqlColumnNameField(): String;
+begin
+  result := 'name';
+end;
+
+end.

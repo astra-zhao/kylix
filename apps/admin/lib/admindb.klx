@@ -13,7 +13,12 @@
 //     arguments — TECHNICAL_DEBT).
 unit admindb;
 
-uses db, crypto, datetime, sysutil;
+uses db, crypto, datetime, sysutil, dialect;
+
+// Process-wide database handle (see AdminOpen).
+var
+  gAdminDB: TDatabase;
+  gAdminOpened: Boolean;
 
 // ---------------------------------------------------------------------------
 // schema + seed
@@ -83,16 +88,45 @@ begin
   end;
 end;
 
-// AdminOpen opens (or reopens) the admin database. Handlers call this per
-// request with the default path; KYADMIN_DB overrides it (E2E isolation).
+// AdminOpen returns the process-wide database handle, opening it on first use.
+//
+// v0.12.0: this used to open a fresh handle on every call, and every handler
+// calls it per request (15 call sites, no DbClose anywhere). With sqlite that
+// merely leaked file descriptors; with postgres each request would leak a TCP
+// connection — measured: the 101st unclosed pool already fails with "sorry, too
+// many clients already", while the E2E makes 150+ requests.
+//
+// KYADMIN_DB overrides the path (E2E isolation). The DSN also selects the
+// dialect, so SqlUse runs here too.
 function AdminOpen(dbPath: String): TDatabase;
 var
   env: String;
+  dsn: String;
 begin
-  env := GetEnv('KYADMIN_DB');
-  if env <> '' then
-    dbPath := env;
-  result := DbOpenSQLite(dbPath);
+  if gAdminOpened then
+    result := gAdminDB
+  else
+  begin
+    env := GetEnv('KYADMIN_DB');
+    if env <> '' then
+      dbPath := env;
+    // The dialect follows the DSN. v0.12.0 P5a only wires sqlite; the postgres
+    // branch lands with the libpq backend (P5c/P5d).
+    dsn := GetEnv('KYADMIN_DSN');
+    if dsn <> '' then
+      SqlUse(dsn)
+    else
+      SqlUse(dbPath);
+    gAdminDB := DbOpenSQLite(dbPath);
+    // A single-process admin needs a handful of connections, not a hundred.
+    DbSetMaxOpenConns(gAdminDB, 8);
+    DbSetMaxIdleConns(gAdminDB, 4);
+    DbSetConnMaxLifetime(gAdminDB, 3600);
+    EnsureSchema(gAdminDB);
+    SeedIfEmpty(gAdminDB);
+    gAdminOpened := True;
+    result := gAdminDB;
+  end;
 end;
 
 // ---------------------------------------------------------------------------

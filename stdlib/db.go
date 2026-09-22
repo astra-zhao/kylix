@@ -8,6 +8,7 @@ package stdlib
 import (
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 // DbOpen opens a database by driver name and DSN.
@@ -49,7 +50,62 @@ func openRaw(driver, dsn string) (*Database, error) {
 	}
 	d.db.SetMaxIdleConns(d.maxIdle)
 	d.db.SetMaxOpenConns(d.maxOpen)
+	// v0.12.0: mirror NewDatabase — without a lifetime, a long-running server
+	// holds connections a server-side restart has already dropped.
+	d.db.SetConnMaxLifetime(time.Hour)
 	return d, nil
+}
+
+// DbSetMaxOpenConns caps the pool's open connections (0 = unlimited).
+func DbSetMaxOpenConns(db *Database, n int64) {
+	if db == nil || db.db == nil {
+		return
+	}
+	db.maxOpen = int(n)
+	db.db.SetMaxOpenConns(int(n))
+}
+
+// DbSetMaxIdleConns sets how many idle connections are kept (0 = none).
+func DbSetMaxIdleConns(db *Database, n int64) {
+	if db == nil || db.db == nil {
+		return
+	}
+	db.maxIdle = int(n)
+	db.db.SetMaxIdleConns(int(n))
+}
+
+// DbSetConnMaxLifetime sets the maximum lifetime of a connection, in seconds
+// (0 = no limit).
+func DbSetConnMaxLifetime(db *Database, seconds int64) {
+	if db == nil || db.db == nil {
+		return
+	}
+	db.lifetime = time.Duration(seconds) * time.Second
+	db.db.SetConnMaxLifetime(db.lifetime)
+}
+
+// DbLastError returns the most recent statement error ("" when the last
+// statement succeeded). The generated code discards the error half of the
+// stdlib db results, so this is the only way for a Kylix program to notice a
+// failed statement — and on postgres a silently failed statement looks exactly
+// like an empty result set.
+func DbLastError(db *Database) string {
+	if db == nil {
+		return "database handle is nil"
+	}
+	return db.lastErr
+}
+
+// noteErr records a statement error for DbLastError.
+func (d *Database) noteErr(err error) {
+	if d == nil {
+		return
+	}
+	if err != nil {
+		d.lastErr = err.Error()
+		return
+	}
+	d.lastErr = ""
 }
 
 // DbOpenSQLite opens an SQLite database file (use ":memory:" for in-memory).
@@ -64,9 +120,12 @@ func DbExec(db *Database, query string, args ...interface{}) (int64, error) {
 	}
 	res, err := db.Exec(query, args...)
 	if err != nil {
+		db.noteErr(err)
 		return 0, err
 	}
-	return res.RowsAffected()
+	n, err := res.RowsAffected()
+	db.noteErr(err)
+	return n, err
 }
 
 // DbQueryRows runs a SELECT and returns all rows as a slice of map[string]interface{}.
@@ -77,12 +136,14 @@ func DbQueryRows(db *Database, query string, args ...interface{}) ([]map[string]
 	}
 	rows, err := db.Query(query, args...)
 	if err != nil {
+		db.noteErr(err)
 		return nil, err
 	}
 	defer rows.Close()
 
 	cols, err := rows.Columns()
 	if err != nil {
+		db.noteErr(err)
 		return nil, err
 	}
 
@@ -94,6 +155,7 @@ func DbQueryRows(db *Database, query string, args ...interface{}) ([]map[string]
 			ptrs[i] = &values[i]
 		}
 		if err := rows.Scan(ptrs...); err != nil {
+			db.noteErr(err)
 			return nil, err
 		}
 		row := make(map[string]interface{}, len(cols))
@@ -102,6 +164,7 @@ func DbQueryRows(db *Database, query string, args ...interface{}) ([]map[string]
 		}
 		result = append(result, row)
 	}
+	db.noteErr(rows.Err())
 	return result, rows.Err()
 }
 
@@ -114,10 +177,13 @@ func DbQueryScalar(db *Database, query string, args ...interface{}) (string, err
 	var v interface{}
 	if err := db.QueryRow(query, args...).Scan(&v); err != nil {
 		if err == sql.ErrNoRows {
+			db.noteErr(nil)
 			return "", nil
 		}
+		db.noteErr(err)
 		return "", err
 	}
+	db.noteErr(nil)
 	// A NULL column reads as the empty string, not "<nil>" — the LLVM backend
 	// returns "" for the same query (and used to crash on it).
 	if v == nil {

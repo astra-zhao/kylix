@@ -93,6 +93,25 @@ end.`)
 	assertIRContains(t, ir, "select i1")
 }
 
+// v0.12.0 P5: the error side channel and the accepted-and-ignored pool
+// setters. DbLastError gates on sqlite3_errcode so a successful statement
+// reports "" exactly like the Go side (sqlite3_errmsg keeps returning the
+// previous failure's text otherwise).
+func TestDb_LastErrorAndPoolSetters(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses db;
+begin
+  var db := DbOpenSQLite(':memory:');
+  DbSetMaxOpenConns(db, 5);
+  DbSetConnMaxLifetime(db, 60);
+  var e := DbLastError(db);
+end.`)
+	assertIRContains(t, ir, "define ptr @__kylix_db_DbLastError(ptr %db)")
+	assertIRContains(t, ir, "call i32 @sqlite3_errcode(ptr %db)")
+	assertIRContains(t, ir, "define void @__kylix_db_DbSetMaxOpenConns(ptr %db, i64 %n)")
+	assertIRContains(t, ir, "define void @__kylix_db_DbSetConnMaxLifetime(ptr %db, i64 %n)")
+}
+
 func TestDb_SqliteDeclarations(t *testing.T) {
 	ir := generateIR(t, `program p;
 uses db;

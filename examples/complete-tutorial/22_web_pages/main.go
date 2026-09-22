@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"errors"
+	"fmt"
 )
 
 type TTemplateEngine struct {
@@ -97,7 +97,7 @@ self.Scalars[name] = fmt.Sprintf("%d", value)
 
 func (self *TTemplateEngine) AddVariant(name string, value interface{}) {
 //line /Users/astra/Documents/ai/learn/kylix/examples/complete-tutorial/../../stdlib/template_engine.klx:130
-self.Scalars[name] = fmt.Sprintf("%v", value)
+self.Scalars[name] = func() string { __v := value; if __v == nil { return "" }; return fmt.Sprintf("%v", __v) }()
 }
 
 func (self *TTemplateEngine) SetContext(m map[string]string) {

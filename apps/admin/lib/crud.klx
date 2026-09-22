@@ -127,14 +127,19 @@ begin
 end;
 
 // CrudListable reports whether field i appears in the list table. Password
-// fields never do (the column holds a hash), and [Hidden] columns (internal
-// counters, timestamps) stay out of both the list and the form.
+// fields never do (the column holds a hash), [Hidden] columns (internal
+// counters, timestamps) stay out of both the list and the form, and the primary
+// key is excluded too: its value is already carried by the row's data-id
+// attribute, and a visible id column invites assumptions about how ids are
+// allocated — which differ between dialects (sqlite reuses a deleted maximum,
+// postgres sequences never do).
 function CrudListable(entity: String; i: Integer): Boolean;
 var
   flags: String;
 begin
   flags := CrudFieldFlags(entity, i);
-  result := not (CrudHasFlag(flags, 'secret') or CrudHasFlag(flags, 'hidden'));
+  result := (CrudColumn(entity, i) <> CrudPK(entity)) and
+    (not (CrudHasFlag(flags, 'secret') or CrudHasFlag(flags, 'hidden')));
 end;
 
 // CrudFormable reports whether field i appears in the create/edit form: the

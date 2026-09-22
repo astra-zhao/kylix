@@ -132,6 +132,7 @@ var entityCrudClassAttrs = map[string]bool{
 // entityCrudFieldAttrs are the field-level CRUD annotations (v0.11.0).
 var entityCrudFieldAttrs = map[string]bool{
 	"label": true, "searchable": true, "hidden": true, "nullable": true,
+	"unique": true, "default": true,
 }
 
 // checkEntityCrudAnnotations validates the v0.11.0 CRUD annotations on an
