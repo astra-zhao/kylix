@@ -102,6 +102,52 @@ func TestDb_QueryScalarNullColumn(t *testing.T) {
 	}
 }
 
+// v0.12.0 P5b: the placeholder rewrite runs at the single choke point every
+// statement passes through. sqlite takes `?` as written; lib/pq needs $n.
+func TestDb_RewritePlaceholders(t *testing.T) {
+	sqlite := &Database{dbType: DBSQLite}
+	pg := &Database{dbType: DBPostgres}
+
+	cases := []struct {
+		name string
+		db   *Database
+		in   string
+		want string
+	}{
+		{"sqlite is the identity", sqlite, "SELECT * FROM t WHERE a = ? AND b = ?", "SELECT * FROM t WHERE a = ? AND b = ?"},
+		{"postgres numbers them", pg, "SELECT * FROM t WHERE a = ? AND b = ?", "SELECT * FROM t WHERE a = $1 AND b = $2"},
+		{"no placeholders", pg, "SELECT COUNT(*) FROM t", "SELECT COUNT(*) FROM t"},
+		{"limit and offset", pg, "SELECT c FROM t WHERE (length(?) = 0 OR c LIKE ?) LIMIT ? OFFSET ?",
+			"SELECT c FROM t WHERE (length($1) = 0 OR c LIKE $2) LIMIT $3 OFFSET $4"},
+		// A ? inside a string literal must not consume a parameter number.
+		{"literal question mark", pg, "SELECT * FROM t WHERE note = 'why?' AND id = ?",
+			"SELECT * FROM t WHERE note = 'why?' AND id = $1"},
+		{"escaped quote inside literal", pg, "SELECT * FROM t WHERE note = 'it''s ?' AND id = ?",
+			"SELECT * FROM t WHERE note = 'it''s ?' AND id = $1"},
+	}
+	for _, c := range cases {
+		if got := c.db.rewritePlaceholders(c.in); got != c.want {
+			t.Errorf("%s: rewritePlaceholders = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// The postgres driver hands back []byte for numeric/bpchar/name/json/uuid; the
+// Kylix side renders values with %v, which would print "[49 48]" rather than
+// "10". The LLVM backend boxes everything non-numeric as text, so folding
+// []byte into string is also what keeps the backends aligned.
+func TestDb_NormalizeValue(t *testing.T) {
+	if got := normalizeValue([]byte("10")); got != "10" {
+		t.Errorf("normalizeValue([]byte) = %#v, want the string \"10\"", got)
+	}
+	if got := normalizeValue(int64(7)); got != int64(7) {
+		t.Errorf("normalizeValue(int64) = %#v, want it unchanged", got)
+	}
+	if got := normalizeValue(nil); got != nil {
+		t.Errorf("normalizeValue(nil) = %#v, want nil", got)
+	}
+}
+
 func TestDb_NilGuards(t *testing.T) {
 	if _, err := DbExec(nil, "SELECT 1"); err == nil {
 		t.Error("DbExec(nil) should error")

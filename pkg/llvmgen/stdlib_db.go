@@ -640,11 +640,22 @@ func (g *Generator) emitDbQueryRowsBodyImpl(bound bool) {
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", fb, valBoxSlot))
 	g.line(fmt.Sprintf("  br label %%%s", mergeLbl))
 	// text/blob → strdup + box_str
+	//
+	// The type dispatch above already routes SQLITE_NULL to nilbox, so this
+	// branch normally sees real text. sqlite3_column_text may still return NULL
+	// (out of memory, or a value that changed type mid-read), and strdup(NULL)
+	// dereferences it — so the pointer is swapped for the empty string first,
+	// the same guard the scalar path got in v0.11.0.
 	g.line(fmt.Sprintf("%s:", strLbl))
 	tv := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @sqlite3_column_text(ptr %s, i32 %s)", tv, stmt, ci))
+	tvNull := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", tvNull, tv))
+	tvSafe := g.tmp()
+	emptyText := g.addString("")
+	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", tvSafe, tvNull, emptyText, tv))
 	tdup := g.tmp()
-	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_strdup(ptr %s)", tdup, tv))
+	g.line(fmt.Sprintf("  %s = call ptr @__kylix_htab_strdup(ptr %s)", tdup, tvSafe))
 	tb := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_variant_box_str(ptr %s)", tb, tdup))
 	g.line(fmt.Sprintf("  store ptr %s, ptr %s", tb, valBoxSlot))

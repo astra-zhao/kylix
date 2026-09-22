@@ -112,6 +112,23 @@ end.`)
 	assertIRContains(t, ir, "define void @__kylix_db_DbSetConnMaxLifetime(ptr %db, i64 %n)")
 }
 
+// v0.12.0 P5b: the row-text branch guards against sqlite3_column_text
+// returning NULL (strdup(NULL) would dereference it). The type dispatch routes
+// SQLITE_NULL to nilbox already, so this is the second line of defence — the
+// same guard the scalar path got in v0.11.0.
+func TestDb_QueryRowsTextNullGuard(t *testing.T) {
+	ir := generateIR(t, `program p;
+uses db;
+begin
+  var db := DbOpenSQLite(':memory:');
+  var rows := DbQueryRows(db, 'SELECT name FROM t');
+end.`)
+	assertIRContains(t, ir, "define { ptr, i64, i64 } @__kylix_db_DbQueryRows(ptr %db, ptr %sql)")
+	// the guard: a null check plus a select of the empty string before strdup
+	assertIRContains(t, ir, "call ptr @sqlite3_column_text(ptr")
+	assertIRContains(t, ir, "select i1")
+}
+
 func TestDb_SqliteDeclarations(t *testing.T) {
 	ir := generateIR(t, `program p;
 uses db;

@@ -8,6 +8,8 @@ package stdlib
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -113,12 +115,71 @@ func DbOpenSQLite(path string) (*Database, error) {
 	return DbOpen("sqlite3", path)
 }
 
+// rewritePlaceholders converts the Kylix-facing `?` placeholders to the form
+// the active driver expects: lib/pq needs `$1, $2, ...`, everything else takes
+// `?` as written.
+//
+// It runs here, at the single choke point every statement passes through,
+// rather than at the 73 call sites in apps/admin. Kylix string literals have no
+// escape sequence, so a `?` can legitimately appear inside SQL text; a
+// per-call-site rewrite would be one silent mistake away from shifting every
+// parameter by one — and that mistake is invisible on sqlite, where the
+// rewrite is the identity.
+//
+// A `?` inside a single-quoted SQL literal is left alone (with ” as the
+// escaped quote, per SQL). None of the current statements need that, but the
+// scanner handles it so the rule does not depend on how the SQL is written.
+func (d *Database) rewritePlaceholders(query string) string {
+	if d == nil || d.dbType != DBPostgres || !strings.ContainsRune(query, '?') {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 8)
+	n := 0
+	inLiteral := false
+	for i := 0; i < len(query); i++ {
+		c := query[i]
+		if c == '\'' {
+			// '' inside a literal is an escaped quote, not a terminator.
+			if inLiteral && i+1 < len(query) && query[i+1] == '\'' {
+				b.WriteString("''")
+				i++
+				continue
+			}
+			inLiteral = !inLiteral
+			b.WriteByte(c)
+			continue
+		}
+		if c == '?' && !inLiteral {
+			n++
+			b.WriteByte('$')
+			b.WriteString(strconv.Itoa(n))
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
+// normalizeValue maps driver-specific value types onto the shapes the Kylix
+// side expects. sqlite returns TEXT as string and INTEGER as int64; lib/pq
+// returns most text types as string too, but numeric/bpchar/name/json/uuid
+// arrive as []byte — which would render as "[49 48]" instead of "10". The LLVM
+// backend boxes everything that is not an int/float/bool as text, so folding
+// []byte into string is also what keeps the two backends aligned.
+func normalizeValue(v interface{}) interface{} {
+	if b, ok := v.([]byte); ok {
+		return string(b)
+	}
+	return v
+}
+
 // DbExec executes a statement (INSERT/UPDATE/DELETE/DDL) and returns rows affected.
 func DbExec(db *Database, query string, args ...interface{}) (int64, error) {
 	if db == nil {
 		return 0, fmt.Errorf("database is nil")
 	}
-	res, err := db.Exec(query, args...)
+	res, err := db.Exec(db.rewritePlaceholders(query), args...)
 	if err != nil {
 		db.noteErr(err)
 		return 0, err
@@ -134,7 +195,7 @@ func DbQueryRows(db *Database, query string, args ...interface{}) ([]map[string]
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
-	rows, err := db.Query(query, args...)
+	rows, err := db.Query(db.rewritePlaceholders(query), args...)
 	if err != nil {
 		db.noteErr(err)
 		return nil, err
@@ -160,7 +221,7 @@ func DbQueryRows(db *Database, query string, args ...interface{}) ([]map[string]
 		}
 		row := make(map[string]interface{}, len(cols))
 		for i, col := range cols {
-			row[col] = values[i]
+			row[col] = normalizeValue(values[i])
 		}
 		result = append(result, row)
 	}
@@ -175,7 +236,7 @@ func DbQueryScalar(db *Database, query string, args ...interface{}) (string, err
 		return "", fmt.Errorf("database is nil")
 	}
 	var v interface{}
-	if err := db.QueryRow(query, args...).Scan(&v); err != nil {
+	if err := db.QueryRow(db.rewritePlaceholders(query), args...).Scan(&v); err != nil {
 		if err == sql.ErrNoRows {
 			db.noteErr(nil)
 			return "", nil
@@ -189,7 +250,7 @@ func DbQueryScalar(db *Database, query string, args ...interface{}) (string, err
 	if v == nil {
 		return "", nil
 	}
-	return fmt.Sprintf("%v", v), nil
+	return fmt.Sprintf("%v", normalizeValue(v)), nil
 }
 
 // DbClose closes the database connection pool.
