@@ -288,7 +288,7 @@ jobs:
       - name: Build KylixAdmin (LLVM form)
         working-directory: apps/admin
         run: |
-          ../kylix build --backend=llvm --gc=boehm \
+          ../../kylix build --backend=llvm --gc=boehm \
             -o "../../kylixadmin-${{ matrix.target.os }}-${{ matrix.target.arch }}" \
             ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
             entities/admin_entities.klx lib/dialect.klx lib/migrate.klx lib/admindb.klx \
