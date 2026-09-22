@@ -3,6 +3,7 @@ package stdlib
 import (
 	"fmt"
 	"io"
+	"kylix/pkg/boot"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,8 +119,26 @@ func (tf *TTextFile) FileEOF() bool {
 
 // Convenience functions
 
-// ReadFile reads entire file content as string
+// RegisterEmbedded stores one baked file (v0.12.0 [Embed]). Emitted by the
+// compiler; not part of the documented Kylix API. The registry lives in
+// pkg/boot so the static handler can consult it too.
+func RegisterEmbedded(name, content string) {
+	boot.RegisterEmbedded(name, content)
+}
+
+// EmbeddedFile returns a baked file's contents, or ok=false when the program
+// did not embed that path.
+func EmbeddedFile(name string) (string, bool) {
+	return boot.EmbeddedFile(name)
+}
+
+// ReadFile reads entire file content as string. A file embedded at build time
+// wins over the filesystem (the binary is self-contained); otherwise the path
+// is read from disk.
 func ReadFile(path string) (string, error) {
+	if c, ok := EmbeddedFile(path); ok {
+		return c, nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("ReadFile: %w", err)

@@ -185,6 +185,20 @@ func (g *Generator) emitSysutilReadFile() {
 	modeStr := g.addString(modeR)
 	g.line("define ptr @__kylix_sysutil_ReadFile(ptr %path) {")
 	g.line("entry:")
+	if g.hasEmbedded {
+		// v0.12.0: a file baked in at build time wins over the filesystem, so
+		// the binary is self-contained.
+		emb := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @__kylix_embed_get(ptr %%path)", emb))
+		has := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp ne ptr %s, null", has, emb))
+		embLbl := g.label()
+		fileLbl := g.label()
+		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", has, embLbl, fileLbl))
+		g.line(fmt.Sprintf("%s:", embLbl))
+		g.line(fmt.Sprintf("  ret ptr %s", emb))
+		g.line(fmt.Sprintf("%s:", fileLbl))
+	}
 	modeRPtr := g.ptrTo(modeStr, len(modeR)+1)
 	fp := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @fopen(ptr %%path, ptr %s)", fp, modeRPtr))

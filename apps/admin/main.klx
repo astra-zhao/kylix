@@ -14,6 +14,10 @@
 //
 // Run from apps/admin/ (views/ + static/ are relative paths); KYADMIN_DB and
 // KYADMIN_PASSWORD override the database path and seed password.
+// v0.12.0: bake the templates and static assets into the binary. ReadFile and
+// the boot static handler consult the embedded table first, so the built
+// binary needs no views/ or static/ directory beside it.
+[Embed('views', 'static')]
 program KylixAdmin;
 
 uses boot, db, admindb, adminsec, audit, template, sysutil, adminpage,

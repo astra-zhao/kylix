@@ -21,10 +21,14 @@ type Expression interface {
 
 // Program is the root node
 type Program struct {
-	Name         string
-	NameToken    token.Token // NEW: position of program name
-	UnitName     string      // module name for unit files
-	IsUnit       bool        // true if this is a unit file (no main function)
+	Name      string
+	NameToken token.Token // NEW: position of program name
+	// Attributes carries the file-level annotations written before the
+	// `program`/`unit` header (v0.12.0): [Embed('views', 'static')] bakes those
+	// directories into the binary so the app needs no files beside it.
+	Attributes   []*Attribute
+	UnitName     string // module name for unit files
+	IsUnit       bool   // true if this is a unit file (no main function)
 	Uses         []string
 	Declarations []Node
 	Statements   []Statement

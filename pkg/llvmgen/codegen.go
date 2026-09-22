@@ -9,6 +9,8 @@ package llvmgen
 
 import (
 	"fmt"
+
+	"kylix/internal/embedfiles"
 	"reflect"
 	"sort"
 	"strings"
@@ -99,7 +101,11 @@ type Generator struct {
 	// v0.12.0 P5d: the program calls DbOpenPg, so the postgres backend and the
 	// runtime dialect dispatch are emitted (and compile.go links -lpq). Set by
 	// a pre-scan, because call sites are emitted before main.
-	usesPg           bool
+	usesPg bool
+	// hasEmbedded is set once the [Embed] arrays and lookup are emitted, so the
+	// ReadFile / static-handler bodies know to consult them.
+	hasEmbedded      bool
+	embedFileList    []embedfiles.File
 	needLibpq        bool
 	pgRewriteEmitted bool
 	bootComponents   []bootComponent
@@ -504,6 +510,9 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	// a postgres connection. The declares alone would be enough to make
 	// compile.go link -lpq (it scans the IR text), and the tutorial CI jobs do
 	// not install libpq — so this gate is what keeps them working.
+	// v0.12.0: [Embed('dir', …)] bakes those files into the binary. Emitted at
+	// module level, before main, and only when the attribute is present.
+	g.emitEmbeddedFiles()
 	g.usesPg = programUsesPg(prog)
 	if g.usesPg {
 		g.emitDbPgDeclares()
@@ -1076,6 +1085,11 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	// v0.11.0: entity metadata for the CRUD engine — no-op unless the program
 	// declares [Entity] classes (see orm_annotations.go).
 	g.emitEntityMetaWiring()
+
+	// v0.12.0: fill the [Embed] file table before anything reads a template.
+	if g.hasEmbedded {
+		g.line("  call void @__kylix_embed_init()")
+	}
 
 	for _, stmt := range stmts {
 		if err := g.emitStatement(stmt); err != nil {

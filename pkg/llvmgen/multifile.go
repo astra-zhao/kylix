@@ -107,6 +107,10 @@ func MergePrograms(programs []*ast.Program) (*ast.Program, error) {
 		Declarations: decls,
 		Statements:   main.Statements,
 		IsMerged:     true, // v0.5.4: signal multi-file → top-level vars become globals
+		// v0.12.0: file-level attributes ([Embed]) live on the main program and
+		// must survive the merge — the codegen that bakes the files reads them
+		// from the merged program.
+		Attributes: main.Attributes,
 	}
 	return merged, nil
 }

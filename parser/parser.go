@@ -198,6 +198,12 @@ func (p *Parser) registerInfix(tokenType token.TokenType, fn infixParseFn) {
 func (p *Parser) ParseProgram() *ast.Program {
 	program := &ast.Program{}
 
+	// File-level attributes (v0.12.0): [Embed('views', 'static')] before the
+	// program/unit header. Parsed here so the header keywords still follow.
+	if p.curTokenIs(token.LBRACKET) {
+		program.Attributes = p.parseAttributeList()
+	}
+
 	// Parse unit declaration: unit X;
 	if p.curTokenIs(token.UNIT) {
 		p.nextToken()

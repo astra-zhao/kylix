@@ -884,6 +884,44 @@ func (g *Generator) emitBootServeStaticBody() {
 	c("  call ptr @strcpy(ptr %s, ptr %s)", full, dir)
 	g.bootStrcat(full, g.ptrTo(g.addString("/"), 2))
 	g.bootStrcat(full, rel)
+	// v0.12.0: a file baked in by [Embed] is served from memory — the binary
+	// carries its static/ directory, so it works with nothing beside it.
+	// MIME by extension ("" when no extension → application/octet-stream). It
+	// is computed before the two body paths merge, so both have it.
+	ext := g.tmp()
+	c("  %s = call ptr @strrchr(ptr %s, i32 46)", ext, rel)
+	extNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", extNull, ext)
+	extSel := g.tmp()
+
+	// v0.12.0: a file baked in by [Embed] is served from memory — the binary
+	// carries its static/ directory, so it works with nothing beside it.
+	bodySlot := g.tmp()
+	lenSlot := g.tmp()
+	freeSlot := g.tmp()
+	c("  %s = alloca ptr, align 8", bodySlot)
+	c("  %s = alloca i64, align 8", lenSlot)
+	c("  %s = alloca ptr, align 8", freeSlot)
+	bodyReady := g.label()
+	if g.hasEmbedded {
+		emb := g.tmp()
+		c("  %s = call ptr @__kylix_embed_get(ptr %s)", emb, full)
+		embNull := g.tmp()
+		c("  %s = icmp ne ptr %s, null", embNull, emb)
+		embLbl := g.label()
+		fsLbl := g.label()
+		c("  br i1 %s, label %%%s, label %%%s", embNull, embLbl, fsLbl)
+		c("%s:", embLbl)
+		embLen := g.tmp()
+		c("  %s = call i64 @strlen(ptr %s)", embLen, emb)
+		c("  store ptr %s, ptr %s", emb, bodySlot)
+		c("  store i64 %s, ptr %s", embLen, lenSlot)
+		// The constant is not heap memory: nothing to free.
+		c("  store ptr null, ptr %s", freeSlot)
+		c("  call void @free(ptr %s)", full)
+		c("  br label %%%s", bodyReady)
+		c("%s:", fsLbl)
+	}
 	fp := g.tmp()
 	c("  %s = call ptr @fopen(ptr %s, ptr %s)", fp, full, g.ptrTo(g.addString("rb"), 3))
 	fpNull := g.tmp()
@@ -909,13 +947,19 @@ func (g *Generator) emitBootServeStaticBody() {
 	c("  call i32 @fclose(ptr %s)", fp)
 	end := g.bootGepI8(buf, total)
 	c("  store i8 0, ptr %s", end)
+	c("  store ptr %s, ptr %s", buf, bodySlot)
+	c("  store i64 %s, ptr %s", total, lenSlot)
+	c("  store ptr %s, ptr %s", buf, freeSlot)
+	c("  call void @free(ptr %s)", full)
+	c("  br label %%%s", bodyReady)
 
-	// MIME by extension ("" when no extension → application/octet-stream).
-	ext := g.tmp()
-	c("  %s = call ptr @strrchr(ptr %s, i32 46)", ext, rel)
-	extNull := g.tmp()
-	c("  %s = icmp eq ptr %s, null", extNull, ext)
-	extSel := g.tmp()
+	c("%s:", bodyReady)
+	body := g.tmp()
+	c("  %s = load ptr, ptr %s", body, bodySlot)
+	totalReg := g.tmp()
+	c("  %s = load i64, ptr %s", totalReg, lenSlot)
+	toFree := g.tmp()
+	c("  %s = load ptr, ptr %s", toFree, freeSlot)
 	c("  %s = select i1 %s, ptr %s, ptr %s", extSel, extNull,
 		g.ptrTo(g.addString(""), 1), ext)
 	mime := g.emitBootMimeSelect(extSel)
@@ -925,14 +969,23 @@ func (g *Generator) emitBootServeStaticBody() {
 	fmtStr := g.addString("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %lld\r\n\r\n")
 	fmtPtr := g.ptrTo(fmtStr, 61)
 	c("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %s, i64 256, ptr %s, ptr %s, i64 %s)",
-		hdr, fmtPtr, mime, total)
+		hdr, fmtPtr, mime, totalReg)
 	fd := g.bootConnFd("%conn")
 	hdrLen := g.bootStrlen(hdr)
 	c("  call i64 @send(i32 %s, ptr %s, i64 %s, i32 0)", fd, hdr, hdrLen)
-	c("  call i64 @send(i32 %s, ptr %s, i64 %s, i32 0)", fd, buf, total)
+	c("  call i64 @send(i32 %s, ptr %s, i64 %s, i32 0)", fd, body, totalReg)
 	c("  call void @free(ptr %s)", hdr)
-	c("  call void @free(ptr %s)", buf)
-	c("  call void @free(ptr %s)", full)
+	// freeSlot is null for an embedded body (a string constant), so the free is
+	// guarded rather than unconditional.
+	freeNull := g.tmp()
+	c("  %s = icmp eq ptr %s, null", freeNull, toFree)
+	freeSkip := g.label()
+	freeDo := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", freeNull, freeSkip, freeDo)
+	c("%s:", freeDo)
+	c("  call void @free(ptr %s)", toFree)
+	c("  br label %%%s", freeSkip)
+	c("%s:", freeSkip)
 	c("  ret i1 1")
 	c("}")
 }

@@ -238,6 +238,9 @@ func (g *Generator) enqueueStdlib(module, name, bodyKey string, argCount int) bo
 // module-level defines. Called once at the end of emitProgram (after lambdas,
 // before string constants). Each emitter writes its own `define ... { ... }`.
 func (g *Generator) emitPendingStdlib() {
+	// v0.12.0: the [Embed] table's filler, at module level next to the other
+	// deferred bodies.
+	g.emitEmbedInitBody()
 	// v0.10.0 P2: flush module-level globals declared while a define body was
 	// being emitted (see pendingModuleGlobals) before any body define.
 	for _, gl := range g.pendingModuleGlobals {

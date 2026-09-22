@@ -751,6 +751,10 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 	// null-terminated string. The bootstrap reads .klx sources with this.
 	// Implemented with libc fopen/fseek/ftell/malloc/fread so it works without
 	// a Go stdlib. Returns "" (empty ptr to a NUL) on failure.
+	//
+	// v0.12.0: when the program bakes files in with [Embed], the embedded table
+	// is consulted first — a hit skips the filesystem entirely, so a built
+	// binary needs no views/ or static/ directory beside it.
 	if funcName == "ReadFile" && len(e.Arguments) == 1 {
 		path, _, err := g.emitExpr(e.Arguments[0])
 		if err != nil {
@@ -759,18 +763,31 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		g.needReadFile = true
 		mode := g.addString("r")
 		modePtr := g.ptrTo(mode, 2)
-		fp := g.tmp()
-		g.line(fmt.Sprintf("  %s = call ptr @fopen(ptr %s, ptr %s)", fp, path, modePtr))
 		// Use an alloca for the return value (can't store to a string constant).
 		retSlot := g.tmp()
 		g.line(fmt.Sprintf("  %s = alloca ptr, align 8", retSlot))
 		emptyStr := g.addString("")
 		emptyPtr := g.ptrTo(emptyStr, 1)
 		g.line(fmt.Sprintf("  store ptr %s, ptr %s", emptyPtr, retSlot))
+		exitLbl := g.label()
+		if g.hasEmbedded {
+			emb := g.tmp()
+			g.line(fmt.Sprintf("  %s = call ptr @__kylix_embed_get(ptr %s)", emb, path))
+			embNull := g.tmp()
+			g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", embNull, emb))
+			fsLbl := g.label()
+			embLbl := g.label()
+			g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", embNull, fsLbl, embLbl))
+			g.line(fmt.Sprintf("%s:", embLbl))
+			g.line(fmt.Sprintf("  store ptr %s, ptr %s", emb, retSlot))
+			g.line(fmt.Sprintf("  br label %%%s", exitLbl))
+			g.line(fmt.Sprintf("%s:", fsLbl))
+		}
+		fp := g.tmp()
+		g.line(fmt.Sprintf("  %s = call ptr @fopen(ptr %s, ptr %s)", fp, path, modePtr))
 		nullCk := g.tmp()
 		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", nullCk, fp))
 		okLbl := g.label()
-		exitLbl := g.label()
 		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", nullCk, exitLbl, okLbl))
 		g.line(fmt.Sprintf("%s:", okLbl))
 		g.line(fmt.Sprintf("  call i32 @fseek(ptr %s, i64 0, i32 2)", fp)) // SEEK_END=2

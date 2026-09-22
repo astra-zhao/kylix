@@ -191,6 +191,17 @@ func (r *Router) serveStatic(urlPath string) *Response {
 		return nil
 	}
 	full := filepath.Join(r.StaticDir, rel)
+	// A file baked in at build time wins over the filesystem (v0.12.0), so the
+	// binary stays self-contained. The lookup key matches how the program asks
+	// for it, i.e. "static/admin.css".
+	if body, ok := EmbeddedFile(filepath.ToSlash(full)); ok {
+		return &Response{
+			Status:      200,
+			Body:        body,
+			ContentType: mimeFor(filepath.Ext(full)),
+			Headers:     map[string]string{},
+		}
+	}
 	data, err := os.ReadFile(full)
 	if err != nil {
 		return nil

@@ -187,6 +187,10 @@ func (g *Generator) Generate(program *ast.Program) string {
 	}
 
 	// main() from top-level statements (unit files have no main).
+	// The embedded-file init() is a top-level declaration, so it goes before
+	// main rather than inside it.
+	g.emitEmbeddedFiles(program)
+
 	if !program.IsUnit && len(program.Statements) > 0 {
 		g.writeLine("func main() {")
 		g.indent++
@@ -288,6 +292,8 @@ func (g *Generator) GenerateMulti(programs []*ast.Program) string {
 	}
 
 	for _, prog := range programs {
+		g.emitEmbeddedFiles(prog)
+
 		if !prog.IsUnit && len(prog.Statements) > 0 {
 			g.writeLine("func main() {")
 			g.indent++
@@ -342,6 +348,10 @@ func (g *Generator) GenerateBody(program *ast.Program) string {
 			g.generateFunctionDecl(d)
 		}
 	}
+
+	// The embedded-file init() is a top-level declaration, so it goes before
+	// main rather than inside it.
+	g.emitEmbeddedFiles(program)
 
 	if !program.IsUnit && len(program.Statements) > 0 {
 		g.writeLine("func main() {")

@@ -545,6 +545,8 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 	result.Diagnostics = append(result.Diagnostics, CheckValidationAnnotations(sorted, sortedFiles)...)
 	result.Diagnostics = append(result.Diagnostics, CheckSecurityAnnotations(sorted, sortedFiles)...)
 	result.Diagnostics = append(result.Diagnostics, CheckORMAnnotations(sorted, sortedFiles)...)
+	// v0.12.0: file-level [Embed('dir', …)] baking.
+	result.Diagnostics = append(result.Diagnostics, CheckEmbedAnnotations(sorted, sortedFiles)...)
 	for i, prog := range sorted {
 		result.Diagnostics = append(result.Diagnostics, checkInterfaces(prog, sortedFiles[i])...)
 		for _, td := range TypeCheck(prog, sortedFiles[i]) {
