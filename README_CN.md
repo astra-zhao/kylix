@@ -1100,6 +1100,8 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 - [IDE 用户手册](docs/KYLIX_IDE_USER_MANUAL.md) - 完整的 CLI 与编辑器指南
 - [开发者指南](docs/KYLIX_DEV_GUIDE.md) - 架构、内部机制、贡献指南
 - [工具说明](docs/KYLIX_TOOLS_EXPLAINED.md) - 适合新手的工具说明
+- [KylixAdmin 开发指南（小白版）](docs/ADMIN_DEV_GUIDE_CN.md) - 从零跑通后台管理平台，加出自己的业务表
+- [KylixAdmin 部署指南](docs/ADMIN_DEPLOY.md) - 单二进制上线、sqlite/postgres、systemd/Docker
 - [Web 框架指南](docs/WEB_FRAMEWORK.md) - Web 服务器与 REST API 开发
 - [ORM 指南](docs/ORM_GUIDE.md) - 数据库 ORM 与查询构造器
 - [模板引擎指南](docs/TEMPLATE_GUIDE.md) - HTML 模板渲染

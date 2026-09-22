@@ -2,7 +2,7 @@
 
 > 创建: 2026-09-12（v0.8.0 发布后规划，用户已确认）
 > 定位: 用 KylixBoot 从零开发的功能完整、界面专业的后台管理平台——1.0.0 旗舰 showcase + 框架 dogfooding 工程
-> 关联文档: [MULTIPLATFORM.md](MULTIPLATFORM.md)（H5/Android/iOS 多端共用本平台 API）、[ROADMAP.md](../ROADMAP.md)（v0.10.0–v0.12.0）
+> 关联文档: [ADMIN_DEV_GUIDE_CN.md](ADMIN_DEV_GUIDE_CN.md)（开发入门）、[MULTIPLATFORM.md](MULTIPLATFORM.md)（H5/Android/iOS 多端共用本平台 API）、[ROADMAP.md](../ROADMAP.md)（v0.10.0–v0.12.0）
 > 技术基线: pkg/boot（路由/DI/中间件/security/config）+ stdlib（orm/jwt/crypto/db/template_engine）+ LLVM boot server（stdlib_boot*.go）
 
 ---

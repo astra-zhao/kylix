@@ -3,7 +3,7 @@
 > v0.12.0（2026-09-22）。KylixAdmin 是一个纯 Kylix 编写的后台管理平台：**一个二进制就是一套后台系统**——
 > 模板与静态资源在编译期烘焙进可执行文件（`[Embed]`），数据库自动建表与增量迁移，无需部署目录、无需构建链。
 
-- 应用源码：[apps/admin/](../apps/admin/)
+- 应用源码：[apps/admin/](../apps/admin/) ｜ 开发入门（小白版）：[ADMIN_DEV_GUIDE_CN.md](ADMIN_DEV_GUIDE_CN.md)
 - 平台规划：[ADMIN_PLATFORM.md](ADMIN_PLATFORM.md) ｜ CRUD 引擎用法：[ADMIN_CRUD_GUIDE.md](ADMIN_CRUD_GUIDE.md)
 
 ---

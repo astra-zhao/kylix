@@ -35,6 +35,14 @@ type CacheEntry struct {
 	SrcPath     string    `json:"src_path"`
 	CodegenHash string    `json:"codegen_hash,omitempty"` // v0.7.1 P4: running compiler binary self-hash
 
+	// BuildFingerprint covers every input file of the build (v0.12.0). One
+	// file's generated code can depend on another's annotations — the [Entity]
+	// scan reads all programs, and the KylixBoot wiring is emitted into main
+	// from annotations declared in unit files — so a per-file mtime is not
+	// enough: editing a unit would leave main's cached fragment stale, and the
+	// build would silently keep the old entities.
+	BuildFingerprint string `json:"build_fingerprint,omitempty"`
+
 	// Cached output
 	GoCode string `json:"go_code"`
 }
@@ -42,6 +50,9 @@ type CacheEntry struct {
 // BuildCache manages incremental compilation state for a project.
 type BuildCache struct {
 	dir string // directory where cache files live
+
+	// fingerprint is set once per build by SetFingerprint (v0.12.0).
+	fingerprint string
 
 	// Hit counters (v0.6.0) — populated by Load for reporting cache efficiency
 	// (kylix build --time / benchmarks). Load is called sequentially from
@@ -98,6 +109,22 @@ func (c *BuildCache) cacheFile(srcPath string) string {
 	return filepath.Join(c.dir, fmt.Sprintf("%x.json", sum))
 }
 
+// SetFingerprint records a hash over every input file of this build (path,
+// size, mtime). Load rejects entries recorded under a different fingerprint, so
+// editing any file invalidates the cached fragments of the others.
+func (c *BuildCache) SetFingerprint(files []string) {
+	h := sha256.New()
+	for _, f := range files {
+		abs, _ := filepath.Abs(f)
+		h.Write([]byte(abs))
+		if info, err := os.Stat(abs); err == nil {
+			fmt.Fprintf(h, "|%d|%d", info.Size(), info.ModTime().UnixNano())
+		}
+		h.Write([]byte("\n"))
+	}
+	c.fingerprint = hex.EncodeToString(h.Sum(nil))
+}
+
 // Load returns the cached entry for srcPath if it is still valid (fingerprint
 // matches current file stat). Returns nil when the cache is cold or stale.
 // Each call bumps the Hits/Misses counters (v0.6.0).
@@ -120,7 +147,11 @@ func (c *BuildCache) Load(srcPath string) *CacheEntry {
 		return nil
 	}
 
+	// The build fingerprint is only checked when this cache was given one:
+	// standalone users (tests, tools) construct a BuildCache without it.
+	fingerprintOK := c.fingerprint == "" || entry.BuildFingerprint == c.fingerprint
 	if entry.Version == CacheVersion && entry.CodegenHash == codegenHash() &&
+		fingerprintOK &&
 		entry.ModTime.Equal(info.ModTime()) && entry.Size == info.Size() {
 		c.Hits++
 		return &entry
@@ -136,12 +167,13 @@ func (c *BuildCache) Store(srcPath, goCode string) {
 		return
 	}
 	entry := CacheEntry{
-		Version:     CacheVersion,
-		ModTime:     info.ModTime(),
-		Size:        info.Size(),
-		SrcPath:     srcPath,
-		CodegenHash: codegenHash(),
-		GoCode:      goCode,
+		Version:          CacheVersion,
+		ModTime:          info.ModTime(),
+		Size:             info.Size(),
+		SrcPath:          srcPath,
+		CodegenHash:      codegenHash(),
+		BuildFingerprint: c.fingerprint,
+		GoCode:           goCode,
 	}
 	data, err := json.Marshal(entry)
 	if err != nil {

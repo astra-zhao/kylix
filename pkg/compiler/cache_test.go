@@ -62,6 +62,42 @@ func TestCache_StaleOnModTime(t *testing.T) {
 	}
 }
 
+// v0.12.0: one file's generated code can depend on another's annotations (the
+// [Entity] scan reads every program), so a build-wide fingerprint is part of
+// the key — editing a unit must invalidate the fragments of the others.
+func TestCache_StaleOnBuildFingerprint(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.klx")
+	if err := os.WriteFile(src, []byte("program P; begin end.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sibling := filepath.Join(dir, "unit.klx")
+	if err := os.WriteFile(sibling, []byte("unit U; end.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writer := compiler.NewBuildCache(dir)
+	writer.SetFingerprint([]string{src, sibling})
+	writer.Store(src, "// body")
+
+	reader := compiler.NewBuildCache(dir)
+	reader.SetFingerprint([]string{src, sibling})
+	if entry := reader.Load(src); entry == nil {
+		t.Fatal("expected a hit under the same fingerprint")
+	}
+
+	// The sibling changes → every fragment recorded under the old fingerprint
+	// must be considered stale, even though src itself did not move.
+	if err := os.WriteFile(sibling, []byte("unit U;\ninterface\nend.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	after := compiler.NewBuildCache(dir)
+	after.SetFingerprint([]string{src, sibling})
+	if entry := after.Load(src); entry != nil {
+		t.Error("expected a miss after a sibling file changed")
+	}
+}
+
 func TestCache_Invalidate(t *testing.T) {
 	dir := t.TempDir()
 	cache := compiler.NewBuildCache(dir)

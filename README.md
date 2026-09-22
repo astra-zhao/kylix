@@ -1058,6 +1058,8 @@ Kylix LSP supports any editor with LSP client:
 - [IDE User Manual](docs/KYLIX_IDE_USER_MANUAL.md) - Complete CLI and editor guide
 - [Developer Guide](docs/KYLIX_DEV_GUIDE.md) - Architecture, internals, and contributing
 - [Tools Explained](docs/KYLIX_TOOLS_EXPLAINED.md) - Beginner-friendly tool descriptions
+- [KylixAdmin Development Guide (Chinese)](docs/ADMIN_DEV_GUIDE_CN.md) - run the admin console and add your own tables
+- [KylixAdmin Deployment Guide](docs/ADMIN_DEPLOY.md) - single-binary deployment, sqlite/postgres, systemd/Docker
 - [Web Framework Guide](docs/WEB_FRAMEWORK.md) - Web server and REST API development
 - [ORM Guide](docs/ORM_GUIDE.md) - Database ORM and query builder
 - [Template Engine Guide](docs/TEMPLATE_GUIDE.md) - HTML template rendering

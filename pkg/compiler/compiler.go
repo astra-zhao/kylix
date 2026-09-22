@@ -444,6 +444,9 @@ func CompileProject(files []string, opts Options) (*Result, error) {
 	// Optional build cache.
 	if opts.CacheDir != "" {
 		cache = NewBuildCache(opts.CacheDir)
+		// v0.12.0: one file's generated code can depend on another's
+		// annotations, so the whole build's inputs are part of every key.
+		cache.SetFingerprint(files)
 	}
 
 	programs := make([]*ast.Program, 0, len(files))

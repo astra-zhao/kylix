@@ -4,7 +4,7 @@
 > 列表（搜索/排序/分页）、新建/编辑表单、校验、删除、审计、菜单项、权限点，全部由元数据生成，
 > 不需要新 handler、新模板、新 SQL。
 
-- 关联文档：[ADMIN_PLATFORM.md](ADMIN_PLATFORM.md)（平台规划）、[WEB_FRAMEWORK.md](WEB_FRAMEWORK.md)（KylixBoot 基础）
+- 关联文档：**[ADMIN_DEV_GUIDE_CN.md](ADMIN_DEV_GUIDE_CN.md)（小白开发指南——第一次接触请先看这篇）**、[ADMIN_PLATFORM.md](ADMIN_PLATFORM.md)（平台规划）、[WEB_FRAMEWORK.md](WEB_FRAMEWORK.md)（KylixBoot 基础）
 - 代码：`apps/admin/`（Go / LLVM 双端同源，`apps/admin/e2e.sh` 双形态逐字对比）
 
 ---
