@@ -123,17 +123,21 @@ begin
     env := GetEnv('KYADMIN_DB');
     if env <> '' then
       dbPath := env;
-    // The dialect follows the DSN. v0.12.0 P5a only wires sqlite; the postgres
-    // branch lands with the libpq backend (P5c/P5d).
+    // The dialect follows the DSN: KYADMIN_DSN selects postgres, otherwise the
+    // sqlite file at KYADMIN_DB. DbOpenPg is a separate entry point so the
+    // LLVM backend emits the postgres paths (and links libpq) only for programs
+    // that use them.
     dsn := GetEnv('KYADMIN_DSN');
     if dsn <> '' then
-      SqlUse(dsn)
+    begin
+      SqlUse(dsn);
+      gAdminDB := DbOpenPg(dsn);
+    end
     else
+    begin
       SqlUse(dbPath);
-    if SqlIsPostgres() then
-      gAdminDB := DbOpen('postgres', dsn)
-    else
       gAdminDB := DbOpenSQLite(dbPath);
+    end;
     // A single-process admin needs a handful of connections, not a hundred.
     DbSetMaxOpenConns(gAdminDB, 8);
     DbSetMaxIdleConns(gAdminDB, 4);

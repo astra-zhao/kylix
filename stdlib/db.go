@@ -110,6 +110,14 @@ func (d *Database) noteErr(err error) {
 	d.lastErr = ""
 }
 
+// DbOpenPg opens a postgres connection from a DSN (libpq connection string or
+// URL). v0.12.0: it is a separate entry point rather than a driver string so
+// the LLVM backend can emit the postgres code paths only for programs that
+// actually use them — the tutorials never call it, so they never link libpq.
+func DbOpenPg(dsn string) (*Database, error) {
+	return DbOpen("postgres", dsn)
+}
+
 // DbOpenSQLite opens an SQLite database file (use ":memory:" for in-memory).
 func DbOpenSQLite(path string) (*Database, error) {
 	return DbOpen("sqlite3", path)

@@ -390,9 +390,11 @@ jobs:
   admin-e2e-pg:
     name: KylixAdmin E2E (postgres dialect)
     runs-on: ubuntu-latest
-    # v0.12.0 P5c: the same Kylix sources against postgres, diffed against the
-    # sqlite transcript — the evidence that the dialect layer makes the business
-    # code portable. POSTGRES_INITDB_ARGS pins the C collation: postgres'
+    # v0.12.0 P5c/P5d: the same Kylix sources against postgres on both backends,
+    # diffed against each other and against the sqlite transcript — the evidence
+    # that the dialect layer makes the business code portable, and that the
+    # libpq backend matches the Go one. libpq-dev is needed to link the LLVM
+    # form. POSTGRES_INITDB_ARGS pins the C collation: postgres'
     # default (en_US.UTF-8) orders `alice,bob,Zed` where sqlite's BINARY orders
     # `Zed,alice,bob`, which would show up as a spurious row-order diff.
     services:
@@ -420,11 +422,11 @@ jobs:
           go-version: '1.25'
           cache: true
 
-      - name: Install LLVM toolchain + stdlib native libs + psql
+      - name: Install LLVM toolchain + stdlib native libs + psql + libpq
         run: |
           sudo apt-get update
           sudo apt-get install -y llvm clang libsqlite3-dev libcurl4-openssl-dev \
-            libssl-dev libgc-dev postgresql-client
+            libssl-dev libgc-dev postgresql-client libpq-dev
 
       - name: Build CLI
         run: go build -o kylix ./cmd/kylix/

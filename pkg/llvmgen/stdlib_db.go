@@ -2,6 +2,7 @@ package llvmgen
 
 import (
 	"fmt"
+
 	"kylix/ast"
 )
 
@@ -41,6 +42,8 @@ func (g *Generator) emitDbCall(funcName string, args []ast.Expression) (string, 
 		return g.emitDbQueryScalarCall(args)
 	case "DbQueryRows":
 		return g.emitDbQueryRowsCall(args)
+	case "DbOpenPg":
+		return g.emitDbOpenPgCall(args)
 	case "DbLastError":
 		// v0.12.0 P5: the most recent error on this connection. The generated
 		// code discards the (T, error) results of the other db calls, so this
@@ -98,6 +101,17 @@ func (g *Generator) emitDbBody(funcName string) {
 		g.emitDbQueryRowsBodyB()
 	case "DbLastError":
 		g.emitDbLastErrorBody()
+	case "DbOpenPg":
+		g.emitDbOpenPgBody()
+	case "DbPgExec":
+		g.emitDbPgRewriteBody() // the statement bodies share this helper
+		g.emitDbPgExecBody()
+	case "DbPgScalar":
+		g.emitDbPgRewriteBody()
+		g.emitDbPgScalarBody()
+	case "DbPgRows":
+		g.emitDbPgRewriteBody() // the rewrite helper the bodies call
+		g.emitDbPgRowsBody()
 	case "DbSetMaxOpenConns", "DbSetMaxIdleConns", "DbSetConnMaxLifetime":
 		g.emitDbNoopSetterBody(funcName)
 	}
@@ -138,6 +152,9 @@ func (g *Generator) emitDbOpenSQLiteBody() {
 	g.line(fmt.Sprintf("%s:", okLbl))
 	dbVal := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", dbVal, dbSlot))
+	if g.usesPg {
+		g.line("  store i32 0, ptr @__kylix_db_is_pg")
+	}
 	g.line(fmt.Sprintf("  ret ptr %s", dbVal))
 	g.line("}")
 	g.line("")
@@ -194,6 +211,9 @@ func (g *Generator) emitDbOpenBody() {
 	g.line(fmt.Sprintf("%s:", ok2))
 	dbVal := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", dbVal, dbSlot))
+	if g.usesPg {
+		g.line("  store i32 0, ptr @__kylix_db_is_pg")
+	}
 	g.line(fmt.Sprintf("  ret ptr %s", dbVal))
 	g.line("}")
 	g.line("")
@@ -238,11 +258,27 @@ func (g *Generator) emitDbCloseBody() {
 // String (ptr) args bind as text, Integer (i64) args bind as int64.
 // Shared by the inlined DbExec and DbQueryScalar call sites.
 func (g *Generator) emitDbBindArgs(stmt string, args []ast.Expression, offset int) error {
-	for i, arg := range args[offset:] {
-		argReg, argType, err := g.emitExpr(arg)
+	regs := make([]string, 0, len(args)-offset)
+	types := make([]string, 0, len(args)-offset)
+	for _, arg := range args[offset:] {
+		reg, typ, err := g.emitExpr(arg)
 		if err != nil {
 			return err
 		}
+		regs = append(regs, reg)
+		types = append(types, typ)
+	}
+	g.emitDbBindRegs(stmt, regs, types)
+	return nil
+}
+
+// emitDbBindRegs emits the sqlite bind calls for already-evaluated arguments.
+// Separated from emitDbBindArgs so a dialect branch can evaluate its arguments
+// once and still bind them in the sqlite path.
+func (g *Generator) emitDbBindRegs(stmt string, regs, types []string) {
+	for i := range regs {
+		argReg := regs[i]
+		argType := types[i]
 		idx := i + 1 // sqlite3 bind indices are 1-based
 		if argType == "ptr" {
 			// bind_text(stmt, idx, val, -1, -1)
@@ -252,7 +288,6 @@ func (g *Generator) emitDbBindArgs(stmt string, args []ast.Expression, offset in
 			g.line(fmt.Sprintf("  call i32 @sqlite3_bind_int64(ptr %s, i32 %d, i64 %s)", stmt, idx, argReg))
 		}
 	}
-	return nil
 }
 
 func (g *Generator) emitDbExecCall(args []ast.Expression) (string, string, error) {
@@ -267,32 +302,141 @@ func (g *Generator) emitDbExecCall(args []ast.Expression) (string, string, error
 	if err != nil {
 		return "", "", err
 	}
-	g.needLibsqlite = true
+	regs, types, err := g.evalArgs(args[2:])
+	if err != nil {
+		return "", "", err
+	}
+	// The dialect is a runtime property (one binary may be pointed at either
+	// database), so a program that opens postgres gets a branch here; one that
+	// does not keeps the original inline sqlite IR byte for byte.
+	out, err := g.emitDialectDispatch("i64",
+		func() (string, error) { return g.emitDbPgStatementCall("exec", "i64", dbReg, sqlReg, regs, types) },
+		func() (string, error) { return g.emitDbExecSqlite(dbReg, sqlReg, regs, types) })
+	if err != nil {
+		return "", "", err
+	}
+	return out, "i64", nil
+}
 
-	// prepare
+// evalArgs evaluates call arguments once, returning their registers and LLVM
+// types. A dialect branch must not evaluate them twice: the expressions can
+// have side effects.
+func (g *Generator) evalArgs(args []ast.Expression) ([]string, []string, error) {
+	regs := make([]string, 0, len(args))
+	types := make([]string, 0, len(args))
+	for _, arg := range args {
+		reg, typ, err := g.emitExpr(arg)
+		if err != nil {
+			return nil, nil, err
+		}
+		regs = append(regs, reg)
+		types = append(types, typ)
+	}
+	return regs, types, nil
+}
+
+// emitDialectDispatch emits `is_pg ? pgCall() : liteCall()` for one statement
+// entry point. Without DbOpenPg in the program it is a passthrough, so programs
+// that only use sqlite keep their existing IR.
+func (g *Generator) emitDialectDispatch(llvmType string, pgCall, liteCall func() (string, error)) (string, error) {
+	if !g.usesPg {
+		return liteCall()
+	}
+	slot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca %s, align 8", slot, llvmType))
+	flag := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i32, ptr @__kylix_db_is_pg", flag))
+	isPg := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ne i32 %s, 0", isPg, flag))
+	pgLbl := g.label()
+	liteLbl := g.label()
+	mergeLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isPg, pgLbl, liteLbl))
+	g.line(fmt.Sprintf("%s:", pgLbl))
+	pgReg, err := pgCall()
+	if err != nil {
+		return "", err
+	}
+	g.line(fmt.Sprintf("  store %s %s, ptr %s", llvmType, pgReg, slot))
+	g.line(fmt.Sprintf("  br label %%%s", mergeLbl))
+	g.line(fmt.Sprintf("%s:", liteLbl))
+	liteReg, err := liteCall()
+	if err != nil {
+		return "", err
+	}
+	g.line(fmt.Sprintf("  store %s %s, ptr %s", llvmType, liteReg, slot))
+	g.line(fmt.Sprintf("  br label %%%s", mergeLbl))
+	g.line(fmt.Sprintf("%s:", mergeLbl))
+	out := g.tmp()
+	g.line(fmt.Sprintf("  %s = load %s, ptr %s", out, llvmType, slot))
+	return out, nil
+}
+
+// pgBodyName maps a body key onto the dispatch name emitDbBody switches on.
+func pgBodyName(bodyKey string) string {
+	if bodyKey == "scalar" {
+		return "Scalar"
+	}
+	return "Exec"
+}
+
+// emitDbPgStatementCall packs already-evaluated arguments and calls one of the
+// postgres statement bodies.
+func (g *Generator) emitDbPgStatementCall(bodyKey, retType, dbReg, sqlReg string, regs, types []string) (string, error) {
+	n := len(regs)
+	argvSlot := g.tmp()
+	typesSlot := g.tmp()
+	if n > 0 {
+		g.line(fmt.Sprintf("  %s = alloca [%d x i64], align 8", argvSlot, n))
+		g.line(fmt.Sprintf("  %s = alloca [%d x i32], align 4", typesSlot, n))
+	} else {
+		g.line(fmt.Sprintf("  %s = alloca i64, align 8", argvSlot))
+		g.line(fmt.Sprintf("  %s = alloca i32, align 4", typesSlot))
+	}
+	for i := range regs {
+		if n == 0 {
+			break
+		}
+		elem := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds [%d x i64], ptr %s, i64 0, i64 %d", elem, n, argvSlot, i))
+		telem := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds [%d x i32], ptr %s, i64 0, i64 %d", telem, n, typesSlot, i))
+		if types[i] == "ptr" {
+			asInt := g.tmp()
+			g.line(fmt.Sprintf("  %s = ptrtoint ptr %s to i64", asInt, regs[i]))
+			g.line(fmt.Sprintf("  store i64 %s, ptr %s", asInt, elem))
+			g.line(fmt.Sprintf("  store i32 0, ptr %s", telem))
+		} else {
+			g.line(fmt.Sprintf("  store i64 %s, ptr %s", regs[i], elem))
+			g.line(fmt.Sprintf("  store i32 1, ptr %s", telem))
+		}
+	}
+	g.enqueueStdlib("db", "DbPg"+pgBodyName(bodyKey), "pg_"+bodyKey, 0)
+	g.needLibpq = true
+	r := g.tmp()
+	g.line(fmt.Sprintf("  %s = call %s @%s%s(ptr %s, ptr %s, i64 %d, ptr %s, ptr %s)",
+		r, retType, dbPgPrefix, bodyKey, dbReg, sqlReg, n, argvSlot, typesSlot))
+	return r, nil
+}
+
+// emitDbExecSqlite is the sqlite path for DbExec, taking already-evaluated
+// arguments.
+func (g *Generator) emitDbExecSqlite(dbReg, sqlReg string, regs, types []string) (string, error) {
+	g.needLibsqlite = true
 	stmtSlot := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca ptr, align 8", stmtSlot))
 	g.line(fmt.Sprintf("  store ptr null, ptr %s", stmtSlot))
 	g.line(fmt.Sprintf("  call i32 @sqlite3_prepare_v2(ptr %s, ptr %s, i32 -1, ptr %s, ptr null)", dbReg, sqlReg, stmtSlot))
 	stmt := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", stmt, stmtSlot))
-
-	// bind each arg (args[2:])
-	if err := g.emitDbBindArgs(stmt, args, 2); err != nil {
-		return "", "", err
-	}
-
-	// step (INSERT/CREATE returns SQLITE_DONE=100; errors are ignored)
+	g.emitDbBindRegs(stmt, regs, types)
 	g.line(fmt.Sprintf("  call i32 @sqlite3_step(ptr %s)", stmt))
-	// finalize
 	g.line(fmt.Sprintf("  call i32 @sqlite3_finalize(ptr %s)", stmt))
-	// v0.6.1: return rows affected (matches the Go backend's int64 return).
-	// sqlite3_changes(db) reports the count from the most recent DML statement.
 	rows := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i32 @sqlite3_changes(ptr %s)", rows, dbReg))
 	rows64 := g.tmp()
 	g.line(fmt.Sprintf("  %s = sext i32 %s to i64", rows64, rows))
-	return rows64, "i64", nil
+	return rows64, nil
 }
 
 // ---- DbQueryScalar: inlined at call site ----
@@ -316,6 +460,21 @@ func (g *Generator) emitDbQueryScalarCall(args []ast.Expression) (string, string
 	if err != nil {
 		return "", "", err
 	}
+	regs, types, err := g.evalArgs(args[2:])
+	if err != nil {
+		return "", "", err
+	}
+	out, err := g.emitDialectDispatch("ptr",
+		func() (string, error) { return g.emitDbPgStatementCall("scalar", "ptr", dbReg, sqlReg, regs, types) },
+		func() (string, error) { return g.emitDbQueryScalarSqlite(dbReg, sqlReg, regs, types) })
+	if err != nil {
+		return "", "", err
+	}
+	return out, "ptr", nil
+}
+
+// emitDbQueryScalarSqlite is the sqlite path for DbQueryScalar.
+func (g *Generator) emitDbQueryScalarSqlite(dbReg, sqlReg string, regs, types []string) (string, error) {
 	g.needLibsqlite = true
 	g.needHashtab = true // DbQueryScalar uses __kylix_htab_strdup
 
@@ -332,9 +491,7 @@ func (g *Generator) emitDbQueryScalarCall(args []ast.Expression) (string, string
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", stmt, stmtSlot))
 
 	// bind each arg (args[2:]) — v0.10.0 P2: parameterized scalars
-	if err := g.emitDbBindArgs(stmt, args, 2); err != nil {
-		return "", "", err
-	}
+	g.emitDbBindRegs(stmt, regs, types)
 
 	// step
 	stepRc := g.tmp()
@@ -379,7 +536,7 @@ func (g *Generator) emitDbQueryScalarCall(args []ast.Expression) (string, string
 	g.line(fmt.Sprintf("%s:", mergeLbl))
 	result := g.tmp()
 	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", result, resultSlot))
-	return result, "ptr", nil
+	return result, nil
 }
 
 // ---- DbLastError: ptr @__kylix_db_DbLastError(ptr %db) ----
@@ -390,6 +547,28 @@ func (g *Generator) emitDbQueryScalarCall(args []ast.Expression) (string, string
 func (g *Generator) emitDbLastErrorBody() {
 	g.line("define ptr @__kylix_db_DbLastError(ptr %db) {")
 	g.line("entry:")
+	if g.usesPg {
+		// Postgres keeps its message in a module slot the statement bodies fill
+		// (libpq's own PQerrorMessage lingers after a later success, so it
+		// cannot answer "did the last statement fail?").
+		flag := g.tmp()
+		g.line(fmt.Sprintf("  %s = load i32, ptr @__kylix_db_is_pg", flag))
+		isPg := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp ne i32 %s, 0", isPg, flag))
+		pgLbl := g.label()
+		liteLbl := g.label()
+		g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", isPg, pgLbl, liteLbl))
+		g.line(fmt.Sprintf("%s:", pgLbl))
+		slot := g.tmp()
+		g.line(fmt.Sprintf("  %s = load ptr, ptr @__kylix_db_pg_lasterr", slot))
+		emptyPg := g.addString("")
+		safe := g.tmp()
+		g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", safe, slot))
+		res := g.tmp()
+		g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", res, safe, emptyPg, slot))
+		g.line(fmt.Sprintf("  ret ptr %s", res))
+		g.line(fmt.Sprintf("%s:", liteLbl))
+	}
 	// sqlite3_errmsg keeps returning the previous failure's text even after a
 	// later statement succeeds, so gate on errcode: SQLITE_OK (0) means the
 	// last statement was fine and the Go side reports "" for that case.
@@ -446,12 +625,29 @@ func (g *Generator) emitDbQueryRowsCall(args []ast.Expression) (string, string, 
 	g.needHashtab = true
 	g.needVariantRuntime = true
 	g.needMemcpy = true // append copies the slice buffer
-	r := g.tmp()
 	if len(args) == 2 {
 		// 2-arg form: unchanged shape (the module body binds nothing).
-		g.enqueueStdlib("db", "DbQueryRows", "DbQueryRows", 0)
-		g.line(fmt.Sprintf("  %s = call { ptr, i64, i64 } @__kylix_db_DbQueryRows(ptr %s, ptr %s)", r, dbReg, sqlReg))
-		return r, "{ ptr, i64, i64 }", nil
+		// With DbOpenPg in the program the call is a runtime dialect branch;
+		// both bodies take (conn, sql, argc, argv, argtypes), so the dispatch
+		// shares one packing.
+		out, err := g.emitDialectDispatch("{ ptr, i64, i64 }",
+			func() (string, error) {
+				g.enqueueStdlib("db", "DbPgRows", "pg_rows", 0)
+				g.needLibpq = true
+				pr := g.tmp()
+				g.line(fmt.Sprintf("  %s = call { ptr, i64, i64 } @%srows(ptr %s, ptr %s, i64 0, ptr null, ptr null)", pr, dbPgPrefix, dbReg, sqlReg))
+				return pr, nil
+			},
+			func() (string, error) {
+				g.enqueueStdlib("db", "DbQueryRows", "DbQueryRows", 0)
+				lr := g.tmp()
+				g.line(fmt.Sprintf("  %s = call { ptr, i64, i64 } @__kylix_db_DbQueryRows(ptr %s, ptr %s)", lr, dbReg, sqlReg))
+				return lr, nil
+			})
+		if err != nil {
+			return "", "", err
+		}
+		return out, "{ ptr, i64, i64 }", nil
 	}
 	// Bound form (v0.10.0 P2): pack the args into stack arrays —
 	// argv[i] = i64 payload (ptrtoint of a String pointer, or the integer
@@ -481,9 +677,24 @@ func (g *Generator) emitDbQueryRowsCall(args []ast.Expression) (string, string, 
 			g.line(fmt.Sprintf("  store i32 1, ptr %s", typElem))
 		}
 	}
-	g.enqueueStdlib("db", "DbQueryRowsB", "DbQueryRowsB", 0)
-	g.line(fmt.Sprintf("  %s = call { ptr, i64, i64 } @__kylix_db_DbQueryRowsB(ptr %s, ptr %s, i64 %d, ptr %s, ptr %s)", r, dbReg, sqlReg, n, argvSlot, typesSlot))
-	return r, "{ ptr, i64, i64 }", nil
+	out, err := g.emitDialectDispatch("{ ptr, i64, i64 }",
+		func() (string, error) {
+			g.enqueueStdlib("db", "DbPgRows", "pg_rows", 0)
+			g.needLibpq = true
+			pr := g.tmp()
+			g.line(fmt.Sprintf("  %s = call { ptr, i64, i64 } @%srows(ptr %s, ptr %s, i64 %d, ptr %s, ptr %s)", pr, dbPgPrefix, dbReg, sqlReg, n, argvSlot, typesSlot))
+			return pr, nil
+		},
+		func() (string, error) {
+			g.enqueueStdlib("db", "DbQueryRowsB", "DbQueryRowsB", 0)
+			lr := g.tmp()
+			g.line(fmt.Sprintf("  %s = call { ptr, i64, i64 } @__kylix_db_DbQueryRowsB(ptr %s, ptr %s, i64 %d, ptr %s, ptr %s)", lr, dbReg, sqlReg, n, argvSlot, typesSlot))
+			return lr, nil
+		})
+	if err != nil {
+		return "", "", err
+	}
+	return out, "{ ptr, i64, i64 }", nil
 }
 
 func (g *Generator) emitDbQueryRowsBody() {

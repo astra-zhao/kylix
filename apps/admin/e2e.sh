@@ -425,6 +425,7 @@ if [ "$WITH_PG" = "1" ]; then
   command -v psql >/dev/null || fail "psql required for --pg"
   DB_MODE="pg"
   scenarios "$WORK/t_gopg.txt" "$WORK/go_bin" ""
+  scenarios "$WORK/t_llpg.txt" "$LL_BIN" ""
 fi
 
 echo "== Go transcript =="
@@ -450,7 +451,17 @@ if [ "$WITH_PG" = "1" ]; then
     tail -5 "$WORK/srv_go_bin.log" 2>/dev/null
     fail "postgres and sqlite transcripts differ"
   fi
-  echo "KylixAdmin dual-backend E2E: PASS (22 scenarios x 2 forms + postgres)"
+  echo "== LLVM+postgres transcript =="
+  cat "$WORK/t_llpg.txt"
+  if diff "$WORK/t_gopg.txt" "$WORK/t_llpg.txt" > "$WORK/t.pgll.diff"; then
+    echo "== Go+postgres ≡ LLVM+postgres =="
+  else
+    echo "== GO+PG vs LLVM+PG DIFF =="
+    cat "$WORK/t.pgll.diff"
+    tail -5 "$WORK/srv_ll_bin.log" 2>/dev/null
+    fail "postgres forms differ between backends"
+  fi
+  echo "KylixAdmin dual-backend E2E: PASS (22 scenarios x 4 forms: sqlite+pg x Go+LLVM)"
 else
   echo "KylixAdmin dual-backend E2E: PASS (22 scenarios x 2 forms)"
 fi

@@ -466,6 +466,15 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 				appendHomebrewLib(&clangArgs, "openssl")
 			}
 		}
+		// v0.12.0 P5d: libpq, only for programs that open a postgres connection
+		// (the emitter gates the declares on DbOpenPg). Checked before the
+		// sqlite branch because both prefixes appear in the same IR.
+		if strings.Contains(ir, "@__kylix_db_pg_") {
+			clangArgs = append(clangArgs, "-lpq")
+			if targetOS == "darwin" {
+				appendHomebrewLib(&clangArgs, "libpq")
+			}
+		}
 		if strings.Contains(ir, "@__kylix_db_") || strings.Contains(ir, "@sqlite3_") {
 			clangArgs = append(clangArgs, "-lsqlite3")
 			if targetOS == "darwin" {

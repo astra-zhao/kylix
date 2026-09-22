@@ -11,6 +11,10 @@ type
 function DbOpen(driver: String; dsn: String): TDatabase;
 // Open an SQLite database file (":memory:" for in-memory).
 function DbOpenSQLite(path: String): TDatabase;
+// Open a postgres connection from a DSN. A separate entry point (rather than a
+// driver string) so the LLVM backend only emits the postgres code paths for
+// programs that use it — and only those link libpq. v0.12.0.
+function DbOpenPg(dsn: String): TDatabase;
 // Execute INSERT/UPDATE/DELETE/DDL; returns rows affected. Values are bound as
 // `?` placeholders (rewritten to $n on postgres inside the db layer).
 function DbExec(db: TDatabase; query: String): Integer;

@@ -77,7 +77,7 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"NewDatabase", "NewORM", "NewQueryBuilder", "NewMigrationManager",
 	),
 	"db": strToSet(
-		"DbOpen", "DbOpenSQLite", "DbExec", "DbQueryRows", "DbQueryScalar", "DbClose",
+		"DbOpen", "DbOpenSQLite", "DbOpenPg", "DbExec", "DbQueryRows", "DbQueryScalar", "DbClose",
 		// v0.12.0 P5: pool tuning + the error side channel (the generated code
 		// discards the (T, error) half of the other db calls).
 		"DbSetMaxOpenConns", "DbSetMaxIdleConns", "DbSetConnMaxLifetime", "DbLastError",
@@ -164,6 +164,7 @@ var stdlibErrorFuncReturnTypes = map[string]string{
 	"JwtVerify":       "map[string]interface{}",
 	"DbOpen":          "*stdlib.Database",
 	"DbOpenSQLite":    "*stdlib.Database",
+	"DbOpenPg":        "*stdlib.Database", // v0.12.0: postgres entry point
 	"DbExec":          "int64",
 	"DbQueryRows":     "[]map[string]interface{}",
 	"DbQueryScalar":   "string",
@@ -194,7 +195,7 @@ var stdlibErrorFuncs = map[string]bool{
 	"TcpAccept": true, // v0.6.5: WsAccept takes a TcpAccept result
 	"DnsLookup": true, "DnsLookupCNAME": true,
 	"JwtSign": true, "JwtVerify": true,
-	"DbOpen": true, "DbOpenSQLite": true,
+	"DbOpen": true, "DbOpenSQLite": true, "DbOpenPg": true,
 	"DbExec": true, "DbQueryRows": true, "DbQueryScalar": true,
 }
 

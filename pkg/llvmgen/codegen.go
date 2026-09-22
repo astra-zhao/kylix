@@ -94,10 +94,17 @@ type Generator struct {
 
 	// v0.11.0: [Entity] metadata for the CRUD engine, collected by
 	// scanEntityMeta and registered at the top of main (emitEntityMetaWiring).
-	entityMeta     []llvmEntity
-	bootComponents []bootComponent
-	bootInjects    []bootInject
-	bootWrappers   []bootWrapper
+	entityMeta []llvmEntity
+
+	// v0.12.0 P5d: the program calls DbOpenPg, so the postgres backend and the
+	// runtime dialect dispatch are emitted (and compile.go links -lpq). Set by
+	// a pre-scan, because call sites are emitted before main.
+	usesPg           bool
+	needLibpq        bool
+	pgRewriteEmitted bool
+	bootComponents   []bootComponent
+	bootInjects      []bootInject
+	bootWrappers     []bootWrapper
 
 	// bootJwtSecretConst is the module-level string constant register holding
 	// the JWT secret passed to BootRegisterJwtAuth(secret). When set, emitBootGlobals
@@ -493,6 +500,15 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 
 	// Emit runtime declarations (libc functions we'll call)
 	g.emitRuntimeDecls()
+	// v0.12.0 P5d: the postgres backend is emitted only for programs that open
+	// a postgres connection. The declares alone would be enough to make
+	// compile.go link -lpq (it scans the IR text), and the tutorial CI jobs do
+	// not install libpq — so this gate is what keeps them working.
+	g.usesPg = programUsesPg(prog)
+	if g.usesPg {
+		g.emitDbPgDeclares()
+		g.pendingModuleGlobals = append(g.pendingModuleGlobals, g.emitDbPgGlobals()...)
+	}
 
 	// Inject the built-in Exception class before user decls so that user
 	// exception classes (Parent="Exception") resolve against it, and so
