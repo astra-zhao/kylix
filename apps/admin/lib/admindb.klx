@@ -101,6 +101,28 @@ begin
   end;
 end;
 
+// AdminDBPath reports the sqlite path in use ('' when the process is on
+// postgres), for the startup line.
+function AdminDBPath(): String;
+var
+  env: String;
+  home: String;
+begin
+  env := GetEnv('KYADMIN_DB');
+  if env <> '' then
+    result := env
+  else
+  begin
+    home := GetEnv('HOME');
+    if home = '' then
+      home := GetEnv('USERPROFILE');
+    if home <> '' then
+      result := home + '/.kylixadmin/admin.db'
+    else
+      result := 'admin.db';
+  end;
+end;
+
 // AdminOpen returns the process-wide database handle, opening it on first use.
 //
 // v0.12.0: this used to open a fresh handle on every call, and every handler
@@ -115,6 +137,7 @@ function AdminOpen(dbPath: String): TDatabase;
 var
   env: String;
   dsn: String;
+  home: String;
 begin
   if gAdminOpened then
     result := gAdminDB
@@ -122,7 +145,23 @@ begin
   begin
     env := GetEnv('KYADMIN_DB');
     if env <> '' then
-      dbPath := env;
+      dbPath := env
+    else
+    begin
+      // A deployed binary should not scatter admin.db into whatever directory
+      // it happens to be started from, so the default lives under $HOME
+      // (created on first run). KYADMIN_DB still overrides it, and the E2E sets
+      // it so each form gets its own file.
+      home := GetEnv('HOME');
+      if home = '' then
+        home := GetEnv('USERPROFILE');
+      if home <> '' then
+      begin
+        if not DirExists(home + '/.kylixadmin') then
+          CreateDir(home + '/.kylixadmin');
+        dbPath := home + '/.kylixadmin/admin.db';
+      end;
+    end;
     // The dialect follows the DSN: KYADMIN_DSN selects postgres, otherwise the
     // sqlite file at KYADMIN_DB. DbOpenPg is a separate entry point so the
     // LLVM backend emits the postgres paths (and links libpq) only for programs

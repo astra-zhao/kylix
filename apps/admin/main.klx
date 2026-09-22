@@ -91,6 +91,9 @@ begin
   port := StrToInt(GetEnv('KYADMIN_PORT'));
   if port = 0 then
     port := 8090;
-  WriteLn('kylixadmin listening on :' + IntToStr(port));
+  // One startup line an operator can act on: which database, which dialect,
+  // which port. The templates and static assets are baked into the binary
+  // ([Embed]), so there is nothing else to report.
+  WriteLn('[kyadmin] dialect=' + SqlDialect() + ' db=' + AdminDBPath() + ' port=' + IntToStr(port));
   BootRun(port);
 end.

@@ -446,6 +446,12 @@ jobs:
           PG_DSN="postgres://kylix:kylix@localhost:5432/kyadmin?sslmode=disable" \
           bash apps/admin/migrate_check.sh --pg
 
+      - name: Self-contained binary check (postgres)
+        run: |
+          KYLIX=$PWD/kylix \
+          PG_DSN="postgres://kylix:kylix@localhost:5432/kyadmin?sslmode=disable" \
+          bash apps/admin/deploy_check.sh --pg
+
   admin-e2e:
     name: KylixAdmin E2E (dual-backend parity)
     runs-on: ubuntu-latest
@@ -476,6 +482,12 @@ jobs:
 
       - name: Incremental migration check (sqlite)
         run: KYLIX=$PWD/kylix bash apps/admin/migrate_check.sh
+
+      # The deployment claim: copy the binary somewhere with nothing beside it
+      # and it still serves templates and static assets (they are baked in by
+      # [Embed]).
+      - name: Self-contained binary check (sqlite)
+        run: KYLIX=$PWD/kylix bash apps/admin/deploy_check.sh
 
   lint:
     name: Lint

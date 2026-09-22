@@ -251,9 +251,63 @@ jobs:
           file hello.exe | grep -q "PE32+ executable (console) x86-64"
           echo "cross .exe smoke OK"
 
+  admin:
+    name: KylixAdmin (${{ matrix.target.os }}/${{ matrix.target.arch }})
+    runs-on: ${{ matrix.target.runner }}
+    strategy:
+      matrix:
+        target:
+          - { os: linux,  arch: amd64, runner: ubuntu-latest }
+          - { os: darwin, arch: arm64, runner: macos-14 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      # The LLVM backend needs the toolchain plus the native libraries the
+      # console links: sqlite3, libpq (postgres), libgc (--gc=boehm, required
+      # for a long-running server).
+      - name: Install toolchain (linux)
+        if: matrix.target.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang libsqlite3-dev libssl-dev \
+            libcurl4-openssl-dev libgc-dev libpq-dev
+
+      - name: Install toolchain (macos)
+        if: matrix.target.os == 'darwin'
+        run: brew install llvm openssl@3 bdw-gc libpq
+
+      - name: Build CLI
+        run: go build -o kylix ./cmd/kylix/
+
+      # One binary is the whole console: templates and static assets are baked
+      # in by [Embed('views', 'static')], and the schema is created on startup.
+      - name: Build KylixAdmin (LLVM form)
+        working-directory: apps/admin
+        run: |
+          ../kylix build --backend=llvm --gc=boehm \
+            -o "../../kylixadmin-${{ matrix.target.os }}-${{ matrix.target.arch }}" \
+            ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
+            entities/admin_entities.klx lib/dialect.klx lib/migrate.klx lib/admindb.klx \
+            lib/adminsec.klx lib/audit.klx lib/crud.klx lib/crudrender.klx lib/crudhooks.klx \
+            lib/adminpage.klx controllers/entity.klx controllers/dashboard.klx \
+            controllers/profile.klx controllers/theme.klx main.klx
+
+      - name: Smoke test (empty directory, sqlite)
+        run: KYLIX=$PWD/kylix bash apps/admin/deploy_check.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kylixadmin-${{ matrix.target.os }}-${{ matrix.target.arch }}
+          path: kylixadmin-${{ matrix.target.os }}-${{ matrix.target.arch }}
+
   release:
     name: Create GitHub Release
-    needs: [build, bootstrap, windows-toolchain]
+    needs: [build, bootstrap, windows-toolchain, admin]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
