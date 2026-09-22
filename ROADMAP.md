@@ -239,10 +239,23 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] **双端 E2E 22 场景**（`apps/admin/e2e.sh`，Go/LLVM 归一化 transcript 逐字 diff）：新增搜索/排序/分页保序、未知实体 404、只读实体 403、演示实体全 CRUD + 审计、校验失败回填、口令列不外泄、仪表盘、改密、头像、主题切换与开放重定向守卫；CI `admin-e2e` job；**不进三教程 sweep**（Go 58/58、LLVM 58/58、bootstrap 57 PASS + 1 SKIP 计数不变）
 - 文档：新增 [docs/ADMIN_CRUD_GUIDE.md](docs/ADMIN_CRUD_GUIDE.md)（注解 → 页面的完整用法与双端 parity 约束说明）
 
-### v0.12.0 — KylixAdmin P5（postgres + 发布）
-- [ ] ORM/QueryBuilder 方言抽象（类型映射 + LIMIT/OFFSET/UPSERT/RETURNING 收口）——sqlite ↔ postgres 业务代码零改动
-- [ ] 连接池参数暴露 + `[Entity]` 注解驱动自动建表/增量迁移（替代手写 SQL MigrationManager）
-- [ ] 一键部署文档（`kylix build --backend=llvm` 单二进制 + 内嵌 sqlite）
+### v0.12.0 — KylixAdmin P5（postgres + 发布）✅（2026-09-22）
+- [x] **方言抽象**（类型映射 + 分页/搜索收口）——sqlite ↔ postgres 业务代码零改动
+  - [x] 纯 Kylix 方言层 `apps/admin/lib/dialect.klx`（`SqlType`/`SqlPKColumn`/`SqlWAL`/`SqlLike`(ILIKE)/表内省），运行期由 DSN 推断
+  - [x] **占位符改写下沉 db 层**（`?`→`$n` 单一咽喉点，Go 与 LLVM 各一处；不改写调用点）
+  - [x] **LLVM 端 libpq 后端**（`pkg/llvmgen/stdlib_db_pg.go`）：`PQexecParams` + `PQftype` OID 分派（与 sqlite 的 column_type 逐条对齐）+ IR 版 `?`→`$n` + 错误通道；`DbOpenPg` 独立入口点，**只有用到 pg 的程序才发射、才链 `-lpq`**
+  - [x] 值归一（Go `[]byte`→string 与 LLVM「其余 OID→text」对称）+ 错误旁路 `DbLastError`（生成的代码丢弃 error 半边，这是唯一失败信号）
+  - [x] **四形态 E2E 逐字一致**（sqlite×{Go,LLVM} ≡ postgres×{Go,LLVM}，23 场景）；CI 新增 postgres service job（`--locale=C` + libpq-dev）
+  - [x] PoC 前置验证：pg 参数推断 / **collation 与 LIKE 大小写**（C collation 强制、必须 ILIKE）/ NULL·bool parity / 连接泄漏定量（第 101 次撞 max_connections）
+- [x] 连接池参数暴露（`DbSetMaxOpenConns/IdleConns/ConnMaxLifetime` + `AdminOpen` 进程级单句柄）+ **`[Entity]` 注解驱动自动建表/增量迁移**
+  - [x] `apps/admin/lib/migrate.klx`：元数据生成 `CREATE TABLE`；已存在则内省 → `ALTER TABLE ADD COLUMN`；类型漂移只告警；`schema_migrations` 版本表
+  - [x] 注解补齐：`[Unique]`；`[Default('v')]` 语义扩展到 DDL 默认值；复合主键表保留手写 DDL（明确逃生口）
+  - [x] `apps/admin/migrate_check.sh` 专测增量路径（3 列 → 10 列），sqlite/pg 双方言，入 CI
+- [x] 一键部署（单二进制 + 内嵌资源）
+  - [x] **`[Embed('views', 'static')]` 编译器语言特性**：程序头属性 + 两端烘焙 + `ReadFile`/`BootStatic` 先查内嵌表再回落磁盘（应用代码零改动）
+  - [x] 默认库路径 `~/.kylixadmin/admin.db` + 启动自述行 `[kyadmin] dialect=… db=… port=…`
+  - [x] `docs/ADMIN_DEPLOY.md`（构建/配置/双方言/迁移边界/systemd·Docker·nginx/安全清单/排障）
+  - [x] `apps/admin/deploy_check.sh` 自包含门（空目录跑通登录+列表+静态资源）+ release.yml 发布 `kylixadmin-<os>-<arch>`
 
 ### v0.13.0 — H5 多端路线 A（[MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）
 - [ ] 响应式 PWA 移动页面组（mobile-first 变体复用 P4 设计系统）+ manifest + service worker（BootStatic 服务）

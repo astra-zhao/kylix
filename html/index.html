@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <!-- ============ SEO: Primary Meta ============ -->
-<title>Kylix v0.11.0 — Modern Pascal, Compiled to Go &amp; LLVM | KylixAdmin CRUD Engine</title>
+<title>Kylix v0.12.0 — Modern Pascal, Compiled to Go &amp; LLVM | KylixAdmin on Postgres</title>
 <meta name="description" content="Kylix 是一个现代 Pascal 编译器：双后端（Go 转译 + LLVM 原生）。带类型推导、泛型、async/await、模式匹配、注解语法、KylixBoot Web 框架、ORM、包注册中心、WASM/WASI 支持，以及完整 IDE 工具链。MIT 开源。">
 <meta name="keywords" content="Kylix, Pascal, Go, LLVM, transpiler, compiler, KylixBoot, annotations, WASM, WASI, modern Pascal, Pascal to Go, open source, IDE, LSP, ORM, dependency injection">
 <meta name="author" content="astra-zhao">
@@ -16,7 +16,7 @@
 <meta property="og:type" content="website">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:site_name" content="Kylix">
-<meta property="og:title" content="Kylix v0.11.0 — Modern Pascal, Compiled to Go &amp; LLVM">
+<meta property="og:title" content="Kylix v0.12.0 — Modern Pascal, Compiled to Go &amp; LLVM">
 <meta property="og:description" content="KylixBoot 框架、注解语法、LLVM 原生后端、WASI、包注册中心 — 用 Pascal 编写，编译为 Go 或原生二进制。">
 <meta property="og:url" content="https://kylix.top/">
 <meta property="og:image" content="https://kylix.top/og-image.png">
@@ -26,7 +26,7 @@
 
 <!-- ============ SEO: Twitter Card ============ -->
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Kylix v0.11.0 — Modern Pascal, Compiled to Go &amp; LLVM">
+<meta name="twitter:title" content="Kylix v0.12.0 — Modern Pascal, Compiled to Go &amp; LLVM">
 <meta name="twitter:description" content="KylixBoot 框架、注解语法、LLVM 原生后端、WASI、包注册中心 — Pascal 焕发新生。">
 <meta name="twitter:image" content="https://kylix.top/og-image.png">
 <meta name="twitter:image:alt" content="Kylix - Modern Pascal, Compiled to Go &amp; LLVM">
@@ -38,7 +38,7 @@
   "@type": "SoftwareSourceCode",
   "name": "Kylix",
   "description": "A modern Pascal compiler that transpiles to Go and compiles to native via LLVM. Features KylixBoot framework, annotation syntax, generics, async/await, pattern matching, full IDE toolchain, WASM/WASI support, and a package registry.",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "license": "https://opensource.org/licenses/MIT",
   "url": "https://kylix.top",
   "codeRepository": "https://github.com/astra-zhao/kylix",
@@ -542,7 +542,7 @@ img { max-width: 100%; }
 <header class="hero" id="hero">
   <div class="hero-inner">
     <div class="badges">
-      <span class="badge badge-accent"><span class="badge-dot accent"></span> v0.11.0</span>
+      <span class="badge badge-accent"><span class="badge-dot accent"></span> v0.12.0</span>
       <span class="badge badge-green"><span class="badge-dot green"></span> MIT License</span>
       <span class="badge">Go 1.18+</span>
       <span class="badge">LLVM 后端</span>
@@ -569,7 +569,7 @@ img { max-width: 100%; }
         <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
         GitHub
       </a>
-      <a href="md-viewer.html?file=CHANGELOG.md" class="btn btn-accent">📝 v0.11.0 更新日志</a>
+      <a href="md-viewer.html?file=CHANGELOG.md" class="btn btn-accent">📝 v0.12.0 更新日志</a>
     </div>
 
     <!-- Hero code example -->
@@ -767,37 +767,37 @@ end.</code></pre>
   </div>
 </section>
 
-<!-- ====================== WHATS NEW v0.11.0 ====================== -->
+<!-- ====================== WHATS NEW v0.12.0 ====================== -->
 <section class="section" id="whatsnew">
   <div class="section-inner">
-    <p class="section-label">v0.11.0 亮点</p>
-    <h2 class="section-title">写一个类，得到一套后台 🎉</h2>
-    <p class="section-desc"><strong>通用 CRUD 引擎</strong>——注解驱动的管理页面自动产出；<strong>仪表盘</strong>（零依赖 SVG 图）+ <strong>个人中心</strong>（改密/头像）+ 自研 <strong>UI 设计系统</strong>（三态亮暗主题、响应式）。元数据由编译器在 <strong>Go 与 LLVM 两端</strong>发射（新 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">entitymeta</code> 模块），双端行为逐字一致（<strong>22 场景 E2E</strong> 归一化 transcript 逐字 diff）。</p>
+    <p class="section-label">v0.12.0 亮点</p>
+    <h2 class="section-title">一份源码，两种数据库，一个文件 🎉</h2>
+    <p class="section-desc">同一份 Kylix 源码在 <strong>sqlite 或 postgres</strong> 上跑，Go 与 LLVM <strong>两个后端</strong>行为逐字一致（23 场景 × 四形态 E2E）；表由 <strong><code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">[Entity]</code> 元数据</strong>自动创建与增量迁移；<strong><code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">[Embed]</code></strong> 把模板与静态资源烘进二进制——<strong>一个可执行文件就是整套后台</strong>。</p>
 
     <div class="features-grid">
       <div class="feature-card">
-        <div class="feature-icon">🧩</div>
-        <h3>通用 CRUD 引擎</h3>
-        <p>写一个带注解的类，得到列表（搜索/排序/分页）、表单（含校验）、删除、审计、菜单项与权限点——<strong>不需要新 handler、新模板、新 SQL</strong>。全部业务表已迁入引擎，<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">main.klx</code> 从 775 行降到 103 行。</p>
-        <code>[Entity('notes')] [Label('Title')] [Searchable]</code>
+        <div class="feature-icon">🐘</div>
+        <h3>LLVM 端 libpq 后端</h3>
+        <p>LLVM 原生形态直连 postgres：<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">PQexecParams</code> + <strong>OID 类型分派</strong>（与 sqlite 的列类型分派逐条对齐）+ IR 版占位符改写。方言层是纯 Kylix，占位符改写下沉到 db 层单一咽喉点。</p>
+        <code>DbOpenPg(dsn) · 用到才链 -lpq</code>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">⚙️</div>
-        <h3>编译器两端发射元数据</h3>
-        <p>Go 后端扩展 ORM 扫描、LLVM 后端<strong>新写</strong>注解扫描器（此前对 ORM/校验注解零支持），新增 stdlib 模块 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">entitymeta</code>；编码规则单一来源，编译期诊断拒绝非法标签；发射以「程序含 [Entity]」为门，<strong>无实体程序 IR 逐字节不变</strong>。</p>
-        <code>EntityMetaOf('users') → "id|Users|"</code>
+        <div class="feature-icon">🧪</div>
+        <h3>四形态 E2E 逐字一致</h3>
+        <p>23 个场景分别以 <strong>sqlite×{Go,LLVM}</strong> 与 <strong>postgres×{Go,LLVM}</strong> 运行，归一化 transcript 两两<strong>逐字相同</strong>——「零改动切换」是实测结果。CI 起 postgres service（<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">--locale=C</code>，实测默认 collation 会改变排序）。</p>
+        <code>e2e.sh --pg · 4 forms diffed</code>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">📊</div>
-        <h3>仪表盘 + 个人中心</h3>
-        <p>统计卡 + 近 7 天登录 <strong>SVG 柱状图</strong>（纯整数几何、零依赖、零 CDN）；个人中心支持改密（PBKDF2 校验当前口令）、显示名与<strong>头像</strong>（base64 经 urlencoded 表单，绕开 LLVM multipart 的 CSRF 与 NUL 截断限制）。</p>
-        <code>data-chart="logins" · 整数几何</code>
+        <div class="feature-icon">🗂️</div>
+        <h3>注解驱动建表与迁移</h3>
+        <p>表由 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">[Entity]</code> 元数据生成：缺表则建、元数据长列则 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">ALTER TABLE ADD COLUMN</code>、类型漂移只告警；<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">schema_migrations</code> 版本表留痕。新注解 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">[Unique]</code>、<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">[Default]</code> 扩展为 DDL 默认值。</p>
+        <code>lib/migrate.klx · 版本表 + 内省</code>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🎨</div>
-        <h3>UI 设计系统 + 三态主题</h3>
-        <p>自研 CSS 设计令牌与组件（统计卡/表格/分页器/表单校验/按钮三态/徽章/toast），<strong>服务端渲染的亮/暗/跟随系统三态主题</strong>（首屏无闪烁），响应式布局；渐进增强 JS，无 JS 时页面完全可用。</p>
-        <code>data-theme="light|dark|auto"</code>
+        <div class="feature-icon">📦</div>
+        <h3>[Embed] 单二进制</h3>
+        <p>文件级属性 <code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">[Embed('views','static')]</code> 把资源烘进二进制，<code style="display:inline;background:transparent;border:none;padding:0;color:inherit;">ReadFile</code> 与静态服务<strong>内嵌优先、磁盘回落</strong>——应用代码零改动。空目录拷一个 exe 即可登录使用（CI 有专门的自包含门）。</p>
+        <code>cp kylixadmin /tmp/empty &amp;&amp; ./kylixadmin</code>
       </div>
     </div>
   </div>
@@ -1287,14 +1287,14 @@ kylix build --wasi hello.klx                   # WASI (Wasmtime)</code></pre>
         <span class="doc-icon">🗺️</span>
         <div>
           <h4>路线图</h4>
-          <p>v0.11.0 ✅ 通用 CRUD 引擎（`[Entity]` 元数据驱动 / 仪表盘 / UI 设计系统）· v0.10.0 KylixAdmin P0+P2（Boehm GC / 认证 RBAC）· v0.9.0 1.0.0-rc 打磨 · v0.6.9 bootstrap 无 Go 闭环</p>
+          <p>v0.12.0 ✅ 方言抽象 + LLVM 端 libpq（sqlite/postgres 同源四形态一致）+ 注解驱动迁移 + `[Embed]` 单二进制 · v0.11.0 通用 CRUD 引擎 + UI 设计系统 · v0.10.0 Boehm GC + 认证 RBAC</p>
         </div>
       </a>
       <a href="md-viewer.html?file=CHANGELOG.md" class="doc-card">
         <span class="doc-icon">📝</span>
         <div>
           <h4>更新日志</h4>
-          <p>v0.1 → v0.11.0 完整版本史，含 LLVM 后端 + stdlib 真实现 + JetBrains 插件 + 无 Go 自举 + web 框架 + KylixAdmin（认证 RBAC → CRUD 引擎）</p>
+          <p>v0.1 → v0.12.0 完整版本史，含 LLVM 后端 + stdlib 真实现 + JetBrains 插件 + 无 Go 自举 + web 框架 + KylixAdmin（认证 RBAC → CRUD 引擎 → postgres/单二进制）</p>
         </div>
       </a>
       <a href="md-viewer.html?file=README_CN.md" class="doc-card">
@@ -1320,7 +1320,7 @@ kylix build --wasi hello.klx                   # WASI (Wasmtime)</code></pre>
   <div class="section-inner">
     <div class="cta-banner">
       <h3>🚀 加入 Kylix 社区</h3>
-      <p>Kylix 已 100% 自举并达成无 Go 闭环（v0.6.9：IR 不动点 gen1 ≡ gen2，26.7 万行逐字节），v0.11.0 让 KylixAdmin 进入生产力阶段——注解驱动的通用 CRUD 引擎（元数据由编译器两端发射）、仪表盘、个人中心与自研 UI 设计系统，22 场景双端 E2E 逐字 diff 入 CI，57 个教程 Go/LLVM/bootstrap 三端全过，下一站 v0.12.0 — postgres 方言抽象 + 一键部署单二进制。<br>欢迎贡献代码、提交 Issue、完善文档，一起把 Pascal 带入 LLVM 时代。</p>
+      <p>Kylix 已 100% 自举并达成无 Go 闭环（v0.6.9：IR 不动点 gen1 ≡ gen2，26.7 万行逐字节），v0.12.0 让 KylixAdmin 走向可移植与单文件部署——同一份源码跑 sqlite/postgres（LLVM 端 libpq 后端），四形态 E2E 逐字一致，注解驱动建表与增量迁移，[Embed] 单二进制自包含，57 个教程 Go/LLVM/bootstrap 三端全过，下一站 v0.13.0 — H5 移动端（PWA + JWT refresh + 登录限流）。<br>欢迎贡献代码、提交 Issue、完善文档，一起把 Pascal 带入 LLVM 时代。</p>
       <div class="btn-group">
         <a href="https://github.com/astra-zhao/kylix" class="btn btn-primary" target="_blank" rel="noopener">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -1344,7 +1344,7 @@ kylix build --wasi hello.klx                   # WASI (Wasmtime)</code></pre>
       <a href="https://github.com/astra-zhao/kylix/issues">Issue</a>
     </div>
     <p class="footer-copy">
-      Kylix v0.11.0 &middot; Built with ❤️ by <a href="https://github.com/astra-zhao">astra-zhao</a> &middot; Pascal → Go &amp; LLVM &middot; Simple, Modern, Fast
+      Kylix v0.12.0 &middot; Built with ❤️ by <a href="https://github.com/astra-zhao">astra-zhao</a> &middot; Pascal → Go &amp; LLVM &middot; Simple, Modern, Fast
     </p>
   </div>
 </footer>

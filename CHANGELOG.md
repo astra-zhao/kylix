@@ -12,6 +12,53 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
+## v0.12.0 — KylixAdmin P5（方言抽象 + 注解驱动迁移 + 单二进制）✅（2026-09-22 发布）
+
+### P5a–P5d 方言抽象与 postgres
+
+- **方言层（纯 Kylix，三端同源）** `apps/admin/lib/dialect.klx`：类型映射（`SqlType`/`SqlPKColumn`/`SqlDefaultClause`）、`SqlWAL`（pg 返回空串，调用点显式门控——空语句两个驱动都静默接受，不门控会「看起来成功」）、**`SqlLike`（pg 出 `ILIKE`）**、表内省（`SqlTableColumns`/`SqlTableExistsSQL`，用 `pg_catalog` 而非受权限过滤的 `information_schema`）。运行期方言由 DSN 推断。
+- **占位符改写下沉到 db 层**（不放 Kylix）：Kylix 字符串字面量无转义、且有 `${}` 插值，`?` 出现在 SQL 字面量里是**合法可表达的**；靠 73 个调用点「只在外层调一次」是人肉纪律，且错误在 sqlite 形态下完全不可见。现在 Go 在 `stdlib/db.go` 单一咽喉点改写（跳过字面量内的 `?`，处理 `''` 转义），LLVM 在 pg 发射器内做同样的事。
+- **LLVM 端 libpq 后端**（`pkg/llvmgen/stdlib_db_pg.go`，新）：`PQconnectdb`/`PQexecParams`/`PQresultStatus`/`PQntuples`/`PQfname`/`PQgetvalue`/`PQgetisnull`/`PQftype`/`PQcmdTuples`/`PQclear` 全套 IR；参数以文本传递（整数 `snprintf`）；**`PQftype` OID 分派**（int2/4/8→int、float4/8→float、bool→int 0/1、其余→text）与 sqlite 的 `column_type` 分派逐条对齐；**`?`→`$n` 改写用 IR 实现**（与 Go 侧同一套规则）。**错误通道**：每个语句体做 `PQresultStatus` 门控，失败时把 `PQerrorMessage` 记入模块槽（libpq 自身的 errmsg 在后续成功后会残留，不能用来回答「上一条语句是否失败」）。
+- **独立入口点 `DbOpenPg(dsn)` 而非运行期 driver 分派**：sqlite 路径是调用点内联的、driver 是运行期值，两者相乘无解；且强行双份发射会让**所有** db 程序的 IR 都出现 `@PQ*`，`compile.go` 的字符串扫描会给只连 sqlite 的教程也加 `-lpq`（那些 job 没装 libpq，直接链接挂）。现在只有调用 `DbOpenPg` 的程序才发射 pg 后端（预扫描判定），其余程序 IR 逐字节不变；用到 pg 的程序在调用点按 `@__kylix_db_is_pg` 运行时分派（**参数只求值一次**）。
+- **db 层新面**：`DbSetMaxOpenConns/DbSetMaxIdleConns/DbSetConnMaxLifetime`（LLVM 端接受但无操作）+ **`DbLastError`**（Go 记录最近错误；LLVM 用 `sqlite3_errcode` 门控 `sqlite3_errmsg`，成功时归一为空串）。生成的代码会丢弃 db 调用的 error 半边，这是 Kylix 程序唯一的失败信号通道。
+- **连接池**：`AdminOpen` 改进程级单句柄（15 处调用点零改动）。**PoC 实测：不关闭的池在第 101 次请求即撞 `too many clients already`**，而 admin E2E 有 150+ 请求——pg 形态必挂，故此项先于 pg 落地。
+- **值归一**：Go 的 `DbQueryRows/DbQueryScalar` 把 `[]byte` 折叠成 `string`（lib/pq 的 `numeric/bpchar/name/json/uuid` 返回 `[]byte`，`%v` 会打成 `[49 48]`），与 LLVM「其余 OID → text」对称。
+- **CI**：新增 `admin-e2e-pg` job（首次引入 `services: postgres:16`，**`POSTGRES_INITDB_ARGS: "--locale=C"`**、`libpq-dev`）；e2e 支持 `--pg` 模式，探针参数化（`dbq()` 在 `sqlite3`/`psql -tA` 间分派）、pg 每次 reset（`DROP SCHEMA`，否则第二个形态看到第一个形态的数据、`SeedIfEmpty` 跳过、id 断言全错）。
+
+### P5e `[Entity]` 注解驱动建表与增量迁移
+
+- `apps/admin/lib/migrate.klx`（新）：表不存在 → 由元数据生成 `CREATE TABLE`；已存在 → **内省现有列，缺列 `ALTER TABLE ADD COLUMN`**；类型不符**只告警不改**（改列类型是破坏性操作）；`schema_migrations` 版本表记录初始建表已执行。
+- 手写 DDL 逃生口：`permissions`/`user_roles`/`role_permissions`（复合主键，元数据模型不表达）保留手写。
+- 注解补齐：新增 **`[Unique]`**（username/name）；**`[Default('v')]` 语义从「表单初值」扩展到「DDL 默认值」**（6 个依赖 `DEFAULT 0` 的列补注解）。
+- `apps/admin/migrate_check.sh`（新）：E2E 永远从空库起、只覆盖建表路径，该脚本专测增量路径（造一个 3 列的 `users` 表，断言启动后被扩到 10 列），sqlite 与 pg 双方言。
+
+### P6 `[Embed]` 编译器语言特性
+
+- **程序头属性**：`[Embed('views', 'static')]` 把目录烘进二进制。parser 在 `ParseProgram` 入口接属性列表（`ast.Program.Attributes`），编译期诊断校验目录存在（否则报错而非静默产出缺模板的二进制）。
+- **两端烘焙**：Go 生成 `func init() { stdlib.RegisterEmbedded(name, content) … }`；LLVM 生成两张全局数组 + `@__kylix_embed_init()` 填充 + `@__kylix_embed_get()` 线性扫描。文件遍历单一来源 `internal/embedfiles`（排序保证可重现构建、路径统一斜杠分隔）。
+- **运行期零新 API**：`ReadFile` 与 `BootStatic` **先查内嵌表再回落磁盘**——应用代码一行未改。注册表放在 `pkg/boot`（stdlib 已依赖 boot，反向成环；且静态处理器需要它）。
+- **发射以属性为门**：无 `[Embed]` 的程序零发射（不动点与教程输出不受影响）。
+
+### P7 部署
+
+- **默认数据库路径**改为 `~/.kylixadmin/admin.db`（首次运行自动建目录），启动打印一行自述 `[kyadmin] dialect=… db=… port=…`。
+- `docs/ADMIN_DEPLOY.md`（新）：两种构建形态、自包含性、环境变量、**sqlite vs postgres（含 `LC_COLLATE 'C'` 的强制要求）**、迁移边界、systemd/Docker/nginx、安全清单、排障表。
+- `apps/admin/deploy_check.sh`（新）：**把二进制拷到空目录**跑通登录/列表/静态资源（模板与 CSS/JS 全部来自内嵌表），sqlite 与 pg 双方言。
+- `release.yml` 新增 `admin` job：原生 runner 用 LLVM 后端构建 `kylixadmin-linux-amd64`/`kylixadmin-darwin-arm64`，构建后立即跑自包含冒烟，产物随 Release 发布。
+
+### 编译器配套修复
+
+- **Go 的 `VariantToStr(nil)` 从 `<nil>` 改为 `""`**，与 LLVM 的 nilbox 对齐——这是方言无关的现存 parity 缺陷，pg 化之前必须修（NULL 在 pg 下更常见）。
+- **LLVM 行值 text 列 NULL 守卫**：`sqlite3_column_text` 返回 NULL 时先替换成空串再 `strdup`（v0.11.0 只修了 scalar 路径）。
+- **`MergePrograms` 丢失程序级属性**：多文件构建时 `[Embed]` 属性随合并被丢弃。
+- **pg 的 `SqlTableExistsSQL` 参数顺序写反**（`relname`/`relkind`），导致 pg 下误判表不存在、整个增量迁移路径被跳过（被 `IF NOT EXISTS` 静默吞掉）。
+
+### 验证
+
+- **四形态 E2E 逐字一致**：`apps/admin/e2e.sh`（23 场景）现跑 sqlite×{Go,LLVM} 与 postgres×{Go,LLVM}，transcript 两两逐字相同——「同一份 Kylix 源码、两种数据库、两个后端，行为一致」是实测结果而非口号。
+- **PoC 前置验证**（本地 postgres 16.15）：pg 参数类型推断（含 `INSERT … SELECT $1`）、**collation 与 LIKE 大小写**（默认 collation 下 `ORDER BY` 与 sqlite 不同 → C collation 强制；`LIKE` 大小写敏感 → 必须 `ILIKE`）、NULL/bool 的 Variant 双端 parity、连接泄漏定量（第 101 次）。
+- 全量回归：17 包单测全绿；Go sweep 58/58；LLVM sweep 58/58；bootstrap sweep 57 PASS + 1 SKIP；IR 不动点输入逐字节未变；自包含二进制空目录实测双方言通过。
+
 ## v0.11.0 — KylixAdmin P3+P4 ✅（2026-09-21 发布）
 
 ### P3 通用 CRUD 引擎（元数据驱动）

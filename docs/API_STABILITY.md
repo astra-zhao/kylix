@@ -1,4 +1,4 @@
-# API 稳定性承诺（v0.11.0 → 1.0.0）
+# API 稳定性承诺（v0.12.0 → 1.0.0）
 
 > v0.9.0 起进入 1.0.0-rc 打磨阶段。本文档划定 **1.0.0 将冻结的公开 API 面**，
 > 以及冻结后的破坏性变更 / 弃用流程约定。1.0.0 发布时本文档即生效。
@@ -49,6 +49,10 @@ flag 面（全部经 Go `flag` 包定义，`-flag` 与 `--flag` 双形式等价�
 `orm` `regex` `sysutil` `template` `validation` `wasi` `web` `websocket`
 `autoconfig`
 
+`db` 模块（v0.12.0 增补）：`DbOpenPg(dsn)`（postgres 独立入口点）、`DbLastError(db)`、
+`DbSetMaxOpenConns/DbSetMaxIdleConns/DbSetConnMaxLifetime` 一并冻结。**`?` 占位符的语义**
+（sqlite 原样、postgres 由 db 层改写为 `$n`）与**参数求值次数**（每个实参恰好求值一次）也是契约的一部分。
+
 `entitymeta`（v0.11.0）是 `[Entity]` 注解元数据的运行期读取面，冻结的是
 **编码格式与访问器语义**（`EntityMetaOf` → `"pk|label|flags"`、
 `EntityFieldAt` → `"column|kind|label|flags"`、越界/未知返回 `""`），
@@ -74,9 +78,12 @@ case/forEach/match）、OOP（class/interface/继承/virtual/property）、
 `[Repository]` `[Query]` `[Controller]` `[Service]` `[Component]` `[Inject]`
 `[Get]/[Post]/[Put]/[Delete]` `[Authenticated]` `[Role]` `[Body]`
 `[Required]` `[Email]` `[Min]` `[Max]` `[MinLen]` `[MaxLen]`
-`[Label]` `[Searchable]` `[Hidden]` `[Nullable]` `[Default]` `[ReadOnly]`
-（后六项为 v0.11.0 新增的 CRUD 注解，语义见
+`[Label]` `[Searchable]` `[Hidden]` `[Nullable]` `[Default]` `[ReadOnly]` `[Unique]`
+（后七项为 v0.11.0/v0.12.0 新增的 CRUD 注解，语义见
 [docs/ADMIN_CRUD_GUIDE.md](ADMIN_CRUD_GUIDE.md)）。
+
+**文件级属性**（v0.12.0）：`[Embed('dir', …)]` 写在 `program`/`unit` 头之前，把目录烘焙进二进制；
+`ReadFile` 与静态资源服务的**查找顺序**（内嵌优先、磁盘回落）随之冻结。
 
 **TRequest/TResponse 方法面**（v0.11.0 增补）：`req.Path()` 与既有
 `Param/Query/Header/Body/Form/Cookie/Session*/File/SaveFile/PageNum` 同级冻结；

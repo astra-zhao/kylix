@@ -1,12 +1,35 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-09-21
-> 当前版本: v0.10.0 已发布；v0.11.0 开发完成（P3 CRUD 引擎 + P4 仪表盘/个人中心/UI 设计系统）
+> 最后更新: 2026-09-22
+> 当前版本: v0.11.0 已发布；v0.12.0 开发完成（P5 方言抽象/postgres/迁移 + [Embed] 单二进制 + 部署）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v0.3.1 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
 
 ---
+
+## 🚧 v0.12.0 已知问题（2026-09-22，KylixAdmin P5 开发中发现）
+
+### 数据库
+
+- [ ] **LLVM 端 `orm` 模块仍不存在**：`QueryBuilder`/`MigrationManager`/`Transaction` 只有 Go 实现且未暴露给 Kylix（`TORM` 等类型无映射）。v0.12.0 的迁移体系因此是**另起**的 `[Entity]` 驱动实现（`apps/admin/lib/migrate.klx`），而非复用 `stdlib/orm_migrate.go`（后者无 pg 分支、无事务、LLVM 端零实现）。
+- [ ] **Kylix 层无事务桥接**：Go 有 `Database.Begin`，LLVM 端零事务 API。多表写入（roles 的「先删后插」权限矩阵）在极端失败下可能留下空权限集。
+- [ ] **元数据不表达复合主键/外键/列长度**：`ormEntity.PKColumn` 是单列；`user_roles`/`role_permissions` 因此保留手写 DDL。`maxlen=N` 只是校验注解，不映射成 `VARCHAR(n)`。
+- [ ] **迁移只 ADD COLUMN**：删列/改类型/加主键/加外键都不自动做；类型漂移只告警。生产环境的破坏性变更需要人工迁移脚本（当前无「导出迁移脚本」能力）。
+- [ ] **Windows 的 db 模块不可用**（沿 v0.7.1）：mingw sysroot 无 sqlite3/libpq；`--target windows` 下 db 相关程序无法链接。Windows 请用 Go 形态。
+- [x] ~~跨 unit 零参函数调用丢括号~~（**v0.12.0 实测已不复现**：两形态的 `Zero()` / `Zero() + X` 调用点均正确带括号，见 `generator_expr.go` 的调用发射。该条目为陈旧记录，已删除。）
+
+### 语言/编译器
+
+- [ ] **Kylix 字符串字面量没有转义**（沿 v0.11.0，v0.12.0 影响扩大）：词法器遇 `'` 即结束，SQL 里的 `''` 写不出来。v0.12.0 的 `?`→`$n` 改写因此**不能放在 Kylix 侧**（`?` 可以合法出现在 SQL 字面量里），改在 db 层单一咽喉点完成——Go 与 LLVM 各实现一次同样的规则（跳过字面量、处理 `''`）。
+- [ ] **`FloatToStr` 两端实现不同**（沿 v0.11.0）：任何浮点进入渲染输出都会让双端 diff 分叉；pg 的 `numeric` 列经 Go 会变 `[]byte`（已归一成 string），经 LLVM 按「其余 OID → text」处理，两端一致但都**不是数字**。
+- [ ] **`[Embed]` 的 bootstrap 形态未实现**：`src/llvmgen.klx` 不认识程序头属性；bootstrap 编译含 `[Embed]` 的程序不会烘焙文件（admin 不在 bootstrap sweep 范围内，故未暴露）。
+- [ ] **`[Embed]` 的内容在编译期固定**：改模板必须重新编译（已在 ADMIN_DEPLOY.md 的排障表里写明）。
+
+### 应用
+
+- [ ] **E2E 的形态数在增长**：23 场景 × 4 形态（sqlite/pg × Go/LLVM）+ 迁移检查 + 自包含检查，墙钟时间随之上升；已拆成两个 CI job，但再扩形态需要重新考虑编排。
+- [ ] **`req.Form` 两端语义不同**（沿 v0.11.0）：Go 回退 URL query，LLVM 只查 body。应用层纪律：GET 用 `req.Query`、POST 用 `req.Form`。
 
 ## 🚧 v0.11.0 已知问题（2026-09-21，KylixAdmin P3+P4 开发中发现）
 
@@ -14,7 +37,6 @@
 
 - [ ] **Kylix 字符串字面量没有转义**：词法器（`lexer/lexer.go` `readSingleQuotedString`）遇 `'` 即结束，因此**写不出含单引号的字符串**——SQL 里的 `''`（空串字面量）无法表达。v0.11.0 的规避：CRUD 引擎用 `length(?) = 0` 代替 `? = ''`，用纯 Kylix 整数换算代替 `strftime('%Y-%m-%d', ...)`（格式串也无法内联）。修复方向：支持 `''` 转义（Pascal 惯例）——**属于语言语义变更，须在 1.0 API 冻结前决定**。
 - [ ] **`stored` 是关键字**（`token.STORED`，property 修饰符），却极易被当作普通标识符使用——v0.11.0 中 `stored: String` 局部变量直接导致解析器报 "no prefix parse function"。修复方向：关键字误用时给出「这是保留字」的明确诊断（当前只有晦涩的解析错误）。
-- [ ] **跨 unit 零参函数调用丢括号**（沿 v0.6.9）：公开函数必须 ≥1 参数，v0.11.0 的 `emptyInts()`/`emptyStrings()` 因此改为局部空值变量。
 - [ ] **`array of Variant` 不能标注在函数参数/返回值上**：`DbQueryRows` 的 Go 类型是 `[]map[string]interface{}`，无 Kylix 标注可复现 → 行切片无法跨函数传递（CRUD 引擎因此把查询下沉进渲染函数）。修复方向：为行类型引入具名 Kylix 类型（如 `TRowSet`）。
 
 ### LLVM 后端

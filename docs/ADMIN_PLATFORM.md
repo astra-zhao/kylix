@@ -110,10 +110,18 @@
 - **渲染策略**：服务端模板渲染为主（安全、三端一致），列表页内嵌 vanilla JS fetch + JSON API 做无刷新分页/搜索/删除确认
 - 验收基线：Chrome/Safari/Firefox 三浏览器走查
 
-### P5 postgres 升级 + 发布（v0.12）
+### P5 postgres 升级 + 发布（v0.12）✅（2026-09-22）
 
-- 方言抽象落地 + 连接池参数暴露 + pg 真机验收
-- 一键部署文档：`kylix build --backend=llvm` 产单二进制 + `./kylixadmin` 即起
+- 方言抽象落地 + 连接池参数暴露 + pg 真机验收 ✅
+- 一键部署文档：`kylix build --backend=llvm` 产单二进制 + `./kylixadmin` 即起 ✅
+
+**落地形态（v0.12.0）**：方言层为纯 Kylix（`apps/admin/lib/dialect.klx`），占位符改写下沉到 db 层单一咽喉点；
+**LLVM 端接 libpq**（`pkg/llvmgen/stdlib_db_pg.go`，`DbOpenPg` 独立入口点 → 只有用到 pg 的程序才链 `-lpq`）；
+建表/增量迁移由 `[Entity]` 元数据驱动（`lib/migrate.klx` + `schema_migrations`）；
+单二进制由 `[Embed]` 语言特性支撑（模板与静态资源编译期烘焙）。
+**验收**：四形态 E2E（sqlite×{Go,LLVM} ≡ postgres×{Go,LLVM}，23 场景逐字一致）+ 空目录自包含冒烟。
+**已知边界**：复合主键/FK 的元数据表达、pg 原生 `BOOLEAN`/`TIMESTAMP`（两方言统一 INTEGER 以保 parity）、
+LLVM 端 `orm` 模块（`QueryBuilder`/`MigrationManager` 仍不暴露给 Kylix）、Windows 的 db 模块。
 
 ---
 
@@ -138,6 +146,6 @@ apps/admin/                 # KylixAdmin 源码（Kylix，Go/LLVM 双端同源�
 
 - [ ] Chrome/Safari/Firefox 人工走查通过；亮/暗主题切换正常（v0.11.0 已实现三态主题 + 响应式，走查待做）
 - [x] Go 后端与 LLVM 原生二进制两形态行为逐字一致（`apps/admin/e2e.sh` 22 场景归一化 transcript 逐字 diff，CI `admin-e2e` job）
-- [ ] sqlite ↔ postgres 切换平台代码零改动
+- [x] sqlite ↔ postgres 切换平台代码零改动（四形态 E2E 实测：同一份 Kylix 源码、两种数据库、两个后端，transcript 逐字相同）
 - [ ] 安全清单：PBKDF2-HMAC-SHA256 口令存储（Pbkdf2Hash，信封格式迭代数随哈希存储）/ session 固定防护（登录成功 SessionRegenerate） / CSRF 覆盖全部写操作 / XSS（模板默认转义 + 审计）/ 越权（RBAC 守卫全覆盖）/ 上传类型白名单 / SQL 注入（全参数化）
 - [ ] 全量回归持续绿：16 包 + Go/LLVM sweep + bootstrap sweep + IR 不动点

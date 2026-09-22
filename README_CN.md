@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-0.11.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.12.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后端编译为原生二进制。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
+>
+> 🚀 **v0.12.0**: **KylixAdmin 走向可移植——并且一个文件就能部署。** 同一份 Kylix 源码现在既能跑 **sqlite 也能跑 postgres**：纯 Kylix 方言层 + **LLVM 端 libpq 后端**（原生代码，运行时不依赖 Go），并有双后端 E2E 作证——23 场景分别以 sqlite×{Go,LLVM} 与 postgres×{Go,LLVM} 运行，**transcript 逐字相同**。建表改由 `[Entity]` 元数据生成（缺表则建、元数据长列则 `ALTER TABLE ADD COLUMN`、类型漂移只告警），新增 **`[Embed('views','static')]`** 文件级属性把模板与静态资源烘进二进制——**一个可执行文件就是整套后台**（[部署指南](docs/ADMIN_DEPLOY.md)）。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
 > 🚀 **v0.11.0**: **KylixAdmin 进入生产力阶段。** **通用 CRUD 引擎**——写一个带注解的类，得到列表（搜索/排序/分页）、新建/编辑表单（含校验）、删除、审计日志、菜单项与权限点，**不需要新 handler、新模板、新 SQL**（[指南](docs/ADMIN_CRUD_GUIDE.md)）。元数据由编译器在**两端**发射：新 stdlib 模块 `entitymeta`（LLVM 后端此前对 ORM/校验注解零支持）、新注解 `[Label]/[Searchable]/[Hidden]/[Nullable]/[Default]/[ReadOnly]`，且发射**以「程序含 `[Entity]`」为门**（无实体程序 IR 逐字节不变）。全部实体完成迁移——`main.klx` 从 775 行降到 103 行。另加**仪表盘**（统计卡 + 零依赖整数几何 SVG 图）、**个人中心**（改密、头像）与 **UI 设计系统**（设计令牌、组件、服务端渲染的三态亮暗主题、响应式）。顺带修复：LLVM cookie 解析器不跳 `;` 后空格（第二个及之后的 cookie 全都读不到）、`DbQueryScalar` 遇 NULL 列崩溃。双端 E2E 扩到 **22 场景**逐字对比。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
@@ -1106,7 +1108,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 
 ## 路线图
 
-当前状态：**v0.11.0（KylixAdmin P3+P4）**—— `[Entity]` 元数据驱动的**通用 CRUD 引擎**（元数据由编译器两端发射，新 `entitymeta` 模块）、**仪表盘**（零依赖 SVG 图）、**个人中心**（改密/头像）、自研 **UI 设计系统**（服务端渲染三态主题）；全部业务表迁入引擎（每张表零 handler、零模板），双端 E2E 扩到 **22 场景**逐字 diff。IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。下一步：**v0.12.0 KylixAdmin P5**（postgres 方言抽象 + 一键部署单二进制，见 [docs/ADMIN_PLATFORM.md](docs/ADMIN_PLATFORM.md)）。完整路线图见 [ROADMAP.md](ROADMAP.md)。
+当前状态：**v0.12.0（KylixAdmin P5）**—— 同一份 Kylix 源码可跑 **sqlite 或 postgres**（纯 Kylix 方言层 + **LLVM 端 libpq 后端**），四形态 E2E 逐字一致；建表与增量迁移由 `[Entity]` 元数据驱动；`[Embed('views','static')]` 把模板与资源烘进二进制，**单可执行文件即整套后台**（[部署指南](docs/ADMIN_DEPLOY.md)）。IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。下一步：**v0.13.0 H5 移动端**（PWA 页面组 + JWT refresh + 登录限流，见 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）。完整路线图见 [ROADMAP.md](ROADMAP.md)。
 
 ## 跨平台编译
 
@@ -1230,6 +1232,7 @@ WsClose(ws);
 | 版本 | 亮点 |
 |------|------|
 | v0.9.0 | 1.0.0-rc 打磨：KylixBoot 补齐（Session/CSRF/上传/Download/分页/layout）、bootstrap boot server（example60 E2E）、stdlib IR 重烘链路、CI 三平台全绿 + 性能门禁 + API 稳定性冻结 |
+| v0.12.0 | KylixAdmin P5：纯 Kylix SQL 方言层 + **LLVM 端 libpq 后端**（同一份源码跑 sqlite/postgres，四形态逐字一致 E2E）、`[Entity]` 驱动建表与增量迁移、`[Embed]` 文件烘焙实现单二进制自包含 |
 | v0.11.0 | KylixAdmin P3+P4：`[Entity]` 元数据驱动的通用 CRUD 引擎（编译器两端发射 `entitymeta` 模块）、仪表盘（零依赖 SVG 图）、个人中心、自研 UI 设计系统（三态主题）；双端 E2E 22 场景 |
 | v0.10.0 | KylixAdmin P0+P2：LLVM 后端 Boehm GC（`--gc=boehm`，issue #1）+ 后台认证与 RBAC（PBKDF2/session/锁定/RBAC/审计，15 路由，双端 E2E 入 CI） |
 | v0.8.0 | 自举 stdlib：纯 Kylix stringutil（三端单源）、per-request arena、htab magic 校验加固 |

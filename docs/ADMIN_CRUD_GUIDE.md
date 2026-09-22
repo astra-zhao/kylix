@@ -1,6 +1,6 @@
 # KylixAdmin CRUD 引擎指南
 
-> v0.11.0（2026-09-21）。一句话：**写一个带注解的类，得到一套完整的管理页面**——
+> v0.12.0（2026-09-22）。一句话：**写一个带注解的类，得到一套完整的管理页面**——
 > 列表（搜索/排序/分页）、新建/编辑表单、校验、删除、审计、菜单项、权限点，全部由元数据生成，
 > 不需要新 handler、新模板、新 SQL。
 
@@ -47,11 +47,19 @@ type
   end;
 ```
 
-### 2. 建表（`lib/admindb.klx` 的 `EnsureSchema`）
+### 2. 建表 —— v0.12.0 起**不用写了**
+
+表由 `[Entity]` 元数据生成：启动时 `lib/migrate.klx` 发现表不存在就按注解建表，
+已存在就内省后 `ALTER TABLE ADD COLUMN` 补上新增的列（类型漂移只告警不改）。
 
 ```pascal
-DbExec(db, 'CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, title TEXT, body TEXT, done INTEGER DEFAULT 0, created_at INTEGER DEFAULT 0)');
+// 以前要手写这段，现在由元数据生成：
+// CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, title TEXT, body TEXT,
+//   done INTEGER DEFAULT 0, created_at INTEGER DEFAULT 0)
 ```
+
+> 没有 `[Entity]` 类的表（本例中的 `permissions`/`user_roles`/`role_permissions`，它们是复合主键）
+> 仍由 `admindb.klx` 手写 DDL —— 这是明确的逃生口，元数据模型不表达复合主键。
 
 ### 3. 权限点（`SeedIfEmpty`）
 
@@ -87,7 +95,8 @@ DbExec(db, 'INSERT INTO permissions (code, description) VALUES (?, ?)', 'notes.w
 | `[Searchable]` | 参与 `?q=` 搜索（最多 3 列，见下「已知边界」） |
 | `[Hidden]` | 内部列：列表与表单都不出现（计数器、时间戳、头像等） |
 | `[Nullable]` | 允许留空 |
-| `[Default('1')]` | 新建表单的初始值（复选框默认勾选靠它） |
+| `[Unique]` | 生成建表时加 UNIQUE 约束（v0.12.0） |
+| `[Default('v')]` | 新建表单的初始值，**同时也是生成建表时的 DDL 默认值**（v0.12.0 起） |
 | `[Required]` `[Email]` `[Min(n)]` `[Max(n)]` `[MinLen(n)]` `[MaxLen(n)]` | 校验规则（表单提交时逐条检查） |
 
 **控件类型**由字段类型推导：`String` → 文本框、`Integer`/`Real` → 数字框、`Boolean` → 复选框；
@@ -163,4 +172,6 @@ transcript 归一化后逐字 diff）。CRUD 引擎的几处「反常」写法�
 - **无事务**：Kylix 层没有事务桥接（Go 有 `Database.Begin` 但未暴露给 Kylix），多表写入不原子。roles 的「先删后插」在极端失败下可能留下空权限集。
 - **实体注册表上限** 64 表 / 512 列，超出在编译期报错（LLVM 端固定数组）。
 - **bootstrap 形态不支持**：`[Entity]` 元数据发射只在宿主两端实现；bootstrap 编译器编译含 `[Entity]` 的程序不会注册元数据（admin 不在 bootstrap sweep 范围内）。
-- **`[Hidden]` 列不会自动填充**：引擎只写表单列，内部列依赖 DDL 默认值 + `CrudHookAfterSave` 初始化。
+- **`[Hidden]` 列不会自动填充**：引擎只写表单列，内部列依赖 `[Default('0')]` 生成的 DDL 默认值 + `CrudHookAfterSave` 初始化。
+- **迁移只加列**：删列/改类型/加主键/加外键都不会自动做（`migrate_check.sh` 与启动告警覆盖了「缺列」这一条路径）。
+- **postgres 建库必须 `LC_COLLATE 'C'`**：默认 collation 的 `ORDER BY` 与 sqlite 的 BINARY 不同（实测），会让同一份代码在两个数据库下列表行序不同。见 [ADMIN_DEPLOY.md](ADMIN_DEPLOY.md)。
