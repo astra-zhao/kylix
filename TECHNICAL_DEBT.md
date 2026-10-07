@@ -1,12 +1,28 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-09-22
-> 当前版本: v0.11.0 已发布；v0.12.0 开发完成（P5 方言抽象/postgres/迁移 + [Embed] 单二进制 + 部署）
+> 最后更新: 2026-09-24
+> 当前版本: v0.12.0 已发布；v0.13.0 开发完成（H5 移动端 PWA + 登录限流）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v0.3.1 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
 
 ---
+
+## 🚧 v0.13.0 已知问题（2026-09-24，H5 开发中发现）
+
+### 框架/编译器
+
+- [ ] **MIME 表两端漂移**：Go `mimeFor`（16 项）vs LLVM `emitBootMimeSelect`（11 项）——LLVM 缺 `.gif/.xml/.pdf/.woff/.woff2/.mjs`；v0.13.0 已对齐 `.json` 的 charset 但其余仍未同步。修复方向：MIME 表抽入 `internal/` 共享包（同 entitymetaapi 模式）。
+- [ ] **`.webmanifest` MIME 未加**：PWA manifest 用 `.json` 规避；如需 W3C 推荐的 `.webmanifest` 扩展名，两端各加一条 `application/manifest+json`。
+- [ ] **SW scope 局限于 `/static/`**：离线壳页面（页面本体离线可用）需要根路由 sw.js + `Service-Worker-Allowed` 头——归 v0.15+。
+- [ ] **`[Embed]` 的 bootstrap 形态未实现**（沿 v0.12.0）：bootstrap 编译器不认程序头属性。
+- [ ] **`[Embed]` 二进制烘焙的 LLVM strlen 截断已修**（v0.13.0 加了 `@__kylix_embed_sizes` + `__kylix_embed_size`），但 Go 端 `ReadFile` 对二进制烘焙内容返回的 string 是 byte-safe 的（goStringLiteral 转义后 JSON 缓存也安全）——**此条目确认已修，留档备查**。
+
+### 应用
+
+- [ ] **JWT refresh token 未实现**：推到 v0.15（消费者为原生壳；refresh 可由 `JwtSign(secret, sub, ttl, extraClaims{'typ':'refresh'})` + `JwtVerify` 组合出，零编译器改动；secret 管理方案需同步设计）。
+- [ ] **登录限流可被 XFF 伪造绕过**：`ClientIP` 取 XFF → X-Real-IP → unknown，仅在可信反向代理后有效。直连部署时需配合防火墙规则。
+- [ ] **限流窗口不可手动清除**：只能等 15 分钟自然过期；管理端无「解除限流」操作（审计需要保留失败记录）。
 
 ## 🚧 v0.12.0 已知问题（2026-09-22，KylixAdmin P5 开发中发现）
 

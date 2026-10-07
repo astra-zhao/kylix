@@ -379,4 +379,64 @@ form.stack button { margin-top: var(--sp-4); }
   .main { padding: var(--sp-4); }
   .topbar { padding: var(--sp-3) var(--sp-4); }
   .stats { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+
+  /* ── mobile-first enhancements (v0.13.0 H5) ──
+     The list tables are the main event on a phone: a fixed table would need
+     horizontal scrolling and tiny touch targets, so rows become stacked
+     cards. Each cell is labelled by its data-f attribute (the engine stamps
+     every cell with the column name), which keeps the CSS driven by data the
+     engine already emits. */
+
+  /* touch targets: anything tappable gets at least ~44px */
+  .sidebar nav a,
+  .iconbtn,
+  .pager a, .pager span,
+  button, .btn {
+    min-height: 44px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  form.inline button { min-height: 36px; } /* dense table buttons stay dense */
+
+  /* sidebar-collapsed is a desktop affordance; the mobile topbar is always
+     expanded and the collapse class would fight the horizontal layout */
+  body.sidebar-collapsed .sidebar { width: 100%; }
+  body.sidebar-collapsed .sidebar .brand span,
+  body.sidebar-collapsed .sidebar nav a .navlabel,
+  body.sidebar-collapsed .sidebar .who { display: block; }
+
+  /* list tables become stacked cards: label every cell with its data-f name */
+  table, tbody, tr, td { display: block; }
+  thead { display: none; }
+  tr {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    margin-bottom: var(--sp-3);
+    padding: var(--sp-2) var(--sp-3);
+  }
+  td {
+    border-bottom: 0;
+    padding: 6px var(--sp-2);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--sp-3);
+  }
+  td::before {
+    content: attr(data-f);
+    color: var(--muted);
+    font-size: 12px;
+    flex: none;
+  }
+  td[data-a], td .actions { display: block; text-align: right; }
+  td[data-a]::before { content: none; }
+  tr td:last-child { padding-bottom: var(--sp-2); }
+
+  /* forms go full width, fields stack tighter */
+  form.stack, .searchbar { max-width: none; }
+  form.stack div, .field { margin-bottom: var(--sp-3); }
+
+  /* stats stay on one card per row so the numbers stay readable */
+  .stat-value { font-size: 22px; }
 }

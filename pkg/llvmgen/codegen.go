@@ -1336,6 +1336,19 @@ func (g *Generator) addString(val string) string {
 	return reg
 }
 
+// addRawString is addString without decodeKylixString: embed content read from
+// disk is raw bytes, not Kylix source, so escape sequences like \n inside
+// compressed data must survive verbatim. Used by the [Embed] baking (v0.13.0).
+func (g *Generator) addRawString(val string) string {
+	reg := fmt.Sprintf("@.str.%d", len(g.strings))
+	g.strings = append(g.strings, stringConst{
+		reg:  reg,
+		val:  val,
+		size: len(val) + 1,
+	})
+	return reg
+}
+
 // decodeKylixString decodes backslash escape sequences in a Kylix source string
 // literal (the lexer keeps them raw). Supports \n \t \r \\ \" \'. v0.5.4.
 func decodeKylixString(s string) string {

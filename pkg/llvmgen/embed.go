@@ -60,6 +60,9 @@ func (g *Generator) emitEmbedGlobals(files []embedfiles.File) {
 	g.line(fmt.Sprintf("@__kylix_embed_count = global i64 %d", n))
 	g.line(fmt.Sprintf("@__kylix_embed_names = global [%d x ptr] zeroinitializer", n))
 	g.line(fmt.Sprintf("@__kylix_embed_data = global [%d x ptr] zeroinitializer", n))
+	// v0.13.0: content is binary-safe (PNG icons carry NUL bytes), so the
+	// static handler cannot strlen it — sizes live in their own array.
+	g.line(fmt.Sprintf("@__kylix_embed_sizes = global [%d x i64] zeroinitializer", n))
 }
 
 // emitEmbedInitBody fills the arrays. Emitted at module level and called at the
@@ -77,10 +80,15 @@ func (g *Generator) emitEmbedInitBody() {
 		slot := g.tmp()
 		g.line(fmt.Sprintf("  %s = getelementptr inbounds [%d x ptr], ptr @__kylix_embed_names, i64 0, i64 %d", slot, n, i))
 		g.line(fmt.Sprintf("  store ptr %s, ptr %s", np, slot))
-		dp := g.ptrTo(g.addString(f.Content), len(f.Content)+1)
+		// raw bytes: addRawString (no Kylix-escape decode) + llvmEscapeString
+		// handles NUL and every byte >= 0x80 as \XX, so PNGs round-trip.
+		dp := g.ptrTo(g.addRawString(f.Content), len(f.Content)+1)
 		dslot := g.tmp()
 		g.line(fmt.Sprintf("  %s = getelementptr inbounds [%d x ptr], ptr @__kylix_embed_data, i64 0, i64 %d", dslot, n, i))
 		g.line(fmt.Sprintf("  store ptr %s, ptr %s", dp, dslot))
+		sslot := g.tmp()
+		g.line(fmt.Sprintf("  %s = getelementptr inbounds [%d x i64], ptr @__kylix_embed_sizes, i64 0, i64 %d", sslot, n, i))
+		g.line(fmt.Sprintf("  store i64 %d, ptr %s", len(f.Content), sslot))
 	}
 	g.line("  ret void")
 	g.line("}")
@@ -134,6 +142,59 @@ func (g *Generator) emitEmbedGetBody(files []embedfiles.File) {
 	g.line(fmt.Sprintf("  ret ptr %s", dptr))
 	g.line(fmt.Sprintf("%s:", miss))
 	g.line("  ret ptr null")
+	g.line("}")
+	g.line("")
+}
+
+// emitEmbedSizeBody emits the content-length lookup: the same linear scan,
+// returning the size recorded at init. Binary embeds (PNG icons) contain NUL
+// bytes, so the static handler cannot strlen them.
+func (g *Generator) emitEmbedSizeBody() {
+	files := g.embedFileList
+	if len(files) == 0 {
+		return
+	}
+	n := len(files)
+	g.line("define i64 @__kylix_embed_size(ptr %name) {")
+	g.line("entry:")
+	iSlot := g.tmp()
+	g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))
+	g.line(fmt.Sprintf("  store i64 0, ptr %s", iSlot))
+	loop := g.label()
+	body := g.label()
+	hit := g.label()
+	miss := g.label()
+	g.line(fmt.Sprintf("  br label %%%s", loop))
+	g.line(fmt.Sprintf("%s:", loop))
+	i := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", i, iSlot))
+	more := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp slt i64 %s, %d", more, i, n))
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", more, body, miss))
+	g.line(fmt.Sprintf("%s:", body))
+	nslot := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [%d x ptr], ptr @__kylix_embed_names, i64 0, i64 %s", nslot, n, i))
+	nptr := g.tmp()
+	g.line(fmt.Sprintf("  %s = load ptr, ptr %s", nptr, nslot))
+	cmp := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i32 @strcmp(ptr %s, ptr %%name)", cmp, nptr))
+	eq := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp eq i32 %s, 0", eq, cmp))
+	next := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", eq, hit, next))
+	g.line(fmt.Sprintf("%s:", next))
+	iNext := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", iNext, i))
+	g.line(fmt.Sprintf("  store i64 %s, ptr %s", iNext, iSlot))
+	g.line(fmt.Sprintf("  br label %%%s", loop))
+	g.line(fmt.Sprintf("%s:", hit))
+	sslot := g.tmp()
+	g.line(fmt.Sprintf("  %s = getelementptr inbounds [%d x i64], ptr @__kylix_embed_sizes, i64 0, i64 %s", sslot, n, i))
+	sz := g.tmp()
+	g.line(fmt.Sprintf("  %s = load i64, ptr %s", sz, sslot))
+	g.line(fmt.Sprintf("  ret i64 %s", sz))
+	g.line(fmt.Sprintf("%s:", miss))
+	g.line("  ret i64 0")
 	g.line("}")
 	g.line("")
 }

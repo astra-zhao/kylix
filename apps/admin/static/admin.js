@@ -4,6 +4,14 @@
 (function () {
   'use strict';
 
+  // Service worker: only in a secure context (https or localhost) — on plain
+  // HTTP LAN deployments registration silently no-ops, which is fine: the app
+  // works without it, it just loses static-asset caching.
+  if ('serviceWorker' in navigator && (window.location.protocol === 'https:' ||
+      window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    navigator.serviceWorker.register('/static/sw.js').catch(function () { /* optional */ });
+  }
+
   // Delete confirmation: forms carrying data-confirm ask before submitting.
   document.addEventListener('submit', function (ev) {
     var form = ev.target;

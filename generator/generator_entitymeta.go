@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"fmt"
 	"kylix/ast"
 	"kylix/internal/entitymetaapi"
 	"strings"
@@ -76,9 +77,13 @@ func joinMeta(parts ...string) string {
 	return strings.Join(parts, "|")
 }
 
-// goStringLiteral renders a Go string literal for the emitted registration
-// calls. Labels are validated at compile time (pkg/compiler rejects quotes and
-// control characters), so a straight quote-escape is enough here.
+// goStringLiteral renders a Go string literal for the emitted registration and
+// embedding calls. Byte-safe (v0.13.0): every byte outside printable ASCII is
+// emitted as \xNN, so binary [Embed] content (PNG icons) survives the
+// generated source verbatim — a NUL byte used to end up raw in the generated
+// file, which the Go compiler rejects, and non-UTF-8 bytes were mangled by the
+// cache's JSON round-trip. Pure-ASCII output also makes the generated file
+// cache-safe, since the cache stores fragments as JSON.
 func goStringLiteral(s string) string {
 	var b strings.Builder
 	b.WriteByte('"')
@@ -93,8 +98,14 @@ func goStringLiteral(s string) string {
 			b.WriteString("\\n")
 		case '\r':
 			b.WriteString("\\r")
+		case '\t':
+			b.WriteString("\\t")
 		default:
-			b.WriteByte(c)
+			if c < 0x20 || c > 0x7e {
+				b.WriteString(fmt.Sprintf("\\x%02x", c))
+			} else {
+				b.WriteByte(c)
+			}
 		}
 	}
 	b.WriteByte('"')

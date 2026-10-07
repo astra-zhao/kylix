@@ -54,7 +54,9 @@ type
       pass := req.Form('password');
       db := AdminOpen('admin.db');
       errMsg := DoLogin(db, req, user, pass);
-      if errMsg <> '' then
+      if errMsg = RateLimitMessage then
+        result := TooManyRequests(errMsg)
+      else if errMsg <> '' then
       begin
         eng := TTemplateEngine.Create();
         eng.AddVar('page_title', 'Sign in');

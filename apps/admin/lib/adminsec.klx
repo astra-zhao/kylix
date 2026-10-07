@@ -14,6 +14,13 @@ uses db, boot, datetime, crypto, admindb, stringutil;
 const
   LockThreshold = 5;    // failed attempts before the account locks
   LockSeconds = 900;    // 15 minutes
+  // v0.13.0: IP-layer login rate limiting, on top of the per-account lock.
+  // Counts recent failed logins from login_logs (persistent, so both backends
+  // and restarts see the same window) — 20 failures / 15 minutes per IP, far
+  // above any human pace and above the whole E2E's failure budget (~8).
+  RateWindow = 900;
+  RateMaxFails = 20;
+  RateLimitMessage = 'Too many failed attempts; try again later';
 
 // ClientIP resolves the caller IP: X-Forwarded-For -> X-Real-IP -> unknown.
 // (Both backends identically; RemoteAddr is deliberately not used.)
@@ -43,6 +50,29 @@ begin
     result := '0';
 end;
 
+// LoginRateLimited reports whether this IP has too many recent failed logins.
+// Reads login_logs rather than keeping an in-memory bucket: the state then
+// survives restarts and behaves identically on both backends (the same reason
+// the account lock lives in the users table). A rejected attempt is NOT logged
+// — otherwise the count would grow by itself and the block would never lift.
+function LoginRateLimited(db: TDatabase; ip: String): Boolean;
+var
+  windowStart: Integer;
+  n: Integer;
+begin
+  windowStart := Now().Unix() - RateWindow;
+  n := StrToInt(DbQueryScalar(db, 'SELECT COUNT(*) FROM login_logs WHERE ip = ? AND success = 0 AND created_at >= ?', ip, IntToStr(windowStart)));
+  result := n >= RateMaxFails;
+end;
+
+// TooManyRequests renders the 429 page (same shape as Forbidden).
+function TooManyRequests(msg: String): TResponse;
+begin
+  result := BootHTML(429, '<!doctype html><html><head><meta charset="utf-8"><title>429 Too Many Requests</title></head>' +
+    '<body style="font-family:sans-serif;max-width:420px;margin:12vh auto;text-align:center">' +
+    '<h1>429</h1><p>' + H(msg) + '</p><p><a href="/login">Back to sign in</a></p></body></html>');
+end;
+
 // DoLogin validates credentials, enforces the failure lockout, writes
 // login_logs and establishes the session. Returns '' on success, or the
 // error message to show on the login form.
@@ -65,6 +95,15 @@ begin
   now := Now().Unix();
   ip := ClientIP(req);
   ua := req.Header('User-Agent');
+  // IP-layer rate limit comes before everything else: it protects the account
+  // lock too (an attacker cycling usernames would otherwise reset nothing but
+  // still hammer the table). The rejected attempt is not logged, so the block
+  // lifts by itself once the window passes.
+  if LoginRateLimited(db, ip) then
+  begin
+    result := RateLimitMessage;
+    exit;
+  end;
   var rows := DbQueryRows(db, 'SELECT id, password, is_active, failed_attempts, locked_until FROM users WHERE username = ?', username);
   if Length(rows) = 0 then
   begin

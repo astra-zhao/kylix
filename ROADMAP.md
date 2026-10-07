@@ -257,10 +257,13 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
   - [x] `docs/ADMIN_DEPLOY.md`（构建/配置/双方言/迁移边界/systemd·Docker·nginx/安全清单/排障）
   - [x] `apps/admin/deploy_check.sh` 自包含门（空目录跑通登录+列表+静态资源）+ release.yml 发布 `kylixadmin-<os>-<arch>`
 
-### v0.13.0 — H5 多端路线 A（[MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）
-- [ ] 响应式 PWA 移动页面组（mobile-first 变体复用 P4 设计系统）+ manifest + service worker（BootStatic 服务）
-- [ ] JWT refresh token + 登录限流
-- [ ] `docs/H5_GUIDE.md`——验收：手机浏览器可安装使用 admin 移动版
+### v0.13.0 — H5 多端路线 A（[MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）✅（2026-09-24）
+- [x] **响应式 PWA**（同 URL + CSS/JS 增强，非独立 h5/ 页面组）：manifest.json + sw.js（cache-first 静态资源、页面 network-only）+ 192/512 PNG 图标 + base.tpl 接线（manifest link / apple-touch-icon / theme-color）+ admin.js SW 注册（https/localhost 条件）+ admin.css ≤900px 断点增强（表格卡片化/触控 44px/折叠态禁用）
+- [x] 登录限流（应用层，查 login_logs：20 失败/15 分钟/IP → 429；不写 login_logs 防自增殖；与账号锁定互补）
+- [x] ~~JWT refresh token~~ → **推到 v0.15**（admin 零 JWT 使用；refresh 可由现有 JwtSign+JwtVerify 组合；消费者为 v0.15 原生壳）
+- [x] `docs/H5_GUIDE.md`——验收：手机浏览器可安装使用 admin 移动版
+- [x] MIME 对齐：LLVM 端 `.json` 补 charset=utf-8（与 Go 一致）；两端 MIME 漂移记入 TECHNICAL_DEBT
+- [x] **25 场景 × 4 形态 E2E 逐字一致**（sqlite×{Go,LLVM} ≡ postgres×{Go,LLVM}）
 
 ### v0.14.0 — 编译器多端能力（Android/iOS 前置）
 - [ ] **C ABI `export` 关键字落地**（双端：Go `//export` + LLVM `.globl` 裸符号/cdecl + `kylix_free` arena 所有权模型）

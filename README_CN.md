@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-0.12.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.13.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后端编译为原生二进制。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
+>
+> 🚀 **v0.13.0**: **KylixAdmin 成为 PWA——并获得登录限流。** 后台现在可以从手机浏览器安装（manifest + service worker + 图标，全部由 `[Embed]` 烘焙进单二进制）；静态资源离线缓存、页面走网络。`≤900px` 断点获得 mobile-first 增强（列表表格变堆叠卡片、44px 触控目标、表单全宽）。登录限流（20 次失败/15 分钟/IP → 429）查 `login_logs` 而非内存桶——双端和重启看到同一窗口。详见 [CHANGELOG.md](CHANGELOG.md) 与 [H5 指南](docs/H5_GUIDE.md)。
 >
 > 🚀 **v0.12.0**: **KylixAdmin 走向可移植——并且一个文件就能部署。** 同一份 Kylix 源码现在既能跑 **sqlite 也能跑 postgres**：纯 Kylix 方言层 + **LLVM 端 libpq 后端**（原生代码，运行时不依赖 Go），并有双后端 E2E 作证——23 场景分别以 sqlite×{Go,LLVM} 与 postgres×{Go,LLVM} 运行，**transcript 逐字相同**。建表改由 `[Entity]` 元数据生成（缺表则建、元数据长列则 `ALTER TABLE ADD COLUMN`、类型漂移只告警），新增 **`[Embed('views','static')]`** 文件级属性把模板与静态资源烘进二进制——**一个可执行文件就是整套后台**（[部署指南](docs/ADMIN_DEPLOY.md)）。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
@@ -1110,7 +1112,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 
 ## 路线图
 
-当前状态：**v0.12.0（KylixAdmin P5）**—— 同一份 Kylix 源码可跑 **sqlite 或 postgres**（纯 Kylix 方言层 + **LLVM 端 libpq 后端**），四形态 E2E 逐字一致；建表与增量迁移由 `[Entity]` 元数据驱动；`[Embed('views','static')]` 把模板与资源烘进二进制，**单可执行文件即整套后台**（[部署指南](docs/ADMIN_DEPLOY.md)）。IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。下一步：**v0.13.0 H5 移动端**（PWA 页面组 + JWT refresh + 登录限流，见 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）。完整路线图见 [ROADMAP.md](ROADMAP.md)。
+当前状态：**v0.13.0（H5 移动端）**—— 同一份 Kylix 源码可跑 **sqlite 或 postgres**（纯 Kylix 方言层 + **LLVM 端 libpq 后端**），四形态 E2E 逐字一致；建表与增量迁移由 `[Entity]` 元数据驱动；`[Embed('views','static')]` 把模板与资源烘进二进制，**单可执行文件即整套后台**（[部署指南](docs/ADMIN_DEPLOY.md)）。IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。下一步：**v0.13.0 H5 移动端**（PWA 页面组 + JWT refresh + 登录限流，见 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）。完整路线图见 [ROADMAP.md](ROADMAP.md)。
 
 ## 跨平台编译
 

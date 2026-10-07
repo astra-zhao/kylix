@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-0.12.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.13.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix is a modern reimagining of Pascal, designed to compile to Go or to native binaries via the LLVM backend. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
+>
+> 🚀 **v0.13.0**: **KylixAdmin becomes a PWA — and gets login rate limiting.** The console is now installable from a mobile browser (manifest + service worker + icons, all baked into the single binary via `[Embed]`); static assets are cached offline while pages stay network-only. The `≤900px` breakpoint got mobile-first enhancements (list tables become stacked cards labelled by `data-f`, 44px touch targets, forms full-width). Login rate limiting (20 failures / 15 min / IP → 429) reads `login_logs` rather than an in-memory bucket, so both backends and restarts see the same window. See [CHANGELOG.md](CHANGELOG.md) and the [H5 guide](docs/H5_GUIDE.md).
 >
 > 🚀 **v0.12.0**: **KylixAdmin goes portable — and deployable as one file.** The admin console now runs on **sqlite or postgres with the same Kylix source**: a pure-Kylix dialect layer, a **libpq backend on the LLVM side** (native code, no Go at runtime), and a dual-backend E2E that proves it — 23 scenarios run as sqlite×{Go,LLVM} and postgres×{Go,LLVM} with **byte-identical transcripts**. Tables are now generated from `[Entity]` metadata (create when missing, `ALTER TABLE ADD COLUMN` when the metadata grows, type drift only warned about), and a new **`[Embed('views','static')]`** file-level attribute bakes templates and assets into the binary — so **one executable is the whole console** ([deployment guide](docs/ADMIN_DEPLOY.md)). See [CHANGELOG.md](CHANGELOG.md).
 >
@@ -1068,7 +1070,7 @@ Kylix LSP supports any editor with LSP client:
 
 ## Roadmap
 
-Current status: **v0.12.0 (KylixAdmin P5)** — the console runs on sqlite or postgres from one Kylix source (pure-Kylix dialect layer + a **libpq backend on the LLVM side**), with a four-form E2E proving byte-identical behaviour; tables are created and migrated from `[Entity]` metadata; and `[Embed('views','static')]` bakes templates and assets into the binary, so a single executable is the whole console ([deploy guide](docs/ADMIN_DEPLOY.md)). The IR fixed point holds (gen1 ≡ gen2, 267k lines byte-identical). Next up: **v0.13.0 H5** — PWA mobile page group, JWT refresh, login rate limiting (see [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)). The full roadmap lives in [ROADMAP.md](ROADMAP.md).
+Current status: **v0.13.0 (H5 mobile)** — the console runs on sqlite or postgres from one Kylix source (pure-Kylix dialect layer + a **libpq backend on the LLVM side**), with a four-form E2E proving byte-identical behaviour; tables are created and migrated from `[Entity]` metadata; and `[Embed('views','static')]` bakes templates and assets into the binary, so a single executable is the whole console ([deploy guide](docs/ADMIN_DEPLOY.md)). The IR fixed point holds (gen1 ≡ gen2, 267k lines byte-identical). Next up: **v0.14.0 compiler multi-platform** — C ABI `export`, Android/iOS triples, stdlib portable layer (see [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)). The full roadmap lives in [ROADMAP.md](ROADMAP.md).
 
 ## Cross-Platform Compilation
 

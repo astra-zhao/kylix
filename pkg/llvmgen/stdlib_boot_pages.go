@@ -912,8 +912,10 @@ func (g *Generator) emitBootServeStaticBody() {
 		fsLbl := g.label()
 		c("  br i1 %s, label %%%s, label %%%s", embNull, embLbl, fsLbl)
 		c("%s:", embLbl)
+		// Binary content (PNG icons) carries NUL bytes — strlen would truncate,
+		// so the length comes from the parallel sizes array.
 		embLen := g.tmp()
-		c("  %s = call i64 @strlen(ptr %s)", embLen, emb)
+		c("  %s = call i64 @__kylix_embed_size(ptr %s)", embLen, full)
 		c("  store ptr %s, ptr %s", emb, bodySlot)
 		c("  store i64 %s, ptr %s", embLen, lenSlot)
 		// The constant is not heap memory: nothing to free.
@@ -1010,7 +1012,7 @@ func (g *Generator) emitBootMimeSelect(ext string) string {
 	add(".htm", bootCTHtml)
 	add(".css", "text/css; charset=utf-8")
 	add(".js", "application/javascript; charset=utf-8")
-	add(".json", "application/json")
+	add(".json", "application/json; charset=utf-8")
 	add(".png", "image/png")
 	add(".jpg", "image/jpeg")
 	add(".jpeg", "image/jpeg")

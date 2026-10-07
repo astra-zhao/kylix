@@ -34,9 +34,9 @@
 ### H5（两条路线，先易后难）
 
 **路线 A：响应式 PWA（v0.13，零编译器改动）**
-- KylixAdmin/业务后端增加移动端页面组：响应式断点复用 P4 设计系统（mobile-first 变体）+ `manifest.json` + service worker（BootStatic 直接服务）→ 可安装主屏、基础离线壳
-- 认证：JWT + refresh token；登录限流（RateLimit 已有）
-- 交付：`apps/admin/h5/` 模板页面组 + `docs/H5_GUIDE.md`
+- KylixAdmin 增强移动端体验：同 URL + 响应式 CSS/JS 增强（非独立 h5/ 页面组——双倍维护成本不值得），`manifest.json` + service worker（BootStatic 服务）→ 可安装主屏
+- 认证：session-first（PWA 走 cookie）；JWT refresh token 推 v0.15（消费者为原生壳）；登录限流（应用层查 login_logs，非中间件——LLVM 端无中间件链）
+- 交付：✅ v0.13.0（2026-09-24）+ `docs/H5_GUIDE.md`
 
 **路线 B：Kylix → wasm32 纯逻辑（v0.15，编译器能力）**
 - LLVM 后端加 `wasm32-unknown-wasi` triple + `--target wasm`；`pkg/wasi`（现有 stub 骨架）真实现 wasi_snapshot_preview1 导入表（fd_write/clock/random）

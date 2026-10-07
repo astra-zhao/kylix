@@ -12,6 +12,32 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
+## v0.13.0 — H5 移动端（PWA + 登录限流）✅（2026-09-24 发布）
+
+### PWA（可安装的 Web 应用）
+
+- **manifest.json**（`static/`）：name/short_name/start_url=`/dashboard`/display=standalone/theme_color=`#2f6bff`/icons 192+512 PNG（编译期脚本生成的确定性纯色图标）。`base.tpl` 加 `<link rel="manifest">` + `<link rel="apple-touch-icon">` + `<meta name="theme-color">`。
+- **Service Worker**（`static/sw.js`）：cache-first 静态资源（CSS/JS/图标/manifest，缓存名 `kyadmin-v1`），**页面 network-only**——缓存页面会同时缓存 CSRF token（429）且跨用户泄漏。SW 注册仅在 https/localhost（`admin.js`，注册失败静默——HTTP LAN 部署不受影响）。
+- **同 URL + CSS/JS 增强**（偏离 MULTIPLATFORM 路线 A 原文的独立 h5/ 页面组——双倍模板维护与 E2E 成本不值得，独立页面组没有 CSS/JS 渐进增强覆盖不了的收益）。`≤900px` 断点增强：列表表格**卡片化**（`td[data-f]::before` 显示字段名）、触控目标 ≥44px、表单全宽、**移动端禁用折叠态**（与顶栏形态冲突）。E2E 断言绑 `data-*` 属性（v0.11.0 的设计决策），CSS 改动不影响测试。
+
+### 登录限流（IP 层，应用层实现）
+
+- **`LoginRateLimited(db, ip)`**（`adminsec.klx`）：查 `login_logs`（`SELECT COUNT(*) WHERE ip = ? AND success = 0 AND created_at >= ?`）——20 次失败/15 分钟/IP → `DoLogin` 最前短路返回 `RateLimitMessage`；`LoginSubmit` 检测该消息渲染 **429 页**（`TooManyRequests`，与 `Forbidden` 同构）。
+- **选 DB 查询而非内存表**：状态跨重启 + 双端天然一致（同失败锁定的选型理由）；登录已有 PBKDF2 校验，COUNT 查询成本可忽略。**内存表在 LLVM malloc 回落模式下泄漏**且 e2e 重启 parity 破坏。
+- **429 尝试不写 login_logs**（否则计数自增殖，锁定永不解除）。与**账号锁定**（5 次锁 15 分钟，账号维度）互补：限流防 IP 扫描，锁定防单账号爆破。
+- **ClientIP 可伪造**：XFF → X-Real-IP → unknown，仅限可信反向代理后使用。已在 H5_GUIDE/ADMIN_DEPLOY 说明。
+
+### 框架配套
+
+- **MIME 对齐**：LLVM 端 `.json` 补 `charset=utf-8`（与 Go 一致，四形态 E2E 暴露的漂移）；两端 MIME 表其余漂移（`.gif/.xml/.pdf/.woff/.woff2/.mjs`）记 TECHNICAL_DEBT。
+- `docs/H5_GUIDE.md`（新）：可安装条件（HTTPS 必须）、SW 缓存策略、离线行为边界、限流阈值与 XFF 可伪造说明、手机验收步骤。
+
+### 验证
+
+- **E2E 25 场景 × 4 形态逐字一致**（sqlite×{Go,LLVM} ≡ postgres×{Go,LLVM}）：新增 S24（PWA 资产可达 + MIME + manifest 内容钩子）、S25（登录限流 21 次尝试 → 429 + XFF 隔离）。
+- 全量回归：17 包全绿；Go sweep 58/58；LLVM sweep 58/58；bootstrap 57 PASS + 1 SKIP；IR 不动点输入逐字节未变；deploy_check/migrate_check PASS。
+- **零编译器改动**（本版改动全在应用层 + 框架 MIME 表——`[Embed]`/entitymeta/libpq 均为 v0.12.0 已有基建）。
+
 ## v0.12.0 — KylixAdmin P5（方言抽象 + 注解驱动迁移 + 单二进制）✅（2026-09-22 发布）
 
 ### P5a–P5d 方言抽象与 postgres

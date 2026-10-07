@@ -411,6 +411,26 @@ scenarios() {
   echo "S23 users_cols=$(colcount users) notes_cols=$(colcount notes) roles_cols=$(colcount roles)" \
       "logs_cols=$(colcount op_logs) version=$(dbq "SELECT version FROM schema_migrations")" >> "$T"
 
+  # S24 PWA: manifest / sw.js / icons served via BootStatic ([Embed] baked in)
+  m_code=$(curl -s -o "$J/s24m" -w '%{http_code} %{content_type}' "$BASE/static/manifest.json")
+  w_code=$(curl -s -o "$J/s24w" -w '%{http_code}' "$BASE/static/sw.js")
+  i_code=$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "$BASE/static/icons/icon-192.png")
+  echo "S24 manifest=$m_code has_display=$(has "$J/s24m" '"display"') sw=$w_code icons=$i_code" \
+      "link=$(has "$J/s24m" 'theme_color')" >> "$T"
+
+  # S25 login rate limiting: 21 failures from one IP -> the 21st gets 429.
+  # Placed LAST because the IP bucket (127.0.0.1) is shared with other scenarios.
+  curl -s -c "$J/rl" -o /dev/null "$BASE/login"
+  local last=0
+  for i in $(seq 1 21); do
+    C=$(fresh_csrf "$J/rl" /login)
+    last=$(curl -s -b "$J/rl" -o /dev/null -w '%{http_code}' \
+      -H 'X-Forwarded-For: 10.0.0.99' \
+      -d "username=nosuch&password=WRONG&_csrf=$C" "$BASE/login")
+    [ "$last" = "429" ] && break
+  done
+  echo "S25 attempts=$i last429=$last" >> "$T"
+
   # stop the server and wait until the port is actually free — the other
   # form reuses it, and a stale listener would make its ready-probe hit the
   # corpse while the new server dies on bind.
@@ -476,7 +496,7 @@ if [ "$WITH_PG" = "1" ]; then
     tail -5 "$WORK/srv_ll_bin.log" 2>/dev/null
     fail "postgres forms differ between backends"
   fi
-  echo "KylixAdmin dual-backend E2E: PASS (23 scenarios x 4 forms: sqlite+pg x Go+LLVM)"
+  echo "KylixAdmin dual-backend E2E: PASS (25 scenarios x 4 forms: sqlite+pg x Go+LLVM)"
 else
-  echo "KylixAdmin dual-backend E2E: PASS (23 scenarios x 2 forms)"
+  echo "KylixAdmin dual-backend E2E: PASS (25 scenarios x 2 forms)"
 fi
