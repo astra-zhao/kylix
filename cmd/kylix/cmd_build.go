@@ -26,6 +26,7 @@ func cmdBuild(args []string) {
 	llvmDebug := fs.Bool("g", false, "Emit DWARF debug info (LLVM backend; implies -O0, enables GDB/LLDB function-level debugging)")
 	gc := fs.String("gc", "", "Automatic memory management for user data (LLVM backend): boehm (Boehm GC, links -lgc). Default: malloc-based, no free")
 	showTime := fs.Bool("time", false, "Print compile duration and incremental-cache hit rate (v0.6.0)")
+	shared := fs.Bool("shared", false, "Compile to shared library (.so / .dylib / .dll) with C ABI exports (v0.14.0)")
 	fs.Usage = func() {
 		fmt.Printf(`USAGE: kylix build [options] [file.klx]
 
@@ -95,6 +96,7 @@ OPTIONS:
 			Verbose:           *verbose,
 			CacheDir:          wd,
 			PackageSearchDirs: packageDirsFromWd(wd),
+			Shared:            *shared,
 		}
 
 		if fs.NArg() == 1 {
@@ -103,7 +105,7 @@ OPTIONS:
 			// LLVM backend shortcut — bypass Go codegen entirely
 			if *backend == "llvm" {
 				start := time.Now()
-				if err := buildWithLLVM(file, *output, *llvmOpt, *llvmDebug, *target, *gc); err != nil {
+				if err := buildWithLLVM(file, *output, *llvmOpt, *llvmDebug, *target, *gc, *shared); err != nil {
 					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 					os.Exit(1)
 				}
@@ -171,7 +173,7 @@ OPTIONS:
 		// program + any `unit` files it `uses`) before lowering to LLVM IR.
 		if *backend == "llvm" {
 			start := time.Now()
-			if err := buildMultiFileWithLLVM(files, *output, *llvmOpt, *llvmDebug, *target, *gc); err != nil {
+			if err := buildMultiFileWithLLVM(files, *output, *llvmOpt, *llvmDebug, *target, *gc, *shared); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -370,7 +372,7 @@ func cacheStats(hits, misses int) string {
 
 // buildWithLLVM compiles a Kylix file to native binary via LLVM IR.
 // target is a "os/arch" cross-compile target ("" = host); windows adds .exe.
-func buildWithLLVM(srcFile, outBin, optLevel string, debugInfo bool, target string, gc string) error {
+func buildWithLLVM(srcFile, outBin, optLevel string, debugInfo bool, target string, gc string, shared bool) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
 		return fmt.Errorf("LLVM toolchain not found: %w\nHint: brew install llvm (macOS) or apt install llvm clang (Linux)", err)
@@ -385,6 +387,7 @@ func buildWithLLVM(srcFile, outBin, optLevel string, debugInfo bool, target stri
 		DebugInfo: debugInfo,
 		Target:    target,
 		GC:        gc,
+		Shared:    shared,
 	})
 	if err != nil {
 		return err
@@ -406,7 +409,7 @@ func buildWithLLVM(srcFile, outBin, optLevel string, debugInfo bool, target stri
 // then their declarations are merged (see llvmgen.MergePrograms) before
 // lowering to one LLVM module — mirroring how the Go backend's
 // compiler.CompileProject merges multiple ASTs via generator.GenerateMulti.
-func buildMultiFileWithLLVM(files []string, outBin, optLevel string, debugInfo bool, target string, gc string) error {
+func buildMultiFileWithLLVM(files []string, outBin, optLevel string, debugInfo bool, target string, gc string, shared bool) error {
 	llvmPaths, err := llvmgen.FindLLVM()
 	if err != nil {
 		return fmt.Errorf("LLVM toolchain not found: %w\nHint: brew install llvm (macOS) or apt install llvm clang (Linux)", err)
@@ -421,6 +424,7 @@ func buildMultiFileWithLLVM(files []string, outBin, optLevel string, debugInfo b
 		DebugInfo: debugInfo,
 		Target:    target,
 		GC:        gc,
+		Shared:    shared,
 	})
 	if err != nil {
 		return err

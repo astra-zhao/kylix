@@ -340,6 +340,10 @@ func (g *Generator) generateFunctionDecl(decl *ast.FunctionDecl) {
 	if decl.Body == nil {
 		return
 	}
+	if cSym, ok := getExportSymbol(decl.Attributes, decl.Name); ok {
+		g.writeLine(fmt.Sprintf("//export %s", cSym))
+		g.hasExports = true
+	}
 	g.writeLineDirective(decl.Token.Line)
 	hasReturnType := decl.ReturnType != nil || len(decl.ReturnTypes) > 0
 	hasMultiReturn := len(decl.ReturnTypes) > 1
@@ -802,4 +806,20 @@ func (g *Generator) mapBuiltinFunction(name string) string {
 		g.imports["math/rand"] = true
 	}
 	return goFunc
+}
+
+// getExportSymbol reports whether attrs contains [Export] or [Export('sym')],
+// returning the C export symbol name (v0.14.0).
+func getExportSymbol(attrs []*ast.Attribute, defaultName string) (string, bool) {
+	for _, attr := range attrs {
+		if strings.EqualFold(attr.Name, "Export") {
+			if len(attr.Args) > 0 {
+				if lit, ok := attr.Args[0].(*ast.StringLiteral); ok && lit.Value != "" {
+					return lit.Value, true
+				}
+			}
+			return defaultName, true
+		}
+	}
+	return "", false
 }

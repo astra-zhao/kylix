@@ -299,6 +299,14 @@ type Generator struct {
 	// function emitter (emitFunctionDecl/emitMethod/emitLambdaFunc/
 	// emitProgram). "" outside a function.
 	funcExitLabel string
+
+	// isShared (v0.14.0): when true, compile as a shared library (.so/.dylib/.dll).
+	// Entry point becomes @__kylix_lib_init registered in @llvm.global_ctors.
+	isShared bool
+
+	// hasExports / exportedFuncs (v0.14.0): tracks functions annotated with [Export].
+	hasExports    bool
+	exportedFuncs map[string]string // map[KylixName]cSymbolName
 }
 
 type stringConst struct {
@@ -349,6 +357,7 @@ func NewGenerator(moduleName string) *Generator {
 		mapVars:             make(map[string]bool),
 		variantMaps:         make(map[string]bool),
 		strDedup:            make(map[string]string),
+		exportedFuncs:       make(map[string]string),
 	}
 }
 
@@ -364,6 +373,7 @@ func GenerateWithOpts(prog *ast.Program, srcFile string, opts CompileOpts) (stri
 	g.debugInfo = opts.DebugInfo
 	g.targetOS, g.targetArch = resolveTarget(opts.Target)
 	g.gc = opts.GC
+	g.isShared = opts.Shared // v0.14.0
 	if g.debugInfo {
 		g.initDbgMeta(srcFile)
 	}
@@ -388,17 +398,19 @@ func (g *Generator) collectGlobals(prog *ast.Program) {
 	// (so unit vars like token.Keywords are visible to every function). Single-file
 	// programs keep top-level vars as main-local allocas (preserves existing
 	// debug/IR test expectations).
-	if !prog.IsMerged {
+	if !prog.IsMerged && !g.isShared {
 		return
 	}
 	// v0.5.4: pre-register the Args builtin as a global slice so Args[i] /
 	// Length(Args) resolve via the normal array path (the slice is populated
 	// from argc/argv in main). needArgs is set so main() declares argc/argv
 	// and emits the @__kylix_args global.
-	g.needArgs = true
-	g.globals["Args"] = "@__kylix_args"
-	g.globalTypes["Args"] = "{ ptr, i64, i64 }"
-	g.globalArrays["Args"] = &arrayInfo{IsDynamic: true, ElementType: "ptr", ElementKylixType: "String"}
+	if !g.isShared {
+		g.needArgs = true
+		g.globals["Args"] = "@__kylix_args"
+		g.globalTypes["Args"] = "{ ptr, i64, i64 }"
+		g.globalArrays["Args"] = &arrayInfo{IsDynamic: true, ElementType: "ptr", ElementKylixType: "String"}
+	}
 	for _, decl := range prog.Declarations {
 		vd, ok := decl.(*ast.VarDecl)
 		if !ok || len(vd.Names) == 0 {
@@ -532,6 +544,13 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 			g.constants[cd.Name] = cd.Value
 		} else if fd, ok := decl.(*ast.FunctionDecl); ok && !fd.IsExternal {
 			g.funcSigs[fd.Name] = fd
+			if cSym, ok := getExportSymbol(fd.Attributes, fd.Name); ok {
+				g.hasExports = true
+				if g.exportedFuncs == nil {
+					g.exportedFuncs = make(map[string]string)
+				}
+				g.exportedFuncs[fd.Name] = cSym
+			}
 			if len(fd.ReturnTypes) > 0 {
 				var llvmTypes []string
 				for _, rt := range fd.ReturnTypes {
@@ -765,6 +784,11 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 	}
 	g.pendingModuleGlobals = nil
 
+	// v0.14.0: emit standard C ABI kylix_free export if any exported function or shared library
+	if g.hasExports || g.isShared {
+		g.emitKylixFree()
+	}
+
 	// Emit string constants at the end
 	g.emitStringConsts()
 
@@ -979,44 +1003,57 @@ func (g *Generator) emitRuntimeDecls() {
 
 func (g *Generator) emitMain(stmts []ast.Statement) error {
 	g.line("; ===== Entry point =====")
-	// v0.5.4: when the Args builtin is used, main takes argc/argv and populates
-	// @__kylix_args (a {ptr,len,cap} slice of argv[1:] as C strings).
-	defineLine := "define i32 @main() {"
-	if g.needArgs || statementsUseArgs(stmts) {
-		// @__kylix_args was already defined at module scope (emitProgram).
-		g.needArgs = true
-		defineLine = "define i32 @main(i32 %argc, ptr %argv) {"
-	}
-	var mainSpID int
-	if g.debugInfo {
-		mainLine := 1
-		if g.program != nil && g.program.NameToken.Line > 0 {
-			mainLine = g.program.NameToken.Line
+	if g.isShared {
+		g.line("@llvm.global_ctors = appending global [1 x { i32, ptr, ptr }] [{ i32, ptr, ptr } { i32 65535, ptr @__kylix_lib_init, ptr null }]")
+		defineLine := "define void @__kylix_lib_init() {"
+		g.line(defineLine)
+		g.line("entry:")
+		g.funcName = "__kylix_lib_init"
+		g.funcExitLabel = g.label()
+		g.resultLLVMType = ""
+		g.locals = make(map[string]string)
+		g.varNameSeq = make(map[string]int)
+		g.registerGlobalsInScope()
+	} else {
+		// v0.5.4: when the Args builtin is used, main takes argc/argv and populates
+		// @__kylix_args (a {ptr,len,cap} slice of argv[1:] as C strings).
+		defineLine := "define i32 @main() {"
+		if g.needArgs || statementsUseArgs(stmts) {
+			// @__kylix_args was already defined at module scope (emitProgram).
+			g.needArgs = true
+			defineLine = "define i32 @main(i32 %argc, ptr %argv) {"
 		}
-		mainSpID = g.registerSubprogram("main", mainLine)
-		defineLine = g.defineLineWithDbg(defineLine, mainSpID)
-	}
-	g.line(defineLine)
-	g.line("entry:")
-	g.funcName = "main"
-	g.funcExitLabel = g.label() // v0.5.6: exit block for `Exit`/`return` in main
-	// main() has no `result` return slot; reset so a `var result := ...` local
-	// (e.g. example27's `var result := SafeDivide(...)`) resolves to its own
-	// alloca instead of a stale %result from the previous function (v0.6.1).
-	g.resultLLVMType = ""
-	g.locals = make(map[string]string)
-	g.varNameSeq = make(map[string]int)
-	g.registerGlobalsInScope() // v0.5.4: make globals visible in main
-	// Scope for DILocations inside main = the main subprogram.
-	if g.debugInfo {
-		g.setDbgScope(mainSpID)
-		// Position the entry-block setup at the program line so the very first
-		// instructions (before any user statement) still carry a valid !dbg.
-		if g.program != nil && g.program.NameToken.Line > 0 {
-			g.setDbgNode(g.program) // uses NameToken via nodeToken fallback
-			// nodeToken may not cover Program; set position directly from NameToken.
-			g.dbg.curLine = g.program.NameToken.Line
-			g.dbg.curCol = g.program.NameToken.Column
+		var mainSpID int
+		if g.debugInfo {
+			mainLine := 1
+			if g.program != nil && g.program.NameToken.Line > 0 {
+				mainLine = g.program.NameToken.Line
+			}
+			mainSpID = g.registerSubprogram("main", mainLine)
+			defineLine = g.defineLineWithDbg(defineLine, mainSpID)
+		}
+		g.line(defineLine)
+		g.line("entry:")
+		g.funcName = "main"
+		g.funcExitLabel = g.label() // v0.5.6: exit block for `Exit`/`return` in main
+		// main() has no `result` return slot; reset so a `var result := ...` local
+		// (e.g. example27's `var result := SafeDivide(...)`) resolves to its own
+		// alloca instead of a stale %result from the previous function (v0.6.1).
+		g.resultLLVMType = ""
+		g.locals = make(map[string]string)
+		g.varNameSeq = make(map[string]int)
+		g.registerGlobalsInScope() // v0.5.4: make globals visible in main
+		// Scope for DILocations inside main = the main subprogram.
+		if g.debugInfo {
+			g.setDbgScope(mainSpID)
+			// Position the entry-block setup at the program line so the very first
+			// instructions (before any user statement) still carry a valid !dbg.
+			if g.program != nil && g.program.NameToken.Line > 0 {
+				g.setDbgNode(g.program) // uses NameToken via nodeToken fallback
+				// nodeToken may not cover Program; set position directly from NameToken.
+				g.dbg.curLine = g.program.NameToken.Line
+				g.dbg.curCol = g.program.NameToken.Column
+			}
 		}
 	}
 
@@ -1025,7 +1062,7 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	// htab_new so they're non-null before any function (e.g. InitKeywords)
 	// populates them. For single-file programs, emit them as main-local allocas
 	// (the original behavior).
-	if g.program.IsMerged {
+	if g.program.IsMerged || g.isShared {
 		// v0.6.5: iterate in sorted order — map iteration is random, which made
 		// the IR text (and therefore the .o cache key) non-deterministic.
 		gNames := make([]string, 0, len(g.globals))
@@ -1054,7 +1091,7 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 
 	// v0.5.4: populate @__kylix_args with argv[1:] as a {ptr,len,cap} slice of
 	// C-string pointers. len = max(0, argc-1); data = argv+1.
-	if g.needArgs {
+	if g.needArgs && !g.isShared {
 		n := g.tmp()
 		g.line(fmt.Sprintf("  %s = sub i32 %s, 1", n, "%argc"))
 		nneg := g.tmp()
@@ -1103,7 +1140,11 @@ func (g *Generator) emitMain(stmts []ast.Statement) error {
 	g.clearDbgPos()
 	g.line(fmt.Sprintf("  br label %%%s", g.funcExitLabel))
 	g.line(fmt.Sprintf("%s:", g.funcExitLabel))
-	g.line("  ret i32 0")
+	if g.isShared {
+		g.line("  ret void")
+	} else {
+		g.line("  ret i32 0")
+	}
 	g.line("}")
 	g.line("")
 	// Leaving main: clear scope so stray instructions outside functions don't

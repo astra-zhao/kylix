@@ -3,6 +3,7 @@
 package generator
 
 import (
+	"sort"
 	"fmt"
 	"kylix/ast"
 	"strings"
@@ -57,6 +58,7 @@ type Generator struct {
 	usedModules      map[string]bool                 // modules imported via `uses` clause
 	localUnits       map[string]bool                 // v0.7.0 P1: unit names compiled in this batch (uses → local, not stdlib)
 	usesPolymorphism bool                            // true if any compiled program uses `is`/`as` (→ base classes become interfaces). See v0.5.2.
+	hasExports       bool                            // v0.14.0: C ABI [Export] annotations present
 }
 
 func New() *Generator {
@@ -117,10 +119,18 @@ func (g *Generator) BuildOutput(bodies []string) string {
 	out.WriteString("package main\n\n")
 	if len(g.imports) > 0 {
 		out.WriteString("import (\n")
+		imps := make([]string, 0, len(g.imports))
 		for imp := range g.imports {
+			imps = append(imps, imp)
+		}
+		sort.Strings(imps)
+		for _, imp := range imps {
 			out.WriteString(fmt.Sprintf("\t%q\n", imp))
 		}
 		out.WriteString(")\n\n")
+	}
+	if g.hasExports {
+		out.WriteString("import \"C\"\n\n")
 	}
 	// Exception runtime types (captured by a temporary output snapshot).
 	if g.needsException {
@@ -150,6 +160,7 @@ func (g *Generator) Generate(program *ast.Program) string {
 	g.scanValidationAnnotations(program)
 	g.scanORMAnnotations(program)
 	g.scanForException(program)
+	g.scanExportAnnotations(program)
 
 	g.writeLine("package main")
 	g.writeLine("")
@@ -371,17 +382,25 @@ func (g *Generator) GenerateBody(program *ast.Program) string {
 
 // writeImports emits the import block if any imports are needed.
 func (g *Generator) writeImports() {
-	if len(g.imports) == 0 {
-		return
+	if len(g.imports) > 0 {
+		g.writeLine("import (")
+		g.indent++
+		imps := make([]string, 0, len(g.imports))
+		for imp := range g.imports {
+			imps = append(imps, imp)
+		}
+		sort.Strings(imps)
+		for _, imp := range imps {
+			g.writeLine(fmt.Sprintf(`"%s"`, imp))
+		}
+		g.indent--
+		g.writeLine(")")
+		g.writeLine("")
 	}
-	g.writeLine("import (")
-	g.indent++
-	for imp := range g.imports {
-		g.writeLine(fmt.Sprintf(`"%s"`, imp))
+	if g.hasExports {
+		g.writeLine(`import "C"`)
+		g.writeLine("")
 	}
-	g.indent--
-	g.writeLine(")")
-	g.writeLine("")
 }
 
 // writeExceptionTypes emits the runtime Exception struct and sub-types when needed.
@@ -790,6 +809,17 @@ func (g *Generator) scanExpressionForImports(expr ast.Expression) {
 	case *ast.StringInterpolation:
 		for _, part := range e.Parts {
 			g.scanExpressionForImports(part)
+		}
+	}
+}
+
+func (g *Generator) scanExportAnnotations(program *ast.Program) {
+	for _, decl := range program.Declarations {
+		if fn, ok := decl.(*ast.FunctionDecl); ok {
+			if _, ok := getExportSymbol(fn.Attributes, fn.Name); ok {
+				g.hasExports = true
+				return
+			}
 		}
 	}
 }

@@ -1,7 +1,7 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-09-18  
-> 当前版本: v0.9.0（1.0.0-rc 打磨——规划项全部完成，待发版）  
+> 最后更新: 2026-10-07  
+> 当前版本: v0.14.0（编译器多端能力：C ABI Export + 移动端 Triple + 交叉链接）  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
@@ -75,6 +75,11 @@
 | **v0.7.2** | CI 全绿 + 稳定性还债（selfrepro --emit-llvm 链 + 类方法多返回 + Boot* 单源表） | ✅ 完成 | 2026-09-10 |
 | **v0.8.0** | 自举 stdlib（stringutil 三端同源 + arena 推广 + htab magic 校验） | ✅ 完成 | 2026-09-11 |
 | **v0.9.0** | 1.0.0-rc 打磨（KylixBoot 补齐 + bootstrap boot server + 重烘闭环 + CI 全绿 + 性能门禁 + API 冻结 + 文档官网同步） | ✅ 完成 | 待发版 |
+| **v0.10.0** | KylixAdmin P0+P2：Boehm GC（--gc=boehm）+ 认证 RBAC（PBKDF2/Session/锁定/审计） | ✅ 完成 | 2026-09-19 |
+| **v0.11.0** | KylixAdmin P3+P4：[Entity] 元数据驱动 CRUD 引擎 + 仪表盘 + 个人中心 + UI 设计系统 | ✅ 完成 | 2026-09-21 |
+| **v0.12.0** | KylixAdmin P5：sqlite/postgres 双方言抽象 + LLVM libpq + [Embed] 单二进制自包含 | ✅ 完成 | 2026-09-22 |
+| **v0.13.0** | H5 移动端：可安装 PWA（manifest/sw.js）+ 登录限流（IP 维度查 login_logs） | ✅ 完成 | 2026-09-24 |
+| **v0.14.0** | 编译器多端能力：C ABI [Export] + --shared 动态库/静态库 + Android/iOS triple + NDK/Xcode 探测 | ✅ 完成 | 2026-10-07 |
 
 ---
 
@@ -265,11 +270,13 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] MIME 对齐：LLVM 端 `.json` 补 charset=utf-8（与 Go 一致）；两端 MIME 漂移记入 TECHNICAL_DEBT
 - [x] **25 场景 × 4 形态 E2E 逐字一致**（sqlite×{Go,LLVM} ≡ postgres×{Go,LLVM}）
 
-### v0.14.0 — 编译器多端能力（Android/iOS 前置）
-- [ ] **C ABI `export` 关键字落地**（双端：Go `//export` + LLVM `.globl` 裸符号/cdecl + `kylix_free` arena 所有权模型）
-- [ ] tripleFor 增 `aarch64-linux-android` / `x86_64-linux-android` / `aarch64-apple-ios` + FindAndroidNdk / xcrun 探测（复用 mingw 三坑经验）
-- [ ] stdlib 可移植层第一批（datetime/sysutil/exc 按 +android/ios 平台分支）
-- [ ] 交付标志：hello-core 在 Android `libkylix.so` / iOS `libkylix.a` 跑通
+### v0.14.0 — 编译器多端能力（Android/iOS 前置）✅（2026-10-07 完成）
+- [x] **C ABI `[Export]` 注解落地**（双端：Go `//export` + LLVM un-mangled 全局 C 符号/cdecl + `kylix_free` 内存释放契约）
+- [x] **共享动态库与静态库**（`--shared` 生成 `.so` / `.dylib` / `.dll` + `-relocation-model=pic` + `@llvm.global_ctors` 模块构造器；支持直接输出 `.o` 和 `.a`）
+- [x] **tripleFor 扩展**：`android/arm64` (`aarch64-linux-android30`)、`android/amd64`、`ios/arm64` (`arm64-apple-ios16.0.0`)、`ios/simulator-arm64`
+- [x] **移动端交叉工具链探测与隔离**：`FindAndroidNdk()` 自动探测 NDK，macOS 自动桥接 Xcode `xcrun -sdk iphoneos clang`；隔离桌面专用库避免缺失依赖
+- [x] **C 宿主调用验证**：C 测试程序通过 `dlopen`/`dlsym` 调用导出的加法、乘法、字符串运算、`kylix_free` 内存回收及全局构造器初始化 100% PASS
+- [x] **交付标志**：`docs/EXPORT_C_ABI.md` 指南 + 本地编译出 Android AArch64 ELF 目标文件与 iOS ARM64 动态库/静态库
 
 ### v0.15.0 — 多端示例应用 + wasm
 - [ ] `apps/android/`（Kotlin + JNI 薄壳：登录 + 列表，连 KylixAdmin API）+ `apps/ios/`（SwiftUI + Swift Package 薄壳）

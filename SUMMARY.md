@@ -2,7 +2,7 @@
 
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
-[![版本](https://img.shields.io/badge/version-0.13.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.14.0-blue.svg)](CHANGELOG.md)
 [![许可证](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-IR%20%E4%B8%8D%E5%8A%A8%E7%82%B9-brightgreen.svg)](docs/SELFHOSTING_DEV_GUIDE.md)
 
@@ -10,12 +10,14 @@
 
 Kylix 是一个现代化的 Pascal 编译器：默认把 Kylix 源码转译为可读的 Go 代码（`go build` 编译运行）；也可以通过 **LLVM 原生后端**（`--backend=llvm`）直接产出 LLVM IR 并链接为原生二进制——**运行时完全不依赖 Go 工具链**。它结合了 Pascal 的清晰性和简洁性，同时添加了现代语言特性，并配备完整的 IDE 工具链、编辑器集成与无 Go 自举闭环。
 
-**当前版本**：v0.13.0（H5 移动端）
+**当前版本**：v0.14.0（编译器多端能力）
 
 **项目地址**：https://github.com/astra-zhao/kylix
 
 **官方网站**：https://kylix.top
 
+> 🔥 **重大里程碑 (v0.14.0)**：**编译器多端能力落地**——**C ABI 符号导出**（`[Export]` / `[Export('sym')]`，双端发射 `//export` 与全局 un-mangled 符号）+ **`kylix_free`** 跨边界内存释放契约；**动态共享库生成**（`--shared` 生成 `.so` / `.dylib` / `.dll`，`-relocation-model=pic`，`@llvm.global_ctors` 自动模块构造器；支持直接产出 `.o` 目标文件与 `.a` 静态库归档）；**Target Triple 扩展**（`android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`）+ `FindAndroidNdk()` 自动探测 + macOS 桥接 Xcode 链接真正的 `platform IOS minos 16.0` 产物；C 宿主 `dlopen`/`dlsym` 测试 100% 通过。详见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)。
+>
 > 🔥 **重大里程碑 (v0.13.0)**：**KylixAdmin 成为可安装的 PWA**——`manifest.json` + service worker（cache-first 静态资源）+ 192/512 图标 + `≤900px` 移动端增强（表格卡片化/触控 44px），全部由 `[Embed]` 烘焙进单二进制；**登录限流**（应用层查 login_logs：20 失败/15 分钟/IP → 429，双端同源）；MIME 对齐（LLVM `.json` 补 charset）。**25 场景 × 4 形态 E2E 逐字一致**。详见 [CHANGELOG.md](CHANGELOG.md) 与 [H5_GUIDE.md](docs/H5_GUIDE.md)。
 >
 > 🔥 **重大里程碑 (v0.12.0)**：**KylixAdmin 走向可移植与单文件部署**——**纯 Kylix SQL 方言层**（`apps/admin/lib/dialect.klx`）+ **LLVM 端 libpq 后端**（`pkg/llvmgen/stdlib_db_pg.go`，`PQexecParams` + `PQftype` OID 分派；`DbOpenPg` 独立入口点，只有用到 pg 的程序才链 `-lpq`）；**四形态 E2E 逐字一致**（23 场景 × sqlite/postgres × Go/LLVM）；**`[Entity]` 驱动建表与增量迁移**（`lib/migrate.klx` + `schema_migrations` + 内省 ADD COLUMN）；**`[Embed('views','static')]` 编译器语言特性**（程序头属性 → 两端烘焙 → `ReadFile`/`BootStatic` 内嵌优先）实现**单二进制自包含**；部署文档 [docs/ADMIN_DEPLOY.md](docs/ADMIN_DEPLOY.md) + 自包含 CI 门 + release 资产。PoC 前置验证：C collation 与 ILIKE 是强制项、连接泄漏第 101 次撞上限。IR 不动点保持。详见 [CHANGELOG.md](CHANGELOG.md)。
@@ -32,7 +34,7 @@ Kylix 是一个现代化的 Pascal 编译器：默认把 Kylix 源码转译为�
 
 ```bash
 # 方式一：下载预编译二进制（GitHub Release，5 平台 + bootstrap tarball）
-gh release download v0.13.0
+gh release download v0.14.0
 
 # 方式二：源码构建
 git clone https://github.com/astra-zhao/kylix.git

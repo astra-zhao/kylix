@@ -257,6 +257,8 @@ func (g *Generator) emitFunctionDecl(decl *ast.FunctionDecl) error {
 		extClassName = decl.Name[:idx]
 		extMethodName = decl.Name[idx+1:]
 		funcSymbol = extClassName + "_" + extMethodName
+	} else if cSym, isExport := getExportSymbol(decl.Attributes, decl.Name); isExport {
+		funcSymbol = cSym
 	}
 
 	// Determine return type: check multi-return first, then single, else void.

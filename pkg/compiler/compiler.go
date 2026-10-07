@@ -50,6 +50,7 @@ type Options struct {
 	WorkingDir        string
 	CacheDir          string   // directory for incremental build cache; "" disables caching
 	PackageSearchDirs []string // extra directories containing .klx unit files (from packages/)
+	Shared            bool     // v0.14.0: compile to shared library (.so / .dylib / .dll)
 }
 
 // CompileFile compiles a single .klx file to Go

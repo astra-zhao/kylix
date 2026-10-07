@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-0.13.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.14.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后端编译为原生二进制。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
+>
+> 🚀 **v0.14.0**: **编译器多端能力——C ABI 导出与移动端交叉编译。** 函数/过程支持 **`[Export]` / `[Export('c_symbol')]`** 注解导出为标准 C 符号；**`kylix_free`** 注入建立严格的跨边界内存生命周期契约。**`--shared`** 一键产出动态共享库（`.so`/`.dylib`/`.dll`），`@main` 自动升格为 `@llvm.global_ctors` 模块构造器，加载即自动初始化；支持直接产出 `.o` 目标文件与 `.a` 静态库归档。扩展 **Target Triple** 支持 Android（`android/arm64`、`android/amd64`）与 iOS（`ios/arm64`、`ios/simulator-arm64`）；实现 `FindAndroidNdk()` 自动探测；在 macOS 上直接桥接 Xcode 链接出真正的 `platform IOS minos 16.0` 动态库与静态库；C 宿主 `dlopen`/`dlsym` 测试 100% 通过。详见 [CHANGELOG.md](CHANGELOG.md) 与 [C ABI 指南](docs/EXPORT_C_ABI.md)。
 >
 > 🚀 **v0.13.0**: **KylixAdmin 成为 PWA——并获得登录限流。** 后台现在可以从手机浏览器安装（manifest + service worker + 图标，全部由 `[Embed]` 烘焙进单二进制）；静态资源离线缓存、页面走网络。`≤900px` 断点获得 mobile-first 增强（列表表格变堆叠卡片、44px 触控目标、表单全宽）。登录限流（20 次失败/15 分钟/IP → 429）查 `login_logs` 而非内存桶——双端和重启看到同一窗口。详见 [CHANGELOG.md](CHANGELOG.md) 与 [H5 指南](docs/H5_GUIDE.md)。
 >

@@ -120,6 +120,10 @@ type CompileOpts struct {
 	// the windows target yet (llvm-mingw has no libgc) — CompileToNativeOpts
 	// rejects the combination with a clear error.
 	GC string
+
+	// Shared (v0.14.0): when true, compile as a shared library (.so / .dylib / .dll).
+	// Emits -relocation-model=pic for llc and -shared / -dynamiclib for clang.
+	Shared bool
 }
 
 // appendHomebrewLib adds -L + -Wl,-rpath for a Homebrew-installed library on
@@ -227,6 +231,18 @@ func tripleFor(osName, arch string) (triple, datalayout string) {
 		// provides; the gnu triple emits ___chkstk_ms (compiler-rt, in every
 		// llvm-mingw sysroot). Datalayout is identical for both environments.
 		return "x86_64-w64-mingw32", "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+	case "android/arm64":
+		// v0.14.0: Android AArch64 (API 30+ default)
+		return "aarch64-linux-android30", "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
+	case "android/amd64", "android/x86_64":
+		// v0.14.0: Android x86_64 (emulator)
+		return "x86_64-linux-android30", "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+	case "ios/arm64":
+		// v0.14.0: iOS AArch64 (iOS 16+ default)
+		return "arm64-apple-ios16.0.0", "e-m:o-i64:64-i128:128-n32:64-S128"
+	case "ios/simulator-arm64":
+		// v0.14.0: iOS Simulator on Apple Silicon
+		return "arm64-apple-ios16.0.0-simulator", "e-m:o-i64:64-i128:128-n32:64-S128"
 	}
 	// Fallback: treat unknown as the arm64 macOS default (backwards compatible).
 	return "arm64-apple-macosx15.0.0", "e-m:o-i64:64-i128:128-n32:64-S128"
@@ -355,6 +371,9 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 				llcArgs = append(llcArgs, "-O=2")
 			}
 			llcArgs = append(llcArgs, "-disable-verify") // v0.6.5: skip IR verification on large modules
+			if opts.Shared {
+				llcArgs = append(llcArgs, "-relocation-model=pic")
+			}
 			// v0.6.2: cross-compilation — pin the target so llc honors it even if
 			// the IR triple were lost; llc is a multi-target compiler.
 			if opts.Target != "" {
@@ -372,6 +391,9 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 			// the .ll to an object itself (`-x ir` feeds the file as LLVM IR).
 			// Driver defaults to -O0, matching the forced llc -O=0 above.
 			clangArgs := []string{"-x", "ir", "-c"}
+			if opts.Shared {
+				clangArgs = append(clangArgs, "-fPIC")
+			}
 			switch optLevel {
 			case "1", "2", "3":
 				clangArgs = append(clangArgs, "-O"+optLevel)
@@ -393,28 +415,95 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		}
 	}
 
-	// Determine output binary name
-	if outBin == "" {
-		outBin = base
-	}
-
 	// v0.6.2: cross-compilation target (host default when opts.Target empty).
 	// Drives the clang --target flag, the Windows linker driver, and which
 	// system-library search path to use.
 	targetOS, targetArch := resolveTarget(opts.Target)
+
+	// Determine output binary name
+	if outBin == "" {
+		outBin = base
+		if opts.Shared {
+			switch targetOS {
+			case "darwin", "ios":
+				outBin += ".dylib"
+			case "windows":
+				outBin += ".dll"
+			default:
+				outBin += ".so"
+			}
+		} else if targetOS == "windows" {
+			outBin += ".exe"
+		}
+	}
+
+	// v0.14.0: if outBin ends with .o, output the object file directly and skip link
+	if strings.HasSuffix(outBin, ".o") {
+		data, err := os.ReadFile(objFile)
+		if err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(outBin, data, 0644); err != nil {
+			return nil, err
+		}
+		return &CompileResult{
+			BinFile: outBin,
+			IRFile:  irFile,
+			ObjFile: objFile,
+		}, nil
+	}
+
+	// v0.14.0: if outBin ends with .a, package the object into a static archive (.a)
+	if strings.HasSuffix(outBin, ".a") {
+		arCmd := exec.Command("ar", "rcs", outBin, objFile)
+		if out, err := arCmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("ar archive failed: %w\n%s", err, out)
+		}
+		return &CompileResult{
+			BinFile: outBin,
+			IRFile:  irFile,
+			ObjFile: objFile,
+		}, nil
+	}
 
 	// clang: .o → native binary
 	clangArgs := []string{"-o", outBin, objFile}
 	// The clang binary that performs the link — llvm-mingw's own when
 	// cross-linking Windows, the host LLVM otherwise.
 	linkClang := llvmPaths.Clang
-	// Cross-compiling: tell clang which platform to emit for. v0.7.1 P2:
-	// Windows links through an llvm-mingw sysroot (mingw-w64 CRT + win32
-	// import libs incl. ws2_32) found via FindMingwSysroot — the mingw driver
-	// defaults to the console subsystem, so no /subsystem flag is needed.
-	if opts.Target != "" && targetOS != "windows" {
+	// Cross-compiling: tell clang which platform to emit for.
+	if opts.Target != "" && targetOS != "windows" && targetOS != "android" && targetOS != "ios" {
 		triple, _ := tripleFor(targetOS, targetArch)
 		clangArgs = append(clangArgs, "--target="+triple)
+	}
+	if targetOS == "android" {
+		ndk := FindAndroidNdk()
+		if ndk == nil {
+			return nil, fmt.Errorf("android cross-link needs Android NDK (not found): install the NDK and point ANDROID_NDK_HOME at it (it must contain toolchains/llvm/prebuilt/<host>/bin/clang)")
+		}
+		linkClang = ndk.Clang
+		triple, _ := tripleFor(targetOS, targetArch)
+		clangArgs = append(clangArgs,
+			"--target="+triple,
+			"--sysroot="+ndk.Sysroot,
+		)
+	}
+	if targetOS == "ios" {
+		if runtime.GOOS != "darwin" {
+			return nil, fmt.Errorf("ios cross-link requires a macOS host with Xcode command line tools")
+		}
+		triple, _ := tripleFor(targetOS, targetArch)
+		sdk := "iphoneos"
+		if strings.Contains(triple, "simulator") {
+			sdk = "iphonesimulator"
+		}
+		clangArgs = append(clangArgs, "-arch", "arm64", "--target="+triple)
+		if out, err := exec.Command("xcrun", "--sdk", sdk, "--show-sdk-path").Output(); err == nil {
+			sdkPath := strings.TrimSpace(string(out))
+			if sdkPath != "" {
+				clangArgs = append(clangArgs, "-isysroot", sdkPath)
+			}
+		}
 	}
 	if targetOS == "windows" {
 		sysroot := FindMingwSysroot()
@@ -447,10 +536,15 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 			"--sysroot="+filepath.Join(sysroot, "x86_64-w64-mingw32"),
 		)
 	}
-	// Linux: the IR accesses string constants with absolute relocations
-	// (R_X86_64_32S against .rodata), which the linker rejects under PIE
-	// ("can not be used when making a PIE object"). Link non-PIE. v0.6.2.
-	if targetOS == "linux" {
+	// Shared library vs executable link flags
+	if opts.Shared {
+		if targetOS == "darwin" || targetOS == "ios" {
+			clangArgs = append(clangArgs, "-dynamiclib")
+		} else {
+			clangArgs = append(clangArgs, "-shared")
+		}
+	} else if targetOS == "linux" {
+		// Linux executable: link non-PIE to allow 32-bit absolute relocations. v0.6.2.
 		clangArgs = append(clangArgs, "-no-pie")
 	}
 
@@ -459,8 +553,8 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	// system default path. v0.7.1 P2: crypto/db/http libraries are unix-only
 	// (OpenSSL/sqlite3/curl don't exist in the mingw sysroot; the Windows
 	// implementations of those modules are a known gap — see TECHNICAL_DEBT).
-	if targetOS != "windows" {
-		if strings.Contains(ir, "@__kylix_crypto_") || strings.Contains(ir, "@SHA1") {
+	if targetOS != "windows" && targetOS != "android" {
+		if strings.Contains(ir, "@__kylix_crypto_") || (targetOS == "darwin" && strings.Contains(ir, "@SHA1")) {
 			clangArgs = append(clangArgs, "-lcrypto")
 			if targetOS == "darwin" {
 				appendHomebrewLib(&clangArgs, "openssl")
@@ -475,13 +569,15 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 				appendHomebrewLib(&clangArgs, "libpq")
 			}
 		}
-		if strings.Contains(ir, "@__kylix_db_") || strings.Contains(ir, "@sqlite3_") {
+		// sqlite3 is available on macOS, iOS (libsqlite3.tbd), and Linux desktop
+		if strings.Contains(ir, "@__kylix_db_") || (targetOS == "darwin" && strings.Contains(ir, "@sqlite3_")) {
 			clangArgs = append(clangArgs, "-lsqlite3")
 			if targetOS == "darwin" {
 				appendHomebrewLib(&clangArgs, "sqlite")
 			}
 		}
-		if strings.Contains(ir, "@__kylix_httpclient_") || strings.Contains(ir, "@curl_easy_") {
+		// curl is desktop-only; only link if httpclient was actually used
+		if targetOS != "ios" && (strings.Contains(ir, "@__kylix_httpclient_") || (targetOS == "darwin" && strings.Contains(ir, "@curl_easy_"))) {
 			clangArgs = append(clangArgs, "-lcurl")
 			if targetOS == "darwin" {
 				appendHomebrewLib(&clangArgs, "curl")

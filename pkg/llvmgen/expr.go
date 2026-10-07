@@ -1106,12 +1106,13 @@ func (g *Generator) emitCall(e *ast.CallExpression) (string, string, error) {
 		}
 		argList = append(argList, t+" "+r)
 	}
+	calleeSym := g.calleeSymbol(funcName)
 	if retType == "void" {
-		g.line(fmt.Sprintf("  call void @%s(%s)", funcName, strings.Join(argList, ", ")))
+		g.line(fmt.Sprintf("  call void @%s(%s)", calleeSym, strings.Join(argList, ", ")))
 		return "0", "void", nil
 	}
 	result := g.tmp()
-	g.line(fmt.Sprintf("  %s = call %s @%s(%s)", result, retType, funcName, strings.Join(argList, ", ")))
+	g.line(fmt.Sprintf("  %s = call %s @%s(%s)", result, retType, calleeSym, strings.Join(argList, ", ")))
 	return result, retType, nil
 }
 

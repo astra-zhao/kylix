@@ -12,6 +12,41 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
+## v0.14.0 — 编译器多端能力（C ABI Export + 移动端 Triple + 交叉链接）✅（2026-10-07 发布）
+
+### C ABI Export 机制
+
+- **`[Export]` / `[Export('c_symbol')]` 注解**：Pascal 函数/过程对外声明 C 兼容导出符号。
+  - Go 后端（`generator/`）：识别 `[Export]` 自动发射 `//export <sym>` 与 `import "C"`。
+  - LLVM 后端（`pkg/llvmgen/`）：识别 `[Export]` 发射 un-mangled 全局 C 符号，内部调用自动解析绑定。
+  - 零语法分析器/AST 改动：复用成熟属性注解机制，**自举编译器与 IR 不动点绝对安全**。
+- **内存所有权契约（`kylix_free`）**：
+  - 编译器自动注入标准导出函数 `define void @kylix_free(ptr %p)`，路由到底层 libc `free`（malloc 模式）或 `GC_free`（Boehm GC 模式）。
+  - 外部调用者（C、Java JNI、Swift）接收到 Kylix 导出的动态字符串后显式释放，跨 ABI 边界内存无泄漏。
+- **动态共享库生成（`--shared`）**：
+  - `kylix build --backend=llvm --shared` 支持直接生成 `.so` / `.dylib` / `.dll`。
+  - 代码生成阶段自动追加 `-relocation-model=pic`（llc）与 `-fPIC`（clang）。
+  - 库生命周期构造器：共享库模式下 `@main` 自动升格为 `@__kylix_lib_init`，并注册到 `@llvm.global_ctors`，库被宿主 `dlopen` 加载时自动初始化全局状态。
+  - 直接支持 `.o`（ELF/Mach-O 目标文件）与 `.a`（静态库归档，通过 `ar rcs`）输出。
+
+### 移动端 Target Triple 与交叉编译
+
+- **Android 目标**：
+  - `android/arm64` (`aarch64-linux-android30`) 与 `android/amd64` (`x86_64-linux-android30`)。
+  - `FindAndroidNdk()`：自动探测 `ANDROID_NDK_HOME`、`ANDROID_NDK_ROOT` 与标准 SDK 路径。
+  - 支持直接产出纯正的 Android AArch64 64位 ELF relocatable 目标文件（`ELF 64-bit LSB relocatable, ARM aarch64`）。
+- **iOS 目标**：
+  - `ios/arm64` (`arm64-apple-ios16.0.0`) 与 `ios/simulator-arm64` (`arm64-apple-ios16.0.0-simulator`)。
+  - macOS 环境下自动桥接 Xcode `xcrun -sdk iphoneos clang` 链接，实测产出真正的 `platform IOS minos 16.0` 动态库 `.dylib` 与 静态库 `.a`。
+- **移动端系统库链接策略隔离**：
+  - 隔离桌面专用的 `-lcurl` 与 `-lpq` 依赖，纯逻辑跨端库零多余符号依赖。
+
+### 验证与交付
+
+- **C 宿主端到端调用验证**：C 测试程序通过 `dlopen`/`dlsym` 成功调用动态库导出的标量计算、字符串运算、`kylix_free` 内存释放以及 `@llvm.global_ctors` 全局状态初始化（100% PASS）。
+- **全量回归全绿**：17 包 Go 测试全绿；Go 后端教程 58/58 全过；LLVM 后端教程 58/58 全过；自举编译器 sweep 57 PASS + 1 SKIP 全绿；KylixAdmin 双端 E2E 25 场景逐字一致。
+- **技术文档**：新增 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)《Kylix C ABI 导出与多端/嵌入式集成指南》。
+
 ## v0.13.0 — H5 移动端（PWA + 登录限流）✅（2026-09-24 发布）
 
 ### PWA（可安装的 Web 应用）

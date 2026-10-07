@@ -1,10 +1,10 @@
 package main
 
 import (
-	"kylix/stdlib"
 	"fmt"
-	"strings"
+	"kylix/stdlib"
 	"regexp"
+	"strings"
 )
 
 type TUser struct {

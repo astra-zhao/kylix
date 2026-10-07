@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-0.13.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.14.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix is a modern reimagining of Pascal, designed to compile to Go or to native binaries via the LLVM backend. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
+>
+> 🚀 **v0.14.0**: **Compiler Multiplatform Capabilities — C ABI Export & Mobile Cross-Compilation.** Export functions/procedures with **`[Export]` / `[Export('c_symbol')]`** as standard C ABI symbols; compiler-injected **`kylix_free`** establishes strict cross-boundary memory ownership. **`--shared`** produces shared libraries (`.so`/`.dylib`/`.dll`) with `@main` promoted to `@llvm.global_ctors` module constructors; direct `.o` object and `.a` static archive outputs supported. Expanded **Target Triples** for Android (`android/arm64`, `android/amd64`) and iOS (`ios/arm64`, `ios/simulator-arm64`); `FindAndroidNdk()` auto-discovery; native `platform IOS minos 16.0` dynamic & static libraries linked via Xcode; C host `dlopen`/`dlsym` E2E 100% verified. See [CHANGELOG.md](CHANGELOG.md) & [C ABI Guide](docs/EXPORT_C_ABI.md).
 >
 > 🚀 **v0.13.0**: **KylixAdmin becomes a PWA — and gets login rate limiting.** The console is now installable from a mobile browser (manifest + service worker + icons, all baked into the single binary via `[Embed]`); static assets are cached offline while pages stay network-only. The `≤900px` breakpoint got mobile-first enhancements (list tables become stacked cards labelled by `data-f`, 44px touch targets, forms full-width). Login rate limiting (20 failures / 15 min / IP → 429) reads `login_logs` rather than an in-memory bucket, so both backends and restarts see the same window. See [CHANGELOG.md](CHANGELOG.md) and the [H5 guide](docs/H5_GUIDE.md).
 >
