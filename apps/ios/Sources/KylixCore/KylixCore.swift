@@ -33,6 +33,18 @@ public enum KylixCore {
         }
     }
 
+    public static func refreshRequest(refreshToken: String) -> String {
+        refreshToken.withCString { t in
+            take(mc_refresh_request(t))
+        }
+    }
+
+    public static func parseRefresh(status: Int64, body: String) -> String {
+        body.withCString { b in
+            take(mc_parse_refresh(status, b))
+        }
+    }
+
     public static func parseList(status: Int64, body: String) -> String {
         body.withCString { b in
             take(mc_parse_list(status, b))
@@ -46,5 +58,6 @@ public enum KylixCore {
     }
 
     public static func loginPath() -> String { take(mc_login_path()) }
+    public static func refreshPath() -> String { take(mc_refresh_path()) }
     public static func notesPath() -> String { take(mc_notes_path()) }
 }

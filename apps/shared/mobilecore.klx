@@ -34,10 +34,22 @@ begin
   result := 86400;
 end;
 
+// McRefreshTTL is the refresh-token lifetime in seconds (30 days).
+function McRefreshTTL(unused: Integer): Integer;
+begin
+  result := 2592000;
+end;
+
 // McLoginPath is the JSON login route on KylixAdmin.
 function McLoginPath(unused: Integer): String;
 begin
   result := '/api/login';
+end;
+
+// McRefreshPath is the JSON refresh route on KylixAdmin.
+function McRefreshPath(unused: Integer): String;
+begin
+  result := '/api/refresh';
 end;
 
 // McNotesPath is the JSON notes list route on KylixAdmin.
@@ -187,11 +199,19 @@ begin
   result := '{"username":"' + McJsonEscape(username) + '","password":"' + McJsonEscape(password) + '"}';
 end;
 
-// McLoginSuccessJSON is the 200 body. Key order is part of the contract.
-function McLoginSuccessJSON(token: String; username: String; displayName: String; expiresIn: Integer): String;
+// McLoginSuccessJSON is the 200 body for login and refresh. Key order is part
+// of the contract. Both tokens are required; a body missing either is a failure.
+function McLoginSuccessJSON(token: String; refreshToken: String; username: String; displayName: String; expiresIn: Integer; refreshExpiresIn: Integer): String;
 begin
-  result := '{"ok":true,"token":"' + McJsonEscape(token) + '","username":"' + McJsonEscape(username) +
-    '","display_name":"' + McJsonEscape(displayName) + '","expires_in":' + IntToStr(expiresIn) + '}';
+  result := '{"ok":true,"token":"' + McJsonEscape(token) + '","refresh_token":"' + McJsonEscape(refreshToken) +
+    '","username":"' + McJsonEscape(username) + '","display_name":"' + McJsonEscape(displayName) +
+    '","expires_in":' + IntToStr(expiresIn) + ',"refresh_expires_in":' + IntToStr(refreshExpiresIn) + '}';
+end;
+
+// McRefreshRequestJSON is the POST body for /api/refresh.
+function McRefreshRequestJSON(refreshToken: String): String;
+begin
+  result := '{"refresh_token":"' + McJsonEscape(refreshToken) + '"}';
 end;
 
 // McErrorJSON is a failure body without a relogin flag (login failures).
@@ -200,9 +220,9 @@ begin
   result := '{"ok":false,"error":"' + McJsonEscape(message) + '"}';
 end;
 
-// McStatusErrorJSON is a failure body for list calls. relogin=1 means the
-// shell must drop the token and show the login screen. There is no refresh
-// token: a 24h access token covers login-then-list, and 401 means sign in again.
+// McStatusErrorJSON is a failure body. relogin=1 means the shell must drop
+// both tokens and show the login screen. List 401 sets it so the shell can
+// try /api/refresh first; a failed refresh sets it so the shell stops.
 function McStatusErrorJSON(status: Integer; body: String; relogin: Integer): String;
 var
   err: String;
@@ -236,13 +256,31 @@ begin
   if status = 200 then
   begin
     token := McJsonStringField(body, 'token');
-    if token = '' then
+    if (token = '') or (McJsonStringField(body, 'refresh_token') = '') then
       result := McStatusErrorJSON(status, body, 0)
     else
-      result := McLoginSuccessJSON(token, McJsonStringField(body, 'username'), McJsonStringField(body, 'display_name'), McJsonIntField(body, 'expires_in'));
+      result := McLoginSuccessJSON(token, McJsonStringField(body, 'refresh_token'), McJsonStringField(body, 'username'), McJsonStringField(body, 'display_name'), McJsonIntField(body, 'expires_in'), McJsonIntField(body, 'refresh_expires_in'));
   end
   else
     result := McStatusErrorJSON(status, body, 0);
+end;
+
+// McParseRefreshResponse is McParseLoginResponse, except every failure asks
+// the shell to show login (the refresh token itself was rejected).
+function McParseRefreshResponse(status: Integer; body: String): String;
+var
+  token: String;
+begin
+  if status = 200 then
+  begin
+    token := McJsonStringField(body, 'token');
+    if (token = '') or (McJsonStringField(body, 'refresh_token') = '') then
+      result := McStatusErrorJSON(status, body, 1)
+    else
+      result := McLoginSuccessJSON(token, McJsonStringField(body, 'refresh_token'), McJsonStringField(body, 'username'), McJsonStringField(body, 'display_name'), McJsonIntField(body, 'expires_in'), McJsonIntField(body, 'refresh_expires_in'));
+  end
+  else
+    result := McStatusErrorJSON(status, body, 1);
 end;
 
 // McAuthHeader is the Authorization value for a stored access token.

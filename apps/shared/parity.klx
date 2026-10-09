@@ -17,7 +17,9 @@ begin
   WriteLn('nopass=' + McValidateLogin('admin', ''));
   WriteLn('ok=' + McValidateLogin('admin', 'Admin@123'));
   WriteLn('ttl=' + IntToStr(McAccessTTL(0)));
+  WriteLn('rttl=' + IntToStr(McRefreshTTL(0)));
   WriteLn('login_path=' + McLoginPath(0));
+  WriteLn('refresh_path=' + McRefreshPath(0));
   WriteLn('notes_path=' + McNotesPath(0));
 
   req := McLoginRequestJSON('ad"min', 'a\b');
@@ -25,9 +27,12 @@ begin
   WriteLn('user=' + McJsonStringField(req, 'username'));
   WriteLn('pass=' + McJsonStringField(req, 'password'));
 
-  okBody := McLoginSuccessJSON('tok.en', 'admin', 'Administrator', McAccessTTL(0));
+  okBody := McLoginSuccessJSON('tok.en', 'ref.tok', 'admin', 'Administrator', McAccessTTL(0), McRefreshTTL(0));
   parsed := McParseLoginResponse(200, okBody);
   WriteLn('parsed=' + parsed);
+  WriteLn('rreq=' + McRefreshRequestJSON('ref.tok'));
+  WriteLn('rparsed=' + McParseRefreshResponse(200, okBody));
+  WriteLn('rbad=' + McParseRefreshResponse(401, McErrorJSON('unauthorized')));
   WriteLn('bad=' + McParseLoginResponse(401, McErrorJSON('Invalid username or password')));
   WriteLn('rate=' + McParseLoginResponse(429, McErrorJSON('Too many failed attempts; try again later')));
   WriteLn('emptytok=' + McParseLoginResponse(200, '{"ok":true}'));

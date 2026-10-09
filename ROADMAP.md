@@ -7,7 +7,7 @@
 
 **✅ v0.14.0 已发布（2026-10-07）！** 编译器多端能力：`[Export]` / `[Export('c_symbol')]` 双端 C ABI、`kylix_free`、LLVM `--shared`（`.so`/`.dylib`/`.dll`，以及 `.o`/`.a`）、triple `android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`，`FindAndroidNdk()` 与 macOS 上的 Xcode 链接。指南 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)。**下一步 → v0.15.0** 其余项：wasm32 triple、移动端 CI 产物门、stdlib 的 android/ios 平台分支。示例应用第一项已落地，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。
 
-**🚧 v0.15.0 进行中。** 多端示例应用：`apps/shared/mobilecore.klx`（校验 + JSON 协议，无 HTTP）编进 KylixAdmin，并由 `[Export]` 供 `apps/android/`（Kotlin + JNI + OkHttp）与 `apps/ios/`（SwiftUI + Swift Package + URLSession）调用。`POST /api/login` 发 24 小时 access token，`GET /api/notes` 拉列表。JWT refresh、wasm、CI 产物门禁仍未做。模拟器/真机步骤在指南里；本仓库的自动验证是宿主 parity + C ABI `dlopen`，不是模拟器。
+**🚧 v0.15.0 进行中。** 多端示例应用：`apps/shared/mobilecore.klx`（校验 + JSON 协议，无 HTTP）编进 KylixAdmin，并由 `[Export]` 供 `apps/android/`（Kotlin + JNI + OkHttp）与 `apps/ios/`（SwiftUI + Swift Package + URLSession）调用。`POST /api/login` 发 24 小时 access token 和 30 天 refresh token，`POST /api/refresh` 轮换后旧 refresh 失效，`GET /api/notes` 拉列表。wasm 与 CI 产物门禁仍未做。模拟器/真机步骤在指南里；本仓库的自动验证是宿主 parity + C ABI `dlopen`，不是模拟器。
 
 **✅ v0.7.0 已发布！** web 页面开发 + web 框架：(1) **P0 `error` 类型语言特性**——`(T, error)` 多返回 + 裸 error + `ErrorStr`，host/LLVM/bootstrap 三端；(2) **P1 纯 Kylix 模板引擎**——`stdlib/template_engine.klx`（Mustache 风格 `{{}}`，12 过滤器 + each/if），三端同源可用；(3) **P2 页面渲染 API**——`res.HTML`/`req.Form`/`req.Cookie`/`static/` 静态资源，Go 与 LLVM 双端同步；(4) **P3 页面框架完善**——`res.Redirect`（302）+ 自定义 404/500 错误页 + 模板上下文（`AddVariant`/`SetContext`）；(5) **P5 教程接入**——example60 真实 BootRun server E2E（launch + curl + kill），Go/LLVM 54/54。**v0.6.9 bootstrap 无 Go 闭环与 IR 不动点保持**。**(6) P6 GitHub Release 工作流打通（2026-09-08 补录）**——tag 触发 CI 全绿 + Release 自动创建（5 平台二进制 + 双平台 bootstrap tarball + llvm-mingw 工具链）；顺带破案修复两个 Linux 潜伏 bug：ELF 零尺寸 vtable 同址致 `is` 恒真（commit 441b103）+ 自举 IR 硬编码 arm64 triple 致 Linux llc 产 Mach-O（commit fbb6509）。**下一步 → v0.7.1 net Winsock / regex pcre2（Windows 真机）**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -269,7 +269,7 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 ### v0.13.0 — H5 多端路线 A（[MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）✅（2026-09-24）
 - [x] **响应式 PWA**（同 URL + CSS/JS 增强，非独立 h5/ 页面组）：manifest.json + sw.js（cache-first 静态资源、页面 network-only）+ 192/512 PNG 图标 + base.tpl 接线（manifest link / apple-touch-icon / theme-color）+ admin.js SW 注册（https/localhost 条件）+ admin.css ≤900px 断点增强（表格卡片化/触控 44px/折叠态禁用）
 - [x] 登录限流（应用层，查 login_logs：20 失败/15 分钟/IP → 429；不写 login_logs 防自增殖；与账号锁定互补）
-- [x] ~~JWT refresh token~~ → **推到 v0.15**（admin 零 JWT 使用；refresh 可由现有 JwtSign+JwtVerify 组合；消费者为 v0.15 原生壳）
+- [x] ~~JWT refresh token~~ → v0.15 示例已落地（`POST /api/refresh`，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)）
 - [x] `docs/H5_GUIDE.md`——验收：手机浏览器可安装使用 admin 移动版
 - [x] MIME 对齐：LLVM 端 `.json` 补 charset=utf-8（与 Go 一致）；两端 MIME 漂移记入 TECHNICAL_DEBT
 - [x] **25 场景 × 4 形态 E2E 逐字一致**（sqlite×{Go,LLVM} ≡ postgres×{Go,LLVM}）
@@ -283,7 +283,7 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] **交付标志**：`docs/EXPORT_C_ABI.md` 指南 + 本地编译出 Android AArch64 ELF 目标文件与 iOS ARM64 动态库/静态库
 
 ### v0.15.0 — 多端示例应用 + wasm
-- [x] `apps/android/`（Kotlin + JNI 薄壳：登录 + 列表，连 KylixAdmin API）+ `apps/ios/`（SwiftUI + Swift Package 薄壳）。共享单元 `apps/shared/mobilecore.klx`（校验 + JSON 协议；HTTP 留在 OkHttp / URLSession）。自动验证是宿主 Go/LLVM parity + C ABI `dlopen`（`apps/shared/host_check.sh`）。模拟器/真机需本机 NDK 或 macOS+Xcode，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)
+- [x] `apps/android/`（Kotlin + JNI 薄壳：登录 + 列表，连 KylixAdmin API）+ `apps/ios/`（SwiftUI + Swift Package 薄壳）。共享单元 `apps/shared/mobilecore.klx`（校验 + JSON 协议；HTTP 留在 OkHttp / URLSession）。`POST /api/refresh` 轮换 30 天 refresh token；壳在到期前或 401 时刷新。自动验证是宿主 Go/LLVM parity + C ABI `dlopen`（`apps/shared/host_check.sh`）和 admin E2E S26/S27。模拟器/真机需本机 NDK 或 macOS+Xcode，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)
 - [ ] CI 产物形态门禁（.so COFF 式验证 / .a macOS runner 符号验证）+ 真机验收文档
 - [ ] stdlib android/ios 平台分支（v0.14 未做：`stdlib_datetime.go` / `stdlib_sysutil.go` / `stdlib_net.go` 仍只区分 windows 与其余平台；android 不链 `-lcrypto`/`-lpq`/`-lsqlite3`/`-lcurl`）
 - [ ] wasm32-unknown-wasi triple + `pkg/wasi` 真实现（wasi_snapshot_preview1 导入表；纯逻辑先行，DOM 不进 wasm）

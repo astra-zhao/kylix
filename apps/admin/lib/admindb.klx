@@ -1,6 +1,6 @@
 // admindb.klx — KylixAdmin database layer (v0.10.0 P2)
 //
-// Schema (7 tables), seed data (admin user + admin/viewer roles + 5
+// Schema (8 tables), seed data (admin user + admin/viewer roles + 5
 // permission points) and RBAC lookups. Pure Kylix: compiled by the Go and
 // LLVM backends from this one source (multi-file build with main.klx).
 //
@@ -41,6 +41,10 @@ begin
   DbExec(db, 'CREATE TABLE IF NOT EXISTS permissions (' + SqlPKColumn('id') + ', code TEXT UNIQUE, description TEXT)');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS user_roles (user_id ' + ts + ', role_id ' + ts + ', PRIMARY KEY (user_id, role_id))');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS role_permissions (role_id ' + ts + ', permission_id ' + ts + ', PRIMARY KEY (role_id, permission_id))');
+  // One current refresh-token id per username. Login and /api/refresh replace
+  // the row, so the previous refresh token stops working (rotation). Not an
+  // [Entity] table: it has no CRUD page, and S23's column counts stay put.
+  DbExec(db, 'CREATE TABLE IF NOT EXISTS api_refresh (username TEXT PRIMARY KEY, jti TEXT)');
   // v0.12.0 P5e: the entity tables are generated from the [Entity] metadata —
   // created when missing, extended with ADD COLUMN when the metadata has grown.
   // The pass reports anything it will not change (type drift, a missing

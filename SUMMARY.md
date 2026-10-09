@@ -261,7 +261,7 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 
 ## 后续规划
 
-- **v0.15.0 — 多端示例应用 + wasm**（进行中，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)）：示例壳已入库——`apps/shared/mobilecore.klx` 编进 KylixAdmin，并以 `[Export]` 供 `apps/android/`（OkHttp）与 `apps/ios/`（URLSession）调用；`POST /api/login` 发 24 小时 access token，`GET /api/notes` 拉列表。JWT refresh 本轮不用、仍未实现。仍开放：CI 产物形态门禁、stdlib android/ios 平台分支、`wasm32-unknown-wasi`。模拟器/真机登录未在入库环境跑过。
+- **v0.15.0 — 多端示例应用 + wasm**（进行中，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)）：示例壳已入库——`apps/shared/mobilecore.klx` 编进 KylixAdmin，并以 `[Export]` 供 `apps/android/`（OkHttp）与 `apps/ios/`（URLSession）调用。`POST /api/login` 发 24 小时 access token 和 30 天 refresh token，`POST /api/refresh` 轮换，`GET /api/notes` 拉列表。仍开放：CI 产物形态门禁、stdlib android/ios 平台分支、`wasm32-unknown-wasi`。模拟器/真机登录未在入库环境跑过。
 - **1.0.0**：v0.7.1–v0.15.0 gate 全过后发布正式版（KylixAdmin + 多端为旗舰 showcase）
 
 完整路线图见 [ROADMAP.md](ROADMAP.md)。

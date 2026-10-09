@@ -13,8 +13,11 @@ object KylixBridge {
     external fun validateLogin(username: String, password: String): String
     external fun loginRequest(username: String, password: String): String
     external fun parseLogin(status: Long, body: String): String
+    external fun refreshRequest(refreshToken: String): String
+    external fun parseRefresh(status: Long, body: String): String
     external fun parseList(status: Long, body: String): String
     external fun authHeader(token: String): String
     external fun loginPath(): String
+    external fun refreshPath(): String
     external fun notesPath(): String
 }

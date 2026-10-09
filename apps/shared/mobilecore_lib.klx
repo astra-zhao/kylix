@@ -36,6 +36,18 @@ begin
   result := Owned(McParseLoginResponse(status, body));
 end;
 
+[Export('mc_refresh_request')]
+function McExportRefreshRequest(refreshToken: String): String;
+begin
+  result := Owned(McRefreshRequestJSON(refreshToken));
+end;
+
+[Export('mc_parse_refresh')]
+function McExportParseRefresh(status: Integer; body: String): String;
+begin
+  result := Owned(McParseRefreshResponse(status, body));
+end;
+
 [Export('mc_list_request')]
 function McExportListRequest(token: String): String;
 begin
@@ -58,6 +70,12 @@ end;
 function McExportLoginPath(): String;
 begin
   result := Owned(McLoginPath(0));
+end;
+
+[Export('mc_refresh_path')]
+function McExportRefreshPath(): String;
+begin
+  result := Owned(McRefreshPath(0));
 end;
 
 [Export('mc_notes_path')]

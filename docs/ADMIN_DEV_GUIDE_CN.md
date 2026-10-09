@@ -396,4 +396,4 @@ KYADMIN_DSN='postgres://user:pass@localhost:5432/kyadmin?sslmode=disable' ./kyli
 | `KYADMIN_DB` | sqlite 数据库文件位置 | `~/.kylixadmin/admin.db` |
 | `KYADMIN_DSN` | 设了就用 postgres（优先于 `KYADMIN_DB`） | 空 |
 | `KYADMIN_PORT` | 监听端口 | `8090` |
-| `KYADMIN_JWT_SECRET` | `/api/login` 的 HS256 密钥（原生壳用） | 开发默认值 `kylix-admin-dev-secret`（会警告） |
+| `KYADMIN_JWT_SECRET` | `/api/login` 与 `/api/refresh` 的 HS256 密钥（原生壳用） | 开发默认值 `kylix-admin-dev-secret`（会警告） |

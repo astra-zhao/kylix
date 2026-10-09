@@ -35,7 +35,7 @@
 
 **路线 A：响应式 PWA（v0.13，零编译器改动）**
 - KylixAdmin 增强移动端体验：同 URL + 响应式 CSS/JS 增强（非独立 h5/ 页面组——双倍维护成本不值得），`manifest.json` + service worker（BootStatic 服务）→ 可安装主屏
-- 认证：session-first（PWA 走 cookie）；JWT refresh token 推 v0.15（消费者为原生壳）；登录限流（应用层查 login_logs，非中间件——LLVM 端无中间件链）
+- 认证：session-first（PWA 走 cookie）；JWT refresh 由 v0.15 原生壳消费（`POST /api/refresh`，见 [MOBILE_APPS.md](MOBILE_APPS.md)）；登录限流（应用层查 login_logs，非中间件——LLVM 端无中间件链）
 - 交付：✅ v0.13.0（2026-09-24）+ `docs/H5_GUIDE.md`
 
 **路线 B：Kylix → wasm32 纯逻辑（v0.15，编译器能力）**

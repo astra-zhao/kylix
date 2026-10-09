@@ -1,7 +1,8 @@
 // api.klx — JSON API for the Android / iOS shells (v0.15.0)
 //
-//   POST /api/login    {"username","password"} → access token
-//   GET  /api/notes    Authorization: Bearer <token> → notes the user may read
+//   POST /api/login      {"username","password"} → access token + refresh token
+//   POST /api/refresh    {"refresh_token"} → a new pair (the previous refresh dies)
+//   GET  /api/notes      Authorization: Bearer <access token> → notes the user may read
 //
 // The bodies are built by apps/shared/mobilecore.klx, the same unit the
 // shells link. HTML form login is unchanged (session + CSRF). These two
@@ -15,12 +16,22 @@
 // shape both backends actually send. Clients parse the body and ignore
 // Content-Type.
 //
-// JWT refresh is not implemented. McAccessTTL is 24h, which covers
-// login-then-list. A 401 on the list route means the shell shows login
-// again. See docs/MOBILE_APPS.md.
+// Access tokens last McAccessTTL (24h) and carry typ=access. Refresh tokens
+// last McRefreshTTL (30 days), carry typ=refresh plus a jti, and are the only
+// credential POST /api/refresh accepts. The current jti lives in api_refresh
+// (one row per username). Login and a successful refresh replace that row, so
+// the previous refresh token no longer verifies. A refresh token presented as
+// a Bearer access token is rejected. Shells keep both tokens in memory, refresh
+// shortly before the access token expires and again on 401, and show login
+// only when refresh fails. See docs/MOBILE_APPS.md.
 unit api;
 
-uses boot, db, jwt, sysutil, admindb, adminsec, mobilecore;
+uses boot, db, jwt, sysutil, datetime, admindb, adminsec, mobilecore;
+
+// gApiRefreshSeq keeps two tokens issued in the same second distinct.
+// RandomToken is not implemented on the LLVM backend.
+var
+  gApiRefreshSeq: Integer;
 
 // ApiJwtSecret is the HS256 secret. KYADMIN_JWT_SECRET overrides the
 // development default. The default is for the sample only — set the env
@@ -63,7 +74,12 @@ begin
       // Leave claims untyped. An explicit Variant makes the Go backend pass
       // interface{} into JwtSubject, which wants map[string]interface{}.
       var claims := JwtVerify(ApiJwtSecret(), token);
-      result := JwtSubject(claims);
+      // A refresh token's subject is the username, but it is not an access
+      // credential. typ is absent on a verify failure (JwtGetString → '').
+      if JwtGetString(claims, 'typ') = 'refresh' then
+        result := ''
+      else
+        result := JwtSubject(claims);
     end;
   end;
 end;
@@ -105,6 +121,28 @@ begin
   result := McNotesEnvelope(items);
 end;
 
+// ApiTokenJSON stores a new refresh id and returns the login/refresh 200 body.
+// The map variables are identifiers so the LLVM backend boxes them for JwtSign.
+function ApiTokenJSON(db: TDatabase; user: String; display: String): String;
+var
+  accessClaims: map[String]Variant;
+  refreshClaims: map[String]Variant;
+  jti: String;
+  access: String;
+  refresh: String;
+begin
+  gApiRefreshSeq := gApiRefreshSeq + 1;
+  jti := user + '-' + IntToStr(Now().Unix()) + '-' + IntToStr(gApiRefreshSeq);
+  DbExec(db, 'DELETE FROM api_refresh WHERE username = ?', user);
+  DbExec(db, 'INSERT INTO api_refresh (username, jti) VALUES (?, ?)', user, jti);
+  accessClaims['typ'] := 'access';
+  refreshClaims['typ'] := 'refresh';
+  refreshClaims['jti'] := jti;
+  access := JwtSign(ApiJwtSecret(), user, McAccessTTL(0), accessClaims);
+  refresh := JwtSign(ApiJwtSecret(), user, McRefreshTTL(0), refreshClaims);
+  result := McLoginSuccessJSON(access, refresh, user, display, McAccessTTL(0), McRefreshTTL(0));
+end;
+
 [Controller('')]
 type
   TApiController = class
@@ -117,7 +155,6 @@ type
       verr: String;
       db: TDatabase;
       errMsg: String;
-      token: String;
       display: String;
     begin
       body := req.BodyText();
@@ -136,9 +173,55 @@ type
           result := ApiJSON(401, McErrorJSON(errMsg))
         else
         begin
-          token := JwtSign(ApiJwtSecret(), user, McAccessTTL(0), nil);
           display := DbQueryScalar(db, 'SELECT display_name FROM users WHERE username = ?', user);
-          result := ApiJSON(200, McLoginSuccessJSON(token, user, display, McAccessTTL(0)));
+          result := ApiJSON(200, ApiTokenJSON(db, user, display));
+        end;
+      end;
+    end;
+
+    [Post('/api/refresh')]
+    function ApiRefresh(req: TRequest): TResponse;
+    var
+      body: String;
+      raw: String;
+      sub: String;
+      typ: String;
+      jti: String;
+      db: TDatabase;
+      currentJti: String;
+      active: String;
+      display: String;
+    begin
+      body := req.BodyText();
+      raw := McJsonStringField(body, 'refresh_token');
+      if raw = '' then
+        result := ApiJSON(400, McErrorJSON('Refresh token is required'))
+      else
+      begin
+        var claims := JwtVerify(ApiJwtSecret(), raw);
+        sub := JwtSubject(claims);
+        typ := JwtGetString(claims, 'typ');
+        jti := JwtGetString(claims, 'jti');
+        if sub = '' then
+          result := ApiJSON(401, McErrorJSON('unauthorized'))
+        else if typ <> 'refresh' then
+          result := ApiJSON(401, McErrorJSON('unauthorized'))
+        else if jti = '' then
+          result := ApiJSON(401, McErrorJSON('unauthorized'))
+        else
+        begin
+          db := AdminOpen('admin.db');
+          currentJti := DbQueryScalar(db, 'SELECT jti FROM api_refresh WHERE username = ?', sub);
+          active := DbQueryScalar(db, 'SELECT is_active FROM users WHERE username = ?', sub);
+          if currentJti <> jti then
+            result := ApiJSON(401, McErrorJSON('unauthorized'))
+          else if ApiDoneFlag(active) <> 1 then
+            result := ApiJSON(401, McErrorJSON('unauthorized'))
+          else
+          begin
+            display := DbQueryScalar(db, 'SELECT display_name FROM users WHERE username = ?', sub);
+            result := ApiJSON(200, ApiTokenJSON(db, sub, display));
+          end;
         end;
       end;
     end;

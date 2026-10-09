@@ -24,6 +24,8 @@ struct RootView: View {
     @State private var message = ""
     @State private var busy = false
     @State private var token = ""
+    @State private var refreshToken = ""
+    @State private var accessExpiresAt: TimeInterval = 0
     @State private var notes: [NoteRow] = []
     @State private var signedIn = false
 
@@ -84,7 +86,7 @@ struct RootView: View {
                 .listStyle(.plain)
             }
             Button("Sign out") {
-                token = ""
+                clearSession()
                 notes = []
                 message = ""
                 signedIn = false
@@ -115,26 +117,68 @@ struct RootView: View {
                 message = (parsed["error"] as? String) ?? "sign in failed"
                 return
             }
-            token = (parsed["token"] as? String) ?? ""
-            if token.isEmpty {
+            if storeSession(parsed) != nil {
                 message = "sign in failed"
                 return
             }
             try await loadNotes(base: normalized)
-            signedIn = true
+            signedIn = !token.isEmpty
         } catch {
             message = error.localizedDescription
         }
     }
 
+    /// Keeps the new pair. Returns a message when either token is missing.
+    private func storeSession(_ parsed: [String: Any]) -> String? {
+        token = (parsed["token"] as? String) ?? ""
+        refreshToken = (parsed["refresh_token"] as? String) ?? ""
+        let ttl = (parsed["expires_in"] as? NSNumber)?.doubleValue ?? 0
+        accessExpiresAt = ttl > 0 ? Date().timeIntervalSince1970 + ttl : 0
+        return (token.isEmpty || refreshToken.isEmpty) ? "sign in failed" : nil
+    }
+
+    private func clearSession() {
+        token = ""
+        refreshToken = ""
+        accessExpiresAt = 0
+    }
+
+    /// One refresh. Success replaces both tokens. Failure drops the local pair.
+    private func refresh(base: String) async throws -> Bool {
+        if refreshToken.isEmpty {
+            return false
+        }
+        let resp = try await postJSON(url: base + KylixCore.refreshPath(), body: KylixCore.refreshRequest(refreshToken: refreshToken))
+        let parsed = try jsonObject(KylixCore.parseRefresh(status: Int64(resp.status), body: resp.body))
+        let ok = (parsed["ok"] as? Bool) ?? false
+        let relogin = (parsed["relogin"] as? Bool) ?? false
+        if !ok || relogin {
+            clearSession()
+            return false
+        }
+        return storeSession(parsed) == nil
+    }
+
     private func loadNotes(base: String) async throws {
-        let resp = try await getBearer(url: base + KylixCore.notesPath(), authorization: KylixCore.authHeader(token: token))
-        let parsed = try jsonObject(KylixCore.parseList(status: Int64(resp.status), body: resp.body))
-        let ok = parsed["ok"] as? Bool ?? false
+        if accessExpiresAt > 0 && Date().timeIntervalSince1970 >= accessExpiresAt - 60 {
+            if try await refresh(base: base) == false {
+                message = "session expired"
+                signedIn = false
+                return
+            }
+        }
+        var resp = try await getBearer(url: base + KylixCore.notesPath(), authorization: KylixCore.authHeader(token: token))
+        var parsed = try jsonObject(KylixCore.parseList(status: Int64(resp.status), body: resp.body))
+        var ok = parsed["ok"] as? Bool ?? false
+        if !ok && (parsed["relogin"] as? Bool) == true && (try await refresh(base: base)) {
+            resp = try await getBearer(url: base + KylixCore.notesPath(), authorization: KylixCore.authHeader(token: token))
+            parsed = try jsonObject(KylixCore.parseList(status: Int64(resp.status), body: resp.body))
+            ok = parsed["ok"] as? Bool ?? false
+        }
         if !ok {
             message = (parsed["error"] as? String) ?? "could not load notes"
             if (parsed["relogin"] as? Bool) == true {
-                token = ""
+                clearSession()
                 signedIn = false
             }
             return

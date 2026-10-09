@@ -17,6 +17,8 @@ class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private val http = ApiClient()
     private var token: String = ""
+    private var refreshToken: String = ""
+    private var accessExpiresAtMs: Long = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,6 +36,8 @@ class MainActivity : Activity() {
 
         fun showLogin(text: String) {
             token = ""
+            refreshToken = ""
+            accessExpiresAtMs = 0
             loginBox.visibility = View.VISIBLE
             listBox.visibility = View.GONE
             message.text = text
@@ -99,17 +103,55 @@ class MainActivity : Activity() {
         if (!parsed.optBoolean("ok")) {
             return parsed.optString("error", "sign in failed")
         }
+        return storeSession(parsed)
+    }
+
+    /** Keeps the new pair. Returns an error when either token is missing. */
+    private fun storeSession(parsed: JSONObject): String? {
         token = parsed.optString("token")
-        return if (token.isEmpty()) "sign in failed" else null
+        refreshToken = parsed.optString("refresh_token")
+        val ttl = parsed.optLong("expires_in", 0)
+        accessExpiresAtMs = if (ttl > 0) System.currentTimeMillis() + ttl * 1000 else 0
+        return if (token.isEmpty() || refreshToken.isEmpty()) "sign in failed" else null
+    }
+
+    /**
+     * One refresh. Success replaces both tokens (the server rotates). Failure
+     * drops the local pair so the next step is the login screen.
+     */
+    private fun refresh(base: String): Boolean {
+        if (refreshToken.isEmpty()) {
+            return false
+        }
+        val resp = http.postJson(base + KylixBridge.refreshPath(), KylixBridge.refreshRequest(refreshToken))
+        val parsed = JSONObject(KylixBridge.parseRefresh(resp.status.toLong(), resp.body))
+        if (!parsed.optBoolean("ok") || parsed.optBoolean("relogin")) {
+            token = ""
+            refreshToken = ""
+            accessExpiresAtMs = 0
+            return false
+        }
+        return storeSession(parsed) == null
     }
 
     /** First value is true when the list should be shown. */
     private fun loadNotes(base: String): Pair<Boolean, String> {
-        val resp = http.getBearer(base + KylixBridge.notesPath(), KylixBridge.authHeader(token))
-        val parsed = JSONObject(KylixBridge.parseList(resp.status.toLong(), resp.body))
+        if (accessExpiresAtMs > 0 && System.currentTimeMillis() >= accessExpiresAtMs - 60_000L) {
+            if (!refresh(base)) {
+                return Pair(false, "session expired")
+            }
+        }
+        var resp = http.getBearer(base + KylixBridge.notesPath(), KylixBridge.authHeader(token))
+        var parsed = JSONObject(KylixBridge.parseList(resp.status.toLong(), resp.body))
+        if (!parsed.optBoolean("ok") && parsed.optBoolean("relogin") && refresh(base)) {
+            resp = http.getBearer(base + KylixBridge.notesPath(), KylixBridge.authHeader(token))
+            parsed = JSONObject(KylixBridge.parseList(resp.status.toLong(), resp.body))
+        }
         if (!parsed.optBoolean("ok")) {
             if (parsed.optBoolean("relogin")) {
                 token = ""
+                refreshToken = ""
+                accessExpiresAtMs = 0
             }
             return Pair(false, parsed.optString("error", "could not load notes"))
         }

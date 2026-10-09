@@ -61,7 +61,7 @@ CI 有专门的 `deploy_check.sh` 守着这条（把二进制拷到空目录跑�
 | `KYADMIN_DB` | `~/.kylixadmin/admin.db` | sqlite 文件路径（目录不存在会自动创建） |
 | `KYADMIN_PASSWORD` | `Admin@123` | 首次启动播种的 admin 口令；**不设会在 stdout 打警告** |
 | `KYADMIN_PORT` | `8090` | 监听端口 |
-| `KYADMIN_JWT_SECRET` | `kylix-admin-dev-secret` | `/api/login` 的 HS256 密钥（Android/iOS 壳）。**不设会在 stdout 打警告**；对外暴露 API 前必须改掉 |
+| `KYADMIN_JWT_SECRET` | `kylix-admin-dev-secret` | `/api/login` 与 `/api/refresh` 的 HS256 密钥（Android/iOS 壳）。**不设会在 stdout 打警告**；对外暴露 API 前必须改掉 |
 
 启动时打印一行自述，运维可直接据此判断接的是哪个库：
 
@@ -188,7 +188,7 @@ location / {
 ## 六、安全清单
 
 - [ ] **改掉种子口令**：首次启动前设 `KYADMIN_PASSWORD`（或登录后立即在个人中心修改）
-- [ ] **改掉 API 密钥**：原生壳走 `POST /api/login`（Bearer，24 小时，无 refresh）。对外前设 `KYADMIN_JWT_SECRET`。`/api/` 不走 CSRF（浏览器表单登录仍校验）；详见 [MOBILE_APPS.md](MOBILE_APPS.md)
+- [ ] **改掉 API 密钥**：原生壳走 `POST /api/login`（24 小时 access + 30 天 refresh，`POST /api/refresh` 轮换）。对外前设 `KYADMIN_JWT_SECRET`。`/api/` 不走 CSRF（浏览器表单登录仍校验）；详见 [MOBILE_APPS.md](MOBILE_APPS.md)
 - [ ] postgres 连接串用 `sslmode=require` 以上，且经 `EnvironmentFile` 注入而非命令行
 - [ ] 反向代理终止 TLS，并限制管理端口的来源网段
 - [ ] 数据库文件/实例权限最小化（sqlite 文件 0600，pg 用受限角色）

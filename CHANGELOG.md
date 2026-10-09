@@ -19,7 +19,7 @@ CLI 版本仍是 `0.14.0`。本条目只覆盖示例应用第一项；wasm32、�
 ### 设计
 
 - **HTTP 不进 Kylix 核心。** `pkg/llvmgen/compile.go` 在 android 上不链 `-lcurl`/`-lcrypto`/`-lpq`/`-lsqlite3`，ios 不链 `-lcurl`。把 libcurl + OpenSSL 打进移动端二进制是 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md) 第五节标黄的风险。共享单元 `apps/shared/mobilecore.klx` 只做校验、JSON 请求/响应契约、以及「401 必须重新登录」的判定；Android 用 OkHttp、iOS 用 URLSession。H5 不是第四次编译：它就是 KylixAdmin 那一个二进制（PWA）。
-- **JWT refresh 仍未做。** 登录流程不需要它：`POST /api/login` 发 24 小时 HS256 access token（`McAccessTTL` = 86400），`GET /api/notes` 返回 401 时壳回到登录页。secret 为 `KYADMIN_JWT_SECRET`，未设置时用开发默认值 `kylix-admin-dev-secret` 并在启动时告警。
+- **JWT refresh。** `POST /api/login` 同时发 24 小时 access token（`typ=access`）和 30 天 refresh token（`typ=refresh`，带 `jti`）。`POST /api/refresh` 验签、核对 `api_refresh` 里该用户当前的 `jti`、再换一对新 token；旧 refresh 立即 401。access token 不能刷新，refresh token 不能当 Bearer 拉列表。`jti` 用用户名、unix 秒和一个进程内计数拼出来（LLVM 端没有 `RandomToken`）。壳把两个 token 放在内存里，access 到期前 60 秒或列表 401 时刷新一次，失败才回登录。secret 仍是 `KYADMIN_JWT_SECRET`，未设置时用 `kylix-admin-dev-secret`。E2E 增加 S27。每个用户名同时只有一条 refresh 记录。
 - **响应走 `BootText`，不走 `BootJSON`。** LLVM 端 `BootJSON` 丢掉 value 参数，响应体是空的。两端都发手写 JSON 字符串；客户端只看 body，不看 `Content-Type`（实际是 `text/plain`）。
 
 ### JSON API（KylixAdmin）
