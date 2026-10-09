@@ -4,7 +4,7 @@
 > 架构取向: **共享 Kylix 核心 + 各端原生壳**（不造跨平台 UI 框架）
 > 节奏: 排在 KylixAdmin（v0.10–v0.12，见 [ADMIN_PLATFORM.md](ADMIN_PLATFORM.md)）之后，v0.13.0–v0.15.0，1.0.0 gate 不变
 > 技术基线核对（2026-09-12）: `tripleFor` 现有 5 个桌面 triple；`export` token 在 lexer 已有、生成器未实现；`pkg/wasi` 为 Go 侧 stub 骨架
-> 2026-10-09：`[Export]`、移动端 triple、示例壳、CI 产物门、`wasm32-unknown-wasi` 纯逻辑子集，以及 stdlib 的 android/ios 平台分支已落地。见 [EXPORT_C_ABI.md](EXPORT_C_ABI.md)、[MOBILE_APPS.md](MOBILE_APPS.md)、[WASI.md](WASI.md)。AES/PBKDF2、httpclient、libpq 在移动端仍拒绝。
+> 2026-10-09：v0.15.0 发版准备。`[Export]`、移动端 triple、示例壳、CI 产物门、`wasm32-unknown-wasi` 纯逻辑子集，以及 stdlib 的 android/ios 平台分支已落地。CLI 版本 `0.15.0`。见 [EXPORT_C_ABI.md](EXPORT_C_ABI.md)、[MOBILE_APPS.md](MOBILE_APPS.md)、[WASI.md](WASI.md)。AES/PBKDF2、httpclient、libpq 在移动端仍拒绝。下一站 1.0.0。
 
 ---
 
@@ -71,7 +71,7 @@
 | v0.9.0–v0.12.0 | 不变（1.0.0-rc 打磨 + KylixAdmin P1–P5） | admin 平台完成 |
 | **v0.13.0** | H5 路线 A：PWA 移动页面组 + manifest/SW + refresh token + H5_GUIDE | 手机浏览器可安装使用 admin 移动版 |
 | **v0.14.0** | 编译器多端能力：export C ABI（双端）+ android/ios triple + NDK/Xcode 探测。stdlib 可移植层与 CI 产物门未纳入本版（见第二节第 4、5 条） | `[Export]` + `--shared` + 四个移动端 triple；指南 `EXPORT_C_ABI.md` |
-| **v0.15.0** | 示例应用与 CI 产物门 ✅；wasm32-unknown-wasi + `pkg/wasi` preview1 子集 ✅（[WASI.md](WASI.md)）；stdlib android/ios 平台分支 ✅（哈希可移植、sqlite 分端、桌面库不链入） | 双端真机/模拟器登录仍是手工步骤；AES/httpclient/libpq 在移动端拒绝 |
+| **v0.15.0** | 2026-10-09 发版准备完成。示例应用与 CI 产物门 ✅；wasm32-unknown-wasi + `pkg/wasi` preview1 子集 ✅（[WASI.md](WASI.md)）；stdlib android/ios 平台分支 ✅（哈希可移植、sqlite 分端、桌面库不链入） | 双端真机/模拟器登录仍是手工步骤；AES/httpclient/libpq 在移动端拒绝 |
 | **1.0.0** | gate 不变；多端能力作为平台特性宣传 | — |
 
 ## 五、风险与诚实评估

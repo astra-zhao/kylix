@@ -1,13 +1,13 @@
-# 多端示例应用（v0.15.0 进行中）
+# 多端示例应用（v0.15.0）
 
-> 2026-10-09。CLI 版本仍是 0.14.0，本指南描述的是未发版的第一项。
+> 2026-10-09。CLI 版本 `0.15.0`。
 > 规划原文：[MULTIPLATFORM.md](MULTIPLATFORM.md) 第三、四、六节；C ABI：[EXPORT_C_ABI.md](EXPORT_C_ABI.md)。
 
 同一份 Kylix 业务单元跑在 admin（H5 就是这个二进制）和 Android / iOS 壳上。壳只负责界面和 HTTP。
 
 ## 为什么 HTTP 不进 Kylix 核心
 
-`pkg/llvmgen/compile.go` 在 `android` 上整段跳过 `-lcurl`、`-lcrypto`、`-lpq`、`-lsqlite3`，在 `ios` 上跳过 `-lcurl`。核心里若调用 `httpclient`，这两个目标链不出来。把 libcurl 和 OpenSSL 静态链进移动端二进制，是规划第五节标黄的体积和工具链风险；OkHttp 与 URLSession 已经做了 TLS。
+`pkg/llvmgen/compile.go` 在 android 与 ios 上拒绝 `httpclient` 和 libpq，不链 `-lcurl`、`-lpq`、`-lcrypto`。SHA-256/MD5 走可移植实现。sqlite：ios 链系统 `libsqlite3`，android 编译 amalgamation，不链宿主 `-lsqlite3`。把 libcurl 和 OpenSSL 静态链进移动端二进制，是规划第五节标黄的体积和工具链风险；OkHttp 与 URLSession 已经做了 TLS。
 
 所以：
 

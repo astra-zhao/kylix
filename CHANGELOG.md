@@ -12,13 +12,13 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
-## Unreleased — v0.15.0 进行中（多端示例应用，未发版）
+## v0.15.0 — 多端示例应用 + wasm32-unknown-wasi + stdlib android/ios 平台分支 ✅（2026-10-09 发布）
 
-CLI 版本仍是 `0.14.0`。stdlib 的 android/ios 平台分支已落地（见下文）；移动端 CI 在产物形态之外再链一份可移植 stdlib 探针。模拟器/真机登录仍不跑。wasm32-unknown-wasi 纯逻辑子集已落地，见下文。
+CLI 版本 `0.15.0`。本版收口五件事：Android/iOS 示例壳、JWT refresh 与多设备会话及壳端持久化、移动端 CI 产物门、LLVM `wasm32-unknown-wasi` 纯逻辑目标、stdlib 的 android/ios 平台分支。模拟器/真机登录仍不跑。
 
 ### 设计
 
-- **HTTP 不进 Kylix 核心。** `pkg/llvmgen/compile.go` 在 android 上不链 `-lcurl`/`-lcrypto`/`-lpq`/`-lsqlite3`，ios 不链 `-lcurl`。把 libcurl + OpenSSL 打进移动端二进制是 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md) 第五节标黄的风险。共享单元 `apps/shared/mobilecore.klx` 只做校验、JSON 请求/响应契约、以及「401 必须重新登录」的判定；Android 用 OkHttp、iOS 用 URLSession。H5 不是第四次编译：它就是 KylixAdmin 那一个二进制（PWA）。
+- **HTTP 不进 Kylix 核心。** android 与 ios 在链接前拒绝 `httpclient` 与 libpq，不链 `-lcurl`/`-lpq`/`-lcrypto`。哈希与 sqlite 的分端策略见下文「stdlib android/ios 平台分支」。把 libcurl + OpenSSL 打进移动端二进制是 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md) 第五节标黄的风险。共享单元 `apps/shared/mobilecore.klx` 只做校验、JSON 请求/响应契约、以及「401 必须重新登录」的判定；Android 用 OkHttp、iOS 用 URLSession。H5 不是第四次编译：它就是 KylixAdmin 那一个二进制（PWA）。
 - **JWT refresh。** `POST /api/login` 同时发 24 小时 access token（`typ=access`）和 30 天 refresh token（`typ=refresh`，带 `jti`）。`POST /api/refresh` 验签、核对 `api_refresh` 里这一张 `jti`、再换一对新 token；被轮换的旧 refresh 立即 401。access token 不能刷新，refresh token 不能当 Bearer 拉列表。`jti` 用用户名、unix 秒和一个进程内计数拼出来（LLVM 端没有 `RandomToken`）。secret 仍是 `KYADMIN_JWT_SECRET`，未设置时用 `kylix-admin-dev-secret`。
 - **多设备会话与壳端持久化。** `api_refresh` 改为每个 `jti` 一行（`username`、`created_at`），同一用户最多 8 行；发新 token 时先清掉超过 30 天的行，再挤掉最老的。第二次登录不再作废上一台设备。`POST /api/logout` 只删除提交的那张；空 token 为 400，无效 token 仍 200。旧库若第一列是 `username` 主键则启动时删表重建。Android 用 `EncryptedSharedPreferences`（Keystore 失败则只留内存），iOS 用 Keychain（service `dev.kylix.admin`）。冷启动凭 refresh token 恢复，刷新失败或登出才清除。E2E 增加 S28（两张 refresh 同时有效、轮换一张不影响另一张、登出后旧 token 401）。场景数 27 → 28。离线登出删不掉服务器行；同一张 token 并发刷新没有行锁。
 - **响应走 `BootText`，不走 `BootJSON`。** LLVM 端 `BootJSON` 丢掉 value 参数，响应体是空的。两端都发手写 JSON 字符串；客户端只看 body，不看 `Content-Type`（实际是 `text/plain`）。

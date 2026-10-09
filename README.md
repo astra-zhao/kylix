@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-0.14.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.15.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go or to native 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
-> 🚧 **v0.15.0 in progress** (not a release; the version badge stays 0.14.0): Android and iOS sample shells share `apps/shared/mobilecore.klx` (validation + JSON contract, no HTTP). OkHttp / URLSession talk to `POST /api/login`, `POST /api/refresh`, `POST /api/logout`, and `GET /api/notes` on KylixAdmin. One user can hold several refresh tokens (one row per `jti`, cap 8). Shells persist the session in EncryptedSharedPreferences / Keychain and restore it on a cold start. Host proof is Go/LLVM parity plus C ABI `dlopen`. CI checks Android ELF `.so` files on Linux and iOS `.a` symbols plus an SDK link smoke on macOS; it does not boot a simulator. Guide: [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md). LLVM `wasm32-unknown-wasi` is in as a pure-logic subset (no DOM): `kylix build --backend=llvm --target wasi/wasm32`. `--wasm` stays the Go browser target. Guide: [docs/WASI.md](docs/WASI.md).
+> 🚀 **v0.15.0**: **Sample shells, wasm32-wasi, and a mobile stdlib.** Android (Kotlin + JNI + OkHttp) and iOS (SwiftUI + URLSession) share `apps/shared/mobilecore.klx` (validation + JSON contract, no HTTP). KylixAdmin adds `POST /api/login`, `POST /api/refresh`, `POST /api/logout`, and `GET /api/notes`. One user can hold several refresh tokens (one row per `jti`, cap 8). Shells persist the session in EncryptedSharedPreferences / Keychain. CI checks Android ELF `.so` files on Linux and iOS `.a` symbols plus an SDK link smoke on macOS; it does not boot a simulator ([mobile guide](docs/MOBILE_APPS.md)). LLVM target `wasi/wasm32` is `wasm32-unknown-wasi` (no DOM); `--wasm` stays `GOOS=js` ([WASI guide](docs/WASI.md)). On android/ios, SHA-256/MD5 use a portable hash, sqlite is per-target, and libcurl/OpenSSL/libpq are not linked. AES/PBKDF2 and httpclient stay unavailable there. See [CHANGELOG.md](CHANGELOG.md).
 >
 > 🚀 **v0.14.0**: **Compiler Multiplatform Capabilities — C ABI Export & Mobile Cross-Compilation.** Export functions/procedures with **`[Export]` / `[Export('c_symbol')]`** as standard C ABI symbols; compiler-injected **`kylix_free`** establishes strict cross-boundary memory ownership. **`--shared`** produces shared libraries (`.so`/`.dylib`/`.dll`) with `@main` promoted to `@llvm.global_ctors` module constructors; direct `.o` object and `.a` static archive outputs supported. Expanded **Target Triples** for Android (`android/arm64`, `android/amd64`) and iOS (`ios/arm64`, `ios/simulator-arm64`); `FindAndroidNdk()` auto-discovery; native `platform IOS minos 16.0` dynamic & static libraries linked via Xcode; C host `dlopen`/`dlsym` E2E 100% verified. See [CHANGELOG.md](CHANGELOG.md) & [C ABI Guide](docs/EXPORT_C_ABI.md).
 >
@@ -1076,7 +1076,7 @@ Kylix LSP supports any editor with LSP client:
 
 ## Roadmap
 
-Current status: **v0.14.0 released** (2026-10-07); **v0.15.0 in progress**. The compiler still reports 0.14.0. C ABI `[Export]` and the Android/iOS triples from v0.14.0 are unchanged ([C ABI guide](docs/EXPORT_C_ABI.md)). The first v0.15 item is in tree: `apps/android/` and `apps/ios/` login + notes list, sharing `apps/shared/mobilecore.klx`, plus `POST /api/login`, `POST /api/refresh`, `POST /api/logout`, and `GET /api/notes` on KylixAdmin. Several refresh tokens can be live for one user; the shells persist them ([mobile guide](docs/MOBILE_APPS.md)). CI now gates the Android `.so` and iOS `.a` artifacts (see [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)) and the LLVM `wasm32-unknown-wasi` module (`wasi-wasm32`, see [docs/WASI.md](docs/WASI.md)). The android/ios stdlib branches are in: portable SHA-256/MD5, per-target sqlite, and no libcurl/OpenSSL/libpq on those targets (see [ROADMAP.md](ROADMAP.md)). AES/PBKDF2 and httpclient stay unavailable there.
+Current status: **v0.15.0 release-ready** (2026-10-09). `kylix version` reports 0.15.0. Android and iOS sample shells share `apps/shared/mobilecore.klx` and talk to KylixAdmin JSON routes (`POST /api/login`, `POST /api/refresh`, `POST /api/logout`, `GET /api/notes`), with one refresh row per `jti` (cap 8) and shell persistence ([mobile guide](docs/MOBILE_APPS.md)). CI gates Android `.so` and iOS `.a` artifacts, plus LLVM `wasm32-unknown-wasi` (`--target wasi/wasm32`, job `wasi-wasm32`, [WASI guide](docs/WASI.md)). The android/ios stdlib branches use a portable hash and per-target sqlite, and do not link libcurl, OpenSSL, or libpq. AES/PBKDF2 and httpclient stay unavailable on those targets. Simulator and device login are still manual. Next: **1.0.0**. The full roadmap lives in [ROADMAP.md](ROADMAP.md).
 
 ## Cross-Platform Compilation
 
@@ -1228,6 +1228,7 @@ Recent releases (see [CHANGELOG.md](CHANGELOG.md) for the full history):
 
 | Version | Highlights |
 |---------|------------|
+| v0.15.0 | Sample Android/iOS shells (shared `mobilecore.klx`, multi-device JWT refresh, EncryptedSharedPreferences/Keychain), CI gates for Android `.so` and iOS `.a`, LLVM `wasm32-unknown-wasi` (`--target wasi/wasm32`), android/ios stdlib branches (portable SHA-256/MD5, per-target sqlite; no libcurl/OpenSSL/libpq) |
 | v0.14.0 | Compiler multi-platform: `[Export]` / `[Export('c_symbol')]` C ABI on both backends, `kylix_free`, `--shared` (`.so`/`.dylib`/`.dll` and `.o`/`.a`) on the LLVM backend, Android/iOS triples (`android/arm64`, `android/amd64`, `ios/arm64`, `ios/simulator-arm64`) |
 | v0.13.0 | KylixAdmin H5: installable PWA (manifest, service worker, 192/512 icons, `≤900px` cards) and login rate limiting (20 failures / 15 min / IP → 429) |
 | v0.9.0 | 1.0.0-rc polish: KylixBoot completion (Session/CSRF/upload/Download/pagination/layout), bootstrap boot server (example60 E2E), stdlib IR rebake loop, CI green on 3 platforms + perf gate + API stability freeze |

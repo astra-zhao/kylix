@@ -1,6 +1,6 @@
 # wasm32-unknown-wasi（纯逻辑）
 
-v0.15 的 LLVM 目标。编译器 CLI 版本仍是 `0.14.0`。这条路径只做纯逻辑：导入表是 `wasi_snapshot_preview1` 的一个子集，**没有 DOM**。浏览器页面仍走 Go 后端的 `kylix build --wasm`（`GOOS=js`）。
+v0.15.0（2026-10-09）的 LLVM 目标。CLI 版本 `0.15.0`。这条路径只做纯逻辑：导入表是 `wasi_snapshot_preview1` 的一个子集，**没有 DOM**。浏览器页面仍走 Go 后端的 `kylix build --wasm`（`GOOS=js`）。
 
 ## 两条 WASI 路径
 

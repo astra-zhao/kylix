@@ -2,7 +2,7 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-0.14.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.15.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
@@ -10,7 +10,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后�
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🚧 **v0.15.0 进行中**（未发版，版本徽章仍是 0.14.0）：Android / iOS 示例壳共用 `apps/shared/mobilecore.klx`（校验 + JSON 契约，不含 HTTP）。OkHttp / URLSession 调 KylixAdmin 的 `POST /api/login`、`POST /api/refresh`、`POST /api/logout` 与 `GET /api/notes`。同一用户可持有多张 refresh token（每个 `jti` 一行，上限 8）。壳用 EncryptedSharedPreferences / Keychain 持久化会话，冷启动恢复。本仓库自动验证是 Go/LLVM parity 加 C ABI `dlopen`。CI 在 Linux 上检查 Android ELF `.so`，在 macOS 上检查 iOS `.a` 符号并做 SDK 链接冒烟，不启动模拟器。指南：[docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。LLVM `wasm32-unknown-wasi` 已作为纯逻辑子集入库（无 DOM）：`kylix build --backend=llvm --target wasi/wasm32`。`--wasm` 仍是 Go 浏览器目标。指南：[docs/WASI.md](docs/WASI.md)。
+> 🚀 **v0.15.0**: **示例壳、wasm32-wasi，以及移动端 stdlib。** Android（Kotlin + JNI + OkHttp）与 iOS（SwiftUI + URLSession）共用 `apps/shared/mobilecore.klx`（校验 + JSON 契约，不含 HTTP）。KylixAdmin 增加 `POST /api/login`、`POST /api/refresh`、`POST /api/logout` 与 `GET /api/notes`。同一用户可持有多张 refresh token（每个 `jti` 一行，上限 8）。壳用 EncryptedSharedPreferences / Keychain 持久化会话。CI 在 Linux 上检查 Android ELF `.so`，在 macOS 上检查 iOS `.a` 符号并做 SDK 链接冒烟，不启动模拟器（[多端指南](docs/MOBILE_APPS.md)）。LLVM 目标 `wasi/wasm32` 是 `wasm32-unknown-wasi`（无 DOM）；`--wasm` 仍是 `GOOS=js`（[WASI 指南](docs/WASI.md)）。android/ios 上 SHA-256/MD5 走可移植实现，sqlite 分端链接，不链 libcurl/OpenSSL/libpq。AES/PBKDF2 与 httpclient 在这两个目标上仍不可用。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
 > 🚀 **v0.14.0**: **编译器多端能力——C ABI 导出与移动端交叉编译。** 函数/过程支持 **`[Export]` / `[Export('c_symbol')]`** 注解导出为标准 C 符号；**`kylix_free`** 注入建立严格的跨边界内存生命周期契约。**`--shared`** 一键产出动态共享库（`.so`/`.dylib`/`.dll`），`@main` 自动升格为 `@llvm.global_ctors` 模块构造器，加载即自动初始化；支持直接产出 `.o` 目标文件与 `.a` 静态库归档。扩展 **Target Triple** 支持 Android（`android/arm64`、`android/amd64`）与 iOS（`ios/arm64`、`ios/simulator-arm64`）；实现 `FindAndroidNdk()` 自动探测；在 macOS 上直接桥接 Xcode 链接出真正的 `platform IOS minos 16.0` 动态库与静态库；C 宿主 `dlopen`/`dlsym` 测试 100% 通过。详见 [CHANGELOG.md](CHANGELOG.md) 与 [C ABI 指南](docs/EXPORT_C_ABI.md)。
 >
@@ -1118,7 +1118,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 
 ## 路线图
 
-当前状态：**v0.14.0 已发布**（2026-10-07）；**v0.15.0 进行中**。编译器版本号仍是 0.14.0。v0.14.0 的 C ABI `[Export]` 与 Android/iOS triple 保持不变（[C ABI 指南](docs/EXPORT_C_ABI.md)）。v0.15 第一项已入库：`apps/android/` 与 `apps/ios/` 的登录 + Notes 列表，共用 `apps/shared/mobilecore.klx`，KylixAdmin 增加 `POST /api/login`、`POST /api/refresh`、`POST /api/logout` 与 `GET /api/notes`。同一用户可同时持有多张 refresh token，壳会持久化（[多端指南](docs/MOBILE_APPS.md)）。CI 已检查 Android `.so` 与 iOS `.a` 产物（见 [多端指南](docs/MOBILE_APPS.md)），以及 LLVM `wasm32-unknown-wasi` 模块（`wasi-wasm32`，见 [docs/WASI.md](docs/WASI.md)）。stdlib 的 android/ios 平台分支已落地（哈希走可移植实现，sqlite 分端链接，不把 libcurl/OpenSSL/libpq 链进手机；见 [ROADMAP.md](ROADMAP.md)）。AES/PBKDF2 与 httpclient 在移动端仍不可用。
+当前状态：**v0.15.0 发版准备完成**（2026-10-09）。`kylix version` 报告 0.15.0。Android / iOS 示例壳共用 `apps/shared/mobilecore.klx`，对接 KylixAdmin 的 `POST /api/login`、`POST /api/refresh`、`POST /api/logout`、`GET /api/notes`；每个 `jti` 一行（上限 8），壳端持久化（[多端指南](docs/MOBILE_APPS.md)）。CI 检查 Android `.so`、iOS `.a`，以及 LLVM `wasm32-unknown-wasi`（`--target wasi/wasm32`，job `wasi-wasm32`，[WASI 指南](docs/WASI.md)）。android/ios 的 stdlib 用可移植哈希和分端 sqlite，不链 libcurl、OpenSSL、libpq。AES/PBKDF2 与 httpclient 在这两个目标上仍不可用。模拟器与真机登录仍是手工步骤。下一站：**1.0.0**。完整路线图见 [ROADMAP.md](ROADMAP.md)。
 
 ## 跨平台编译
 
@@ -1248,6 +1248,7 @@ WsClose(ws);
 
 | 版本 | 亮点 |
 |------|------|
+| v0.15.0 | Android/iOS 示例壳（共用 `mobilecore.klx`、多设备 JWT refresh、EncryptedSharedPreferences/Keychain）、Android `.so` 与 iOS `.a` 的 CI 产物门、LLVM `wasm32-unknown-wasi`（`--target wasi/wasm32`）、stdlib android/ios 平台分支（可移植 SHA-256/MD5、分端 sqlite；不链 libcurl/OpenSSL/libpq） |
 | v0.14.0 | 编译器多端能力：`[Export]` / `[Export('c_symbol')]` 双端 C ABI、`kylix_free`、LLVM `--shared`（`.so`/`.dylib`/`.dll` 与 `.o`/`.a`）、Android/iOS triple（`android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`） |
 | v0.13.0 | KylixAdmin H5：可安装 PWA（manifest、service worker、192/512 图标、`≤900px` 卡片化）+ 登录限流（20 次失败/15 分钟/IP → 429） |
 | v0.9.0 | 1.0.0-rc 打磨：KylixBoot 补齐（Session/CSRF/上传/Download/分页/layout）、bootstrap boot server（example60 E2E）、stdlib IR 重烘链路、CI 三平台全绿 + 性能门禁 + API 稳定性冻结 |

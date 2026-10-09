@@ -1,4 +1,4 @@
-# API 稳定性承诺（v0.14.0 → 1.0.0）
+# API 稳定性承诺（v0.15.0 → 1.0.0）
 
 > v0.9.0 起进入 1.0.0-rc 打磨阶段。本文档划定 **1.0.0 将冻结的公开 API 面**，
 > 以及冻结后的破坏性变更 / 弃用流程约定。1.0.0 发布时本文档即生效。
@@ -97,8 +97,13 @@ Go 后端在函数前发射 `//export <sym>`，并在存在导出时额外 `impo
 LLVM 后端发射未改名的全局符号；`hasExports || isShared` 时注入 `kylix_free`（malloc 模式 `free`，`--gc=boehm` 时 `GC_free`）。
 语义与调用约定见 [docs/EXPORT_C_ABI.md](EXPORT_C_ABI.md)。
 
+**目标值**（v0.15.0，仍写在既有 `--target os/arch` 上）：`--backend=llvm --target wasi/wasm32`（别名 `wasm` / `wasm32` / `wasi`）的 triple 是 `wasm32-unknown-wasi`，不导入 DOM。单独的 `--wasm` 仍是 Go `GOOS=js`，单独的 `--wasi` 仍是 Go `GOOS=wasip1`。`--backend=llvm --wasm` 拒绝。移动端：`android/arm64`、`android/amd64`（别名 `android/x86_64`）、`ios/arm64`、`ios/simulator-arm64`。
+
+**android/ios 上的 stdlib 链接**（v0.15.0）：`Sha256` / `Md5` / `HmacSha256` 调用可移植实现，不链 `-lcrypto`。`AesEncrypt` / `AesDecrypt` / `BCrypt*` / `Pbkdf2*`、`httpclient`、libpq 在这两个目标上拒绝。ios 用到 sqlite 时链系统 `libsqlite3`；android 编译 amalgamation，不链宿主 `-lsqlite3`。桌面目标仍走原来的 OpenSSL / libpq / libcurl 路径。
+
 **TRequest/TResponse 方法面**（v0.11.0 增补）：`req.Path()` 与既有
-`Param/Query/Header/Body/Form/Cookie/Session*/File/SaveFile/PageNum` 同级冻结；
+`Param/Query/Header/Body/Form/Cookie/Session*/File/SaveFile/PageNum` 同级冻结。
+v0.15.0 增加 `req.BodyText()`：Go 端把 `Body()` 的字节转成字符串；LLVM 端与 `req.Body` 同一次读取。bootstrap 编译器还不认这个名字（见 [TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md)）。
 `req.Form` 的**回退链差异**（Go 含 URL query 回退、LLVM 只查 body）按
 TECHNICAL_DEBT 记录的限制处理，不构成契约——应用代码应 GET 用 `Query`、
 POST 用 `Form`。
