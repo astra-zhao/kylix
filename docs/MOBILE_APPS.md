@@ -17,7 +17,7 @@
 | KylixAdmin `controllers/api.klx` | 真正查库、`DoLogin`、`JwtSign` |
 | Android / iOS | 画登录页和列表，发 HTTP |
 
-JWT refresh 已接上。登录同时发 24 小时 access token（`McAccessTTL` = 86400，`typ=access`）和 30 天 refresh token（`McRefreshTTL` = 2592000，`typ=refresh` 加 `jti`）。壳把两个 token 放在内存里（进程结束即丢），access 到期前 60 秒或列表返回 401 时调 `POST /api/refresh`，只尝试一次；刷新失败才回到登录页。
+JWT refresh 已接上。登录同时发 24 小时 access token（`McAccessTTL` = 86400，`typ=access`）和 30 天 refresh token（`McRefreshTTL` = 2592000，`typ=refresh` 加 `jti`）。同一用户可以同时持有多张 refresh token（每张一个 `jti`）。壳把服务器地址和两个 token 写入安全存储（Android `EncryptedSharedPreferences`，iOS Keychain），冷启动时恢复，access 到期前 60 秒或列表返回 401 时调 `POST /api/refresh`，只尝试一次；刷新失败或登出才清掉本地会话并回到登录页。
 
 ## 目录
 
@@ -32,11 +32,11 @@ apps/ios/                        SwiftUI + Swift Package + URLSession
 
 `mobilecore_lib.klx` 不进 admin 的文件列表。Go 后端看到 `[Export]` 会发 `//export` 和 cgo，admin 不需要那样。
 
-导出符号（`kylixcore.h`）：`mc_validate_login`、`mc_login_request`、`mc_parse_login`、`mc_refresh_request`、`mc_parse_refresh`、`mc_list_request`、`mc_parse_list`、`mc_auth_header`、`mc_login_path`、`mc_refresh_path`、`mc_notes_path`、`kylix_free`。返回的字符串都经过 `s + ''`，是 malloc 出来的，调用方复制后必须 `kylix_free`。模块常量不能 free。`Integer` 是 `int64_t`。
+导出符号（`kylixcore.h`）：`mc_validate_login`、`mc_login_request`、`mc_parse_login`、`mc_refresh_request`、`mc_parse_refresh`、`mc_list_request`、`mc_parse_list`、`mc_auth_header`、`mc_login_path`、`mc_refresh_path`、`mc_logout_path`、`mc_notes_path`、`kylix_free`。返回的字符串都经过 `s + ''`，是 malloc 出来的，调用方复制后必须 `kylix_free`。模块常量不能 free。`Integer` 是 `int64_t`。
 
 ## JSON API
 
-KylixAdmin 增加两条路由，HTML 登录不变。
+KylixAdmin 增加 JSON 路由，HTML 登录不变。
 
 `POST /api/login`
 
@@ -52,9 +52,19 @@ KylixAdmin 增加两条路由，HTML 登录不变。
 
 失败：400 校验、401 口令错误、429 限流。body 形如 `{"ok":false,"error":"..."}`。经 `mc_parse_login` 后登录失败的 `relogin` 是 false。
 
-`POST /api/refresh`，body `{"refresh_token":"..."}`。成功时轮换：`api_refresh` 里该用户只留新的 `jti`，旧 refresh token 再提交得到 401。access token 不能拿来刷新，refresh token 不能当 Bearer 去拉 Notes。刷新失败经 `mc_parse_refresh` 后 `relogin` 是 true。
+`POST /api/refresh`，body `{"refresh_token":"..."}`。成功时只轮换提交上来的那张：删掉它的 `jti`，再插入新行。另一台设备的 refresh token 仍然有效。被轮换的旧 token 再提交得到 401。access token 不能拿来刷新，refresh token 不能当 Bearer 去拉 Notes。刷新失败经 `mc_parse_refresh` 后 `relogin` 是 true。
 
-每个用户名同时只有一条 refresh 记录。第二次登录会使上一次登录发出的 refresh token 失效。多设备各自持有 refresh token 不在这个示例里。
+`POST /api/logout`，body 与刷新相同（`mc_refresh_request`）。验签成功且 `typ=refresh` 时只删除这一张 `jti`。token 为空是 400；token 无效或已经轮换过仍返回 200 `{"ok":true}`，这样壳不会卡在登出。壳在请求之后清本地存储，网络失败也清。离线登出删不掉服务器上的那一行，要等这张 token 再被提交，或被下面的上限挤掉。
+
+### 多设备模型
+
+`api_refresh` 是 `(jti TEXT PRIMARY KEY, username TEXT NOT NULL, created_at INTEGER NOT NULL)`。一次登录或一次成功的刷新插入一行，不按用户名整表删。
+
+上限是每个用户名 8 行（`ApiRefreshCap`）。发新 token 之前，先删掉该用户 `created_at` 早于 refresh TTL（30 天）的行，再按 `created_at, jti` 删最老的，直到不足 8 行。刷新会先删掉自己那一行再插入，所以人已经在上限上时，刷新不会挤掉另一台设备。
+
+旧库如果第一列还是 `username`（第一版示例的主键），启动时 `DROP` 再按新结构建表。那几行 refresh 不能拆成多设备会话，这些设备需要重新登录。E2E 每次用新库，不经过这条迁移。
+
+没有行锁。同一张 refresh token 被两个请求同时刷新时，两边都可能通过查找并各插入一个后继 `jti`。过期但从未再提交的行，要等到该用户下次登录或刷新才会被清掉；单独的 401 不删行。`jti` 仍是用户名、unix 秒和进程内计数，不是随机数（LLVM 端没有 `RandomToken`）。
 
 `GET /api/notes`，头必须是 `Authorization: Bearer <token>`（LLVM 的 `req.Header` 大小写敏感）。
 
@@ -87,7 +97,7 @@ go build -o /tmp/kylix_bin ./cmd/kylix/
 KYLIX=/tmp/kylix_bin bash apps/admin/e2e.sh
 ```
 
-期望末行含 `26 scenarios`。S26 在限流场景 S25 之前，避免把登录预算打满。postgres 四形态沿用原来的 `KYADMIN_DSN` 开关。
+期望末行含 `28 scenarios`。S26、S27、S28 在限流场景 S25 之前，避免把登录预算打满。S28 检查两张 refresh token 同时有效、轮换其中一张不影响另一张、登出只作废被提交的那张。postgres 四形态沿用原来的 `KYADMIN_DSN` 开关。
 
 相关单测：
 
@@ -124,7 +134,8 @@ file /tmp/mobilecore_android.o
 1. 先在宿主机跑 admin：`KYADMIN_PORT=8090`（见 [ADMIN_DEV_GUIDE_CN.md](ADMIN_DEV_GUIDE_CN.md)）。
 2. 壳里的服务器默认是 `http://10.0.2.2:8090`（模拟器看宿主机的别名）。真机改成电脑的局域网地址。清单允许明文 HTTP。
 3. 用户 `admin`，密码 `Admin@123`。登录后应看到 Notes；库被 E2E 清过就是空列表，文案会提示去网页后台建一条。
-4. access token 过期或被换成坏值时，壳会用 refresh token 换一对新的，列表仍在。把 refresh token 也清掉，或等它过期，才会回到登录页。
+4. access token 过期或被换成坏值时，壳会用 refresh token 换一对新的，列表仍在。登出、刷新失败，或 refresh token 过期，才会回到登录页。
+5. 杀掉进程再打开：应仍在登录后的列表（Keystore 可用时）。再开一台模拟器登录同一账号，两边的列表都在；其中一边刷新或登出，另一边仍能拉列表。Keystore 建主密钥失败时，会话只留在本进程内存里，冷启动要重新登录。
 
 ## iOS（需要 macOS + Xcode）
 
@@ -147,7 +158,7 @@ open KylixAdmin.xcodeproj
 
 - 控制字符（码点 < 32）在 JSON 转义里变成空格。词法器没有可用的 `Chr`，示例的 note 正文按单行处理。
 - 反斜杠和引号会转义成 `\\` 与 `\"`。这两字节是 `'\' + '\'` 和 `'\' + '"'` 拼出来的：源码字面量 `'\\'` / `'\"'` 在 Go 后端是两个字节，在 LLVM 后端被 `decodeKylixString` 收成一个字节。
-- 公开函数至少有一个参数。宿主 Go 后端对跨单元零参调用、且用在参数位置时会丢掉括号。C 导出的 `mc_login_path` / `mc_refresh_path` / `mc_notes_path` 是零参的，只在 LLVM 库里。
-- 每个用户名同时只留一条 refresh 记录。第二次登录会使上一张 refresh token 失效。壳不把 token 写入磁盘。
+- 公开函数至少有一个参数。宿主 Go 后端对跨单元零参调用、且用在参数位置时会丢掉括号。C 导出的 `mc_login_path` / `mc_refresh_path` / `mc_logout_path` / `mc_notes_path` 是零参的，只在 LLVM 库里。
+- 每个用户名最多 8 条 refresh 记录。第 9 次登录会挤掉最老的一台设备。壳把 token 放进 EncryptedSharedPreferences（Android，`androidx.security:security-crypto` 1.1.0-alpha06）或 Keychain（iOS，service `dev.kylix.admin`）。Keystore 失败时 Android 退回内存，不崩溃。模拟器/真机上的冷启动本环境没有跑。
 - 登录成功仍会 `Set-Cookie`。壳不保存这张 cookie，之后只送 Bearer。
 - wasm、CI 上的 `.so`/`.a` 形态门、stdlib 的 android/ios 平台分支，都不在这一项里。

@@ -28,6 +28,7 @@ struct RootView: View {
     @State private var accessExpiresAt: TimeInterval = 0
     @State private var notes: [NoteRow] = []
     @State private var signedIn = false
+    @State private var didRestore = false
 
     var body: some View {
         NavigationStack {
@@ -41,6 +42,7 @@ struct RootView: View {
             .navigationTitle("KylixAdmin")
             .padding()
         }
+        .task { await restoreIfNeeded() }
     }
 
     private var loginScreen: some View {
@@ -86,10 +88,9 @@ struct RootView: View {
                 .listStyle(.plain)
             }
             Button("Sign out") {
-                clearSession()
-                notes = []
-                message = ""
-                signedIn = false
+                let base = normalizeBase(server)
+                let raw = refreshToken
+                Task { await signOut(base: base, refresh: raw) }
             }
         }
     }
@@ -125,22 +126,66 @@ struct RootView: View {
             signedIn = !token.isEmpty
         } catch {
             message = error.localizedDescription
+            signedIn = !token.isEmpty
         }
     }
 
-    /// Keeps the new pair. Returns a message when either token is missing.
+    /// Keeps the new pair and writes it to the Keychain.
     private func storeSession(_ parsed: [String: Any]) -> String? {
         token = (parsed["token"] as? String) ?? ""
         refreshToken = (parsed["refresh_token"] as? String) ?? ""
         let ttl = (parsed["expires_in"] as? NSNumber)?.doubleValue ?? 0
         accessExpiresAt = ttl > 0 ? Date().timeIntervalSince1970 + ttl : 0
-        return (token.isEmpty || refreshToken.isEmpty) ? "sign in failed" : nil
+        if token.isEmpty || refreshToken.isEmpty {
+            clearSession()
+            return "sign in failed"
+        }
+        SessionStore.save(StoredSession(
+            server: server,
+            token: token,
+            refreshToken: refreshToken,
+            accessExpiresAt: accessExpiresAt
+        ))
+        return nil
     }
 
     private func clearSession() {
         token = ""
         refreshToken = ""
         accessExpiresAt = 0
+        SessionStore.clear()
+    }
+
+    /// Best-effort server revoke of this device's jti, then drop local storage
+    /// even when the network call fails.
+    private func signOut(base: String, refresh: String) async {
+        if !base.isEmpty && !refresh.isEmpty {
+            let body = KylixCore.refreshRequest(refreshToken: refresh)
+            _ = try? await postJSON(url: base + KylixCore.logoutPath(), body: body)
+        }
+        clearSession()
+        notes = []
+        message = ""
+        signedIn = false
+    }
+
+    private func restoreIfNeeded() async {
+        if didRestore { return }
+        didRestore = true
+        guard let saved = SessionStore.load(), !saved.refreshToken.isEmpty else { return }
+        server = saved.server
+        token = saved.token
+        refreshToken = saved.refreshToken
+        accessExpiresAt = saved.accessExpiresAt
+        signedIn = true
+        message = "Restoring session…"
+        do {
+            try await loadNotes(base: normalizeBase(saved.server))
+            signedIn = !token.isEmpty
+        } catch {
+            message = error.localizedDescription
+            signedIn = !token.isEmpty
+        }
     }
 
     /// One refresh. Success replaces both tokens. Failure drops the local pair.

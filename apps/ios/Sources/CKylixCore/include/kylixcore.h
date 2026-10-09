@@ -14,4 +14,5 @@ const char *mc_auth_header(const char *token);
 const char *mc_login_path(void);
 const char *mc_refresh_path(void);
 const char *mc_notes_path(void);
+const char *mc_logout_path(void);
 void kylix_free(void *p);

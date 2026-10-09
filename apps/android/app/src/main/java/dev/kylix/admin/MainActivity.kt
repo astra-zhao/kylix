@@ -12,10 +12,13 @@ import java.util.concurrent.Executors
 /**
  * Login + notes list. Business rules live in the Kylix core; this activity
  * only collects input, calls OkHttp, and renders the normalized JSON.
+ * Tokens are written to [SessionStore] and restored on a cold start.
  */
 class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private val http = ApiClient()
+    private lateinit var session: SessionStore
+    private var serverBase: String = ""
     private var token: String = ""
     private var refreshToken: String = ""
     private var accessExpiresAtMs: Long = 0
@@ -23,6 +26,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        session = SessionStore(this)
 
         val server = findViewById<EditText>(R.id.server)
         val username = findViewById<EditText>(R.id.username)
@@ -35,9 +39,7 @@ class MainActivity : Activity() {
         val listBox = findViewById<View>(R.id.listBox)
 
         fun showLogin(text: String) {
-            token = ""
-            refreshToken = ""
-            accessExpiresAtMs = 0
+            dropSession()
             loginBox.visibility = View.VISIBLE
             listBox.visibility = View.GONE
             message.text = text
@@ -80,7 +82,58 @@ class MainActivity : Activity() {
             }
         }
 
-        logout.setOnClickListener { showLogin("") }
+        logout.setOnClickListener {
+            val base = serverBase
+            val raw = refreshToken
+            logout.isEnabled = false
+            io.execute {
+                try {
+                    if (base.isNotEmpty() && raw.isNotEmpty()) {
+                        http.postJson(base + KylixBridge.logoutPath(), KylixBridge.refreshRequest(raw))
+                    }
+                } catch (_: Exception) {
+                    // Offline logout still clears this device. The server row
+                    // stays until that token is presented or evicted.
+                }
+                runOnUiThread {
+                    logout.isEnabled = true
+                    showLogin("")
+                }
+            }
+        }
+
+        val saved = session.load()
+        if (saved != null && saved.refreshToken.isNotEmpty()) {
+            server.setText(saved.server)
+            serverBase = saved.server.trim().trimEnd('/')
+            token = saved.token
+            refreshToken = saved.refreshToken
+            accessExpiresAtMs = saved.accessExpiresAtMs
+            loginBox.visibility = View.GONE
+            listBox.visibility = View.VISIBLE
+            notes.text = "Restoring session…"
+            io.execute {
+                var listText = ""
+                var stay = false
+                var err: String? = null
+                try {
+                    val loaded = loadNotes(serverBase)
+                    listText = loaded.second
+                    stay = loaded.first
+                } catch (e: Exception) {
+                    err = e.message ?: "network error"
+                }
+                runOnUiThread {
+                    if (err != null) {
+                        notes.text = err
+                    } else if (!stay) {
+                        showLogin(listText)
+                    } else {
+                        showList(listText)
+                    }
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -97,6 +150,7 @@ class MainActivity : Activity() {
         if (local.isNotEmpty()) {
             return local
         }
+        serverBase = base
         val body = KylixBridge.loginRequest(user, pass)
         val resp = http.postJson(base + KylixBridge.loginPath(), body)
         val parsed = JSONObject(KylixBridge.parseLogin(resp.status.toLong(), resp.body))
@@ -106,18 +160,32 @@ class MainActivity : Activity() {
         return storeSession(parsed)
     }
 
-    /** Keeps the new pair. Returns an error when either token is missing. */
+    /** Keeps the new pair and writes it to secure storage. */
     private fun storeSession(parsed: JSONObject): String? {
         token = parsed.optString("token")
         refreshToken = parsed.optString("refresh_token")
         val ttl = parsed.optLong("expires_in", 0)
         accessExpiresAtMs = if (ttl > 0) System.currentTimeMillis() + ttl * 1000 else 0
-        return if (token.isEmpty() || refreshToken.isEmpty()) "sign in failed" else null
+        if (token.isEmpty() || refreshToken.isEmpty()) {
+            dropSession()
+            return "sign in failed"
+        }
+        session.save(serverBase, token, refreshToken, accessExpiresAtMs)
+        return null
+    }
+
+    private fun dropSession() {
+        token = ""
+        refreshToken = ""
+        accessExpiresAtMs = 0
+        if (::session.isInitialized) {
+            session.clear()
+        }
     }
 
     /**
-     * One refresh. Success replaces both tokens (the server rotates). Failure
-     * drops the local pair so the next step is the login screen.
+     * One refresh. Success replaces both tokens (the server rotates this jti
+     * only). Failure drops the local pair so the next step is the login screen.
      */
     private fun refresh(base: String): Boolean {
         if (refreshToken.isEmpty()) {
@@ -126,9 +194,7 @@ class MainActivity : Activity() {
         val resp = http.postJson(base + KylixBridge.refreshPath(), KylixBridge.refreshRequest(refreshToken))
         val parsed = JSONObject(KylixBridge.parseRefresh(resp.status.toLong(), resp.body))
         if (!parsed.optBoolean("ok") || parsed.optBoolean("relogin")) {
-            token = ""
-            refreshToken = ""
-            accessExpiresAtMs = 0
+            dropSession()
             return false
         }
         return storeSession(parsed) == null
@@ -149,9 +215,7 @@ class MainActivity : Activity() {
         }
         if (!parsed.optBoolean("ok")) {
             if (parsed.optBoolean("relogin")) {
-                token = ""
-                refreshToken = ""
-                accessExpiresAtMs = 0
+                dropSession()
             }
             return Pair(false, parsed.optString("error", "could not load notes"))
         }

@@ -52,6 +52,12 @@ begin
   result := '/api/refresh';
 end;
 
+// McLogoutPath is the JSON logout route. The body is McRefreshRequestJSON.
+function McLogoutPath(unused: Integer): String;
+begin
+  result := '/api/logout';
+end;
+
 // McNotesPath is the JSON notes list route on KylixAdmin.
 function McNotesPath(unused: Integer): String;
 begin

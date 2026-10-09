@@ -51,6 +51,7 @@ int main(int argc, char **argv) {
     fn0 login_path = (fn0)dlsym(h, "mc_login_path");
     fn0 refresh_path = (fn0)dlsym(h, "mc_refresh_path");
     fn0 notes_path = (fn0)dlsym(h, "mc_notes_path");
+    fn0 logout_path = (fn0)dlsym(h, "mc_logout_path");
     fn_free kylix_free = (fn_free)dlsym(h, "kylix_free");
     must(validate, "mc_validate_login");
     must(login_req, "mc_login_request");
@@ -63,6 +64,7 @@ int main(int argc, char **argv) {
     must(login_path, "mc_login_path");
     must(refresh_path, "mc_refresh_path");
     must(notes_path, "mc_notes_path");
+    must(logout_path, "mc_logout_path");
     must(kylix_free, "kylix_free");
     if (fails) {
         return 1;
@@ -86,6 +88,10 @@ int main(int argc, char **argv) {
 
     s = notes_path();
     expect("notes_path", s, "/api/notes");
+    kylix_free((void *)s);
+
+    s = logout_path();
+    expect("logout_path", s, "/api/logout");
     kylix_free((void *)s);
 
     s = auth("tok.en");

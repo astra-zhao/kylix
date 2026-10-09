@@ -1,7 +1,8 @@
 // api.klx — JSON API for the Android / iOS shells (v0.15.0)
 //
 //   POST /api/login      {"username","password"} → access token + refresh token
-//   POST /api/refresh    {"refresh_token"} → a new pair (the previous refresh dies)
+//   POST /api/refresh    {"refresh_token"} → a new pair (only that jti is revoked)
+//   POST /api/logout     {"refresh_token"} → 200, and that jti is deleted
 //   GET  /api/notes      Authorization: Bearer <access token> → notes the user may read
 //
 // The bodies are built by apps/shared/mobilecore.klx, the same unit the
@@ -18,12 +19,16 @@
 //
 // Access tokens last McAccessTTL (24h) and carry typ=access. Refresh tokens
 // last McRefreshTTL (30 days), carry typ=refresh plus a jti, and are the only
-// credential POST /api/refresh accepts. The current jti lives in api_refresh
-// (one row per username). Login and a successful refresh replace that row, so
-// the previous refresh token no longer verifies. A refresh token presented as
-// a Bearer access token is rejected. Shells keep both tokens in memory, refresh
-// shortly before the access token expires and again on 401, and show login
-// only when refresh fails. See docs/MOBILE_APPS.md.
+// credential POST /api/refresh and POST /api/logout accept. api_refresh holds
+// one row per jti (username, created_at), so a second device's login does not
+// revoke the first. Refresh and logout delete only the presented jti. A user
+// may hold ApiRefreshCap rows; issuing another drops the oldest
+// (created_at, then jti). A refresh deletes its own row before the insert, so
+// it does not evict a different device when the user is already at the cap.
+// Rows older than McRefreshTTL are deleted for that user when a new token is
+// issued. There is no row lock: two refreshes of the same token can both pass
+// the lookup and insert two successors. A refresh token presented as a Bearer
+// access token is rejected. See docs/MOBILE_APPS.md.
 unit api;
 
 uses boot, db, jwt, sysutil, datetime, admindb, adminsec, mobilecore;
@@ -121,8 +126,47 @@ begin
   result := McNotesEnvelope(items);
 end;
 
+// ApiRefreshCap is how many live refresh rows one username may hold.
+function ApiRefreshCap(unused: Integer): Integer;
+begin
+  result := 8;
+end;
+
+// ApiSweepRefresh drops this user's rows that are older than the refresh TTL.
+// An unused expired token is not deleted on the 401 path (verify fails first);
+// the next login or refresh for that user reclaims the slot.
+procedure ApiSweepRefresh(db: TDatabase; user: String);
+var
+  cutoff: String;
+begin
+  cutoff := IntToStr(Now().Unix() - McRefreshTTL(0));
+  DbExec(db, 'DELETE FROM api_refresh WHERE username = ? AND created_at < ?', user, cutoff);
+end;
+
+// ApiEvictRefresh drops the oldest rows until the user is under the cap,
+// so the following INSERT still fits.
+procedure ApiEvictRefresh(db: TDatabase; user: String);
+var
+  n: Integer;
+  oldest: String;
+begin
+  n := StrToInt(DbQueryScalar(db, 'SELECT COUNT(*) FROM api_refresh WHERE username = ?', user));
+  while n >= ApiRefreshCap(0) do
+  begin
+    oldest := DbQueryScalar(db, 'SELECT jti FROM api_refresh WHERE username = ? ORDER BY created_at, jti LIMIT 1', user);
+    if oldest = '' then
+      n := 0
+    else
+    begin
+      DbExec(db, 'DELETE FROM api_refresh WHERE jti = ?', oldest);
+      n := n - 1;
+    end;
+  end;
+end;
+
 // ApiTokenJSON stores a new refresh id and returns the login/refresh 200 body.
 // The map variables are identifiers so the LLVM backend boxes them for JwtSign.
+// Other devices' rows are left in place.
 function ApiTokenJSON(db: TDatabase; user: String; display: String): String;
 var
   accessClaims: map[String]Variant;
@@ -130,11 +174,14 @@ var
   jti: String;
   access: String;
   refresh: String;
+  now: Integer;
 begin
   gApiRefreshSeq := gApiRefreshSeq + 1;
   jti := user + '-' + IntToStr(Now().Unix()) + '-' + IntToStr(gApiRefreshSeq);
-  DbExec(db, 'DELETE FROM api_refresh WHERE username = ?', user);
-  DbExec(db, 'INSERT INTO api_refresh (username, jti) VALUES (?, ?)', user, jti);
+  ApiSweepRefresh(db, user);
+  ApiEvictRefresh(db, user);
+  now := Now().Unix();
+  DbExec(db, 'INSERT INTO api_refresh (jti, username, created_at) VALUES (?, ?, ?)', jti, user, IntToStr(now));
   accessClaims['typ'] := 'access';
   refreshClaims['typ'] := 'refresh';
   refreshClaims['jti'] := jti;
@@ -188,7 +235,7 @@ type
       typ: String;
       jti: String;
       db: TDatabase;
-      currentJti: String;
+      rowUser: String;
       active: String;
       display: String;
     begin
@@ -211,18 +258,58 @@ type
         else
         begin
           db := AdminOpen('admin.db');
-          currentJti := DbQueryScalar(db, 'SELECT jti FROM api_refresh WHERE username = ?', sub);
+          rowUser := DbQueryScalar(db, 'SELECT username FROM api_refresh WHERE jti = ?', jti);
           active := DbQueryScalar(db, 'SELECT is_active FROM users WHERE username = ?', sub);
-          if currentJti <> jti then
+          if rowUser <> sub then
             result := ApiJSON(401, McErrorJSON('unauthorized'))
           else if ApiDoneFlag(active) <> 1 then
             result := ApiJSON(401, McErrorJSON('unauthorized'))
           else
           begin
+            // Only this jti. A second device's row stays until that device
+            // refreshes, logs out, or is evicted as the oldest over the cap.
+            DbExec(db, 'DELETE FROM api_refresh WHERE jti = ?', jti);
             display := DbQueryScalar(db, 'SELECT display_name FROM users WHERE username = ?', sub);
             result := ApiJSON(200, ApiTokenJSON(db, sub, display));
           end;
         end;
+      end;
+    end;
+
+    [Post('/api/logout')]
+    function ApiLogout(req: TRequest): TResponse;
+    var
+      body: String;
+      raw: String;
+      sub: String;
+      typ: String;
+      jti: String;
+      db: TDatabase;
+    begin
+      body := req.BodyText();
+      raw := McJsonStringField(body, 'refresh_token');
+      if raw = '' then
+        result := ApiJSON(400, McErrorJSON('Refresh token is required'))
+      else
+      begin
+        // A bad or already-rotated token still returns 200. The shell clears
+        // local storage either way; a 401 here would look like a stuck logout.
+        var claims := JwtVerify(ApiJwtSecret(), raw);
+        sub := JwtSubject(claims);
+        typ := JwtGetString(claims, 'typ');
+        jti := JwtGetString(claims, 'jti');
+        if sub <> '' then
+        begin
+          if typ = 'refresh' then
+          begin
+            if jti <> '' then
+            begin
+              db := AdminOpen('admin.db');
+              DbExec(db, 'DELETE FROM api_refresh WHERE jti = ? AND username = ?', jti, sub);
+            end;
+          end;
+        end;
+        result := ApiJSON(200, '{"ok":true}');
       end;
     end;
 

@@ -19,7 +19,8 @@ CLI 版本仍是 `0.14.0`。本条目只覆盖示例应用第一项；wasm32、�
 ### 设计
 
 - **HTTP 不进 Kylix 核心。** `pkg/llvmgen/compile.go` 在 android 上不链 `-lcurl`/`-lcrypto`/`-lpq`/`-lsqlite3`，ios 不链 `-lcurl`。把 libcurl + OpenSSL 打进移动端二进制是 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md) 第五节标黄的风险。共享单元 `apps/shared/mobilecore.klx` 只做校验、JSON 请求/响应契约、以及「401 必须重新登录」的判定；Android 用 OkHttp、iOS 用 URLSession。H5 不是第四次编译：它就是 KylixAdmin 那一个二进制（PWA）。
-- **JWT refresh。** `POST /api/login` 同时发 24 小时 access token（`typ=access`）和 30 天 refresh token（`typ=refresh`，带 `jti`）。`POST /api/refresh` 验签、核对 `api_refresh` 里该用户当前的 `jti`、再换一对新 token；旧 refresh 立即 401。access token 不能刷新，refresh token 不能当 Bearer 拉列表。`jti` 用用户名、unix 秒和一个进程内计数拼出来（LLVM 端没有 `RandomToken`）。壳把两个 token 放在内存里，access 到期前 60 秒或列表 401 时刷新一次，失败才回登录。secret 仍是 `KYADMIN_JWT_SECRET`，未设置时用 `kylix-admin-dev-secret`。E2E 增加 S27。每个用户名同时只有一条 refresh 记录。
+- **JWT refresh。** `POST /api/login` 同时发 24 小时 access token（`typ=access`）和 30 天 refresh token（`typ=refresh`，带 `jti`）。`POST /api/refresh` 验签、核对 `api_refresh` 里这一张 `jti`、再换一对新 token；被轮换的旧 refresh 立即 401。access token 不能刷新，refresh token 不能当 Bearer 拉列表。`jti` 用用户名、unix 秒和一个进程内计数拼出来（LLVM 端没有 `RandomToken`）。secret 仍是 `KYADMIN_JWT_SECRET`，未设置时用 `kylix-admin-dev-secret`。
+- **多设备会话与壳端持久化。** `api_refresh` 改为每个 `jti` 一行（`username`、`created_at`），同一用户最多 8 行；发新 token 时先清掉超过 30 天的行，再挤掉最老的。第二次登录不再作废上一台设备。`POST /api/logout` 只删除提交的那张；空 token 为 400，无效 token 仍 200。旧库若第一列是 `username` 主键则启动时删表重建。Android 用 `EncryptedSharedPreferences`（Keystore 失败则只留内存），iOS 用 Keychain（service `dev.kylix.admin`）。冷启动凭 refresh token 恢复，刷新失败或登出才清除。E2E 增加 S28（两张 refresh 同时有效、轮换一张不影响另一张、登出后旧 token 401）。场景数 27 → 28。离线登出删不掉服务器行；同一张 token 并发刷新没有行锁。
 - **响应走 `BootText`，不走 `BootJSON`。** LLVM 端 `BootJSON` 丢掉 value 参数，响应体是空的。两端都发手写 JSON 字符串；客户端只看 body，不看 `Content-Type`（实际是 `text/plain`）。
 
 ### JSON API（KylixAdmin）
