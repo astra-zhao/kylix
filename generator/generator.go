@@ -3,9 +3,9 @@
 package generator
 
 import (
-	"sort"
 	"fmt"
 	"kylix/ast"
+	"sort"
 	"strings"
 )
 
