@@ -27,7 +27,7 @@
 2. **triple 矩阵扩展** ✅ v0.14.0：`tripleFor`（`pkg/llvmgen/compile.go`）已有 `android/arm64`（`aarch64-linux-android30`）、`android/amd64`（`x86_64-linux-android30`，别名 `android/x86_64`）、`ios/arm64`（`arm64-apple-ios16.0.0`）、`ios/simulator-arm64`（`arm64-apple-ios16.0.0-simulator`）。
 3. **工具链探测** ✅ v0.14.0：`FindAndroidNdk()`（`pkg/llvmgen/ndk.go`，`ANDROID_NDK_HOME` / `ANDROID_NDK_ROOT` / SDK 路径）；iOS 链接走 macOS 上的 `xcrun` clang，非 macOS 主机直接报错。
 4. **stdlib 可移植层** → **v0.15**（v0.14 未做）：`stdlib_datetime.go` / `stdlib_sysutil.go` / `stdlib_net.go` 仍只区分 `windows` 与其余平台，android/ios 走非 Windows 路径。`compile.go` 在 android 上不链 `-lcrypto`/`-lpq`/`-lsqlite3`/`-lcurl`，ios 不链 `-lcurl`。独立的 android/ios 分支，以及 net/crypto/db 在这些目标上的第二批适配，留到 v0.15。
-5. **CI** → **v0.15**（v0.14 未做）：`.github/workflows/ci.yml` 没有 android/ios job。Android `.so` 产物形态检查、macOS runner 上的 iOS `.a` 符号检查、真机验收文档，与 ROADMAP v0.15 清单一致。
+5. **CI 产物形态门禁** ✅ v0.15：`.github/workflows/ci.yml` 的 `mobile-android`（ubuntu-latest）用 NDK r26d 跑 `apps/android/build_core.sh` 的 arm64 与 amd64，`check_artifact.sh` 要求 ELF shared object，动态符号表含 `apps/shared/mobile_exports.list`（`mc_*` 与 `kylix_free`）。`mobile-ios`（macos-15）跑 `apps/ios/build_core.sh simulator` 与 `device`：`nm` 符号表，再用 `xcrun` 把 `.a` 链进 arm64 Mach-O（模拟器平台 `IOSSIMULATOR`，设备 SDK 平台 `IOS`）。真机登录不在 CI 里：不签名、不装机、不启动模拟器。手工步骤见 [MOBILE_APPS.md](MOBILE_APPS.md)。
 
 ## 三、各端技术路线
 
@@ -82,12 +82,13 @@
 | JNI/Swift 桥样板代码维护 | 🟡 | 导出签名统一 JSON-in/JSON-out，桥层极薄；中期 `kylix gen jni` |
 | UI 每端各写一遍 | ⚠️ 架构决定 | 明确不做跨平台 UI 框架，共享的是逻辑层 |
 | wasm 异常/DOM 边界 | 🟡 | 纯逻辑先行 + 错误码返回，不承诺 DOM |
-| CI 三套工具链复杂度 | 🟡 | 产物形态验证为主（不跑模拟器），真机验收文档化 |
+| CI 三套工具链复杂度 | 🟡 | 产物形态验证为主（不跑模拟器），真机验收文档化。Android `.so` 与 iOS `.a` 门禁已进 `ci.yml` |
 
 ## 六、验收标准
 
 - [x] 同一份业务 unit（`apps/shared/mobilecore.klx`：校验 + JSON API 协议）被 admin 编译（H5 即该二进制）并由 Android/iOS 以 C ABI 链接。宿主 Go/LLVM 输出逐字一致（`apps/shared/host_check.sh`）。HTTP 传输不在这份 unit 里——见 [MOBILE_APPS.md](MOBILE_APPS.md)
-- [ ] Android：`libkylixlogic.so` 加载 + 导出函数调用 + 完整登录流程（真机或模拟器）。壳与 `build_core.sh` 已入库；本环境无 NDK，未跑模拟器
-- [ ] iOS：`libkylixcore.a` 链接进 SwiftUI app + 模拟器完整登录流程。壳与 `build_core.sh` 已入库；链接需要 macOS/Xcode，本环境未跑
+- [x] Android 产物门：CI 交叉链接 `libkylixlogic.so`（arm64 与 amd64），`file` 为 ELF shared object，动态符号含 `mc_*` / `kylix_free`
+- [x] iOS 产物门：CI（macos-15）检查 `libkylixcore.a` 符号表，并把归档链进模拟器与 iphoneos Mach-O。入库环境不是 macOS，这条由 CI 跑
+- [ ] 壳里的完整登录（Android 模拟器、iOS 模拟器、签名后的真机）仍是手工步骤，见 [MOBILE_APPS.md](MOBILE_APPS.md)
 - [ ] H5：Lighthouse PWA 可安装性通过；弱网下降级可用
 - [ ] 全量回归持续绿：16 包 + 双 sweep + bootstrap sweep + IR 不动点

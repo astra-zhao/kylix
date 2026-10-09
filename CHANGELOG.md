@@ -14,7 +14,7 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ## Unreleased — v0.15.0 进行中（多端示例应用，未发版）
 
-CLI 版本仍是 `0.14.0`。本条目只覆盖示例应用第一项；wasm32、移动端 CI 产物门、stdlib 的 android/ios 平台分支都还没做。
+CLI 版本仍是 `0.14.0`。wasm32 与 stdlib 的 android/ios 平台分支都还没做。移动端 CI 只检查产物形态，不跑登录。
 
 ### 设计
 
@@ -36,6 +36,7 @@ CLI 版本仍是 `0.14.0`。本条目只覆盖示例应用第一项；wasm32、�
 - `apps/ios/`：SwiftUI + Swift Package，`build_core.sh simulator|device` 在 Darwin 上产出 `libkylixcore.a`。模拟器默认连 `http://127.0.0.1:8090`。
 - 宿主证明：`apps/shared/host_check.sh`（parity.klx 的 Go/LLVM stdout 逐字一致 + `dlopen` 调导出符号并 `kylix_free`）。导出字符串经 `s + ''` 一定是 malloc 出来的，可以 free；模块常量不能 free。
 - 指南：[docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。模拟器/真机登录本环境未跑。
+- **CI 产物形态门。** `mobile-android`（ubuntu-latest）安装 NDK r26d，跑 `apps/android/build_core.sh arm64` 与 `amd64`，`check_artifact.sh` 要求 `file` 报 ELF shared object（ARM aarch64 / x86-64），并且动态符号表含 `apps/shared/mobile_exports.list`（`mc_*` 与 `kylix_free`）。`mobile-ios`（macos-15）跑 `apps/ios/build_core.sh simulator` 与 `device`：`nm` 核对同一份符号，再用 `xcrun` clang 把 `.a` 链成 arm64 Mach-O（`vtool` 平台分别是 `IOSSIMULATOR` 与 `IOS`）。iphoneos 那次链接不签名、不装到手机。真机登录步骤写在指南里。CI 不启动模拟器。
 
 ## v0.14.0 — 编译器多端能力（C ABI Export + 移动端 Triple + 交叉链接）✅（2026-10-07 发布）
 

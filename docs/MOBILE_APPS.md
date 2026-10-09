@@ -99,6 +99,32 @@ KYLIX=/tmp/kylix_bin bash apps/admin/e2e.sh
 
 期望末行含 `28 scenarios`。S26、S27、S28 在限流场景 S25 之前，避免把登录预算打满。S28 检查两张 refresh token 同时有效、轮换其中一张不影响另一张、登出只作废被提交的那张。postgres 四形态沿用原来的 `KYADMIN_DSN` 开关。
 
+## CI 产物门
+
+`.github/workflows/ci.yml` 有两个 job，只检查库的形态，不登录、不启动模拟器。
+
+| Job | Runner | 做什么 |
+|---|---|---|
+| `mobile-android` | `ubuntu-latest` | 安装 NDK r26d（`ANDROID_NDK_HOME`），`build_core.sh arm64` 与 `amd64`，再 `check_artifact.sh` |
+| `mobile-ios` | `macos-15` | `brew install llvm` 提供 `llc`，`build_core.sh simulator` 与 `device`，再 `check_artifact.sh` |
+
+Android 门：`file` 必须是 `ELF 64-bit LSB shared object`（arm64 为 ARM aarch64，amd64 为 x86-64）。`llvm-nm -D`（或 `nm -D`）的动态符号表必须含 `apps/shared/mobile_exports.list` 里的每个名字（`mc_*` 与 `kylix_free`）。不 `dlopen`：Android 的 linker 不是宿主机的。
+
+iOS 门：归档必须是 `ar archive`，`nm` 里要有同一份符号（Mach-O 上带前导 `_`）。然后用对应 SDK 把一个调用 `mc_login_path` / `mc_notes_path` / `mc_logout_path` / `kylix_free` 的 C `main` 链成 arm64 Mach-O。`vtool -show-build` 对模拟器必须是 `platform IOSSIMULATOR`，对 device 必须是 `platform IOS`。device 这次链接不签名，也不安装到手机。`build_core.sh` 两次写的是同一个 `libkylixcore.a`，所以 CI 先查模拟器再覆盖成 device。
+
+本机有 NDK 时可以复跑 Android 门：
+
+```bash
+go build -o kylix ./cmd/kylix/
+export ANDROID_NDK_HOME=/opt/android-ndk-r26d
+KYLIX=$PWD/kylix bash apps/android/build_core.sh arm64
+bash apps/android/check_artifact.sh apps/android/app/src/main/jniLibs/arm64-v8a/libkylixlogic.so arm64
+KYLIX=$PWD/kylix bash apps/android/build_core.sh amd64
+bash apps/android/check_artifact.sh apps/android/app/src/main/jniLibs/x86_64/libkylixlogic.so amd64
+```
+
+iOS 门只能在 macOS + Xcode 上跑，命令与 CI 相同（`KYLIX=$PWD/kylix`）。
+
 相关单测：
 
 ```bash
@@ -154,6 +180,17 @@ open KylixAdmin.xcodeproj
 
 没有 Xcode 时，在 Mac 上也可以只出 `.o`：把上面的 android 命令里的 `--target` 换成 `ios/simulator-arm64` 或 `ios/arm64`，输出名用 `.o`。
 
+### 真机验收（CI 不做）
+
+CI 的 iphoneos 链接只证明 `.a` 能链进设备 SDK 的 Mach-O。装到手机要本机签名：
+
+1. 在 Mac 上 `bash apps/ios/build_core.sh device`（覆盖模拟器那份 `libkylixcore.a`）。
+2. `cd apps/ios && xcodegen generate && open KylixAdmin.xcodeproj`。
+3. 选一台已连接的 iPhone，用本机 Apple ID 签名，Run。
+4. 服务器改成这台 Mac 的局域网地址（模拟器才是 `http://127.0.0.1:8090`）。用户 `admin`，密码 `Admin@123`。登录后应看到 Notes。
+5. 杀掉进程再打开：Keychain 里的 refresh token 应恢复会话。另一台设备或模拟器上的同一账号在这一台刷新或登出之后仍然有效（每 `jti` 一行）。
+6. 模拟器完整登录同样不在 CI 里：`build_core.sh simulator` 之后用 Xcode 的模拟器目标 Run，服务器用 `http://127.0.0.1:8090`。
+
 ## 已知边界
 
 - 控制字符（码点 < 32）在 JSON 转义里变成空格。词法器没有可用的 `Chr`，示例的 note 正文按单行处理。
@@ -161,4 +198,4 @@ open KylixAdmin.xcodeproj
 - 公开函数至少有一个参数。宿主 Go 后端对跨单元零参调用、且用在参数位置时会丢掉括号。C 导出的 `mc_login_path` / `mc_refresh_path` / `mc_logout_path` / `mc_notes_path` 是零参的，只在 LLVM 库里。
 - 每个用户名最多 8 条 refresh 记录。第 9 次登录会挤掉最老的一台设备。壳把 token 放进 EncryptedSharedPreferences（Android，`androidx.security:security-crypto` 1.1.0-alpha06）或 Keychain（iOS，service `dev.kylix.admin`）。Keystore 失败时 Android 退回内存，不崩溃。模拟器/真机上的冷启动本环境没有跑。
 - 登录成功仍会 `Set-Cookie`。壳不保存这张 cookie，之后只送 Bearer。
-- wasm、CI 上的 `.so`/`.a` 形态门、stdlib 的 android/ios 平台分支，都不在这一项里。
+- wasm 与 stdlib 的 android/ios 平台分支还不在。CI 只做上面的 `.so` / `.a` 形态门，不跑壳里的登录。

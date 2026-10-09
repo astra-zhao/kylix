@@ -1,0 +1,16 @@
+# C ABI symbols the Android and iOS shells require.
+# One name per line. Blank lines and # comments are ignored.
+# ELF .so exports these names as-is. Mach-O .a prefixes them with _.
+mc_validate_login
+mc_login_request
+mc_parse_login
+mc_refresh_request
+mc_parse_refresh
+mc_list_request
+mc_parse_list
+mc_auth_header
+mc_login_path
+mc_refresh_path
+mc_logout_path
+mc_notes_path
+kylix_free
