@@ -527,8 +527,26 @@ func (g *Generator) emitSysutilSetWorkingDir() {
 }
 
 // ---- GetTempDir: ptr @__kylix_sysutil_GetTempDir() ----
-// getenv("TMPDIR"); fallback "/tmp" (TMP/TEMP on Windows is a v0.6.2 limitation).
+//
+// Desktop and the historical default: getenv("TMPDIR"), else "/tmp"
+// (TMP/TEMP on Windows is a v0.6.2 limitation; that IR is unchanged).
+// Android has no guaranteed /tmp — same rule as Go's os.TempDir: TMPDIR,
+// else /data/local/tmp. An app sandbox should set TMPDIR to its cache dir.
+// iOS always sets TMPDIR to the container tmp; if it is missing, confstr
+// (_CS_DARWIN_USER_TEMP_DIR) is the system call behind NSTemporaryDirectory.
+// /tmp is outside the iOS sandbox, so it is not the fallback.
 func (g *Generator) emitSysutilGetTempDir() {
+	switch g.targetOS {
+	case "android":
+		g.emitSysutilGetTempDirEnv("/data/local/tmp")
+	case "ios":
+		g.emitSysutilGetTempDirIOS()
+	default:
+		g.emitSysutilGetTempDirEnv("/tmp")
+	}
+}
+
+func (g *Generator) emitSysutilGetTempDirEnv(fallback string) {
 	g.line("define ptr @__kylix_sysutil_GetTempDir() {")
 	g.line("entry:")
 	tmpEnv := g.addString("TMPDIR")
@@ -536,11 +554,49 @@ func (g *Generator) emitSysutilGetTempDir() {
 	g.line(fmt.Sprintf("  %s = call ptr @getenv(ptr %s)", env, tmpEnv))
 	isNull := g.tmp()
 	g.line(fmt.Sprintf("  %s = icmp eq ptr %s, null", isNull, env))
-	tmpStr := g.addString("/tmp")
-	tmpPtr := g.ptrTo(tmpStr, 5)
+	tmpStr := g.addString(fallback)
+	tmpPtr := g.ptrTo(tmpStr, len(fallback)+1)
 	ret := g.tmp()
 	g.line(fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s", ret, isNull, tmpPtr, env))
 	g.line(fmt.Sprintf("  ret ptr %s", ret))
+	g.line("}")
+	g.line("")
+}
+
+func (g *Generator) emitSysutilGetTempDirIOS() {
+	g.line("declare i64 @confstr(i32 noundef, ptr noundef, i64 noundef)")
+	g.line("define ptr @__kylix_sysutil_GetTempDir() {")
+	g.line("entry:")
+	tmpEnv := g.addString("TMPDIR")
+	env := g.tmp()
+	g.line(fmt.Sprintf("  %s = call ptr @getenv(ptr %s)", env, tmpEnv))
+	has := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ne ptr %s, null", has, env))
+	useEnv := g.label()
+	confLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", has, useEnv, confLbl))
+	g.line(useEnv + ":")
+	g.line(fmt.Sprintf("  ret ptr %s", env))
+	g.line(confLbl + ":")
+	buf := g.tmp()
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall("1024")))
+	// _CS_DARWIN_USER_TEMP_DIR = 65537. confstr writes a NUL-terminated path
+	// and returns the size including the NUL, or 0 on failure.
+	n := g.tmp()
+	g.line(fmt.Sprintf("  %s = call i64 @confstr(i32 65537, ptr %s, i64 1024)", n, buf))
+	gt := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ugt i64 %s, 1", gt, n))
+	le := g.tmp()
+	g.line(fmt.Sprintf("  %s = icmp ule i64 %s, 1024", le, n))
+	good := g.tmp()
+	g.line(fmt.Sprintf("  %s = and i1 %s, %s", good, gt, le))
+	useConf := g.label()
+	emptyLbl := g.label()
+	g.line(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s", good, useConf, emptyLbl))
+	g.line(useConf + ":")
+	g.line(fmt.Sprintf("  ret ptr %s", buf))
+	g.line(emptyLbl + ":")
+	g.line("  ret ptr @__kylix_emptystr")
 	g.line("}")
 	g.line("")
 }

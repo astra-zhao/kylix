@@ -4,7 +4,7 @@
 > 架构取向: **共享 Kylix 核心 + 各端原生壳**（不造跨平台 UI 框架）
 > 节奏: 排在 KylixAdmin（v0.10–v0.12，见 [ADMIN_PLATFORM.md](ADMIN_PLATFORM.md)）之后，v0.13.0–v0.15.0，1.0.0 gate 不变
 > 技术基线核对（2026-09-12）: `tripleFor` 现有 5 个桌面 triple；`export` token 在 lexer 已有、生成器未实现；`pkg/wasi` 为 Go 侧 stub 骨架
-> 2026-10-09：`[Export]`、移动端 triple、示例壳、CI 产物门，以及 `wasm32-unknown-wasi` 纯逻辑子集已落地。见 [EXPORT_C_ABI.md](EXPORT_C_ABI.md)、[MOBILE_APPS.md](MOBILE_APPS.md)、[WASI.md](WASI.md)。stdlib 的 android/ios 独立分支仍开放。
+> 2026-10-09：`[Export]`、移动端 triple、示例壳、CI 产物门、`wasm32-unknown-wasi` 纯逻辑子集，以及 stdlib 的 android/ios 平台分支已落地。见 [EXPORT_C_ABI.md](EXPORT_C_ABI.md)、[MOBILE_APPS.md](MOBILE_APPS.md)、[WASI.md](WASI.md)。AES/PBKDF2、httpclient、libpq 在移动端仍拒绝。
 
 ---
 
@@ -27,7 +27,7 @@
 1. **C ABI export 机制** ✅ v0.14.0：`[Export]` / `[Export('c_symbol')]`。Go 后端发 `//export` 与 `import "C"`；LLVM 后端发未改名全局符号，并在有导出或 `--shared` 时注入 `kylix_free`（malloc → `free`，`--gc=boehm` → `GC_free`）。见 [EXPORT_C_ABI.md](EXPORT_C_ABI.md)。
 2. **triple 矩阵扩展** ✅ v0.14.0：`tripleFor`（`pkg/llvmgen/compile.go`）已有 `android/arm64`（`aarch64-linux-android30`）、`android/amd64`（`x86_64-linux-android30`，别名 `android/x86_64`）、`ios/arm64`（`arm64-apple-ios16.0.0`）、`ios/simulator-arm64`（`arm64-apple-ios16.0.0-simulator`）。
 3. **工具链探测** ✅ v0.14.0：`FindAndroidNdk()`（`pkg/llvmgen/ndk.go`，`ANDROID_NDK_HOME` / `ANDROID_NDK_ROOT` / SDK 路径）；iOS 链接走 macOS 上的 `xcrun` clang，非 macOS 主机直接报错。
-4. **stdlib 可移植层** → **v0.15**（v0.14 未做）：`stdlib_datetime.go` / `stdlib_sysutil.go` / `stdlib_net.go` 仍只区分 `windows` 与其余平台，android/ios 走非 Windows 路径。`compile.go` 在 android 上不链 `-lcrypto`/`-lpq`/`-lsqlite3`/`-lcurl`，ios 不链 `-lcurl`。独立的 android/ios 分支，以及 net/crypto/db 在这些目标上的第二批适配，留到 v0.15。
+4. **stdlib 可移植层** ✅ v0.15：android/ios 不再走「非 Windows」默认支。datetime 用 `localtime_r`；`GetTempDir` 在 android 回落 `/data/local/tmp`，在 ios 用 `confstr(_CS_DARWIN_USER_TEMP_DIR)`；net 的 `SO_REUSEADDR` android 用 Linux 常量（1/2），ios 用 Darwin 常量（0xffff/4）；exc 用 `setjmp`。SHA-256/MD5/HMAC 链嵌入的 `pkg/llvmgen/portable/hash.c`，不链 `-lcrypto`。db：android 编译 `scripts/fetch_sqlite_amalgamation.sh` 拉下的 `sqlite3.c`（不入库），ios 链系统 `libsqlite3.tbd`。httpclient、libpq、AES/PBKDF2 在这两个目标上拒绝，不把 `-lcurl`/`-lpq`/`-lcrypto` 链进手机。探针 `examples/mobile-stdlib/check.sh`。
 5. **CI 产物形态门禁** ✅ v0.15：`.github/workflows/ci.yml` 的 `mobile-android`（ubuntu-latest）用 NDK r26d 跑 `apps/android/build_core.sh` 的 arm64 与 amd64，`check_artifact.sh` 要求 ELF shared object，动态符号表含 `apps/shared/mobile_exports.list`（`mc_*` 与 `kylix_free`）。`mobile-ios`（macos-15）跑 `apps/ios/build_core.sh simulator` 与 `device`：`nm` 符号表，再用 `xcrun` 把 `.a` 链进 arm64 Mach-O（模拟器平台 `IOSSIMULATOR`，设备 SDK 平台 `IOS`）。真机登录不在 CI 里：不签名、不装机、不启动模拟器。手工步骤见 [MOBILE_APPS.md](MOBILE_APPS.md)。
 
 ## 三、各端技术路线
@@ -51,7 +51,7 @@
 | 交叉编译 | `aarch64-linux-android` triple；`FindAndroidNdk` 探测；NDK clang 链接 `.so` |
 | C ABI 导出 | 同一套 export 机制（一次实现多端受益） |
 | 桥接 | JNI 薄壳（~200 行 Kotlin + 一个 JNI `.c`）：String↔jstring + JSON 进出；中期可选 `kylix gen jni` 从导出签名生成绑定 |
-| stdlib 移植 | net ✓；datetime/sysutil/exc 平台分支；crypto（OpenSSL 静态 or 手写实现已有）；db（随包 `sqlite3.c` amalgamation）；httpclient（libcurl 静态 or 平台 API 适配层） |
+| stdlib 移植 | net：Android 用 Linux `SO_REUSEADDR`，POSIX socket；datetime/sysutil/exc 有独立分支；SHA-256/MD5 用手写 `hash.c`（不链 OpenSSL）；AES/PBKDF2 拒绝；db 编译随包 `sqlite3.c`；httpclient 拒绝（留在 OkHttp） |
 | 交付 | `apps/android/`（Kotlin 示例：登录 + 列表，连 KylixAdmin API，核心逻辑跑 libkylix.so）+ Gradle 集成文档 |
 
 ### iOS（v0.14 + v0.15，依赖 macOS 构建）
@@ -61,7 +61,7 @@
 | 交叉编译 | `aarch64-apple-ios` triple（llc 原生支持）→ `.o` → `ar` 产 `libkylix.a`；链接走 xcrun clang |
 | C ABI 导出 | 同 Android |
 | 桥接 | Swift Package 薄壳：`module.modulemap` 暴露 C 头 + Swift 包装层（String↔UnsafePointer、JSON 进出） |
-| stdlib 移植 | iOS **系统自带 libsqlite3.tbd**（零打包成本）；net/crypto 同 Android 策略 |
+| stdlib 移植 | 系统 `libsqlite3.tbd`；net/crypto 同 Android（Darwin `SO_REUSEADDR`，`arc4random_buf`，不链 OpenSSL） |
 | 交付 | `apps/ios/`（SwiftUI 示例：登录 + 列表）+ 真机/模拟器运行文档（签名需用户 Apple ID） |
 
 ## 四、版本路线（衔接已定规划）
@@ -71,7 +71,7 @@
 | v0.9.0–v0.12.0 | 不变（1.0.0-rc 打磨 + KylixAdmin P1–P5） | admin 平台完成 |
 | **v0.13.0** | H5 路线 A：PWA 移动页面组 + manifest/SW + refresh token + H5_GUIDE | 手机浏览器可安装使用 admin 移动版 |
 | **v0.14.0** | 编译器多端能力：export C ABI（双端）+ android/ios triple + NDK/Xcode 探测。stdlib 可移植层与 CI 产物门未纳入本版（见第二节第 4、5 条） | `[Export]` + `--shared` + 四个移动端 triple；指南 `EXPORT_C_ABI.md` |
-| **v0.15.0** | 示例应用与 CI 产物门 ✅；wasm32-unknown-wasi + `pkg/wasi` preview1 子集 ✅（[WASI.md](WASI.md)）；stdlib android/ios 平台分支仍开放 | 双端真机/模拟器登录仍是手工步骤 |
+| **v0.15.0** | 示例应用与 CI 产物门 ✅；wasm32-unknown-wasi + `pkg/wasi` preview1 子集 ✅（[WASI.md](WASI.md)）；stdlib android/ios 平台分支 ✅（哈希可移植、sqlite 分端、桌面库不链入） | 双端真机/模拟器登录仍是手工步骤；AES/httpclient/libpq 在移动端拒绝 |
 | **1.0.0** | gate 不变；多端能力作为平台特性宣传 | — |
 
 ## 五、风险与诚实评估
@@ -79,7 +79,7 @@
 | 风险 | 等级 | 对策 |
 |---|---|---|
 | iOS 纯 WebView 壳被 App Store 4.2 拒 | — | 已规避：原生壳 + 共享核心架构 |
-| OpenSSL 移动端链接（体积+编译） | 🟡 | crypto 手写实现已有（SHA 全家桶）；AES 优先平台 API（Keychain/CommonCrypto）适配层 |
+| OpenSSL 移动端链接（体积+编译） | 🟡 | SHA-256/MD5 已走 `portable/hash.c`，不链 OpenSSL。AES/PBKDF2 仍拒绝，平台 API（Keychain/CommonCrypto）未做 |
 | JNI/Swift 桥样板代码维护 | 🟡 | 导出签名统一 JSON-in/JSON-out，桥层极薄；中期 `kylix gen jni` |
 | UI 每端各写一遍 | ⚠️ 架构决定 | 明确不做跨平台 UI 框架，共享的是逻辑层 |
 | wasm 异常/DOM 边界 | 🟡 | 纯逻辑子集已落地，不承诺 DOM。setjmp 不捕获（`proc_exit(70)`）；堆不回收。见 [WASI.md](WASI.md) |
@@ -91,6 +91,7 @@
 - [x] Android 产物门：CI 交叉链接 `libkylixlogic.so`（arm64 与 amd64），`file` 为 ELF shared object，动态符号含 `mc_*` / `kylix_free`
 - [x] iOS 产物门：CI（macos-15）检查 `libkylixcore.a` 符号表，并把归档链进模拟器与 iphoneos Mach-O。入库环境不是 macOS，这条由 CI 跑
 - [x] wasm32：`examples/wasi-logic/check.sh` 用 LLVM `wasm32-unknown-wasi` 链出模块，wasmtime stdout 为 `sum=42` / `hello wasi` / `42` / `1.5`，导入模块是 `wasi_snapshot_preview1`。Go `GOOS=wasip1` 的 `pkg/wasi` 在 `wasmtime --dir` 下读写预打开目录。详见 [WASI.md](WASI.md)
+- [x] stdlib 可移植层：`examples/mobile-stdlib/check.sh` 在 android（NDK，含 amalgamation）与 ios（系统 sqlite）上链出探针。`kylix_sha256` 在产物里是已定义符号。AES、httpclient、libpq 不在这条探针里
 - [ ] 壳里的完整登录（Android 模拟器、iOS 模拟器、签名后的真机）仍是手工步骤，见 [MOBILE_APPS.md](MOBILE_APPS.md)
 - [ ] H5：Lighthouse PWA 可安装性通过；弱网下降级可用
 - [ ] 全量回归持续绿：16 包 + 双 sweep + bootstrap sweep + IR 不动点

@@ -198,4 +198,4 @@ CI 的 iphoneos 链接只证明 `.a` 能链进设备 SDK 的 Mach-O。装到手�
 - 公开函数至少有一个参数。宿主 Go 后端对跨单元零参调用、且用在参数位置时会丢掉括号。C 导出的 `mc_login_path` / `mc_refresh_path` / `mc_logout_path` / `mc_notes_path` 是零参的，只在 LLVM 库里。
 - 每个用户名最多 8 条 refresh 记录。第 9 次登录会挤掉最老的一台设备。壳把 token 放进 EncryptedSharedPreferences（Android，`androidx.security:security-crypto` 1.1.0-alpha06）或 Keychain（iOS，service `dev.kylix.admin`）。Keystore 失败时 Android 退回内存，不崩溃。模拟器/真机上的冷启动本环境没有跑。
 - 登录成功仍会 `Set-Cookie`。壳不保存这张 cookie，之后只送 Bearer。
-- wasm 与 stdlib 的 android/ios 平台分支还不在。CI 只做上面的 `.so` / `.a` 形态门，不跑壳里的登录。
+- wasm32-unknown-wasi 见 [WASI.md](WASI.md)。stdlib 的 android/ios 分支已落地（`examples/mobile-stdlib/check.sh`）：哈希不链 OpenSSL，ios sqlite 用系统库，android sqlite 要先跑 `scripts/fetch_sqlite_amalgamation.sh`。AES、httpclient、libpq 在移动端会报错。CI 的 `.so` / `.a` 形态门之外会再链这份探针，不跑壳里的登录。

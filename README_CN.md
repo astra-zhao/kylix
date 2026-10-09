@@ -1118,7 +1118,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 
 ## 路线图
 
-当前状态：**v0.14.0 已发布**（2026-10-07）；**v0.15.0 进行中**。编译器版本号仍是 0.14.0。v0.14.0 的 C ABI `[Export]` 与 Android/iOS triple 保持不变（[C ABI 指南](docs/EXPORT_C_ABI.md)）。v0.15 第一项已入库：`apps/android/` 与 `apps/ios/` 的登录 + Notes 列表，共用 `apps/shared/mobilecore.klx`，KylixAdmin 增加 `POST /api/login`、`POST /api/refresh`、`POST /api/logout` 与 `GET /api/notes`。同一用户可同时持有多张 refresh token，壳会持久化（[多端指南](docs/MOBILE_APPS.md)）。CI 已检查 Android `.so` 与 iOS `.a` 产物（见 [多端指南](docs/MOBILE_APPS.md)），以及 LLVM `wasm32-unknown-wasi` 模块（`wasi-wasm32`，见 [docs/WASI.md](docs/WASI.md)）。v0.15 仍开放：stdlib 的 android/ios 平台分支（见 [ROADMAP.md](ROADMAP.md)）。
+当前状态：**v0.14.0 已发布**（2026-10-07）；**v0.15.0 进行中**。编译器版本号仍是 0.14.0。v0.14.0 的 C ABI `[Export]` 与 Android/iOS triple 保持不变（[C ABI 指南](docs/EXPORT_C_ABI.md)）。v0.15 第一项已入库：`apps/android/` 与 `apps/ios/` 的登录 + Notes 列表，共用 `apps/shared/mobilecore.klx`，KylixAdmin 增加 `POST /api/login`、`POST /api/refresh`、`POST /api/logout` 与 `GET /api/notes`。同一用户可同时持有多张 refresh token，壳会持久化（[多端指南](docs/MOBILE_APPS.md)）。CI 已检查 Android `.so` 与 iOS `.a` 产物（见 [多端指南](docs/MOBILE_APPS.md)），以及 LLVM `wasm32-unknown-wasi` 模块（`wasi-wasm32`，见 [docs/WASI.md](docs/WASI.md)）。stdlib 的 android/ios 平台分支已落地（哈希走可移植实现，sqlite 分端链接，不把 libcurl/OpenSSL/libpq 链进手机；见 [ROADMAP.md](ROADMAP.md)）。AES/PBKDF2 与 httpclient 在移动端仍不可用。
 
 ## 跨平台编译
 

@@ -26,6 +26,12 @@ import (
 // emitCryptoCall dispatches a `crypto.Func(args)` / bare `Func(args)` call.
 func (g *Generator) emitCryptoCall(funcName string, args []ast.Expression) (string, string, error) {
 	switch funcName {
+	case "AesEncrypt", "AesDecrypt", "BCryptHash", "BCryptCompare", "Pbkdf2Hash", "Pbkdf2Compare":
+		if g.portableHashOS() {
+			return "", "", fmt.Errorf("%s is not available on %s: OpenSSL is not linked, and this target has no platform AES/PBKDF2 binding (Sha256, Md5, and HmacSha256 use the portable hash)", funcName, g.targetOS)
+		}
+	}
+	switch funcName {
 	case "Sha256":
 		return g.emitCryptoSha256Call(args)
 	case "Md5":
@@ -88,20 +94,23 @@ func (g *Generator) emitCryptoSha256Call(args []ast.Expression) (string, string,
 		return "", "", err
 	}
 	g.enqueueStdlib("crypto", "Sha256", "Sha256", 0)
-	g.needLibcrypto = true
+	if !g.portableHashOS() {
+		g.needLibcrypto = true
+	}
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_crypto_Sha256(ptr %s)", r, dataReg))
 	return r, "ptr", nil
 }
 
 func (g *Generator) emitCryptoSha256Body() {
+	g.emitPortableHashDecl()
 	g.line("define ptr @__kylix_crypto_Sha256(ptr %data) {")
 	g.line("entry:")
 	ln := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %%data)", ln))
 	md := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [32 x i8], align 1", md))
-	g.line(fmt.Sprintf("  call ptr @SHA256(ptr %%data, i64 %s, ptr %s)", ln, md))
+	g.emitSHA256Digest("%data", ln, md)
 	// hex-encode 32 bytes → 64-char string
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_crypto_hexbytes(ptr %s, i64 32)", r, md))
@@ -120,20 +129,23 @@ func (g *Generator) emitCryptoMd5Call(args []ast.Expression) (string, string, er
 		return "", "", err
 	}
 	g.enqueueStdlib("crypto", "Md5", "Md5", 0)
-	g.needLibcrypto = true
+	if !g.portableHashOS() {
+		g.needLibcrypto = true
+	}
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_crypto_Md5(ptr %s)", r, dataReg))
 	return r, "ptr", nil
 }
 
 func (g *Generator) emitCryptoMd5Body() {
+	g.emitPortableHashDecl()
 	g.line("define ptr @__kylix_crypto_Md5(ptr %data) {")
 	g.line("entry:")
 	ln := g.tmp()
 	g.line(fmt.Sprintf("  %s = call i64 @strlen(ptr %%data)", ln))
 	md := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [16 x i8], align 1", md))
-	g.line(fmt.Sprintf("  call ptr @MD5(ptr %%data, i64 %s, ptr %s)", ln, md))
+	g.emitMD5Digest("%data", ln, md)
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_crypto_hexbytes(ptr %s, i64 16)", r, md))
 	g.line(fmt.Sprintf("  ret ptr %s", r))
@@ -162,13 +174,16 @@ func (g *Generator) emitCryptoHmacSha256Call(args []ast.Expression) (string, str
 		return "", "", err
 	}
 	g.enqueueStdlib("crypto", "HmacSha256", "HmacSha256", 0)
-	g.needLibcrypto = true
+	if !g.portableHashOS() {
+		g.needLibcrypto = true
+	}
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_crypto_HmacSha256(ptr %s, ptr %s)", r, keyReg, dataReg))
 	return r, "ptr", nil
 }
 
 func (g *Generator) emitCryptoHmacSha256Body() {
+	g.emitPortableHashDecl()
 	g.line("define ptr @__kylix_crypto_HmacSha256(ptr %key, ptr %data) {")
 	g.line("entry:")
 	// Build 64-byte ipad/opad buffers (zero-init, then XOR key bytes).
@@ -234,7 +249,7 @@ func (g *Generator) emitCryptoHmacSha256Body() {
 	// inner = SHA256(innerBuf, innerBufSize) → 32 bytes
 	innerMd := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [32 x i8], align 1", innerMd))
-	g.line(fmt.Sprintf("  call ptr @SHA256(ptr %s, i64 %s, ptr %s)", innerBuf, innerBufSize, innerMd))
+	g.emitSHA256Digest(innerBuf, innerBufSize, innerMd)
 	// outer buffer = opad(64) || inner(32) → 96 bytes
 	outerBuf := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [96 x i8], align 1", outerBuf))
@@ -245,7 +260,7 @@ func (g *Generator) emitCryptoHmacSha256Body() {
 	// outer = SHA256(outerBuf, 96) → 32 bytes
 	outerMd := g.tmp()
 	g.line(fmt.Sprintf("  %s = alloca [32 x i8], align 1", outerMd))
-	g.line(fmt.Sprintf("  call ptr @SHA256(ptr %s, i64 96, ptr %s)", outerBuf, outerMd))
+	g.emitSHA256Digest(outerBuf, "96", outerMd)
 	// hex-encode outerMd (32 bytes) → 64-char string
 	r := g.tmp()
 	g.line(fmt.Sprintf("  %s = call ptr @__kylix_crypto_hexbytes(ptr %s, i64 32)", r, outerMd))

@@ -261,7 +261,7 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 
 ## 后续规划
 
-- **v0.15.0 — 多端示例应用 + wasm**（进行中，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)）：示例壳已入库——`apps/shared/mobilecore.klx` 编进 KylixAdmin，并以 `[Export]` 供 `apps/android/`（OkHttp）与 `apps/ios/`（URLSession）调用。`POST /api/login` 发 24 小时 access token 和 30 天 refresh token；每个 `jti` 一行（每用户最多 8），刷新和 `POST /api/logout` 只撤销提交的那一张。壳用 EncryptedSharedPreferences / Keychain 持久化。CI 已检查 Android ELF `.so`（ubuntu）与 iOS `.a` 符号及 SDK 链接冒烟（macos）。`wasm32-unknown-wasi` 纯逻辑子集已入库（12 个 `wasi_snapshot_preview1` 导入，见 [docs/WASI.md](docs/WASI.md)）；CI job `wasi-wasm32` 跑 wasmtime。仍开放：stdlib android/ios 平台分支。模拟器/真机登录未自动化。
+- **v0.15.0 — 多端示例应用 + wasm**（进行中，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)）：示例壳已入库——`apps/shared/mobilecore.klx` 编进 KylixAdmin，并以 `[Export]` 供 `apps/android/`（OkHttp）与 `apps/ios/`（URLSession）调用。`POST /api/login` 发 24 小时 access token 和 30 天 refresh token；每个 `jti` 一行（每用户最多 8），刷新和 `POST /api/logout` 只撤销提交的那一张。壳用 EncryptedSharedPreferences / Keychain 持久化。CI 已检查 Android ELF `.so`（ubuntu）与 iOS `.a` 符号及 SDK 链接冒烟（macos）。`wasm32-unknown-wasi` 纯逻辑子集已入库（12 个 `wasi_snapshot_preview1` 导入，见 [docs/WASI.md](docs/WASI.md)）；CI job `wasi-wasm32` 跑 wasmtime。stdlib android/ios 平台分支已入库（`examples/mobile-stdlib/check.sh`）。模拟器/真机登录未自动化。AES/httpclient/libpq 在移动端仍拒绝。
 - **1.0.0**：v0.7.1–v0.15.0 gate 全过后发布正式版（KylixAdmin + 多端为旗舰 showcase）
 
 完整路线图见 [ROADMAP.md](ROADMAP.md)。

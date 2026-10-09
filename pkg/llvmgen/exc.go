@@ -32,27 +32,45 @@ import (
 const excJmpBufSize = 288
 
 func (g *Generator) excJmpBufSize() int {
-	if g.targetOS == "windows" {
+	switch g.targetOS {
+	case "windows":
+		// UCRT x64 jmp_buf is about 512 bytes.
 		return 512
+	case "android":
+		// bionic LP64: aarch64 _JBLEN is 32 longs (256 bytes). 288 covers amd64.
+		return excJmpBufSize
+	case "ios":
+		// Darwin arm64 jmp_buf is 48 ints (192 bytes), same bound as macOS.
+		return excJmpBufSize
+	default:
+		return excJmpBufSize
 	}
-	return excJmpBufSize
 }
 
-// setjmpFunc returns the libc setjmp symbol for the target platform
-// (Windows UCRT exposes _setjmp; setjmp is only a macro there). v0.6.2.
+// setjmpFunc returns the libc setjmp symbol for the target platform.
+// Windows UCRT exposes _setjmp (setjmp is only a macro there). bionic and
+// Darwin export setjmp; android and ios use that symbol, not _setjmp. v0.6.2.
 func (g *Generator) setjmpFunc() string {
-	if g.targetOS == "windows" {
+	switch g.targetOS {
+	case "windows":
 		return "@_setjmp"
+	case "android", "ios", "darwin", "linux":
+		return "@setjmp"
+	default:
+		return "@setjmp"
 	}
-	return "@setjmp"
 }
 
 // longjmpFunc returns the libc longjmp symbol for the target platform.
 func (g *Generator) longjmpFunc() string {
-	if g.targetOS == "windows" {
+	switch g.targetOS {
+	case "windows":
 		return "@_longjmp"
+	case "android", "ios", "darwin", "linux":
+		return "@longjmp"
+	default:
+		return "@longjmp"
 	}
-	return "@longjmp"
 }
 
 // raiseExceptionTypeName extracts the exception class name from a raise

@@ -271,6 +271,10 @@ type Generator struct {
 	// driver checks for crypto symbols in the IR and adds -lcrypto at link.
 	needLibcrypto bool
 
+	// portableHashDecl is set once android/ios have emitted the kylix_sha256
+	// and kylix_md5 declares. Desktop IR never sets it.
+	portableHashDecl bool
+
 	// needLibsqlite is set when db module functions are used; the compile
 	// driver checks for db symbols in the IR and adds -lsqlite3 at link.
 	needLibsqlite bool
