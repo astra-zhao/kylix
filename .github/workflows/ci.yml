@@ -531,3 +531,88 @@ jobs:
 
       - name: Run perf gate (compile_time scenarios vs ceilings)
         run: bash benchmarks/ci_gate.sh
+
+  mobile-android:
+    name: Mobile artifact (Android .so)
+    # v0.15: shape gate, same idea as the Windows PE32+ smoke. Linux host,
+    # NDK clang links both ABIs. No emulator.
+    runs-on: ubuntu-latest
+    env:
+      NDK_ZIP: android-ndk-r26d-linux.zip
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install LLVM (llc) + file/nm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang binutils file unzip
+
+      - name: Install Android NDK r26d
+        # FindAndroidNdk reads ANDROID_NDK_HOME and expects
+        # toolchains/llvm/prebuilt/linux-x86_64/bin/clang. r26d matches the
+        # android30 triples in pkg/llvmgen/compile.go.
+        run: |
+          curl -fL --retry 3 -o "$RUNNER_TEMP/$NDK_ZIP" \
+            "https://dl.google.com/android/repository/$NDK_ZIP"
+          sudo unzip -q "$RUNNER_TEMP/$NDK_ZIP" -d /opt
+          echo "ANDROID_NDK_HOME=/opt/android-ndk-r26d" >> "$GITHUB_ENV"
+
+      - name: Build CLI
+        run: go build -o kylix ./cmd/kylix/
+
+      - name: Cross-compile both ABIs and check ELF exports
+        run: |
+          set -euo pipefail
+          KYLIX=$PWD/kylix bash apps/android/build_core.sh arm64
+          bash apps/android/check_artifact.sh \
+            apps/android/app/src/main/jniLibs/arm64-v8a/libkylixlogic.so arm64
+          KYLIX=$PWD/kylix bash apps/android/build_core.sh amd64
+          bash apps/android/check_artifact.sh \
+            apps/android/app/src/main/jniLibs/x86_64/libkylixlogic.so amd64
+
+  mobile-ios:
+    name: Mobile artifact (iOS .a)
+    # v0.15: macOS only. Symbol table plus an SDK link smoke for the
+    # simulator and for iphoneos. Does not sign, install, or boot a simulator.
+    # Real-device login stays the manual checklist in docs/MOBILE_APPS.md.
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install LLVM toolchain (brew; llc is keg-only)
+        run: |
+          brew install llvm
+          echo "/opt/homebrew/opt/llvm/bin" >> "$GITHUB_PATH"
+
+      - name: Build CLI
+        run: go build -o kylix ./cmd/kylix/
+
+      - name: Simulator archive, symbols, and link smoke
+        run: |
+          set -euo pipefail
+          KYLIX=$PWD/kylix bash apps/ios/build_core.sh simulator
+          bash apps/ios/check_artifact.sh \
+            apps/ios/Sources/CKylixCore/lib/libkylixcore.a simulator
+
+      - name: Device archive, symbols, and iphoneos link smoke
+        # Overwrites the simulator .a (build_core.sh has one output path).
+        # The iphoneos binary is a shape check, not a signed install.
+        run: |
+          set -euo pipefail
+          KYLIX=$PWD/kylix bash apps/ios/build_core.sh device
+          bash apps/ios/check_artifact.sh \
+            apps/ios/Sources/CKylixCore/lib/libkylixcore.a device

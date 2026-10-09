@@ -25,7 +25,7 @@
 - [ ] **stdlib 没有 android/ios 独立平台分支**（`docs/MULTIPLATFORM.md` 第二节第 4 条，已改记 v0.15）：`pkg/llvmgen/stdlib_datetime.go`、`stdlib_sysutil.go`、`stdlib_net.go` 仍只区分 `targetOS == "windows"` 与其余平台。android/ios 走非 Windows 路径（datetime 为 `localtime_r`）。
 - [ ] **android 目标不链桌面系统库**：`pkg/llvmgen/compile.go` 在 `targetOS == "android"` 时整段跳过 `-lcrypto`、`-lpq`、`-lsqlite3`、`-lcurl`。ios 仍进入该段，但 `-lcurl` 被 `targetOS != "ios"` 跳过；sqlite3 在 ios 上仍链接。用到被跳过的库的程序在对应目标上无法链接。
 - [ ] **iOS 链接要求 macOS 主机**：`targetOS == "ios"` 且 `runtime.GOOS != "darwin"` 时 `compile.go` 直接返回错误 `ios cross-link requires a macOS host with Xcode command line tools`。
-- [ ] **移动端产物没有 CI 门禁**（`docs/MULTIPLATFORM.md` 第二节第 5 条，已改记 v0.15）：`.github/workflows/ci.yml` 没有 android/ios job。ROADMAP v0.15 清单已列产物形态检查。
+- [x] **移动端产物 CI 门禁**（v0.15）：`ci.yml` 的 `mobile-android`（ubuntu-latest，NDK r26d）检查 arm64/amd64 ELF `.so` 与动态导出；`mobile-ios`（macos-15）检查 `.a` 符号并用 Xcode SDK 做链接冒烟。模拟器/真机上的登录流程仍未自动化，见下一条。
 
 ## 🚧 v0.13.0 已知问题（2026-09-24，H5 开发中发现）
 
