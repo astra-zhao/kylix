@@ -1,7 +1,9 @@
 // wasi.klx — WASI system interface, Kylix-ified.
 //
 // Pure Kylix high-level wrappers around the low-level WASI system calls.
-// External bindings delegate to pkg/wasi/ which uses Go 1.21 wasip1 support.
+// External bindings delegate to pkg/wasi/ which uses Go wasip1
+// //go:wasmimport wasi_snapshot_preview1. LLVM --target wasi/wasm32
+// implements a smaller subset (see docs/WASI.md).
 unit wasi;
 
 // ===== Pure Kylix: I/O helpers =====

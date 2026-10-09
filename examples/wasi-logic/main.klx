@@ -1,0 +1,19 @@
+// LLVM wasm32-unknown-wasi pure-logic sample.
+// DOM is not imported. Build and run:
+//
+//	kylix build --backend=llvm --target wasi/wasm32 -o logic.wasm main.klx
+//	wasmtime logic.wasm
+//
+// The Go toolchain path is different: `kylix build --wasi` (GOOS=wasip1).
+program wasi_logic;
+
+var
+  s: String;
+
+begin
+  s := 'sum=' + IntToStr(40 + 2);
+  WriteLn(s);
+  WriteLn('hello wasi');
+  WriteLn(7 * 6);
+  WriteLn(1.5);
+end.

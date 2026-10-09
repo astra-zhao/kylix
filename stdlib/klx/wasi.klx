@@ -3,7 +3,10 @@ unit wasi;
 // WASI — WebAssembly System Interface bindings for Kylix.
 //
 // Provides portable system-level I/O for programs compiled with
-// `kylix build --wasi`. Falls back to native OS calls on non-WASM targets.
+// `kylix build --wasi` (Go GOOS=wasip1). The host build is a native
+// stand-in. LLVM `--target wasi/wasm32` implements Stdout, Stderr,
+// Getenv, ClockMonotonic, ClockWalltime, and WasiExit only.
+// See docs/WASI.md.
 
 // Standard I/O
 procedure Stdout(s: String);             // Write to stdout (fd 1)

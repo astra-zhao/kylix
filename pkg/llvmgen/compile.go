@@ -201,6 +201,11 @@ func hasMingwTriplet(dir string) bool {
 // resolveTarget parses a "os/arch" cross-compile target into (os, arch).
 // An empty target means the host platform.
 func resolveTarget(target string) (string, string) {
+	switch target {
+	case "wasm", "wasm32", "wasi", "wasi/wasm32", "wasm/wasm32":
+		// v0.15: one wasm32 triple. DOM is not a target.
+		return "wasi", "wasm32"
+	}
 	if target == "" {
 		return runtime.GOOS, runtime.GOARCH
 	}
@@ -243,6 +248,10 @@ func tripleFor(osName, arch string) (triple, datalayout string) {
 	case "ios/simulator-arm64":
 		// v0.14.0: iOS Simulator on Apple Silicon
 		return "arm64-apple-ios16.0.0-simulator", "e-m:o-i64:64-i128:128-n32:64-S128"
+	case "wasi/wasm32":
+		// v0.15: WASI preview1, 32-bit linear memory. Same datalayout clang
+		// emits for wasm32-unknown-wasi.
+		return "wasm32-unknown-wasi", "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"
 	}
 	// Fallback: treat unknown as the arm64 macOS default (backwards compatible).
 	return "arm64-apple-macosx15.0.0", "e-m:o-i64:64-i128:128-n32:64-S128"
@@ -280,6 +289,9 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	}
 	if opts.GC == "boehm" && strings.HasPrefix(opts.Target, "windows/") {
 		return nil, fmt.Errorf("--gc=boehm is not supported for the windows target yet (llvm-mingw has no libgc); build without --gc or target unix")
+	}
+	if opts.GC == "boehm" && WasiLLVMTarget(opts.Target) {
+		return nil, fmt.Errorf("--gc=boehm is not supported for wasm32-wasi (no libgc in the WASI import table); build without --gc")
 	}
 	// -g implies -O0: optimization reorders/drops instructions, making debug
 	// info misleading. Force OptLevel off when DebugInfo is on.
@@ -423,7 +435,9 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	// Determine output binary name
 	if outBin == "" {
 		outBin = base
-		if opts.Shared {
+		if targetOS == "wasi" {
+			outBin += ".wasm"
+		} else if opts.Shared {
 			switch targetOS {
 			case "darwin", "ios":
 				outBin += ".dylib"
@@ -464,6 +478,11 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 			IRFile:  irFile,
 			ObjFile: objFile,
 		}, nil
+	}
+
+	// v0.15: wasm32-unknown-wasi. No host libc and no -lcrypto/-lsqlite3/-lcurl.
+	if targetOS == "wasi" {
+		return linkWasi(llvmPaths, outBin, objFile, irFile)
 	}
 
 	// clang: .o → native binary

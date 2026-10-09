@@ -5,7 +5,7 @@
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**✅ v0.14.0 已发布（2026-10-07）！** 编译器多端能力：`[Export]` / `[Export('c_symbol')]` 双端 C ABI、`kylix_free`、LLVM `--shared`（`.so`/`.dylib`/`.dll`，以及 `.o`/`.a`）、triple `android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`，`FindAndroidNdk()` 与 macOS 上的 Xcode 链接。指南 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)。**下一步 → v0.15.0** 其余项：wasm32 triple、stdlib 的 android/ios 平台分支。示例应用与 CI 产物门已落地，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。
+**✅ v0.14.0 已发布（2026-10-07）！** 编译器多端能力：`[Export]` / `[Export('c_symbol')]` 双端 C ABI、`kylix_free`、LLVM `--shared`（`.so`/`.dylib`/`.dll`，以及 `.o`/`.a`）、triple `android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`，`FindAndroidNdk()` 与 macOS 上的 Xcode 链接。指南 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)。**下一步 → v0.15.0** 其余项：stdlib 的 android/ios 平台分支。示例应用、CI 产物门与 wasm32-unknown-wasi 已落地，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md) 与 [docs/WASI.md](docs/WASI.md)。
 
 **🚧 v0.15.0 进行中。** 多端示例应用：`apps/shared/mobilecore.klx`（校验 + JSON 协议，无 HTTP）编进 KylixAdmin，并由 `[Export]` 供 `apps/android/`（Kotlin + JNI + OkHttp）与 `apps/ios/`（SwiftUI + Swift Package + URLSession）调用。`POST /api/login` 发 24 小时 access token 和 30 天 refresh token；`api_refresh` 每个 `jti` 一行（每用户最多 8），`POST /api/refresh` 与 `POST /api/logout` 只撤销提交的那一张。壳把会话放进 EncryptedSharedPreferences / Keychain。CI 在 Linux 上检查 Android ELF `.so`，在 macOS 上检查 iOS `.a` 符号并做 SDK 链接冒烟；wasm 与 stdlib 平台分支仍未做。真机登录步骤在指南里，CI 不装机、不启动模拟器。
 
@@ -286,7 +286,7 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] `apps/android/`（Kotlin + JNI 薄壳：登录 + 列表，连 KylixAdmin API）+ `apps/ios/`（SwiftUI + Swift Package 薄壳）。共享单元 `apps/shared/mobilecore.klx`（校验 + JSON 协议；HTTP 留在 OkHttp / URLSession）。多设备 refresh（每 `jti` 一行，上限 8）+ `POST /api/logout`；壳用 EncryptedSharedPreferences / Keychain 持久化，到期前或 401 时刷新。自动验证是宿主 Go/LLVM parity + C ABI `dlopen`（`apps/shared/host_check.sh`）和 admin E2E S26/S27/S28。模拟器/真机需本机 NDK 或 macOS+Xcode，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)
 - [x] CI 产物形态门禁：`mobile-android`（ubuntu-latest，NDK r26d）对 `android/arm64` 与 `android/amd64` 的 `libkylixlogic.so` 做 `file` ELF 断言，并核对动态符号表里的 `mc_*` / `kylix_free`。`mobile-ios`（macos-15）对 simulator 与 device 的 `libkylixcore.a` 核对符号表，再用 Xcode SDK 链成 arm64 Mach-O（`IOSSIMULATOR` / `IOS`）。真机登录仍是 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md) 里的手工步骤，CI 不签名、不装机、不启动模拟器。
 - [ ] stdlib android/ios 平台分支（v0.14 未做：`stdlib_datetime.go` / `stdlib_sysutil.go` / `stdlib_net.go` 仍只区分 windows 与其余平台；android 不链 `-lcrypto`/`-lpq`/`-lsqlite3`/`-lcurl`）
-- [ ] wasm32-unknown-wasi triple + `pkg/wasi` 真实现（wasi_snapshot_preview1 导入表；纯逻辑先行，DOM 不进 wasm）
+- [x] wasm32-unknown-wasi triple + `pkg/wasi` 真实现（`wasi_snapshot_preview1` 纯逻辑子集 12 个导入；DOM 不进 wasm）。`kylix build --backend=llvm --target wasi/wasm32`。单独的 `--wasi` 仍是 Go `GOOS=wasip1`。指南 [docs/WASI.md](docs/WASI.md)。验收：`examples/wasi-logic/check.sh` 与 CI job `wasi-wasm32`
 
 ### 1.0.0 — 正式版（gate）
 - [ ] v0.7.1–v0.15.0 全部完成（含 KylixAdmin 旗舰 showcase + H5/Android/iOS 多端能力）

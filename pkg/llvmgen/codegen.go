@@ -789,6 +789,10 @@ func (g *Generator) emitProgram(prog *ast.Program) error {
 		g.emitKylixFree()
 	}
 
+	// v0.15: wasm32-wasi libc shims + @_start. No-op on every other target,
+	// so host IR (and the bootstrap fixed point) is unchanged.
+	g.emitWasiRuntime()
+
 	// Emit string constants at the end
 	g.emitStringConsts()
 
@@ -845,6 +849,13 @@ func (g *Generator) reallocCall(ptrOperand, sizeOperand string) string {
 func (g *Generator) emitRuntimeDecls() {
 	g.line("; ===== Runtime declarations (libc) =====")
 	g.line("@__kylix_emptystr = global [1 x i8] c\"\\00\" ; empty C string; null string operands are normalized to this (v0.5.6)")
+	// v0.15: wasm32-wasi defines the libc surface itself (wasi_rt.go) on top
+	// of wasi_snapshot_preview1. Host triples keep the historical declares
+	// so default IR stays byte-identical.
+	if g.wasiTarget() {
+		g.emitWasiImportDecls()
+		return
+	}
 	g.line("declare i32 @printf(ptr noundef, ...)")
 	g.line("declare i32 @puts(ptr noundef)")
 	g.line("declare ptr @malloc(i64 noundef)")

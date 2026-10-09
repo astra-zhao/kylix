@@ -1,8 +1,8 @@
 # Kylix 技术债务与后续开发清单
 
 > 最后更新: 2026-10-09
-> 当前版本: v0.14.0 已发布；v0.15.0 进行中（多端示例应用，未发版）
-> 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md), [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)
+> 当前版本: v0.14.0 已发布；v0.15.0 进行中（多端示例应用 + wasm32 纯逻辑，未发版）
+> 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md), [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md), [docs/WASI.md](docs/WASI.md)
 
 ## 🚧 v0.15.0 进行中（示例应用落地时记下）
 
@@ -12,6 +12,12 @@
 - [ ] **模拟器 / 真机登录未跑。** 入库环境没有 NDK，也不是 macOS。宿主证明是 `apps/shared/host_check.sh`。验收命令在 `docs/MOBILE_APPS.md`。
 - [x] **LLVM `req.Header` / `req.Query` 固定 128 字节缓冲**（v0.15 已改为 `vLen+1`）。HS256 token 约 151 字节，旧缓冲会在 `/api/notes` 上写爆堆。路由参数缓冲 `malloc(128)` 未动。
 - [ ] **`req.BodyText` 只在宿主编译器**。Go `Request.Body()` 仍返回 `[]byte`（JSON/multipart 要用字节）；Kylix 侧用 `BodyText()` 拿字符串，LLVM 与 `req.Body` 同一次 load。`src/llvmgen.klx` 还不认这个名字，bootstrap 编译 admin 会失败。admin CI 用宿主。
+- [x] **wasm32-unknown-wasi 纯逻辑子集**（v0.15）。triple、12 个 preview1 导入、LLVM 最小运行时、Go `//go:wasmimport`。验收 `examples/wasi-logic/check.sh` 与 CI `wasi-wasm32`。下面几条是这条目标的边界，不是链接失败：
+- [ ] **WASI 堆是 8MiB bump，`@free` 是空操作。** `proc_exit` 丢掉实例。`--gc=boehm` 直接拒绝（没有 libgc）。
+- [ ] **wasm 上 setjmp 不捕获。** `@setjmp` 返回 0，`@longjmp` 与未捕获异常走 `proc_exit(70)`。exc 没有改成错误码返回。
+- [ ] **LLVM `uses wasi` 只有 Stdout / Stderr / Getenv / ClockMonotonic / ClockWalltime / WasiExit。** Args、Environ、Stdin、ReadFile、WriteFile 在 LLVM 目标上是编译错误。文件与参数在 `pkg/wasi` 的 `GOOS=wasip1` 里，路径相对预打开 fd 3，绝对路径不可用。
+- [ ] **浮点 WriteLn 是 6 位小数、去掉末尾的 0**，不是 `%.17g`。
+- [ ] **这条目标不链 libcrypto / sqlite / curl / libm，也不导入 DOM。** `--wasm` 仍是 Go `GOOS=js`。导入表不是完整的 preview1（无 socket、无 poll）。
 
 本文档记录 v0.3.1 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
 

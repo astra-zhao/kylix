@@ -17,9 +17,9 @@ func cmdBuild(args []string) {
 	fs := flag.NewFlagSet("build", flag.ExitOnError)
 	output := fs.String("o", "", "Output file (for single file compilation)")
 	verbose := fs.Bool("v", false, "Verbose output")
-	target := fs.String("target", "", "Cross-compile target: os/arch (e.g. linux/amd64, windows/amd64, darwin/arm64)")
-	wasm := fs.Bool("wasm", false, "Compile to WebAssembly (.wasm) — uses GOOS=js GOARCH=wasm (browser)")
-	wasi := fs.Bool("wasi", false, "Compile to WASI WebAssembly (.wasm) — uses GOOS=wasip1 GOARCH=wasm (server-side)")
+	target := fs.String("target", "", "Cross-compile target: os/arch (e.g. linux/amd64, windows/amd64, darwin/arm64, wasi/wasm32)")
+	wasm := fs.Bool("wasm", false, "Compile to WebAssembly (.wasm) — uses GOOS=js GOARCH=wasm (browser, Go backend)")
+	wasi := fs.Bool("wasi", false, "Compile to WASI WebAssembly (.wasm) — Go: GOOS=wasip1; with --backend=llvm: wasm32-unknown-wasi")
 	tinygo := fs.Bool("tinygo", false, "Use TinyGo for WASM/WASI build (smaller output, requires tinygo installed)")
 	backend := fs.String("backend", "go", "Compiler backend: go (default) or llvm (experimental)")
 	llvmOpt := fs.String("llvm-opt", "", "LLVM optimization level (0/1/2/3); only meaningful with --backend=llvm")
@@ -37,6 +37,8 @@ WASM/WASI EXAMPLES:
   kylix build --wasm --tinygo main.klx   # Browser WASM via TinyGo (~30 KB)
   kylix build --wasi main.klx            # WASI (Wasmtime/Cloudflare Workers)
   kylix build --wasi --tinygo main.klx   # WASI via TinyGo (smaller)
+  kylix build --backend=llvm --target wasi/wasm32 main.klx
+                                         # LLVM wasm32-unknown-wasi (no DOM)
 
 LLVM BACKEND (EXPERIMENTAL):
   kylix build --backend=llvm main.klx    # Native binary via LLVM IR
@@ -56,12 +58,32 @@ OPTIONS:
 		fmt.Fprintln(os.Stderr, "Error: --wasm and --wasi are mutually exclusive")
 		os.Exit(1)
 	}
-	if (*wasm || *wasi) && *target != "" {
-		fmt.Fprintln(os.Stderr, "Error: --wasm/--wasi and --target are mutually exclusive")
-		os.Exit(1)
-	}
 	if *tinygo && !*wasm && !*wasi {
 		fmt.Fprintln(os.Stderr, "Error: --tinygo requires --wasm or --wasi")
+		os.Exit(1)
+	}
+	if *backend == "llvm" && *tinygo {
+		fmt.Fprintln(os.Stderr, "Error: --tinygo is the Go toolchain path; the LLVM wasm32 target does not use it")
+		os.Exit(1)
+	}
+	if *backend == "llvm" && *wasm {
+		fmt.Fprintln(os.Stderr, "Error: --wasm is the Go browser target (GOOS=js). LLVM wasm32 is --backend=llvm --target wasi/wasm32 and does not import DOM")
+		os.Exit(1)
+	}
+	if *backend == "llvm" && *wasi {
+		if *target == "" {
+			*target = "wasi/wasm32"
+		} else if !llvmgen.WasiLLVMTarget(*target) {
+			fmt.Fprintln(os.Stderr, "Error: --wasi with --backend=llvm requires --target wasi/wasm32 (or wasm, wasm32)")
+			os.Exit(1)
+		}
+	}
+	if *backend != "llvm" && llvmgen.WasiLLVMTarget(*target) {
+		fmt.Fprintln(os.Stderr, "Error: --target wasi/wasm32 is the LLVM backend. Use --backend=llvm, or --wasi alone for the Go wasip1 toolchain")
+		os.Exit(1)
+	}
+	if (*wasm || *wasi) && *target != "" && *backend != "llvm" {
+		fmt.Fprintln(os.Stderr, "Error: --wasm/--wasi and --target are mutually exclusive")
 		os.Exit(1)
 	}
 	// v0.10.0: validate --gc early (value domain + windows-target rejection so
@@ -74,6 +96,10 @@ OPTIONS:
 	}
 	if *gc == "boehm" && strings.HasPrefix(*target, "windows/") {
 		fmt.Fprintln(os.Stderr, "Error: --gc=boehm is not supported for the windows target yet (llvm-mingw has no libgc); build without --gc or target unix")
+		os.Exit(1)
+	}
+	if *gc == "boehm" && llvmgen.WasiLLVMTarget(*target) {
+		fmt.Fprintln(os.Stderr, "Error: --gc=boehm is not supported for wasm32-wasi (no libgc); build without --gc")
 		os.Exit(1)
 	}
 

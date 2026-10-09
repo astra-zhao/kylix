@@ -14,7 +14,7 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ## Unreleased — v0.15.0 进行中（多端示例应用，未发版）
 
-CLI 版本仍是 `0.14.0`。wasm32 与 stdlib 的 android/ios 平台分支都还没做。移动端 CI 只检查产物形态，不跑登录。
+CLI 版本仍是 `0.14.0`。stdlib 的 android/ios 平台分支还没做。移动端 CI 只检查产物形态，不跑登录。wasm32-unknown-wasi 纯逻辑子集已落地，见下文。
 
 ### 设计
 
@@ -29,6 +29,14 @@ CLI 版本仍是 `0.14.0`。wasm32 与 stdlib 的 android/ios 平台分支都还
 - **`/api` 与 `/api/` 跳过 CSRF**（`pkg/boot/csrf.go` 与 LLVM `emitBootCsrfCheckBody`）。`/apiv2` 不豁免。HTML 表单登录仍走 CSRF。**bootstrap 烘焙的 `@__kylix_boot_csrf_check`（`src/stdlib_ir.klx`）还没有这条豁免**，下次重烘才会带上；admin CI 用宿主编译器，示例 API 覆盖的是宿主。本轮不重烘（不动点风险）。
 - **LLVM `req.Header` / `req.Query` 的值缓冲按 `vLen+1` 分配。** 原先固定 128 字节，HS256 access token（约 151 字节）会写爆堆，LLVM 的 `/api/notes` 路径不可用。路由参数缓冲仍是 `malloc(128)`。`req.Header` 大小写敏感，客户端必须送 `Authorization`。
 - E2E 新增 **S26**（登录成功字段、空 notes 列表、无 token 401、错误口令 401）。场景数 25 → 26。admin 源文件 17 → 19（加上 `../shared/mobilecore.klx` 与 `controllers/api.klx`）。
+
+### wasm32-unknown-wasi
+
+- **LLVM triple** `wasm32-unknown-wasi`（数据布局 `e-m:e-p:32:32-…-S128-ni:1:10:20`）。`--backend=llvm --target wasi/wasm32`，别名 `wasm` / `wasm32` / `wasi` / `wasm/wasm32`。`--backend=llvm --wasi` 且未给 target 时改写成该目标。`--backend=llvm --wasm` 拒绝（DOM 不在这条路径上）。单独的 `--wasm` / `--wasi` 仍是 Go 的 `GOOS=js` / `GOOS=wasip1`。`--gc=boehm` 拒绝。
+- **导入表** `internal/wasiapi.Preview1`：`fd_write`、`fd_read`、`fd_seek`、`fd_close`、`path_open`、`clock_time_get`、`random_get`、`args_sizes_get`、`args_get`、`environ_sizes_get`、`environ_get`、`proc_exit`。Go 侧 `//go:wasmimport wasi_snapshot_preview1`（仅 wasip1 编译）；LLVM 侧 `"wasm-import-module"="wasi_snapshot_preview1"`。`@llvm.used` 保留整张表。非 wasip1 的 `pkg/wasi` 仍是本机替身，不是导入表。
+- **LLVM 运行时**（只在 wasi 目标发射，默认 IR 逐字节不含这些符号）：8MiB bump 堆，`@free` 空操作；`memset`/`memcpy`/`memmove` 用字节循环，并定义 wasm32 库调用 `i32 @memset(i32,i32,i32)`（`llc -O0` 会把 `llvm.memset` 降成它）。`@_start` → `main` → `proc_exit`。链接 `clang --target=wasm32-unknown-wasi -nostdlib -Wl,--no-entry`，失败回落 `wasm-ld`。不链 crypto/sqlite/curl。`printf` 浮点是 6 位去尾零。`setjmp` 返回 0，`longjmp` 为 `proc_exit(70)`。
+- **`uses wasi`（LLVM）** 只有 `Stdout`、`Stderr`、`Getenv`、`ClockMonotonic`、`ClockWalltime`、`WasiExit`。文件、参数、stdin 在 `pkg/wasi` 的 wasip1 实现里，路径相对预打开 fd 3。
+- **验收**：`examples/wasi-logic/check.sh`（LLVM hello 的 wasmtime stdout 为 `sum=42`、`hello wasi`、`42`、`1.5`；Go wasip1 冒烟含 `--dir` 读写与 `NAME` 环境变量）。CI job `wasi-wasm32`（wasmtime 27.0.0）。指南 [docs/WASI.md](docs/WASI.md)。
 
 ### 壳
 
