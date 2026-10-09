@@ -577,6 +577,12 @@ jobs:
           bash apps/android/check_artifact.sh \
             apps/android/app/src/main/jniLibs/x86_64/libkylixlogic.so amd64
 
+      - name: Portable stdlib link (datetime, sysutil, hash, net, sqlite)
+        run: |
+          set -euo pipefail
+          bash scripts/fetch_sqlite_amalgamation.sh
+          KYLIX=$PWD/kylix bash examples/mobile-stdlib/check.sh android
+
   mobile-ios:
     name: Mobile artifact (iOS .a)
     # v0.15: macOS only. Symbol table plus an SDK link smoke for the
@@ -616,6 +622,9 @@ jobs:
           KYLIX=$PWD/kylix bash apps/ios/build_core.sh device
           bash apps/ios/check_artifact.sh \
             apps/ios/Sources/CKylixCore/lib/libkylixcore.a device
+
+      - name: Portable stdlib link (simulator hash, system sqlite, device)
+        run: KYLIX=$PWD/kylix bash examples/mobile-stdlib/check.sh ios
 
   wasi-wasm32:
     name: WASI artifact (wasm32-unknown-wasi)

@@ -569,39 +569,45 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 
 	// Link system libraries by scanning the IR for stdlib module symbols.
 	// v0.6.2: the -L/rpath handling is macOS-only (Homebrew); Linux uses the
-	// system default path. v0.7.1 P2: crypto/db/http libraries are unix-only
-	// (OpenSSL/sqlite3/curl don't exist in the mingw sysroot; the Windows
-	// implementations of those modules are a known gap — see TECHNICAL_DEBT).
-	if targetOS != "windows" && targetOS != "android" {
-		if strings.Contains(ir, "@__kylix_crypto_") || (targetOS == "darwin" && strings.Contains(ir, "@SHA1")) {
-			clangArgs = append(clangArgs, "-lcrypto")
-			if targetOS == "darwin" {
+	// system default path. v0.7.1 P2: crypto/db/http libraries are unix desktop
+	// only (OpenSSL/sqlite3/curl don't exist in the mingw sysroot).
+	// v0.15: android and ios do not link -lcrypto/-lpq/-lcurl. iOS sqlite is
+	// the system libsqlite3.tbd. Android sqlite is the bundled amalgamation.
+	// SHA-256/MD5 on those targets come from portable/hash.c.
+	plan, err := planStdlibLibs(targetOS, ir)
+	if err != nil {
+		return nil, err
+	}
+	for _, lib := range plan.Libs {
+		clangArgs = append(clangArgs, lib)
+		if targetOS == "darwin" {
+			switch lib {
+			case "-lcrypto":
 				appendHomebrewLib(&clangArgs, "openssl")
-			}
-		}
-		// v0.12.0 P5d: libpq, only for programs that open a postgres connection
-		// (the emitter gates the declares on DbOpenPg). Checked before the
-		// sqlite branch because both prefixes appear in the same IR.
-		if strings.Contains(ir, "@__kylix_db_pg_") {
-			clangArgs = append(clangArgs, "-lpq")
-			if targetOS == "darwin" {
+			case "-lpq":
 				appendHomebrewLib(&clangArgs, "libpq")
-			}
-		}
-		// sqlite3 is available on macOS, iOS (libsqlite3.tbd), and Linux desktop
-		if strings.Contains(ir, "@__kylix_db_") || (targetOS == "darwin" && strings.Contains(ir, "@sqlite3_")) {
-			clangArgs = append(clangArgs, "-lsqlite3")
-			if targetOS == "darwin" {
+			case "-lsqlite3":
 				appendHomebrewLib(&clangArgs, "sqlite")
-			}
-		}
-		// curl is desktop-only; only link if httpclient was actually used
-		if targetOS != "ios" && (strings.Contains(ir, "@__kylix_httpclient_") || (targetOS == "darwin" && strings.Contains(ir, "@curl_easy_"))) {
-			clangArgs = append(clangArgs, "-lcurl")
-			if targetOS == "darwin" {
+			case "-lcurl":
 				appendHomebrewLib(&clangArgs, "curl")
 			}
 		}
+	}
+	if plan.PortableHash {
+		obj, dir, err := compilePortableHash(linkClang, clangArgs)
+		if err != nil {
+			return nil, err
+		}
+		defer os.RemoveAll(dir)
+		clangArgs = append(clangArgs, obj)
+	}
+	if plan.SqliteAmalgamation {
+		obj, dir, err := compileSqliteAmalgamation(linkClang, clangArgs)
+		if err != nil {
+			return nil, err
+		}
+		defer os.RemoveAll(dir)
+		clangArgs = append(clangArgs, obj)
 	}
 	// v0.7.1 P1: net's Winsock primitives (socket/connect/... declared from
 	// ws2_32) — Windows only; unix BSD sockets live in libc.

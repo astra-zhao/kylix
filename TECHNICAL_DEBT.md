@@ -6,7 +6,7 @@
 
 ## 🚧 v0.15.0 进行中（示例应用落地时记下）
 
-- **HTTP 留在原生壳，这是选型，不是欠账。** `apps/shared/mobilecore.klx` 不含 socket / libcurl / db。android 仍整段跳过 `-lcurl`/`-lcrypto`/`-lpq`/`-lsqlite3`，ios 仍不链 `-lcurl`（见下一节）。谁在移动端目标上调用 `httpclient`，链接照旧失败。
+- **HTTP 留在原生壳，这是选型，不是欠账。** `apps/shared/mobilecore.klx` 不含 socket / libcurl / db。android/ios 上调用 `httpclient` 或 libpq 会在链接前被拒绝，不链 `-lcurl`/`-lpq`/`-lcrypto`。SHA-256/MD5 走可移植实现；sqlite 见下一节。
 - [x] **JWT refresh**（v0.15 示例已接上）。登录发 24 小时 access（`typ=access`）和 30 天 refresh（`typ=refresh` + `jti`）。`api_refresh` 每个 `jti` 一行，同一用户最多 8 行。`POST /api/refresh` 与 `POST /api/logout` 只撤销提交的那一张。壳用 EncryptedSharedPreferences / Keychain 持久化，冷启动恢复，到期前 60 秒或列表 401 时刷新一次，失败或登出才清本地。开发默认 secret `kylix-admin-dev-secret` 仍只适合 localhost。离线登出删不掉服务器行；同一张 token 并发刷新可能留下两个后继；过期行要等该用户下次发 token 才扫掉。模拟器上的冷启动未跑。
 - [ ] **bootstrap 烘焙的 CSRF 没有 `/api` 豁免。** 宿主 `pkg/boot/csrf.go` 与 LLVM `emitBootCsrfCheckBody` 已跳过 `/api` 与 `/api/`。`src/stdlib_ir.klx` 里的 `@__kylix_boot_csrf_check` 要等下次 `scripts/rebake_stdlib_ir.sh` 才带上。admin CI 用宿主编译器，不受影响。本轮不重烘。
 - [ ] **模拟器 / 真机登录未跑。** 入库环境没有 NDK，也不是 macOS。宿主证明是 `apps/shared/host_check.sh`。验收命令在 `docs/MOBILE_APPS.md`。
@@ -28,8 +28,8 @@
 ### 编译器 / 链接
 
 - [ ] **`--shared` 只在 LLVM 后端生效**：flag 定义在 `cmd/kylix/cmd_build.go`，并写入 `compiler.Options.Shared`。读取点只有 `pkg/llvmgen/compile.go` 与 `pkg/llvmgen/codegen.go`。Go 后端路径不读该字段，不加 `--backend=llvm` 时不会产出动态库。
-- [ ] **stdlib 没有 android/ios 独立平台分支**（`docs/MULTIPLATFORM.md` 第二节第 4 条，已改记 v0.15）：`pkg/llvmgen/stdlib_datetime.go`、`stdlib_sysutil.go`、`stdlib_net.go` 仍只区分 `targetOS == "windows"` 与其余平台。android/ios 走非 Windows 路径（datetime 为 `localtime_r`）。
-- [ ] **android 目标不链桌面系统库**：`pkg/llvmgen/compile.go` 在 `targetOS == "android"` 时整段跳过 `-lcrypto`、`-lpq`、`-lsqlite3`、`-lcurl`。ios 仍进入该段，但 `-lcurl` 被 `targetOS != "ios"` 跳过；sqlite3 在 ios 上仍链接。用到被跳过的库的程序在对应目标上无法链接。
+- [x] **stdlib android/ios 平台分支**（v0.15）：datetime 显式 `localtime_r`；`GetTempDir` 在 android 为 `/data/local/tmp`、在 ios 为 `confstr(65537)`；net 的 `SO_REUSEADDR` android 用 Linux 常量、ios 用 Darwin 常量；exc 用 `setjmp`。SHA-256/MD5/HMAC 链 `portable/hash.c`。ios sqlite 链系统 `libsqlite3.tbd`。android sqlite 编译 amalgamation（`scripts/fetch_sqlite_amalgamation.sh`，源文件不入库）。
+- [ ] **移动端仍不链桌面密码学与 HTTP 栈**：`AesEncrypt`/`Pbkdf2*`/`BCrypt*` 在 android/ios 上编译期报错（没有 OpenSSL，也没有 CommonCrypto/Keystore 绑定）。`httpclient` 与 libpq 在链接前拒绝。这是 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md) 的门，不是把 `-lcurl`/`-lcrypto`/`-lpq` 链进手机。
 - [ ] **iOS 链接要求 macOS 主机**：`targetOS == "ios"` 且 `runtime.GOOS != "darwin"` 时 `compile.go` 直接返回错误 `ios cross-link requires a macOS host with Xcode command line tools`。
 - [x] **移动端产物 CI 门禁**（v0.15）：`ci.yml` 的 `mobile-android`（ubuntu-latest，NDK r26d）检查 arm64/amd64 ELF `.so` 与动态导出；`mobile-ios`（macos-15）检查 `.a` 符号并用 Xcode SDK 做链接冒烟。模拟器/真机上的登录流程仍未自动化，见下一条。
 

@@ -51,3 +51,8 @@ self_gen*.go
 # LLVM 中间产物（IR / mem2reg 输出 / 目标码）——sweep 的 .ll/.o 均写入 /tmp 或被 clean_artifacts 清理，不入库
 *.ll
 *.o
+
+# SQLite amalgamation for the Android db link (scripts/fetch_sqlite_amalgamation.sh)
+third_party/sqlite/sqlite3.c
+third_party/sqlite/sqlite3.h
+third_party/sqlite/*.zip

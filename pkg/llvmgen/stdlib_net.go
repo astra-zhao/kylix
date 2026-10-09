@@ -26,9 +26,11 @@ import (
 //	__kylix_net_reuse(h)                      -> i32 (SO_REUSEADDR)
 //
 // Signatures are unified (handles/errors as i64 -1) so the public bodies never
-// branch on the target. Unix maps handles to i32 fds (sext/trunc); Windows
-// keeps SOCKET (UINT_PTR) as i64 natively. The corresponding declares in
-// codegen.go switch on g.targetOS to match.
+// branch on the target. POSIX maps handles to i32 fds (sext/trunc): linux,
+// darwin, android (bionic), and ios (Darwin). Windows keeps SOCKET (UINT_PTR)
+// as i64 natively. The corresponding declares in codegen.go switch on
+// g.targetOS to match. SO_REUSEADDR is the constant that does differ: android
+// follows Linux, ios follows Darwin (see netReuseConsts).
 //
 // TTcpConn / TTcpListener remain heap-allocated 8-byte cells holding the
 // handle. Mirrors the Go-backend stdlib/net.go surface for the TCP subset that
@@ -380,18 +382,14 @@ func (g *Generator) emitNetClosePrim() {
 	g.line("")
 }
 
-// SO_REUSEADDR — constants are NOT portable: Linux uses SOL_SOCKET=1 /
-// SO_REUSEADDR=2, while BSD sockets (macOS, *BSD) and Winsock2 (Windows) both
-// use SOL_SOCKET=0xffff (65535) / SO_REUSEADDR=4. Getting this wrong makes
+// SO_REUSEADDR — constants are NOT portable: Linux and Android bionic use
+// SOL_SOCKET=1 / SO_REUSEADDR=2. Darwin (macOS and iOS) and Winsock2 use
+// SOL_SOCKET=0xffff (65535) / SO_REUSEADDR=4. Getting this wrong makes
 // setsockopt silently target a bogus option level and the reuse never applies
 // (surfaced as EADDRINUSE on quick restart after a clean exit leaves TIME_WAIT
-// sockets behind; v0.7.1 P1).
+// sockets behind; v0.7.1 P1). Android must not inherit the BSD default.
 func (g *Generator) emitNetReusePrim() {
-	solSocket := "65535" // 0xffff — macOS/BSD/Windows
-	soReuse := "4"
-	if g.targetOS == "linux" {
-		solSocket, soReuse = "1", "2"
-	}
+	solSocket, soReuse := g.netReuseConsts()
 	if g.targetOS == "windows" {
 		g.line("define i32 @__kylix_net_reuse(i64 %h) {")
 		g.line("entry:")

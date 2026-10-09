@@ -471,18 +471,20 @@ func (g *Generator) emitWsB64Body() {
 //
 //	void @__kylix_ws_rand(ptr %buf, i64 %n)
 //
-// Fills buf with random bytes. macOS: arc4random_buf; Linux: getrandom;
-// fallback (Windows / unknown): deterministic bytes from a counter (enough for
+// Fills buf with random bytes. Darwin (macOS and iOS): arc4random_buf.
+// Linux and Android bionic (API 28+, we target API 30): getrandom.
+// Fallback (Windows / unknown): deterministic bytes from a counter (enough for
 // the handshake to be well-formed, not for security).
 func (g *Generator) emitWsRandBody() {
 	g.line("define void @__kylix_ws_rand(ptr %buf, i64 %n) {")
 	g.line("entry:")
-	if g.targetOS == "darwin" {
+	switch g.targetOS {
+	case "darwin", "ios":
 		g.line("  call void @arc4random_buf(ptr %buf, i64 %n)")
-	} else if g.targetOS == "linux" {
+	case "linux", "android":
 		// getrandom(buf, n, 0) returns ssize_t; ignore result.
 		g.line("  call i64 @getrandom(ptr %buf, i64 %n, i32 0)")
-	} else {
+	default:
 		// deterministic fill: buf[i] = (i*7+11)&0xFF
 		iSlot := g.tmp()
 		g.line(fmt.Sprintf("  %s = alloca i64, align 8", iSlot))

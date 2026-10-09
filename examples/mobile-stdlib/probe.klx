@@ -1,0 +1,18 @@
+program MobileStdlibProbe;
+uses datetime, sysutil, crypto, net;
+
+begin
+  var now := Now();
+  var y := now.Year();
+  var tmp := GetTempDir();
+  var h := Sha256('abc');
+  var d := Md5('abc');
+  var mac := HmacSha256('key', 'data');
+  var ln := TcpListen(9);
+  TcpListenerClose(ln);
+  WriteLn(IntToStr(y));
+  WriteLn(tmp);
+  WriteLn(h);
+  WriteLn(d);
+  WriteLn(mac);
+end.

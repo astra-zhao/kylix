@@ -1,0 +1,10 @@
+program MobileDbProbe;
+uses db;
+
+begin
+  var conn := DbOpenSQLite(':memory:');
+  if conn = nil then
+    WriteLn('open failed')
+  else
+    WriteLn('open ok');
+end.

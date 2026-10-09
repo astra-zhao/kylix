@@ -421,11 +421,13 @@ func (g *Generator) emitDatetimeAddSecondsCall(receiver string, args []ast.Expre
 // time) fills the buffer in place and returns errno_t. The result register gets
 // the buffer address in both cases. v0.6.2.
 func (g *Generator) emitLocaltimeCall(resultReg, timePtr, tmBuf string) {
-	if g.targetOS == "windows" {
+	if g.localtimeSymbol() == "localtime_s" {
 		g.line(fmt.Sprintf("  call i32 @localtime_s(ptr %s, ptr %s)", tmBuf, timePtr))
 		g.line(fmt.Sprintf("  %s = getelementptr inbounds i8, ptr %s, i64 0", resultReg, tmBuf))
 		return
 	}
+	// android (bionic) and ios (Darwin) take this POSIX call, same as
+	// linux and darwin. Neither has Windows localtime_s.
 	g.line(fmt.Sprintf("  %s = call ptr @localtime_r(ptr %s, ptr %s)", resultReg, timePtr, tmBuf))
 }
 

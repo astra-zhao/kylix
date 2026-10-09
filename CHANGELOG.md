@@ -14,7 +14,7 @@ All notable changes to the Kylix compiler are documented in this file.
 
 ## Unreleased — v0.15.0 进行中（多端示例应用，未发版）
 
-CLI 版本仍是 `0.14.0`。stdlib 的 android/ios 平台分支还没做。移动端 CI 只检查产物形态，不跑登录。wasm32-unknown-wasi 纯逻辑子集已落地，见下文。
+CLI 版本仍是 `0.14.0`。stdlib 的 android/ios 平台分支已落地（见下文）；移动端 CI 在产物形态之外再链一份可移植 stdlib 探针。模拟器/真机登录仍不跑。wasm32-unknown-wasi 纯逻辑子集已落地，见下文。
 
 ### 设计
 
@@ -38,13 +38,27 @@ CLI 版本仍是 `0.14.0`。stdlib 的 android/ios 平台分支还没做。移�
 - **`uses wasi`（LLVM）** 只有 `Stdout`、`Stderr`、`Getenv`、`ClockMonotonic`、`ClockWalltime`、`WasiExit`。文件、参数、stdin 在 `pkg/wasi` 的 wasip1 实现里，路径相对预打开 fd 3。
 - **验收**：`examples/wasi-logic/check.sh`（LLVM hello 的 wasmtime stdout 为 `sum=42`、`hello wasi`、`42`、`1.5`；Go wasip1 冒烟含 `--dir` 读写与 `NAME` 环境变量）。CI job `wasi-wasm32`（wasmtime 27.0.0）。指南 [docs/WASI.md](docs/WASI.md)。
 
+### stdlib android/ios 平台分支
+
+桌面目标（linux / darwin / windows）的 IR 文本保持原路径：哈希仍是 `call ptr @SHA256` / `@MD5`，`GetTempDir` 仍是 `TMPDIR` 否则 `/tmp`，Linux 与 Darwin 的 `SO_REUSEADDR` 常量不变。android 与 ios 不再被当成「非 Windows 的那一支」。
+
+- **datetime**：android（bionic）与 ios（Darwin）显式走 `localtime_r`，不走 Windows 的 `localtime_s`。LP64 `struct tm` 前缀（`tm_sec` 在 0，`tm_wday` 在 24）与现有 56 字节缓冲一致。
+- **sysutil**：`GetTempDir` 在 android 上是 `TMPDIR`，否则 `/data/local/tmp`（与 Go `os.TempDir` 相同；应用沙箱应自己设置 `TMPDIR`）。ios 先读 `TMPDIR`，否则 `confstr(65537)`（`_CS_DARWIN_USER_TEMP_DIR`），不用沙箱外的 `/tmp`。文件 API 仍是 POSIX（`access` / `opendir` / 带 mode 的 `mkdir`）。
+- **net**：socket 调用约定 android 与 ios 都是 POSIX fd（不是 Winsock）。`SO_REUSEADDR` 分开：android 用 Linux 的 `SOL_SOCKET=1` / `SO_REUSEADDR=2`（先前误用 BSD 的 `65535/4`，setsockopt 会打到错误的 level）；ios 用 Darwin 的 `65535/4`。
+- **exc**：android / ios 用 `setjmp` / `longjmp`（不是 UCRT 的 `_setjmp`）。jmp_buf 仍按 288 字节分配（bionic LP64 ≤ 256，Darwin arm64 为 192）。
+- **websocket 随机数**：android 用 `getrandom`（API 30），ios 用 `arc4random_buf`。不再掉进 Windows 那条确定性填充。
+- **crypto**：`Sha256` / `Md5` / `HmacSha256` 在 android/ios 上调用嵌入的 `pkg/llvmgen/portable/hash.c`（`kylix_sha256` / `kylix_md5`），不链 `-lcrypto`。`AesEncrypt` / `AesDecrypt` / `BCrypt*` / `Pbkdf2*` 在这两个目标上直接报错（没有 OpenSSL，也没有 Keychain/CommonCrypto 绑定）。
+- **db**：ios 在用到 sqlite 时链系统 `libsqlite3.tbd`，不走 Homebrew。android 编译随包的 `sqlite3.c`（`scripts/fetch_sqlite_amalgamation.sh` 或 `KYLIX_SQLITE_SRC`；约 9MB，不入库），不链宿主的 `-lsqlite3`。两边都拒绝 libpq。
+- **httpclient**：android 与 ios 在链接前拒绝，不链 `-lcurl`。HTTP 仍在 OkHttp / URLSession。
+- **验收**：`examples/mobile-stdlib/check.sh android|ios`。CI 的 `mobile-android` 拉 amalgamation 后链 arm64/amd64 探针（动态符号含 `kylix_sha256`，db 探针含 `sqlite3_open`）。`mobile-ios` 链模拟器探针、模拟器 sqlite、设备探针。不启动模拟器。
+
 ### 壳
 
 - `apps/android/`：Kotlin + JNI，`build_core.sh arm64|amd64` 产出 `libkylixlogic.so`。模拟器默认连 `http://10.0.2.2:8090`（明文）。
 - `apps/ios/`：SwiftUI + Swift Package，`build_core.sh simulator|device` 在 Darwin 上产出 `libkylixcore.a`。模拟器默认连 `http://127.0.0.1:8090`。
 - 宿主证明：`apps/shared/host_check.sh`（parity.klx 的 Go/LLVM stdout 逐字一致 + `dlopen` 调导出符号并 `kylix_free`）。导出字符串经 `s + ''` 一定是 malloc 出来的，可以 free；模块常量不能 free。
 - 指南：[docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。模拟器/真机登录本环境未跑。
-- **CI 产物形态门。** `mobile-android`（ubuntu-latest）安装 NDK r26d，跑 `apps/android/build_core.sh arm64` 与 `amd64`，`check_artifact.sh` 要求 `file` 报 ELF shared object（ARM aarch64 / x86-64），并且动态符号表含 `apps/shared/mobile_exports.list`（`mc_*` 与 `kylix_free`）。`mobile-ios`（macos-15）跑 `apps/ios/build_core.sh simulator` 与 `device`：`nm` 核对同一份符号，再用 `xcrun` clang 把 `.a` 链成 arm64 Mach-O（`vtool` 平台分别是 `IOSSIMULATOR` 与 `IOS`）。iphoneos 那次链接不签名、不装到手机。真机登录步骤写在指南里。CI 不启动模拟器。
+- **CI 产物形态门。** `mobile-android`（ubuntu-latest）安装 NDK r26d，跑 `apps/android/build_core.sh arm64` 与 `amd64`，`check_artifact.sh` 要求 `file` 报 ELF shared object（ARM aarch64 / x86-64），并且动态符号表含 `apps/shared/mobile_exports.list`（`mc_*` 与 `kylix_free`）。同一 job 再跑 `examples/mobile-stdlib/check.sh android`（含 sqlite amalgamation）。`mobile-ios`（macos-15）跑 `apps/ios/build_core.sh simulator` 与 `device`：`nm` 核对同一份符号，再用 `xcrun` clang 把 `.a` 链成 arm64 Mach-O（`vtool` 平台分别是 `IOSSIMULATOR` 与 `IOS`），然后 `examples/mobile-stdlib/check.sh ios`（系统 `libsqlite3`）。iphoneos 那次链接不签名、不装到手机。真机登录步骤写在指南里。CI 不启动模拟器。
 
 ## v0.14.0 — 编译器多端能力（C ABI Export + 移动端 Triple + 交叉链接）✅（2026-10-07 发布）
 
