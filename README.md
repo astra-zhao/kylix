@@ -1072,7 +1072,7 @@ Kylix LSP supports any editor with LSP client:
 
 ## Roadmap
 
-Current status: **v0.13.0 (H5 mobile)** — the console runs on sqlite or postgres from one Kylix source (pure-Kylix dialect layer + a **libpq backend on the LLVM side**), with a four-form E2E proving byte-identical behaviour; tables are created and migrated from `[Entity]` metadata; and `[Embed('views','static')]` bakes templates and assets into the binary, so a single executable is the whole console ([deploy guide](docs/ADMIN_DEPLOY.md)). The IR fixed point holds (gen1 ≡ gen2, 267k lines byte-identical). Next up: **v0.14.0 compiler multi-platform** — C ABI `export`, Android/iOS triples, stdlib portable layer (see [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)). The full roadmap lives in [ROADMAP.md](ROADMAP.md).
+Current status: **v0.14.0 released** (2026-10-07) — C ABI `[Export]` / `[Export('c_symbol')]` on both backends, compiler-injected `kylix_free`, and `kylix build --backend=llvm --shared` (`.so` / `.dylib` / `.dll`, or `.o` / `.a` when the output name says so). LLVM `--target` adds `android/arm64`, `android/amd64`, `ios/arm64`, and `ios/simulator-arm64` ([C ABI guide](docs/EXPORT_C_ABI.md)). KylixAdmin from v0.12.0/v0.13.0 is unchanged: one binary, sqlite or postgres, installable PWA, login rate limit. Next up: **v0.15.0** — Android/iOS sample apps, a wasm32 triple, and the stdlib android/ios platform branches (see [ROADMAP.md](ROADMAP.md) and [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)).
 
 ## Cross-Platform Compilation
 
@@ -1205,6 +1205,12 @@ end.
 | macOS | Apple Silicon | `darwin/arm64` |
 | WebAssembly | wasm | `--wasm` (optionally `--tinygo`) |
 | WASI | wasip1/wasm | `--wasi` (optionally `--tinygo`) |
+| Android | ARM64 (API 30) | `android/arm64` |
+| Android | x86-64 | `android/amd64` (alias `android/x86_64`) |
+| iOS | ARM64 (iOS 16) | `ios/arm64` |
+| iOS Simulator | ARM64 | `ios/simulator-arm64` |
+
+Android and iOS rows are LLVM triples (`--backend=llvm`, see `tripleFor` in `pkg/llvmgen/compile.go`): `aarch64-linux-android30`, `x86_64-linux-android30`, `arm64-apple-ios16.0.0`, `arm64-apple-ios16.0.0-simulator`. Linking Android needs the NDK (`FindAndroidNdk`, `ANDROID_NDK_HOME` / `ANDROID_NDK_ROOT`). Linking iOS needs a macOS host with Xcode (`xcrun`). The Go backend forwards `--target os/arch` to `GOOS`/`GOARCH`; `simulator-arm64` is not a Go architecture. Details: [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md).
 
 ---
 
@@ -1214,6 +1220,8 @@ Recent releases (see [CHANGELOG.md](CHANGELOG.md) for the full history):
 
 | Version | Highlights |
 |---------|------------|
+| v0.14.0 | Compiler multi-platform: `[Export]` / `[Export('c_symbol')]` C ABI on both backends, `kylix_free`, `--shared` (`.so`/`.dylib`/`.dll` and `.o`/`.a`) on the LLVM backend, Android/iOS triples (`android/arm64`, `android/amd64`, `ios/arm64`, `ios/simulator-arm64`) |
+| v0.13.0 | KylixAdmin H5: installable PWA (manifest, service worker, 192/512 icons, `≤900px` cards) and login rate limiting (20 failures / 15 min / IP → 429) |
 | v0.9.0 | 1.0.0-rc polish: KylixBoot completion (Session/CSRF/upload/Download/pagination/layout), bootstrap boot server (example60 E2E), stdlib IR rebake loop, CI green on 3 platforms + perf gate + API stability freeze |
 | v0.12.0 | KylixAdmin P5: pure-Kylix SQL dialect layer + **libpq backend for the LLVM form** (same Kylix source on sqlite or postgres, four-form byte-identical E2E), `[Entity]`-driven table creation and incremental migration, `[Embed]` file baking for a single self-contained binary |
 | v0.11.0 | KylixAdmin P3+P4: generic CRUD engine driven by `[Entity]` metadata (compiler-emitted on both backends, `entitymeta` module), dashboard with a zero-dependency SVG chart, personal centre, self-contained UI design system with a three-state theme; 22-scenario dual-backend E2E |

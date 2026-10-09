@@ -116,7 +116,7 @@ kylix version           # 显示版本信息
 
 ---
 
-## 测试状态（v0.13.0）
+## 测试状态（v0.14.0）
 
 | 项目 | 结果 |
 |------|------|
@@ -252,6 +252,8 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 | **v0.10.0** | **2026-09-19** | **KylixAdmin P0+P2：LLVM 后端 Boehm GC（`--gc=boehm`，issue #1）+ 后台认证与 RBAC（PBKDF2/Session/锁定/RBAC/审计，15 路由，双端 E2E 入 CI）+ htab GC bug 修复** |
 | **v0.11.0** | **2026-09-21** | **KylixAdmin P3+P4：`[Entity]` 元数据驱动的通用 CRUD 引擎（编译器两端发射 `entitymeta`）+ 仪表盘（零依赖 SVG）+ 个人中心 + UI 设计系统（三态主题/响应式）；LLVM cookie 解析器与 `DbQueryScalar` NULL 修复；双端 E2E 22 场景** |
 | **v0.12.0** | **2026-09-22** | **KylixAdmin P5：纯 Kylix 方言层 + LLVM 端 libpq 后端（sqlite/postgres 同一份源码，四形态 E2E 逐字一致）+ `[Entity]` 驱动建表与增量迁移 + `[Embed]` 单二进制自包含 + 部署文档/资产** |
+| **v0.13.0** | **2026-09-24** | **H5：KylixAdmin 可安装 PWA（manifest/sw.js/图标 + `≤900px` 卡片化）+ 登录限流（20 次失败/15 分钟/IP → 429）。CHANGELOG 记 2026-09-24；git 提交与 GitHub Release 为 2026-10-07** |
+| **v0.14.0** | **2026-10-07** | **编译器多端能力：`[Export]` C ABI（双端）+ `kylix_free` + LLVM `--shared`（`.so`/`.dylib`/`.dll` 与 `.o`/`.a`）+ Android/iOS triple + NDK/Xcode 探测。指南 `docs/EXPORT_C_ABI.md`** |
 
 详细更新日志见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -259,8 +261,7 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 
 ## 后续规划
 
-- **v0.13.0 — H5 多端路线 A**（见 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）：响应式 PWA 移动页面组（复用 P4 设计系统）+ manifest/service worker + JWT refresh token + 登录限流 + `docs/H5_GUIDE.md`。KylixAdmin P0–P5 已全部完成（v0.10.0/v0.11.0/v0.12.0）
-- **v0.13.0–v0.15.0 — 多端平台**（见 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）：H5 PWA → 编译器多端能力（C ABI export + android/ios triple）→ 示例应用（Kotlin+JNI / SwiftUI 壳）+ wasm32
+- **v0.15.0 — 多端示例应用 + wasm**（见 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md) 与 [ROADMAP.md](ROADMAP.md)）：`apps/android/`（Kotlin + JNI）与 `apps/ios/`（SwiftUI）登录+列表 demo；CI 上的 Android `.so` / iOS `.a` 产物形态门禁；LLVM `wasm32-unknown-wasi` triple 与 `pkg/wasi` 的 `wasi_snapshot_preview1`。一并带上 v0.14 未做的 stdlib android/ios 平台分支，以及 v0.13 推迟的 JWT refresh（消费者为原生壳）。v0.13.0 与 v0.14.0 已发布，见上一节里程碑表。
 - **1.0.0**：v0.7.1–v0.15.0 gate 全过后发布正式版（KylixAdmin + 多端为旗舰 showcase）
 
 完整路线图见 [ROADMAP.md](ROADMAP.md)。

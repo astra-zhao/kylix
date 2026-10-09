@@ -1114,7 +1114,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 
 ## 路线图
 
-当前状态：**v0.13.0（H5 移动端）**—— 同一份 Kylix 源码可跑 **sqlite 或 postgres**（纯 Kylix 方言层 + **LLVM 端 libpq 后端**），四形态 E2E 逐字一致；建表与增量迁移由 `[Entity]` 元数据驱动；`[Embed('views','static')]` 把模板与资源烘进二进制，**单可执行文件即整套后台**（[部署指南](docs/ADMIN_DEPLOY.md)）。IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）。下一步：**v0.13.0 H5 移动端**（PWA 页面组 + JWT refresh + 登录限流，见 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）。完整路线图见 [ROADMAP.md](ROADMAP.md)。
+当前状态：**v0.14.0 已发布**（2026-10-07）—— **`[Export]` / `[Export('c_symbol')]`** 在 Go 与 LLVM 两端导出 C 符号，编译器注入 **`kylix_free`**；**`kylix build --backend=llvm --shared`** 产出 `.so` / `.dylib` / `.dll`（输出名以 `.o` / `.a` 结尾时分别是目标文件与静态库）。LLVM `--target` 增加 `android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`（[C ABI 指南](docs/EXPORT_C_ABI.md)）。v0.12.0/v0.13.0 的 KylixAdmin 保持不变：单二进制、sqlite 或 postgres、可安装 PWA、登录限流。下一步：**v0.15.0**——Android/iOS 示例应用、wasm32 triple，以及 stdlib 的 android/ios 平台分支（见 [ROADMAP.md](ROADMAP.md) 与 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）。
 
 ## 跨平台编译
 
@@ -1168,6 +1168,12 @@ kylix build --wasm --tinygo main.klx  # TinyGo (~30 KB)
 | macOS | Apple Silicon | `darwin/arm64` |
 | WebAssembly | wasm | `--wasm` (含可选 `--tinygo`) |
 | WASI | wasip1/wasm | `--wasi` (含可选 `--tinygo`) |
+| Android | ARM64（API 30） | `android/arm64` |
+| Android | x86-64 | `android/amd64`（别名 `android/x86_64`） |
+| iOS | ARM64（iOS 16） | `ios/arm64` |
+| iOS 模拟器 | ARM64 | `ios/simulator-arm64` |
+
+Android 与 iOS 四行是 LLVM triple（`--backend=llvm`，见 `pkg/llvmgen/compile.go` 的 `tripleFor`）：`aarch64-linux-android30`、`x86_64-linux-android30`、`arm64-apple-ios16.0.0`、`arm64-apple-ios16.0.0-simulator`。链接 Android 需要 NDK（`FindAndroidNdk`，`ANDROID_NDK_HOME` / `ANDROID_NDK_ROOT`）。链接 iOS 需要 macOS 主机上的 Xcode（`xcrun`）。Go 后端把 `--target os/arch` 传给 `GOOS`/`GOARCH`；`simulator-arm64` 不是 Go 的架构名。详见 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)。
 
 ### LLVM 原生后端 (v0.3.0-alpha → v0.9.0)
 
@@ -1237,6 +1243,8 @@ WsClose(ws);
 
 | 版本 | 亮点 |
 |------|------|
+| v0.14.0 | 编译器多端能力：`[Export]` / `[Export('c_symbol')]` 双端 C ABI、`kylix_free`、LLVM `--shared`（`.so`/`.dylib`/`.dll` 与 `.o`/`.a`）、Android/iOS triple（`android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`） |
+| v0.13.0 | KylixAdmin H5：可安装 PWA（manifest、service worker、192/512 图标、`≤900px` 卡片化）+ 登录限流（20 次失败/15 分钟/IP → 429） |
 | v0.9.0 | 1.0.0-rc 打磨：KylixBoot 补齐（Session/CSRF/上传/Download/分页/layout）、bootstrap boot server（example60 E2E）、stdlib IR 重烘链路、CI 三平台全绿 + 性能门禁 + API 稳定性冻结 |
 | v0.12.0 | KylixAdmin P5：纯 Kylix SQL 方言层 + **LLVM 端 libpq 后端**（同一份源码跑 sqlite/postgres，四形态逐字一致 E2E）、`[Entity]` 驱动建表与增量迁移、`[Embed]` 文件烘焙实现单二进制自包含 |
 | v0.11.0 | KylixAdmin P3+P4：`[Entity]` 元数据驱动的通用 CRUD 引擎（编译器两端发射 `entitymeta` 模块）、仪表盘（零依赖 SVG 图）、个人中心、自研 UI 设计系统（三态主题）；双端 E2E 22 场景 |

@@ -1,12 +1,22 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-10-07
-> 当前版本: v0.13.0 已发布；v0.14.0 开发完成（编译器多端能力：C ABI Export + 移动端 Triple + 交叉链接）
+> 最后更新: 2026-10-09
+> 当前版本: v0.14.0 已发布（编译器多端能力：C ABI Export + 移动端 Triple + 交叉链接；标签 `v0.14.0`，2026-10-07）
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
 
 本文档记录 v0.3.1 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
 
 ---
+
+## 🚧 v0.14.0 已知问题（2026-10-07 发布后核对代码）
+
+### 编译器 / 链接
+
+- [ ] **`--shared` 只在 LLVM 后端生效**：flag 定义在 `cmd/kylix/cmd_build.go`，并写入 `compiler.Options.Shared`。读取点只有 `pkg/llvmgen/compile.go` 与 `pkg/llvmgen/codegen.go`。Go 后端路径不读该字段，不加 `--backend=llvm` 时不会产出动态库。
+- [ ] **stdlib 没有 android/ios 独立平台分支**（`docs/MULTIPLATFORM.md` 第二节第 4 条，已改记 v0.15）：`pkg/llvmgen/stdlib_datetime.go`、`stdlib_sysutil.go`、`stdlib_net.go` 仍只区分 `targetOS == "windows"` 与其余平台。android/ios 走非 Windows 路径（datetime 为 `localtime_r`）。
+- [ ] **android 目标不链桌面系统库**：`pkg/llvmgen/compile.go` 在 `targetOS == "android"` 时整段跳过 `-lcrypto`、`-lpq`、`-lsqlite3`、`-lcurl`。ios 仍进入该段，但 `-lcurl` 被 `targetOS != "ios"` 跳过；sqlite3 在 ios 上仍链接。用到被跳过的库的程序在对应目标上无法链接。
+- [ ] **iOS 链接要求 macOS 主机**：`targetOS == "ios"` 且 `runtime.GOOS != "darwin"` 时 `compile.go` 直接返回错误 `ios cross-link requires a macOS host with Xcode command line tools`。
+- [ ] **移动端产物没有 CI 门禁**（`docs/MULTIPLATFORM.md` 第二节第 5 条，已改记 v0.15）：`.github/workflows/ci.yml` 没有 android/ios job。ROADMAP v0.15 清单已列产物形态检查。
 
 ## 🚧 v0.13.0 已知问题（2026-09-24，H5 开发中发现）
 
