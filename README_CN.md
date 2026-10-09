@@ -10,7 +10,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后�
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🚧 **v0.15.0 进行中**（未发版，版本徽章仍是 0.14.0）：Android / iOS 示例壳共用 `apps/shared/mobilecore.klx`（校验 + JSON 契约，不含 HTTP）。OkHttp / URLSession 调 KylixAdmin 的 `POST /api/login`、`POST /api/refresh`、`POST /api/logout` 与 `GET /api/notes`。同一用户可持有多张 refresh token（每个 `jti` 一行，上限 8）。壳用 EncryptedSharedPreferences / Keychain 持久化会话，冷启动恢复。本仓库自动验证是 Go/LLVM parity 加 C ABI `dlopen`。CI 在 Linux 上检查 Android ELF `.so`，在 macOS 上检查 iOS `.a` 符号并做 SDK 链接冒烟，不启动模拟器。指南：[docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。
+> 🚧 **v0.15.0 进行中**（未发版，版本徽章仍是 0.14.0）：Android / iOS 示例壳共用 `apps/shared/mobilecore.klx`（校验 + JSON 契约，不含 HTTP）。OkHttp / URLSession 调 KylixAdmin 的 `POST /api/login`、`POST /api/refresh`、`POST /api/logout` 与 `GET /api/notes`。同一用户可持有多张 refresh token（每个 `jti` 一行，上限 8）。壳用 EncryptedSharedPreferences / Keychain 持久化会话，冷启动恢复。本仓库自动验证是 Go/LLVM parity 加 C ABI `dlopen`。CI 在 Linux 上检查 Android ELF `.so`，在 macOS 上检查 iOS `.a` 符号并做 SDK 链接冒烟，不启动模拟器。指南：[docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。LLVM `wasm32-unknown-wasi` 已作为纯逻辑子集入库（无 DOM）：`kylix build --backend=llvm --target wasi/wasm32`。`--wasm` 仍是 Go 浏览器目标。指南：[docs/WASI.md](docs/WASI.md)。
 >
 > 🚀 **v0.14.0**: **编译器多端能力——C ABI 导出与移动端交叉编译。** 函数/过程支持 **`[Export]` / `[Export('c_symbol')]`** 注解导出为标准 C 符号；**`kylix_free`** 注入建立严格的跨边界内存生命周期契约。**`--shared`** 一键产出动态共享库（`.so`/`.dylib`/`.dll`），`@main` 自动升格为 `@llvm.global_ctors` 模块构造器，加载即自动初始化；支持直接产出 `.o` 目标文件与 `.a` 静态库归档。扩展 **Target Triple** 支持 Android（`android/arm64`、`android/amd64`）与 iOS（`ios/arm64`、`ios/simulator-arm64`）；实现 `FindAndroidNdk()` 自动探测；在 macOS 上直接桥接 Xcode 链接出真正的 `platform IOS minos 16.0` 动态库与静态库；C 宿主 `dlopen`/`dlsym` 测试 100% 通过。详见 [CHANGELOG.md](CHANGELOG.md) 与 [C ABI 指南](docs/EXPORT_C_ABI.md)。
 >
@@ -756,7 +756,7 @@ WriteLn(IntToStr(client.StatusCode()));
 
 ### WASI (`wasi`) — v0.3.0-alpha
 
-适用于 WASI 运行时（Wasmtime、Node.js、Cloudflare Workers）的可移植系统接口。
+适用于 WASI 运行时（Wasmtime、Node.js、Cloudflare Workers）的可移植系统接口。Go 路径是 `kylix build --wasi`（`GOOS=wasip1`）。LLVM 纯逻辑路径是 `kylix build --backend=llvm --target wasi/wasm32`，没有 DOM，见 [docs/WASI.md](docs/WASI.md)。
 
 ```pascal
 uses wasi;
@@ -1114,10 +1114,11 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 - [LLVM 后端](docs/llvm-backend.md) - 原生后端内部机制
 - [自举开发指南](docs/SELFHOSTING_DEV_GUIDE.md) - bootstrap 编译器工作原理
 - [多端示例应用](docs/MOBILE_APPS.md) - Android / iOS 壳、共享 Kylix 核心、本机验收命令
+- [WASI / wasm32](docs/WASI.md) - LLVM `wasm32-unknown-wasi` 纯逻辑目标与 Go wasip1 导入表
 
 ## 路线图
 
-当前状态：**v0.14.0 已发布**（2026-10-07）；**v0.15.0 进行中**。编译器版本号仍是 0.14.0。v0.14.0 的 C ABI `[Export]` 与 Android/iOS triple 保持不变（[C ABI 指南](docs/EXPORT_C_ABI.md)）。v0.15 第一项已入库：`apps/android/` 与 `apps/ios/` 的登录 + Notes 列表，共用 `apps/shared/mobilecore.klx`，KylixAdmin 增加 `POST /api/login`、`POST /api/refresh`、`POST /api/logout` 与 `GET /api/notes`。同一用户可同时持有多张 refresh token，壳会持久化（[多端指南](docs/MOBILE_APPS.md)）。CI 已检查 Android `.so` 与 iOS `.a` 产物（见 [多端指南](docs/MOBILE_APPS.md)）。v0.15 仍开放：wasm32、stdlib 的 android/ios 平台分支（见 [ROADMAP.md](ROADMAP.md)）。
+当前状态：**v0.14.0 已发布**（2026-10-07）；**v0.15.0 进行中**。编译器版本号仍是 0.14.0。v0.14.0 的 C ABI `[Export]` 与 Android/iOS triple 保持不变（[C ABI 指南](docs/EXPORT_C_ABI.md)）。v0.15 第一项已入库：`apps/android/` 与 `apps/ios/` 的登录 + Notes 列表，共用 `apps/shared/mobilecore.klx`，KylixAdmin 增加 `POST /api/login`、`POST /api/refresh`、`POST /api/logout` 与 `GET /api/notes`。同一用户可同时持有多张 refresh token，壳会持久化（[多端指南](docs/MOBILE_APPS.md)）。CI 已检查 Android `.so` 与 iOS `.a` 产物（见 [多端指南](docs/MOBILE_APPS.md)），以及 LLVM `wasm32-unknown-wasi` 模块（`wasi-wasm32`，见 [docs/WASI.md](docs/WASI.md)）。v0.15 仍开放：stdlib 的 android/ios 平台分支（见 [ROADMAP.md](ROADMAP.md)）。
 
 ## 跨平台编译
 
@@ -1171,12 +1172,13 @@ kylix build --wasm --tinygo main.klx  # TinyGo (~30 KB)
 | macOS | Apple Silicon | `darwin/arm64` |
 | WebAssembly | wasm | `--wasm` (含可选 `--tinygo`) |
 | WASI | wasip1/wasm | `--wasi` (含可选 `--tinygo`) |
+| WASI（LLVM） | wasm32 | `wasi/wasm32`（`--backend=llvm`；别名 `wasm`、`wasm32`、`wasi`） |
 | Android | ARM64（API 30） | `android/arm64` |
 | Android | x86-64 | `android/amd64`（别名 `android/x86_64`） |
 | iOS | ARM64（iOS 16） | `ios/arm64` |
 | iOS 模拟器 | ARM64 | `ios/simulator-arm64` |
 
-Android 与 iOS 四行是 LLVM triple（`--backend=llvm`，见 `pkg/llvmgen/compile.go` 的 `tripleFor`）：`aarch64-linux-android30`、`x86_64-linux-android30`、`arm64-apple-ios16.0.0`、`arm64-apple-ios16.0.0-simulator`。链接 Android 需要 NDK（`FindAndroidNdk`，`ANDROID_NDK_HOME` / `ANDROID_NDK_ROOT`）。链接 iOS 需要 macOS 主机上的 Xcode（`xcrun`）。Go 后端把 `--target os/arch` 传给 `GOOS`/`GOARCH`；`simulator-arm64` 不是 Go 的架构名。详见 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)。
+Android 与 iOS 四行是 LLVM triple（`--backend=llvm`，见 `pkg/llvmgen/compile.go` 的 `tripleFor`）：`aarch64-linux-android30`、`x86_64-linux-android30`、`arm64-apple-ios16.0.0`、`arm64-apple-ios16.0.0-simulator`。链接 Android 需要 NDK（`FindAndroidNdk`，`ANDROID_NDK_HOME` / `ANDROID_NDK_ROOT`）。链接 iOS 需要 macOS 主机上的 Xcode（`xcrun`）。Go 后端把 `--target os/arch` 传给 `GOOS`/`GOARCH`；`simulator-arm64` 不是 Go 的架构名。LLVM 的 WASI 行是 `wasm32-unknown-wasi`，不导入 DOM；`--wasm` 仍是 `GOOS=js`。详见 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)、[docs/WASI.md](docs/WASI.md)。
 
 ### LLVM 原生后端 (v0.3.0-alpha → v0.9.0)
 

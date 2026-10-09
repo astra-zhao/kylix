@@ -616,3 +616,38 @@ jobs:
           KYLIX=$PWD/kylix bash apps/ios/build_core.sh device
           bash apps/ios/check_artifact.sh \
             apps/ios/Sources/CKylixCore/lib/libkylixcore.a device
+
+  wasi-wasm32:
+    name: WASI artifact (wasm32-unknown-wasi)
+    # v0.15: LLVM pure-logic module plus the Go wasip1 import-table smoke.
+    # No browser, no DOM. The generic test job skips the wasmtime round trip
+    # when llc or wasmtime is absent.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install LLVM (llc/clang) and file
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang file
+
+      - name: Install wasmtime 27.0.0
+        run: |
+          curl -fL --retry 3 -o "$RUNNER_TEMP/wasmtime.tar.xz" \
+            https://github.com/bytecodealliance/wasmtime/releases/download/v27.0.0/wasmtime-v27.0.0-x86_64-linux.tar.xz
+          tar -C "$RUNNER_TEMP" -xJf "$RUNNER_TEMP/wasmtime.tar.xz"
+          sudo install -m 755 "$RUNNER_TEMP/wasmtime-v27.0.0-x86_64-linux/wasmtime" /usr/local/bin/wasmtime
+          wasmtime --version
+
+      - name: Build CLI
+        run: go build -o kylix ./cmd/kylix/
+
+      - name: LLVM hello and Go wasip1 smoke under wasmtime
+        run: KYLIX=$PWD/kylix bash examples/wasi-logic/check.sh

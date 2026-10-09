@@ -4,6 +4,7 @@
 > 架构取向: **共享 Kylix 核心 + 各端原生壳**（不造跨平台 UI 框架）
 > 节奏: 排在 KylixAdmin（v0.10–v0.12，见 [ADMIN_PLATFORM.md](ADMIN_PLATFORM.md)）之后，v0.13.0–v0.15.0，1.0.0 gate 不变
 > 技术基线核对（2026-09-12）: `tripleFor` 现有 5 个桌面 triple；`export` token 在 lexer 已有、生成器未实现；`pkg/wasi` 为 Go 侧 stub 骨架
+> 2026-10-09：`[Export]`、移动端 triple、示例壳、CI 产物门，以及 `wasm32-unknown-wasi` 纯逻辑子集已落地。见 [EXPORT_C_ABI.md](EXPORT_C_ABI.md)、[MOBILE_APPS.md](MOBILE_APPS.md)、[WASI.md](WASI.md)。stdlib 的 android/ios 独立分支仍开放。
 
 ---
 
@@ -14,7 +15,7 @@
                     ├─ Android：Kotlin 壳 + libkylix.so（JNI 桥）
 共享核心（Kylix）───┤
  业务 unit + stdlib ├─ iOS：Swift 壳 + libkylix.a（C ABI 桥）
- JSON API + JWT     └─（远期）wasm：纯逻辑编译进浏览器
+ JSON API + JWT     └─ wasm32-wasi：纯逻辑（无 DOM，见 WASI.md）
 ```
 
 **原则：业务逻辑写一次（Kylix unit），UI 每端用该平台的正道。** 不造 UI 框架——H5 用 HTML/CSS，Android 用 Kotlin/Jetpack，iOS 用 SwiftUI；Kylix 输出**共享核心库**（数据模型、校验、业务规则、API 客户端、加解密、本地缓存），通过 C ABI + JSON 与壳交互。这是 gomobile / Kotlin Multiplatform 的同款成熟架构，并规避 iOS App Store 对纯 WebView 壳的 4.2 审核风险。
@@ -38,10 +39,10 @@
 - 认证：session-first（PWA 走 cookie）；JWT refresh 由 v0.15 原生壳消费（`POST /api/refresh`，见 [MOBILE_APPS.md](MOBILE_APPS.md)）；登录限流（应用层查 login_logs，非中间件——LLVM 端无中间件链）
 - 交付：✅ v0.13.0（2026-09-24）+ `docs/H5_GUIDE.md`
 
-**路线 B：Kylix → wasm32 纯逻辑（v0.15，编译器能力）**
-- LLVM 后端加 `wasm32-unknown-wasi` triple + `--target wasm`；`pkg/wasi`（现有 stub 骨架）真实现 wasi_snapshot_preview1 导入表（fd_write/clock/random）
-- 边界模型：**DOM 不进 wasm**——wasm 导出纯函数（校验/计算/编解码），JS 薄胶水经 `WebAssembly.instantiate` 调用；与服务端渲染互补
-- 适配点：字符串约定（线性内存 + 长度出参）；wasm 无 setjmp——exc 模块 wasm 分支改错误码返回
+**路线 B：Kylix → wasm32 纯逻辑（v0.15，编译器能力）** ✅
+- LLVM triple `wasm32-unknown-wasi`（`--backend=llvm --target wasi/wasm32`，别名 `wasm` / `wasm32` / `wasi`）。`internal/wasiapi.Preview1` 是 12 个 `wasi_snapshot_preview1` 导入的单一来源；Go `GOOS=wasip1` 用 `//go:wasmimport`，LLVM 用 import attribute。宿主非 wasip1 仍是本机替身。
+- 边界模型：**DOM 不进 wasm**。`--wasm` 仍是 Go `GOOS=js`。这条目标不链 libcrypto / sqlite / curl / libgc。
+- 适配点：8MiB bump 堆，`@free` 为空操作；wasm 无 setjmp——`@setjmp` 返回 0，`longjmp` / 未捕获异常 `proc_exit(70)`，不是错误码改写。LLVM `uses wasi` 只有 Stdout/Stderr/Getenv/时钟/WasiExit；文件与参数在 `pkg/wasi` 的 wasip1 实现里，路径相对预打开 fd 3。详见 [WASI.md](WASI.md)。
 
 ### Android（v0.14 编译器能力 + v0.15 示例应用）
 
@@ -70,7 +71,7 @@
 | v0.9.0–v0.12.0 | 不变（1.0.0-rc 打磨 + KylixAdmin P1–P5） | admin 平台完成 |
 | **v0.13.0** | H5 路线 A：PWA 移动页面组 + manifest/SW + refresh token + H5_GUIDE | 手机浏览器可安装使用 admin 移动版 |
 | **v0.14.0** | 编译器多端能力：export C ABI（双端）+ android/ios triple + NDK/Xcode 探测。stdlib 可移植层与 CI 产物门未纳入本版（见第二节第 4、5 条） | `[Export]` + `--shared` + 四个移动端 triple；指南 `EXPORT_C_ABI.md` |
-| **v0.15.0** | 示例应用 `apps/android`（Kotlin）+ `apps/ios`（SwiftUI）登录+列表 demo；CI 产物形态门禁；stdlib android/ios 平台分支；wasm32 triple + pkg/wasi 真实现（纯逻辑先行） | 双端真机/模拟器 demo |
+| **v0.15.0** | 示例应用与 CI 产物门 ✅；wasm32-unknown-wasi + `pkg/wasi` preview1 子集 ✅（[WASI.md](WASI.md)）；stdlib android/ios 平台分支仍开放 | 双端真机/模拟器登录仍是手工步骤 |
 | **1.0.0** | gate 不变；多端能力作为平台特性宣传 | — |
 
 ## 五、风险与诚实评估
@@ -81,14 +82,15 @@
 | OpenSSL 移动端链接（体积+编译） | 🟡 | crypto 手写实现已有（SHA 全家桶）；AES 优先平台 API（Keychain/CommonCrypto）适配层 |
 | JNI/Swift 桥样板代码维护 | 🟡 | 导出签名统一 JSON-in/JSON-out，桥层极薄；中期 `kylix gen jni` |
 | UI 每端各写一遍 | ⚠️ 架构决定 | 明确不做跨平台 UI 框架，共享的是逻辑层 |
-| wasm 异常/DOM 边界 | 🟡 | 纯逻辑先行 + 错误码返回，不承诺 DOM |
-| CI 三套工具链复杂度 | 🟡 | 产物形态验证为主（不跑模拟器），真机验收文档化。Android `.so` 与 iOS `.a` 门禁已进 `ci.yml` |
+| wasm 异常/DOM 边界 | 🟡 | 纯逻辑子集已落地，不承诺 DOM。setjmp 不捕获（`proc_exit(70)`）；堆不回收。见 [WASI.md](WASI.md) |
+| CI 三套工具链复杂度 | 🟡 | 产物形态验证为主（不跑模拟器），真机验收文档化。Android `.so`、iOS `.a` 与 wasm32 `wasi-wasm32` 门禁已进 `ci.yml` |
 
 ## 六、验收标准
 
 - [x] 同一份业务 unit（`apps/shared/mobilecore.klx`：校验 + JSON API 协议）被 admin 编译（H5 即该二进制）并由 Android/iOS 以 C ABI 链接。宿主 Go/LLVM 输出逐字一致（`apps/shared/host_check.sh`）。HTTP 传输不在这份 unit 里——见 [MOBILE_APPS.md](MOBILE_APPS.md)
 - [x] Android 产物门：CI 交叉链接 `libkylixlogic.so`（arm64 与 amd64），`file` 为 ELF shared object，动态符号含 `mc_*` / `kylix_free`
 - [x] iOS 产物门：CI（macos-15）检查 `libkylixcore.a` 符号表，并把归档链进模拟器与 iphoneos Mach-O。入库环境不是 macOS，这条由 CI 跑
+- [x] wasm32：`examples/wasi-logic/check.sh` 用 LLVM `wasm32-unknown-wasi` 链出模块，wasmtime stdout 为 `sum=42` / `hello wasi` / `42` / `1.5`，导入模块是 `wasi_snapshot_preview1`。Go `GOOS=wasip1` 的 `pkg/wasi` 在 `wasmtime --dir` 下读写预打开目录。详见 [WASI.md](WASI.md)
 - [ ] 壳里的完整登录（Android 模拟器、iOS 模拟器、签名后的真机）仍是手工步骤，见 [MOBILE_APPS.md](MOBILE_APPS.md)
 - [ ] H5：Lighthouse PWA 可安装性通过；弱网下降级可用
 - [ ] 全量回归持续绿：16 包 + 双 sweep + bootstrap sweep + IR 不动点

@@ -51,6 +51,7 @@ var knownStdlibModules = map[string]bool{
 	"jwt":        true,
 	"websocket":  true, // v0.6.4: RFC 6455 client+server
 	"entitymeta": true, // v0.11.0: [Entity] metadata for the CRUD engine
+	"wasi":       true, // v0.15: wasm32-unknown-wasi pure-logic subset
 }
 
 // stdlibModuleFuncs maps each known stdlib module to the function names it
@@ -138,6 +139,10 @@ var stdlibModuleFuncs = map[string]map[string]bool{
 		"WsDialConnect": true, "WsDialFinish": true,
 	},
 	"entitymeta": entitymetaapi.FunctionSet(),
+	"wasi": {
+		"Stdout": true, "Stderr": true, "Getenv": true,
+		"ClockMonotonic": true, "ClockWalltime": true, "WasiExit": true,
+	},
 }
 
 // resolveStdlibBareCall reports whether funcName is a bare-name stdlib call
@@ -210,6 +215,8 @@ func (g *Generator) emitStdlibCall(module, funcName string, args []ast.Expressio
 		return g.emitWebsocketCall(funcName, args)
 	case "entitymeta":
 		return g.emitEntityMetaCall(funcName, args)
+	case "wasi":
+		return g.emitWasiCall(funcName, args)
 	default:
 		// Not yet implemented for LLVM — fall back to a stub so IR stays legal.
 		r := g.tmp()
@@ -282,6 +289,8 @@ func (g *Generator) emitPendingStdlib() {
 			g.emitWebsocketBody(sf.name)
 		case "entitymeta":
 			g.emitEntityMetaBody(sf.name)
+		case "wasi":
+			g.emitWasiBody(sf.name)
 		}
 	}
 	// hexbytes helper is shared by all crypto hash functions; emit once if

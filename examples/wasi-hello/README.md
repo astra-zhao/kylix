@@ -1,6 +1,8 @@
 # WASI Hello World
 
-Minimal Kylix program compiled to WASI.
+Minimal Kylix program compiled to WASI with the Go toolchain (`--wasi`, `GOOS=wasip1`).
+
+The LLVM pure-logic target is a different command: `kylix build --backend=llvm --target wasi/wasm32`. See `examples/wasi-logic/` and `docs/WASI.md`. That path does not import DOM.
 
 ## Build
 

@@ -10,7 +10,7 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go or to native 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
-> 🚧 **v0.15.0 in progress** (not a release; the version badge stays 0.14.0): Android and iOS sample shells share `apps/shared/mobilecore.klx` (validation + JSON contract, no HTTP). OkHttp / URLSession talk to `POST /api/login`, `POST /api/refresh`, `POST /api/logout`, and `GET /api/notes` on KylixAdmin. One user can hold several refresh tokens (one row per `jti`, cap 8). Shells persist the session in EncryptedSharedPreferences / Keychain and restore it on a cold start. Host proof is Go/LLVM parity plus C ABI `dlopen`. CI checks Android ELF `.so` files on Linux and iOS `.a` symbols plus an SDK link smoke on macOS; it does not boot a simulator. Guide: [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md).
+> 🚧 **v0.15.0 in progress** (not a release; the version badge stays 0.14.0): Android and iOS sample shells share `apps/shared/mobilecore.klx` (validation + JSON contract, no HTTP). OkHttp / URLSession talk to `POST /api/login`, `POST /api/refresh`, `POST /api/logout`, and `GET /api/notes` on KylixAdmin. One user can hold several refresh tokens (one row per `jti`, cap 8). Shells persist the session in EncryptedSharedPreferences / Keychain and restore it on a cold start. Host proof is Go/LLVM parity plus C ABI `dlopen`. CI checks Android ELF `.so` files on Linux and iOS `.a` symbols plus an SDK link smoke on macOS; it does not boot a simulator. Guide: [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md). LLVM `wasm32-unknown-wasi` is in as a pure-logic subset (no DOM): `kylix build --backend=llvm --target wasi/wasm32`. `--wasm` stays the Go browser target. Guide: [docs/WASI.md](docs/WASI.md).
 >
 > 🚀 **v0.14.0**: **Compiler Multiplatform Capabilities — C ABI Export & Mobile Cross-Compilation.** Export functions/procedures with **`[Export]` / `[Export('c_symbol')]`** as standard C ABI symbols; compiler-injected **`kylix_free`** establishes strict cross-boundary memory ownership. **`--shared`** produces shared libraries (`.so`/`.dylib`/`.dll`) with `@main` promoted to `@llvm.global_ctors` module constructors; direct `.o` object and `.a` static archive outputs supported. Expanded **Target Triples** for Android (`android/arm64`, `android/amd64`) and iOS (`ios/arm64`, `ios/simulator-arm64`); `FindAndroidNdk()` auto-discovery; native `platform IOS minos 16.0` dynamic & static libraries linked via Xcode; C host `dlopen`/`dlsym` E2E 100% verified. See [CHANGELOG.md](CHANGELOG.md) & [C ABI Guide](docs/EXPORT_C_ABI.md).
 >
@@ -1072,10 +1072,11 @@ Kylix LSP supports any editor with LSP client:
 - [LLVM Backend](docs/llvm-backend.md) - Native backend internals
 - [Self-Hosting Dev Guide](docs/SELFHOSTING_DEV_GUIDE.md) - How the bootstrap compiler works
 - [Mobile sample apps](docs/MOBILE_APPS.md) - Android / iOS shells, shared Kylix core, local verify commands
+- [WASI / wasm32](docs/WASI.md) - LLVM `wasm32-unknown-wasi` pure-logic target and the Go wasip1 import table
 
 ## Roadmap
 
-Current status: **v0.14.0 released** (2026-10-07); **v0.15.0 in progress**. The compiler still reports 0.14.0. C ABI `[Export]` and the Android/iOS triples from v0.14.0 are unchanged ([C ABI guide](docs/EXPORT_C_ABI.md)). The first v0.15 item is in tree: `apps/android/` and `apps/ios/` login + notes list, sharing `apps/shared/mobilecore.klx`, plus `POST /api/login`, `POST /api/refresh`, `POST /api/logout`, and `GET /api/notes` on KylixAdmin. Several refresh tokens can be live for one user; the shells persist them ([mobile guide](docs/MOBILE_APPS.md)). CI now gates the Android `.so` and iOS `.a` artifacts (see [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)). Still open on v0.15: wasm32 and stdlib android/ios platform branches (see [ROADMAP.md](ROADMAP.md)).
+Current status: **v0.14.0 released** (2026-10-07); **v0.15.0 in progress**. The compiler still reports 0.14.0. C ABI `[Export]` and the Android/iOS triples from v0.14.0 are unchanged ([C ABI guide](docs/EXPORT_C_ABI.md)). The first v0.15 item is in tree: `apps/android/` and `apps/ios/` login + notes list, sharing `apps/shared/mobilecore.klx`, plus `POST /api/login`, `POST /api/refresh`, `POST /api/logout`, and `GET /api/notes` on KylixAdmin. Several refresh tokens can be live for one user; the shells persist them ([mobile guide](docs/MOBILE_APPS.md)). CI now gates the Android `.so` and iOS `.a` artifacts (see [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)) and the LLVM `wasm32-unknown-wasi` module (`wasi-wasm32`, see [docs/WASI.md](docs/WASI.md)). Still open on v0.15: stdlib android/ios platform branches (see [ROADMAP.md](ROADMAP.md)).
 
 ## Cross-Platform Compilation
 
@@ -1184,6 +1185,9 @@ kylix build --wasi main.klx
 
 # Size-optimized via TinyGo (~30 KB vs ~3 MB)
 kylix build --wasi --tinygo main.klx
+
+# LLVM wasm32-unknown-wasi (no Go runtime, no DOM)
+kylix build --backend=llvm --target wasi/wasm32 main.klx
 ```
 
 Use the `wasi` stdlib module for portable I/O:
@@ -1208,12 +1212,13 @@ end.
 | macOS | Apple Silicon | `darwin/arm64` |
 | WebAssembly | wasm | `--wasm` (optionally `--tinygo`) |
 | WASI | wasip1/wasm | `--wasi` (optionally `--tinygo`) |
+| WASI (LLVM) | wasm32 | `wasi/wasm32` (`--backend=llvm`; aliases `wasm`, `wasm32`, `wasi`) |
 | Android | ARM64 (API 30) | `android/arm64` |
 | Android | x86-64 | `android/amd64` (alias `android/x86_64`) |
 | iOS | ARM64 (iOS 16) | `ios/arm64` |
 | iOS Simulator | ARM64 | `ios/simulator-arm64` |
 
-Android and iOS rows are LLVM triples (`--backend=llvm`, see `tripleFor` in `pkg/llvmgen/compile.go`): `aarch64-linux-android30`, `x86_64-linux-android30`, `arm64-apple-ios16.0.0`, `arm64-apple-ios16.0.0-simulator`. Linking Android needs the NDK (`FindAndroidNdk`, `ANDROID_NDK_HOME` / `ANDROID_NDK_ROOT`). Linking iOS needs a macOS host with Xcode (`xcrun`). The Go backend forwards `--target os/arch` to `GOOS`/`GOARCH`; `simulator-arm64` is not a Go architecture. Details: [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md).
+Android and iOS rows are LLVM triples (`--backend=llvm`, see `tripleFor` in `pkg/llvmgen/compile.go`): `aarch64-linux-android30`, `x86_64-linux-android30`, `arm64-apple-ios16.0.0`, `arm64-apple-ios16.0.0-simulator`. Linking Android needs the NDK (`FindAndroidNdk`, `ANDROID_NDK_HOME` / `ANDROID_NDK_ROOT`). Linking iOS needs a macOS host with Xcode (`xcrun`). The Go backend forwards `--target os/arch` to `GOOS`/`GOARCH`; `simulator-arm64` is not a Go architecture. The LLVM WASI row is `wasm32-unknown-wasi` and does not import DOM; `--wasm` remains `GOOS=js`. Details: [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md), [docs/WASI.md](docs/WASI.md).
 
 ---
 
