@@ -1,0 +1,343 @@
+// mobilecore.klx — shared mobile business unit (v0.15.0)
+//
+// One source, compiled into:
+//   * KylixAdmin (Go and LLVM) — the JSON API speaks this wire format,
+//     and the H5 PWA is that same binary
+//   * apps/android and apps/ios — C ABI exports in mobilecore_lib.klx
+//
+// Pure logic only. No sockets, no libcurl, no database. The native shells
+// perform HTTP (OkHttp / URLSession). This unit owns validation, the JSON
+// request/response contract, and the "must sign in again" decision.
+//
+// Why not httpclient: pkg/llvmgen/compile.go does not link -lcurl on
+// android or ios (and skips -lcrypto/-lpq/-lsqlite3 on android). Bundling
+// libcurl+OpenSSL into the mobile binary is the risk called out in
+// docs/MULTIPLATFORM.md section 5. Platform HTTP stacks already do TLS.
+//
+// JSON is built and read by hand so both backends emit the same bytes
+// (no JsonEncode / FloatToStr). Strings are byte-oriented, like stringutil.
+// Control bytes (code < 32) become a space — Chr() is not a real builtin on
+// the LLVM backend, and note bodies are single-line in this sample.
+// JSON escapes are '\' + '\' and '\' + '"'. A source literal '\\' or '\"'
+// is one byte on LLVM (decodeKylixString) and two bytes on Go.
+//
+// Every public function takes at least one argument. The host Go backend
+// drops parentheses on zero-arg cross-unit calls used as arguments.
+unit mobilecore;
+
+uses stringutil;
+
+// McAccessTTL is the access-token lifetime in seconds (24h).
+// The unused argument exists so callers can pass it into JwtSign.
+function McAccessTTL(unused: Integer): Integer;
+begin
+  result := 86400;
+end;
+
+// McRefreshTTL is the refresh-token lifetime in seconds (30 days).
+function McRefreshTTL(unused: Integer): Integer;
+begin
+  result := 2592000;
+end;
+
+// McLoginPath is the JSON login route on KylixAdmin.
+function McLoginPath(unused: Integer): String;
+begin
+  result := '/api/login';
+end;
+
+// McRefreshPath is the JSON refresh route on KylixAdmin.
+function McRefreshPath(unused: Integer): String;
+begin
+  result := '/api/refresh';
+end;
+
+// McNotesPath is the JSON notes list route on KylixAdmin.
+function McNotesPath(unused: Integer): String;
+begin
+  result := '/api/notes';
+end;
+
+// McValidateLogin checks the login form before a request is sent.
+// Returns '' when the input is acceptable, otherwise a message safe to show.
+// Length limits match the users table (username) and a reasonable password cap.
+function McValidateLogin(username: String; password: String): String;
+begin
+  result := '';
+  if Length(username) = 0 then
+    result := 'Username is required'
+  else if Length(username) > 32 then
+    result := 'Username is too long'
+  else if Length(password) = 0 then
+    result := 'Password is required'
+  else if Length(password) > 128 then
+    result := 'Password is too long';
+end;
+
+// McJsonEscape escapes a string for inclusion inside a JSON double-quoted value.
+function McJsonEscape(s: String): String;
+var
+  i: Integer;
+  c: String;
+  o: Integer;
+  out: String;
+begin
+  out := '';
+  i := 0;
+  while i < Length(s) do
+  begin
+    c := s[i:i+1];
+    o := Ord(c);
+    // A lone '\' is one backslash on both backends. '\\' and '\"' are not:
+    // the Go backend keeps both source bytes, the LLVM backend decodes them
+    // (decodeKylixString). Build the two-byte JSON escapes by concatenation.
+    if c = '\' then
+      out := out + '\' + '\'
+    else if c = '"' then
+      out := out + '\' + '"'
+    else if o < 32 then
+      out := out + ' '
+    else
+      out := out + c;
+    i := i + 1;
+  end;
+  result := out;
+end;
+
+// McJsonStringField reads the first "key":"..." value. Backslash escapes are
+// undone one character at a time (\\" and \" are what McJsonEscape emits).
+function McJsonStringField(body: String; key: String): String;
+var
+  needle: String;
+  at: Integer;
+  i: Integer;
+  c: String;
+  n: String;
+  out: String;
+  stop: Boolean;
+begin
+  needle := '"' + key + '":"';
+  at := IndexOf(body, needle);
+  if at < 0 then
+    result := ''
+  else
+  begin
+    i := at + Length(needle);
+    out := '';
+    stop := false;
+    while i < Length(body) do
+    begin
+      if stop then
+        i := Length(body)
+      else
+      begin
+        c := body[i:i+1];
+        if c = '"' then
+          stop := true
+        else if c = '\' then
+        begin
+          if i + 1 < Length(body) then
+          begin
+            n := body[i+1:i+2];
+            out := out + n;
+            i := i + 2;
+          end
+          else
+            stop := true;
+        end
+        else
+        begin
+          out := out + c;
+          i := i + 1;
+        end;
+      end;
+    end;
+    result := out;
+  end;
+end;
+
+// McJsonIntField reads the first "key":<digits> value (0 when absent).
+function McJsonIntField(body: String; key: String): Integer;
+var
+  needle: String;
+  at: Integer;
+  i: Integer;
+  c: String;
+  num: String;
+begin
+  needle := '"' + key + '":';
+  at := IndexOf(body, needle);
+  if at < 0 then
+    result := 0
+  else
+  begin
+    i := at + Length(needle);
+    num := '';
+    while i < Length(body) do
+    begin
+      c := body[i:i+1];
+      if (c >= '0') and (c <= '9') then
+      begin
+        num := num + c;
+        i := i + 1;
+      end
+      else if (num = '') and (c = ' ') then
+        i := i + 1
+      else
+        i := Length(body);
+    end;
+    if num = '' then
+      result := 0
+    else
+      result := StrToInt(num);
+  end;
+end;
+
+// McLoginRequestJSON is the POST body for /api/login.
+function McLoginRequestJSON(username: String; password: String): String;
+begin
+  result := '{"username":"' + McJsonEscape(username) + '","password":"' + McJsonEscape(password) + '"}';
+end;
+
+// McLoginSuccessJSON is the 200 body for login and refresh. Key order is part
+// of the contract. Both tokens are required; a body missing either is a failure.
+function McLoginSuccessJSON(token: String; refreshToken: String; username: String; displayName: String; expiresIn: Integer; refreshExpiresIn: Integer): String;
+begin
+  result := '{"ok":true,"token":"' + McJsonEscape(token) + '","refresh_token":"' + McJsonEscape(refreshToken) +
+    '","username":"' + McJsonEscape(username) + '","display_name":"' + McJsonEscape(displayName) +
+    '","expires_in":' + IntToStr(expiresIn) + ',"refresh_expires_in":' + IntToStr(refreshExpiresIn) + '}';
+end;
+
+// McRefreshRequestJSON is the POST body for /api/refresh.
+function McRefreshRequestJSON(refreshToken: String): String;
+begin
+  result := '{"refresh_token":"' + McJsonEscape(refreshToken) + '"}';
+end;
+
+// McErrorJSON is a failure body without a relogin flag (login failures).
+function McErrorJSON(message: String): String;
+begin
+  result := '{"ok":false,"error":"' + McJsonEscape(message) + '"}';
+end;
+
+// McStatusErrorJSON is a failure body. relogin=1 means the shell must drop
+// both tokens and show the login screen. List 401 sets it so the shell can
+// try /api/refresh first; a failed refresh sets it so the shell stops.
+function McStatusErrorJSON(status: Integer; body: String; relogin: Integer): String;
+var
+  err: String;
+  flag: String;
+begin
+  err := McJsonStringField(body, 'error');
+  if err = '' then
+  begin
+    if status = 401 then
+      err := 'unauthorized'
+    else if status = 403 then
+      err := 'forbidden'
+    else if status = 429 then
+      err := 'rate limited'
+    else
+      err := 'request failed';
+  end;
+  if relogin = 1 then
+    flag := 'true'
+  else
+    flag := 'false';
+  result := '{"ok":false,"error":"' + McJsonEscape(err) + '","relogin":' + flag + '}';
+end;
+
+// McParseLoginResponse normalizes an HTTP status + body into the success
+// shape or an error shape. A 200 without a token is treated as failure.
+function McParseLoginResponse(status: Integer; body: String): String;
+var
+  token: String;
+begin
+  if status = 200 then
+  begin
+    token := McJsonStringField(body, 'token');
+    if (token = '') or (McJsonStringField(body, 'refresh_token') = '') then
+      result := McStatusErrorJSON(status, body, 0)
+    else
+      result := McLoginSuccessJSON(token, McJsonStringField(body, 'refresh_token'), McJsonStringField(body, 'username'), McJsonStringField(body, 'display_name'), McJsonIntField(body, 'expires_in'), McJsonIntField(body, 'refresh_expires_in'));
+  end
+  else
+    result := McStatusErrorJSON(status, body, 0);
+end;
+
+// McParseRefreshResponse is McParseLoginResponse, except every failure asks
+// the shell to show login (the refresh token itself was rejected).
+function McParseRefreshResponse(status: Integer; body: String): String;
+var
+  token: String;
+begin
+  if status = 200 then
+  begin
+    token := McJsonStringField(body, 'token');
+    if (token = '') or (McJsonStringField(body, 'refresh_token') = '') then
+      result := McStatusErrorJSON(status, body, 1)
+    else
+      result := McLoginSuccessJSON(token, McJsonStringField(body, 'refresh_token'), McJsonStringField(body, 'username'), McJsonStringField(body, 'display_name'), McJsonIntField(body, 'expires_in'), McJsonIntField(body, 'refresh_expires_in'));
+  end
+  else
+    result := McStatusErrorJSON(status, body, 1);
+end;
+
+// McAuthHeader is the Authorization value for a stored access token.
+function McAuthHeader(token: String): String;
+begin
+  result := 'Bearer ' + token;
+end;
+
+// McBearerToken returns the token from an Authorization header, or ''.
+function McBearerToken(header: String): String;
+begin
+  if StartsWith(header, 'Bearer ') then
+    result := header[7:Length(header)]
+  else
+    result := '';
+end;
+
+// McListRequestJSON describes the notes request the shell should perform.
+// The shell reads method, path and authorization; it does not invent them.
+function McListRequestJSON(token: String): String;
+begin
+  result := '{"method":"GET","path":"' + McNotesPath(0) + '","authorization":"' + McJsonEscape(McAuthHeader(token)) + '"}';
+end;
+
+// McNoteJSON is one list element. done is 1 or 0 (not a string).
+function McNoteJSON(id: String; title: String; body: String; done: Integer): String;
+var
+  flag: String;
+begin
+  if done = 1 then
+    flag := 'true'
+  else
+    flag := 'false';
+  result := '{"id":' + id + ',"title":"' + McJsonEscape(title) + '","body":"' + McJsonEscape(body) + '","done":' + flag + '}';
+end;
+
+// McNotesEnvelope wraps already-joined item objects (no surrounding brackets).
+function McNotesEnvelope(items: String): String;
+begin
+  result := '{"ok":true,"items":[' + items + ']}';
+end;
+
+// McParseListResponse normalizes a notes response. 401 sets relogin=true.
+// A 200 body produced by McNotesEnvelope is returned unchanged.
+function McParseListResponse(status: Integer; body: String): String;
+begin
+  if status = 200 then
+  begin
+    if IndexOf(body, '"ok":true') >= 0 then
+      result := body
+    else
+      result := McStatusErrorJSON(status, body, 0);
+  end
+  else if status = 401 then
+    result := McStatusErrorJSON(status, body, 1)
+  else
+    result := McStatusErrorJSON(status, body, 0);
+end;
+
+end.

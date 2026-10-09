@@ -42,6 +42,8 @@
 #   S16 generic CRUD on the demo entity (notes) + op_logs
 #   S17 validation failure re-renders the form with the error
 #   S18 password columns are never listed
+#   S26 JSON API: POST /api/login + GET /api/notes (Bearer, /api CSRF exempt)
+#   S27 JSON API: POST /api/refresh rotates the refresh token (old one dies)
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -133,9 +135,9 @@ mkdir -p "$GOGEN"
 (cd "$ADMIN" && "$KYLIX" build --backend=go -o "$GOGEN/main.go" \
   ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
   entities/admin_entities.klx lib/dialect.klx lib/migrate.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
-  lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
+  lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx ../shared/mobilecore.klx \
   controllers/entity.klx controllers/dashboard.klx controllers/profile.klx \
-  controllers/theme.klx main.klx) \
+  controllers/theme.klx controllers/api.klx main.klx) \
   || fail "Go-form codegen failed"
 (cd "$ROOT" && go build -o "$WORK/go_bin" ./.e2e_admin) || fail "Go-form go build failed"
 
@@ -145,9 +147,9 @@ build_ll() {
   (cd "$ADMIN" && "$KYLIX" build --backend=llvm $1 -o "$LL_BIN" \
     ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
     entities/admin_entities.klx lib/dialect.klx lib/migrate.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
-    lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
+    lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx ../shared/mobilecore.klx \
     controllers/entity.klx controllers/dashboard.klx controllers/profile.klx \
-    controllers/theme.klx main.klx \
+    controllers/theme.klx controllers/api.klx main.klx \
     > "$WORK/ll_build.log" 2>&1)
 }
 LL_FLAGS=""
@@ -418,6 +420,45 @@ scenarios() {
   echo "S24 manifest=$m_code has_display=$(has "$J/s24m" '"display"') sw=$w_code icons=$i_code" \
       "link=$(has "$J/s24m" 'theme_color')" >> "$T"
 
+  # S26 JSON API for the native shells. No session cookie and no CSRF token:
+  # /api/* is exempt. The access token itself is time-varying, so the
+  # transcript only records stable fields. Display name was renamed in S21.
+  # Placed before S25 so it does not share that scenario's forwarded IP.
+  code=$(curl -s -o "$J/s26" -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d '{"username":"admin","password":"Admin@123"}' "$BASE/api/login")
+  local tok rtok
+  tok=$(grep -o '"token":"[^"]*"' "$J/s26" | head -1 | sed 's/.*"token":"//;s/"//')
+  rtok=$(grep -o '"refresh_token":"[^"]*"' "$J/s26" | head -1 | sed 's/.*"refresh_token":"//;s/"//')
+  local notes noauth bad
+  notes=$(curl -s -o "$J/s26n" -w '%{http_code}' -H "Authorization: Bearer $tok" "$BASE/api/notes")
+  noauth=$(curl -s -o "$J/s26u" -w '%{http_code}' "$BASE/api/notes")
+  bad=$(curl -s -o "$J/s26b" -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d '{"username":"admin","password":"WRONG"}' "$BASE/api/login")
+  echo "S26 login=$code ok=$(has "$J/s26" '"ok":true') user=$(has "$J/s26" '"username":"admin"')" \
+      "ttl=$(has "$J/s26" '"expires_in":86400') rttl=$(has "$J/s26" '"refresh_expires_in":2592000')" \
+      "name=$(has "$J/s26" '"display_name":"Administrator Renamed"')" \
+      "notes=$notes items=$(has "$J/s26n" '"items":[]') noauth=$noauth" \
+      "bad=$bad badok=$(has "$J/s26b" '"ok":false') badmsg=$(has "$J/s26b" 'Invalid username or password')" >> "$T"
+
+  # S27 refresh rotation. The raw tokens stay out of the transcript.
+  # The access token must not refresh, and the refresh token must not list notes.
+  # The refresh token from S26 dies once S27's first call succeeds.
+  code=$(curl -s -o "$J/s27" -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d "{\"refresh_token\":\"$rtok\"}" "$BASE/api/refresh")
+  local newtok newrtok
+  newtok=$(grep -o '"token":"[^"]*"' "$J/s27" | head -1 | sed 's/.*"token":"//;s/"//')
+  newrtok=$(grep -o '"refresh_token":"[^"]*"' "$J/s27" | head -1 | sed 's/.*"refresh_token":"//;s/"//')
+  notes=$(curl -s -o "$J/s27n" -w '%{http_code}' -H "Authorization: Bearer $newtok" "$BASE/api/notes")
+  local old asref asacc
+  old=$(curl -s -o "$J/s27o" -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d "{\"refresh_token\":\"$rtok\"}" "$BASE/api/refresh")
+  asref=$(curl -s -o "$J/s27a" -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d "{\"refresh_token\":\"$tok\"}" "$BASE/api/refresh")
+  asacc=$(curl -s -o "$J/s27b" -w '%{http_code}' -H "Authorization: Bearer $newrtok" "$BASE/api/notes")
+  echo "S27 refresh=$code ok=$(has "$J/s27" '"ok":true') ttl=$(has "$J/s27" '"expires_in":86400')" \
+      "rttl=$(has "$J/s27" '"refresh_expires_in":2592000') notes=$notes" \
+      "old=$old access_as_refresh=$asref refresh_as_access=$asacc" >> "$T"
+
   # S25 login rate limiting: 21 failures from one IP -> the 21st gets 429.
   # Placed LAST because the IP bucket (127.0.0.1) is shared with other scenarios.
   curl -s -c "$J/rl" -o /dev/null "$BASE/login"
@@ -496,7 +537,7 @@ if [ "$WITH_PG" = "1" ]; then
     tail -5 "$WORK/srv_ll_bin.log" 2>/dev/null
     fail "postgres forms differ between backends"
   fi
-  echo "KylixAdmin dual-backend E2E: PASS (25 scenarios x 4 forms: sqlite+pg x Go+LLVM)"
+  echo "KylixAdmin dual-backend E2E: PASS (27 scenarios x 4 forms: sqlite+pg x Go+LLVM)"
 else
-  echo "KylixAdmin dual-backend E2E: PASS (25 scenarios x 2 forms)"
+  echo "KylixAdmin dual-backend E2E: PASS (27 scenarios x 2 forms)"
 fi

@@ -136,3 +136,25 @@ func TestCSRF_TokenStableAcrossRequests(t *testing.T) {
 		t.Errorf("token changed between requests: %q vs %q", tok1, w2.Body.String())
 	}
 }
+
+func TestCSRF_ApiPrefixExempt(t *testing.T) {
+	r := NewRouter()
+	r.Use(Sessions())
+	r.Use(CSRF())
+	r.POST("/api/login", func(req *Request) *Response { return Text(200, "api") })
+	r.POST("/submit", func(req *Request) *Response { return Text(200, "form") })
+	r.POST("/apiv2", func(req *Request) *Response { return Text(200, "near") })
+
+	code, body := doCsrf(r, "POST", "/api/login", `{"username":"a"}`, nil)
+	if code != 200 || body != "api" {
+		t.Fatalf("/api/login must skip CSRF, got %d %q", code, body)
+	}
+	code, body = doCsrf(r, "POST", "/submit", "x=1", nil)
+	if code != 403 {
+		t.Fatalf("form POST must still require CSRF, got %d %q", code, body)
+	}
+	code, body = doCsrf(r, "POST", "/apiv2", "x=1", nil)
+	if code != 403 {
+		t.Fatalf("/apiv2 must not match the /api/ prefix, got %d %q", code, body)
+	}
+}

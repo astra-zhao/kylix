@@ -778,8 +778,27 @@ func (g *Generator) emitBootCsrfCheckBody() {
 		g.ptrTo(g.addString("GET"), 4))
 	isGet := g.tmp()
 	c("  %s = icmp eq i32 %s, 0", isGet, mCmp)
+	apiChkLbl := g.label()
 	chkSessLbl := g.label()
-	c("  br i1 %s, label %%%s, label %%%s", isGet, passLbl, chkSessLbl)
+	c("  br i1 %s, label %%%s, label %%%s", isGet, passLbl, apiChkLbl)
+	// v0.15.0: /api and /api/* skip the token (pkg/boot csrfAPIExempt).
+	// The JSON API authenticates with a Bearer token; a native login has no
+	// session yet. "/apiv2" does not match — the prefix includes the slash.
+	c("%s:", apiChkLbl)
+	apiPath := g.tmp()
+	c("  %s = load ptr, ptr %s", apiPath, g.bootReqField("%req", 8))
+	apiPfx := g.tmp()
+	c("  %s = call i32 @strncmp(ptr %s, ptr %s, i64 5)", apiPfx, apiPath, g.ptrTo(g.addString("/api/"), 6))
+	apiIsPfx := g.tmp()
+	c("  %s = icmp eq i32 %s, 0", apiIsPfx, apiPfx)
+	apiExactLbl := g.label()
+	c("  br i1 %s, label %%%s, label %%%s", apiIsPfx, passLbl, apiExactLbl)
+	c("%s:", apiExactLbl)
+	apiEq := g.tmp()
+	c("  %s = call i32 @strcmp(ptr %s, ptr %s)", apiEq, apiPath, g.ptrTo(g.addString("/api"), 5))
+	apiIsExact := g.tmp()
+	c("  %s = icmp eq i32 %s, 0", apiIsExact, apiEq)
+	c("  br i1 %s, label %%%s, label %%%s", apiIsExact, passLbl, chkSessLbl)
 	// Session token — issued by req.CSRFToken(); absent ⇒ 403 missing.
 	c("%s:", chkSessLbl)
 	sess := g.tmp()

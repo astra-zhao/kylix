@@ -60,15 +60,15 @@ mkdir -p ../../kylixadmin_gen
   ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
   entities/admin_entities.klx \
   lib/dialect.klx lib/migrate.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
-  lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
+  lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx ../shared/mobilecore.klx \
   controllers/entity.klx controllers/dashboard.klx \
-  controllers/profile.klx controllers/theme.klx \
+  controllers/profile.klx controllers/theme.klx controllers/api.klx \
   main.klx
 
 cd ../..        # 回到仓库根目录，下一步要用
 ```
 
-成功会打印：`✓ Compiled 17 files → ../../kylixadmin_gen/main.go`
+成功会打印：`✓ Compiled 19 files → ../../kylixadmin_gen/main.go`
 
 > **为什么文件这么多、顺序还不能乱？** 前面的是「单元文件」（相当于零件），
 > 最后一个是 `main.klx`（主程序）。Kylix 要求主程序放最后。
@@ -366,15 +366,15 @@ KylixAdmin dual-backend E2E: PASS (23 scenarios x 2 forms)
 ## 附：一张速查表
 
 ```bash
-# 编译 Kylix → Go（17 个文件，主程序最后；必须在 apps/admin/ 下执行）
+# 编译 Kylix → Go（19 个文件，主程序最后；必须在 apps/admin/ 下执行）
 cd apps/admin && mkdir -p ../../kylixadmin_gen
 ../../kylix build --backend=go -o ../../kylixadmin_gen/main.go \
   ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
   entities/admin_entities.klx \
   lib/dialect.klx lib/migrate.klx lib/admindb.klx lib/adminsec.klx lib/audit.klx \
-  lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx \
+  lib/crud.klx lib/crudrender.klx lib/crudhooks.klx lib/adminpage.klx ../shared/mobilecore.klx \
   controllers/entity.klx controllers/dashboard.klx \
-  controllers/profile.klx controllers/theme.klx main.klx
+  controllers/profile.klx controllers/theme.klx controllers/api.klx main.klx
 cd ../..
 
 # Go → 可执行文件（在仓库根目录执行）
@@ -396,3 +396,4 @@ KYADMIN_DSN='postgres://user:pass@localhost:5432/kyadmin?sslmode=disable' ./kyli
 | `KYADMIN_DB` | sqlite 数据库文件位置 | `~/.kylixadmin/admin.db` |
 | `KYADMIN_DSN` | 设了就用 postgres（优先于 `KYADMIN_DB`） | 空 |
 | `KYADMIN_PORT` | 监听端口 | `8090` |
+| `KYADMIN_JWT_SECRET` | `/api/login` 与 `/api/refresh` 的 HS256 密钥（原生壳用） | 开发默认值 `kylix-admin-dev-secret`（会警告） |

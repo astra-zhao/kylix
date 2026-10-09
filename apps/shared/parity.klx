@@ -1,0 +1,51 @@
+// parity.klx — host Go vs LLVM byte-compare of the shared mobile core.
+// Not a tutorial (it is not under examples/complete-tutorial). Run via
+// apps/shared/host_check.sh.
+program MobileCoreParity;
+
+uses mobilecore;
+
+var
+  req: String;
+  okBody: String;
+  parsed: String;
+  notes: String;
+  listReq: String;
+begin
+  WriteLn('empty=' + McValidateLogin('', 'x'));
+  WriteLn('long=' + McValidateLogin('abcdefghijklmnopqrstuvwxyz0123456789', 'x'));
+  WriteLn('nopass=' + McValidateLogin('admin', ''));
+  WriteLn('ok=' + McValidateLogin('admin', 'Admin@123'));
+  WriteLn('ttl=' + IntToStr(McAccessTTL(0)));
+  WriteLn('rttl=' + IntToStr(McRefreshTTL(0)));
+  WriteLn('login_path=' + McLoginPath(0));
+  WriteLn('refresh_path=' + McRefreshPath(0));
+  WriteLn('notes_path=' + McNotesPath(0));
+
+  req := McLoginRequestJSON('ad"min', 'a\b');
+  WriteLn('req=' + req);
+  WriteLn('user=' + McJsonStringField(req, 'username'));
+  WriteLn('pass=' + McJsonStringField(req, 'password'));
+
+  okBody := McLoginSuccessJSON('tok.en', 'ref.tok', 'admin', 'Administrator', McAccessTTL(0), McRefreshTTL(0));
+  parsed := McParseLoginResponse(200, okBody);
+  WriteLn('parsed=' + parsed);
+  WriteLn('rreq=' + McRefreshRequestJSON('ref.tok'));
+  WriteLn('rparsed=' + McParseRefreshResponse(200, okBody));
+  WriteLn('rbad=' + McParseRefreshResponse(401, McErrorJSON('unauthorized')));
+  WriteLn('bad=' + McParseLoginResponse(401, McErrorJSON('Invalid username or password')));
+  WriteLn('rate=' + McParseLoginResponse(429, McErrorJSON('Too many failed attempts; try again later')));
+  WriteLn('emptytok=' + McParseLoginResponse(200, '{"ok":true}'));
+
+  listReq := McListRequestJSON('tok.en');
+  WriteLn('list=' + listReq);
+  WriteLn('auth=' + McAuthHeader('tok.en'));
+  WriteLn('bearer=' + McBearerToken(McAuthHeader('tok.en')));
+  WriteLn('bearerbad=' + McBearerToken('Basic x'));
+
+  notes := McNotesEnvelope(McNoteJSON('1', 'hi "there"', 'line', 0) + ',' + McNoteJSON('2', 'second', 'body', 1));
+  WriteLn('notes=' + notes);
+  WriteLn('listok=' + McParseListResponse(200, notes));
+  WriteLn('relogin=' + McParseListResponse(401, 'Unauthorized'));
+  WriteLn('forbid=' + McParseListResponse(403, McErrorJSON('no perm')));
+end.

@@ -14,8 +14,11 @@ type
     function Query(name: String): String;
     // Header returns a request header value.
     function Header(name: String): String;
-    // Body returns the raw request body (NUL-terminated string).
+    // Body returns the raw request body (NUL-terminated string on LLVM).
+    // The Go method returns []byte; Kylix handlers that need a String call
+    // BodyText, which is string(Body()) on Go and the same load on LLVM.
     function Body: String;
+    function BodyText: String;
     // Form returns a value from an urlencoded form body (HTML <form> posts),
     // falling back to the URL query string. %XX and '+' are URL-decoded.
     function Form(name: String): String;

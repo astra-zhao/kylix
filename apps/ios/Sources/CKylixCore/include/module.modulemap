@@ -1,0 +1,4 @@
+module CKylixCore {
+    header "kylixcore.h"
+    export *
+}

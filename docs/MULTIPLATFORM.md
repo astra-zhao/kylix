@@ -35,7 +35,7 @@
 
 **路线 A：响应式 PWA（v0.13，零编译器改动）**
 - KylixAdmin 增强移动端体验：同 URL + 响应式 CSS/JS 增强（非独立 h5/ 页面组——双倍维护成本不值得），`manifest.json` + service worker（BootStatic 服务）→ 可安装主屏
-- 认证：session-first（PWA 走 cookie）；JWT refresh token 推 v0.15（消费者为原生壳）；登录限流（应用层查 login_logs，非中间件——LLVM 端无中间件链）
+- 认证：session-first（PWA 走 cookie）；JWT refresh 由 v0.15 原生壳消费（`POST /api/refresh`，见 [MOBILE_APPS.md](MOBILE_APPS.md)）；登录限流（应用层查 login_logs，非中间件——LLVM 端无中间件链）
 - 交付：✅ v0.13.0（2026-09-24）+ `docs/H5_GUIDE.md`
 
 **路线 B：Kylix → wasm32 纯逻辑（v0.15，编译器能力）**
@@ -86,8 +86,8 @@
 
 ## 六、验收标准
 
-- [ ] 同一份业务 unit（模型+校验+API client）被 admin/H5/Android/iOS 四处编译，行为一致（diff 方法论复用）
-- [ ] Android：`libkylix.so` 加载 + 导出函数调用 + 完整登录流程（真机或模拟器）
-- [ ] iOS：`libkylix.a` 链接进 SwiftUI app + 模拟器完整登录流程
+- [x] 同一份业务 unit（`apps/shared/mobilecore.klx`：校验 + JSON API 协议）被 admin 编译（H5 即该二进制）并由 Android/iOS 以 C ABI 链接。宿主 Go/LLVM 输出逐字一致（`apps/shared/host_check.sh`）。HTTP 传输不在这份 unit 里——见 [MOBILE_APPS.md](MOBILE_APPS.md)
+- [ ] Android：`libkylixlogic.so` 加载 + 导出函数调用 + 完整登录流程（真机或模拟器）。壳与 `build_core.sh` 已入库；本环境无 NDK，未跑模拟器
+- [ ] iOS：`libkylixcore.a` 链接进 SwiftUI app + 模拟器完整登录流程。壳与 `build_core.sh` 已入库；链接需要 macOS/Xcode，本环境未跑
 - [ ] H5：Lighthouse PWA 可安装性通过；弱网下降级可用
 - [ ] 全量回归持续绿：16 包 + 双 sweep + bootstrap sweep + IR 不动点

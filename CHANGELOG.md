@@ -12,6 +12,30 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
+## Unreleased — v0.15.0 进行中（多端示例应用，未发版）
+
+CLI 版本仍是 `0.14.0`。本条目只覆盖示例应用第一项；wasm32、移动端 CI 产物门、stdlib 的 android/ios 平台分支都还没做。
+
+### 设计
+
+- **HTTP 不进 Kylix 核心。** `pkg/llvmgen/compile.go` 在 android 上不链 `-lcurl`/`-lcrypto`/`-lpq`/`-lsqlite3`，ios 不链 `-lcurl`。把 libcurl + OpenSSL 打进移动端二进制是 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md) 第五节标黄的风险。共享单元 `apps/shared/mobilecore.klx` 只做校验、JSON 请求/响应契约、以及「401 必须重新登录」的判定；Android 用 OkHttp、iOS 用 URLSession。H5 不是第四次编译：它就是 KylixAdmin 那一个二进制（PWA）。
+- **JWT refresh。** `POST /api/login` 同时发 24 小时 access token（`typ=access`）和 30 天 refresh token（`typ=refresh`，带 `jti`）。`POST /api/refresh` 验签、核对 `api_refresh` 里该用户当前的 `jti`、再换一对新 token；旧 refresh 立即 401。access token 不能刷新，refresh token 不能当 Bearer 拉列表。`jti` 用用户名、unix 秒和一个进程内计数拼出来（LLVM 端没有 `RandomToken`）。壳把两个 token 放在内存里，access 到期前 60 秒或列表 401 时刷新一次，失败才回登录。secret 仍是 `KYADMIN_JWT_SECRET`，未设置时用 `kylix-admin-dev-secret`。E2E 增加 S27。每个用户名同时只有一条 refresh 记录。
+- **响应走 `BootText`，不走 `BootJSON`。** LLVM 端 `BootJSON` 丢掉 value 参数，响应体是空的。两端都发手写 JSON 字符串；客户端只看 body，不看 `Content-Type`（实际是 `text/plain`）。
+
+### JSON API（KylixAdmin）
+
+- `apps/admin/controllers/api.klx`：`POST /api/login`、`GET /api/notes`。登录仍走 `DoLogin`（锁定、限流、login_logs、顺带写 session cookie；原生壳忽略 `Set-Cookie`）。列表鉴权在 handler 里：session `__user`，否则 `Authorization: Bearer` + `JwtVerify`/`JwtSubject`（claims 不标成 `Variant`，否则 Go 端把 `interface{}` 传进要 `map[string]interface{}` 的 `JwtSubject`）。不用 `[Authenticated]`——Go 的 401 是 JSON，LLVM 的 401 是纯文本 `Unauthorized`，双端 E2E 会对不上。请求体用新的 `req.BodyText()`：Go 的 `Body()` 返回 `[]byte`，LLVM 的 `req.Body` 已是字符串，`BodyText` 两端都是字符串。
+- **`/api` 与 `/api/` 跳过 CSRF**（`pkg/boot/csrf.go` 与 LLVM `emitBootCsrfCheckBody`）。`/apiv2` 不豁免。HTML 表单登录仍走 CSRF。**bootstrap 烘焙的 `@__kylix_boot_csrf_check`（`src/stdlib_ir.klx`）还没有这条豁免**，下次重烘才会带上；admin CI 用宿主编译器，示例 API 覆盖的是宿主。本轮不重烘（不动点风险）。
+- **LLVM `req.Header` / `req.Query` 的值缓冲按 `vLen+1` 分配。** 原先固定 128 字节，HS256 access token（约 151 字节）会写爆堆，LLVM 的 `/api/notes` 路径不可用。路由参数缓冲仍是 `malloc(128)`。`req.Header` 大小写敏感，客户端必须送 `Authorization`。
+- E2E 新增 **S26**（登录成功字段、空 notes 列表、无 token 401、错误口令 401）。场景数 25 → 26。admin 源文件 17 → 19（加上 `../shared/mobilecore.klx` 与 `controllers/api.klx`）。
+
+### 壳
+
+- `apps/android/`：Kotlin + JNI，`build_core.sh arm64|amd64` 产出 `libkylixlogic.so`。模拟器默认连 `http://10.0.2.2:8090`（明文）。
+- `apps/ios/`：SwiftUI + Swift Package，`build_core.sh simulator|device` 在 Darwin 上产出 `libkylixcore.a`。模拟器默认连 `http://127.0.0.1:8090`。
+- 宿主证明：`apps/shared/host_check.sh`（parity.klx 的 Go/LLVM stdout 逐字一致 + `dlopen` 调导出符号并 `kylix_free`）。导出字符串经 `s + ''` 一定是 malloc 出来的，可以 free；模块常量不能 free。
+- 指南：[docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。模拟器/真机登录本环境未跑。
+
 ## v0.14.0 — 编译器多端能力（C ABI Export + 移动端 Triple + 交叉链接）✅（2026-10-07 发布）
 
 ### C ABI Export 机制
