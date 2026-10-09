@@ -43,7 +43,8 @@
 #   S17 validation failure re-renders the form with the error
 #   S18 password columns are never listed
 #   S26 JSON API: POST /api/login + GET /api/notes (Bearer, /api CSRF exempt)
-#   S27 JSON API: POST /api/refresh rotates the refresh token (old one dies)
+#   S27 JSON API: POST /api/refresh rotates that refresh token (old one dies)
+#   S28 JSON API: two devices; rotating one leaves the other; logout revokes one
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -459,6 +460,40 @@ scenarios() {
       "rttl=$(has "$J/s27" '"refresh_expires_in":2592000') notes=$notes" \
       "old=$old access_as_refresh=$asref refresh_as_access=$asacc" >> "$T"
 
+  # S28 two concurrent refresh tokens. Rotating A must not kill B.
+  # Logout revokes only the token that was presented. Raw tokens stay out
+  # of the transcript; differs=1 means the two refresh tokens were distinct.
+  local codeA codeB tokA rtokA tokB rtokB differs notesA notesB
+  codeA=$(curl -s -o "$J/s28a" -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d '{"username":"admin","password":"Admin@123"}' "$BASE/api/login")
+  codeB=$(curl -s -o "$J/s28b" -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d '{"username":"admin","password":"Admin@123"}' "$BASE/api/login")
+  tokA=$(grep -o '"token":"[^"]*"' "$J/s28a" | head -1 | sed 's/.*"token":"//;s/"//')
+  rtokA=$(grep -o '"refresh_token":"[^"]*"' "$J/s28a" | head -1 | sed 's/.*"refresh_token":"//;s/"//')
+  tokB=$(grep -o '"token":"[^"]*"' "$J/s28b" | head -1 | sed 's/.*"token":"//;s/"//')
+  rtokB=$(grep -o '"refresh_token":"[^"]*"' "$J/s28b" | head -1 | sed 's/.*"refresh_token":"//;s/"//')
+  differs=0
+  if [ -n "$rtokA" ] && [ "$rtokA" != "$rtokB" ]; then differs=1; fi
+  notesA=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tokA" "$BASE/api/notes")
+  notesB=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tokB" "$BASE/api/notes")
+  local rotA newA oldA rotB newB outB deadB aliveA
+  rotA=$(curl -s -o "$J/s28ra" -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d "{\"refresh_token\":\"$rtokA\"}" "$BASE/api/refresh")
+  newA=$(grep -o '"refresh_token":"[^"]*"' "$J/s28ra" | head -1 | sed 's/.*"refresh_token":"//;s/"//')
+  oldA=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d "{\"refresh_token\":\"$rtokA\"}" "$BASE/api/refresh")
+  rotB=$(curl -s -o "$J/s28rb" -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d "{\"refresh_token\":\"$rtokB\"}" "$BASE/api/refresh")
+  newB=$(grep -o '"refresh_token":"[^"]*"' "$J/s28rb" | head -1 | sed 's/.*"refresh_token":"//;s/"//')
+  outB=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d "{\"refresh_token\":\"$newB\"}" "$BASE/api/logout")
+  deadB=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d "{\"refresh_token\":\"$newB\"}" "$BASE/api/refresh")
+  aliveA=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d "{\"refresh_token\":\"$newA\"}" "$BASE/api/refresh")
+  echo "S28 login_a=$codeA login_b=$codeB differs=$differs notes_a=$notesA notes_b=$notesB" \
+      "rotate_a=$rotA old_a=$oldA b_still=$rotB logout_b=$outB old_b=$deadB a_alive=$aliveA" >> "$T"
+
   # S25 login rate limiting: 21 failures from one IP -> the 21st gets 429.
   # Placed LAST because the IP bucket (127.0.0.1) is shared with other scenarios.
   curl -s -c "$J/rl" -o /dev/null "$BASE/login"
@@ -537,7 +572,7 @@ if [ "$WITH_PG" = "1" ]; then
     tail -5 "$WORK/srv_ll_bin.log" 2>/dev/null
     fail "postgres forms differ between backends"
   fi
-  echo "KylixAdmin dual-backend E2E: PASS (27 scenarios x 4 forms: sqlite+pg x Go+LLVM)"
+  echo "KylixAdmin dual-backend E2E: PASS (28 scenarios x 4 forms: sqlite+pg x Go+LLVM)"
 else
-  echo "KylixAdmin dual-backend E2E: PASS (27 scenarios x 2 forms)"
+  echo "KylixAdmin dual-backend E2E: PASS (28 scenarios x 2 forms)"
 fi

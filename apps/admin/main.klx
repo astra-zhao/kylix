@@ -98,9 +98,9 @@ begin
   // which port. The templates and static assets are baked into the binary
   // ([Embed]), so there is nothing else to report.
   WriteLn('[kyadmin] dialect=' + SqlDialect() + ' db=' + AdminDBPath() + ' port=' + IntToStr(port));
-  // v0.15.0: /api/login issues an HS256 access token for the native shells.
+  // v0.15.0: /api/login issues an HS256 access token and a refresh token.
   // The development default is fine on localhost; set KYADMIN_JWT_SECRET
-  // before exposing the API. Refresh tokens are not issued (see MOBILE_APPS).
+  // before exposing the API. Each device keeps its own jti (see MOBILE_APPS).
   if GetEnv('KYADMIN_JWT_SECRET') = '' then
     WriteLn('[kyadmin] WARNING: KYADMIN_JWT_SECRET is not set; /api uses the development secret');
   BootRun(port);

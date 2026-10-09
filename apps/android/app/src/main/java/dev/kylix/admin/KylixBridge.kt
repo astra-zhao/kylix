@@ -20,4 +20,5 @@ object KylixBridge {
     external fun loginPath(): String
     external fun refreshPath(): String
     external fun notesPath(): String
+    external fun logoutPath(): String
 }

@@ -7,7 +7,7 @@
 ## 🚧 v0.15.0 进行中（示例应用落地时记下）
 
 - **HTTP 留在原生壳，这是选型，不是欠账。** `apps/shared/mobilecore.klx` 不含 socket / libcurl / db。android 仍整段跳过 `-lcurl`/`-lcrypto`/`-lpq`/`-lsqlite3`，ios 仍不链 `-lcurl`（见下一节）。谁在移动端目标上调用 `httpclient`，链接照旧失败。
-- [x] **JWT refresh**（v0.15 示例已接上）。登录发 24 小时 access（`typ=access`）和 30 天 refresh（`typ=refresh` + `jti`）。`POST /api/refresh` 轮换：`api_refresh` 每个用户名一行，旧 refresh 立即失效。壳在内存里保存两个 token，到期前 60 秒或列表 401 时刷新一次，失败才回登录。开发默认 secret `kylix-admin-dev-secret` 仍只适合 localhost。多设备并存的 refresh 家族没有做。
+- [x] **JWT refresh**（v0.15 示例已接上）。登录发 24 小时 access（`typ=access`）和 30 天 refresh（`typ=refresh` + `jti`）。`api_refresh` 每个 `jti` 一行，同一用户最多 8 行。`POST /api/refresh` 与 `POST /api/logout` 只撤销提交的那一张。壳用 EncryptedSharedPreferences / Keychain 持久化，冷启动恢复，到期前 60 秒或列表 401 时刷新一次，失败或登出才清本地。开发默认 secret `kylix-admin-dev-secret` 仍只适合 localhost。离线登出删不掉服务器行；同一张 token 并发刷新可能留下两个后继；过期行要等该用户下次发 token 才扫掉。模拟器上的冷启动未跑。
 - [ ] **bootstrap 烘焙的 CSRF 没有 `/api` 豁免。** 宿主 `pkg/boot/csrf.go` 与 LLVM `emitBootCsrfCheckBody` 已跳过 `/api` 与 `/api/`。`src/stdlib_ir.klx` 里的 `@__kylix_boot_csrf_check` 要等下次 `scripts/rebake_stdlib_ir.sh` 才带上。admin CI 用宿主编译器，不受影响。本轮不重烘。
 - [ ] **模拟器 / 真机登录未跑。** 入库环境没有 NDK，也不是 macOS。宿主证明是 `apps/shared/host_check.sh`。验收命令在 `docs/MOBILE_APPS.md`。
 - [x] **LLVM `req.Header` / `req.Query` 固定 128 字节缓冲**（v0.15 已改为 `vLen+1`）。HS256 token 约 151 字节，旧缓冲会在 `/api/notes` 上写爆堆。路由参数缓冲 `malloc(128)` 未动。
@@ -39,7 +39,7 @@
 
 ### 应用
 
-- [x] **JWT refresh token**：v0.15 示例已用 `JwtSign` 的 extra claims（`typ` / `jti`）加上 `api_refresh` 表做轮换。见文首 v0.15 条目。开发默认 secret 未改。
+- [x] **JWT refresh token**：v0.15 示例已用 `JwtSign` 的 extra claims（`typ` / `jti`）加上 `api_refresh`（每 jti 一行，每用户最多 8）做轮换和登出。见文首 v0.15 条目。开发默认 secret 未改。
 - [ ] **登录限流可被 XFF 伪造绕过**：`ClientIP` 取 XFF → X-Real-IP → unknown，仅在可信反向代理后有效。直连部署时需配合防火墙规则。
 - [ ] **限流窗口不可手动清除**：只能等 15 分钟自然过期；管理端无「解除限流」操作（审计需要保留失败记录）。
 

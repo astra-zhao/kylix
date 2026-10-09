@@ -12,6 +12,7 @@ const char *mc_auth_header(const char *token);
 const char *mc_login_path(void);
 const char *mc_refresh_path(void);
 const char *mc_notes_path(void);
+const char *mc_logout_path(void);
 void kylix_free(void *p);
 
 static const char *chars(JNIEnv *env, jstring s) {
@@ -121,4 +122,10 @@ JNIEXPORT jstring JNICALL
 Java_dev_kylix_admin_KylixBridge_notesPath(JNIEnv *env, jobject thiz) {
     (void)thiz;
     return take(env, mc_notes_path());
+}
+
+JNIEXPORT jstring JNICALL
+Java_dev_kylix_admin_KylixBridge_logoutPath(JNIEnv *env, jobject thiz) {
+    (void)thiz;
+    return take(env, mc_logout_path());
 }

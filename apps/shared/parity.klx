@@ -20,6 +20,7 @@ begin
   WriteLn('rttl=' + IntToStr(McRefreshTTL(0)));
   WriteLn('login_path=' + McLoginPath(0));
   WriteLn('refresh_path=' + McRefreshPath(0));
+  WriteLn('logout_path=' + McLogoutPath(0));
   WriteLn('notes_path=' + McNotesPath(0));
 
   req := McLoginRequestJSON('ad"min', 'a\b');

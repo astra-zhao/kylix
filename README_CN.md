@@ -10,7 +10,7 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后�
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
-> 🚧 **v0.15.0 进行中**（未发版，版本徽章仍是 0.14.0）：Android / iOS 示例壳共用 `apps/shared/mobilecore.klx`（校验 + JSON 契约，不含 HTTP）。OkHttp / URLSession 调 KylixAdmin 的 `POST /api/login`、`POST /api/refresh` 与 `GET /api/notes`。登录发 24 小时 access token 和 30 天 refresh token，刷新会轮换上一张。本仓库自动验证是 Go/LLVM parity 加 C ABI `dlopen`，模拟器没在这里跑。指南：[docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。
+> 🚧 **v0.15.0 进行中**（未发版，版本徽章仍是 0.14.0）：Android / iOS 示例壳共用 `apps/shared/mobilecore.klx`（校验 + JSON 契约，不含 HTTP）。OkHttp / URLSession 调 KylixAdmin 的 `POST /api/login`、`POST /api/refresh`、`POST /api/logout` 与 `GET /api/notes`。同一用户可持有多张 refresh token（每个 `jti` 一行，上限 8）。壳用 EncryptedSharedPreferences / Keychain 持久化会话，冷启动恢复。本仓库自动验证是 Go/LLVM parity 加 C ABI `dlopen`，模拟器没在这里跑。指南：[docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。
 >
 > 🚀 **v0.14.0**: **编译器多端能力——C ABI 导出与移动端交叉编译。** 函数/过程支持 **`[Export]` / `[Export('c_symbol')]`** 注解导出为标准 C 符号；**`kylix_free`** 注入建立严格的跨边界内存生命周期契约。**`--shared`** 一键产出动态共享库（`.so`/`.dylib`/`.dll`），`@main` 自动升格为 `@llvm.global_ctors` 模块构造器，加载即自动初始化；支持直接产出 `.o` 目标文件与 `.a` 静态库归档。扩展 **Target Triple** 支持 Android（`android/arm64`、`android/amd64`）与 iOS（`ios/arm64`、`ios/simulator-arm64`）；实现 `FindAndroidNdk()` 自动探测；在 macOS 上直接桥接 Xcode 链接出真正的 `platform IOS minos 16.0` 动态库与静态库；C 宿主 `dlopen`/`dlsym` 测试 100% 通过。详见 [CHANGELOG.md](CHANGELOG.md) 与 [C ABI 指南](docs/EXPORT_C_ABI.md)。
 >
@@ -1117,7 +1117,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 
 ## 路线图
 
-当前状态：**v0.14.0 已发布**（2026-10-07）；**v0.15.0 进行中**。编译器版本号仍是 0.14.0。v0.14.0 的 C ABI `[Export]` 与 Android/iOS triple 保持不变（[C ABI 指南](docs/EXPORT_C_ABI.md)）。v0.15 第一项已入库：`apps/android/` 与 `apps/ios/` 的登录 + Notes 列表，共用 `apps/shared/mobilecore.klx`，KylixAdmin 增加 `POST /api/login`、`POST /api/refresh` 与 `GET /api/notes`（[多端指南](docs/MOBILE_APPS.md)）。v0.15 仍开放：wasm32、移动端 CI 产物门、stdlib 的 android/ios 平台分支（见 [ROADMAP.md](ROADMAP.md)）。
+当前状态：**v0.14.0 已发布**（2026-10-07）；**v0.15.0 进行中**。编译器版本号仍是 0.14.0。v0.14.0 的 C ABI `[Export]` 与 Android/iOS triple 保持不变（[C ABI 指南](docs/EXPORT_C_ABI.md)）。v0.15 第一项已入库：`apps/android/` 与 `apps/ios/` 的登录 + Notes 列表，共用 `apps/shared/mobilecore.klx`，KylixAdmin 增加 `POST /api/login`、`POST /api/refresh`、`POST /api/logout` 与 `GET /api/notes`。同一用户可同时持有多张 refresh token，壳会持久化（[多端指南](docs/MOBILE_APPS.md)）。v0.15 仍开放：wasm32、移动端 CI 产物门、stdlib 的 android/ios 平台分支（见 [ROADMAP.md](ROADMAP.md)）。
 
 ## 跨平台编译
 

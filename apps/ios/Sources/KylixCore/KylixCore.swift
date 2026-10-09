@@ -60,4 +60,5 @@ public enum KylixCore {
     public static func loginPath() -> String { take(mc_login_path()) }
     public static func refreshPath() -> String { take(mc_refresh_path()) }
     public static func notesPath() -> String { take(mc_notes_path()) }
+    public static func logoutPath() -> String { take(mc_logout_path()) }
 }

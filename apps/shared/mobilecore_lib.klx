@@ -84,5 +84,11 @@ begin
   result := Owned(McNotesPath(0));
 end;
 
+[Export('mc_logout_path')]
+function McExportLogoutPath(): String;
+begin
+  result := Owned(McLogoutPath(0));
+end;
+
 begin
 end.

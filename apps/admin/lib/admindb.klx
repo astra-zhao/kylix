@@ -4,6 +4,9 @@
 // permission points) and RBAC lookups. Pure Kylix: compiled by the Go and
 // LLVM backends from this one source (multi-file build with main.klx).
 //
+// api_refresh is one row per refresh jti (username + created_at), not one
+// row per username. See EnsureApiRefresh.
+//
 // Conventions:
 //   - SQLite only, TEXT/INTEGER columns, every statement parameterized (?).
 //   - Timestamps are Unix seconds (INTEGER). Bound as TEXT — SQLite's
@@ -24,6 +27,38 @@ var
 // schema + seed
 // ---------------------------------------------------------------------------
 
+// EnsureApiRefresh creates api_refresh as one row per jti. A database left
+// by the first v0.15 sample (username TEXT PRIMARY KEY, jti TEXT) is dropped
+// and recreated: those few refresh rows cannot be split into per-device
+// sessions. Losing them once means those devices sign in again.
+procedure EnsureApiRefresh(db: TDatabase);
+var
+  exists: String;
+  first: String;
+  nameField: String;
+  ddl: String;
+begin
+  ddl := 'CREATE TABLE api_refresh (jti TEXT PRIMARY KEY, username TEXT NOT NULL, created_at INTEGER NOT NULL)';
+  exists := DbQueryScalar(db, SqlTableExistsSQL(), SqlTableKind(), 'api_refresh');
+  if exists = '0' then
+    DbExec(db, ddl)
+  else
+  begin
+    nameField := SqlColumnNameField();
+    // postgres binds the table name; sqlite interpolates it into PRAGMA and
+    // ignores the extra argument (same call as MigrateExistingColumns).
+    var cols := DbQueryRows(db, SqlTableColumns('api_refresh'), 'api_refresh');
+    first := '';
+    if Length(cols) > 0 then
+      first := VariantToStr(cols[0][nameField]);
+    if first = 'username' then
+    begin
+      DbExec(db, 'DROP TABLE api_refresh');
+      DbExec(db, ddl);
+    end;
+  end;
+end;
+
 procedure EnsureSchema(db: TDatabase);
 var
   wal: String;
@@ -41,10 +76,10 @@ begin
   DbExec(db, 'CREATE TABLE IF NOT EXISTS permissions (' + SqlPKColumn('id') + ', code TEXT UNIQUE, description TEXT)');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS user_roles (user_id ' + ts + ', role_id ' + ts + ', PRIMARY KEY (user_id, role_id))');
   DbExec(db, 'CREATE TABLE IF NOT EXISTS role_permissions (role_id ' + ts + ', permission_id ' + ts + ', PRIMARY KEY (role_id, permission_id))');
-  // One current refresh-token id per username. Login and /api/refresh replace
-  // the row, so the previous refresh token stops working (rotation). Not an
+  // One row per refresh jti, so two devices can stay signed in. Not an
   // [Entity] table: it has no CRUD page, and S23's column counts stay put.
-  DbExec(db, 'CREATE TABLE IF NOT EXISTS api_refresh (username TEXT PRIMARY KEY, jti TEXT)');
+  // The cap (8) and rotation live in controllers/api.klx.
+  EnsureApiRefresh(db);
   // v0.12.0 P5e: the entity tables are generated from the [Entity] metadata —
   // created when missing, extended with ADD COLUMN when the metadata has grown.
   // The pass reports anything it will not change (type drift, a missing
