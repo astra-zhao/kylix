@@ -21,13 +21,13 @@
 
 与 KylixAdmin 的关系：**KylixAdmin 后端即多端共用的 API 服务器**（JSON + JWT 已有）；`apps/shared/` 的业务 unit 同时被 admin/H5/Android/iOS 编译。
 
-## 二、编译器侧工作清单（多端的真实成本，v0.14 主体）
+## 二、编译器侧工作清单（多端的真实成本）
 
-1. **C ABI export 机制**（P0，一票否决项）：解析器已有 token；需 AST 节点 + 双端发射（Go 后端 `//export` 注释 + LLVM `.globl` 裸符号 + cdecl）+ 导出函数禁用内部调用约定 + `kylix_free(ptr)` 内存导出（arena reset 所有权模型——v0.8.0 P2 arena 基建正好用上）
-2. **triple 矩阵扩展**：`tripleFor` 增 `aarch64-linux-android` / `x86_64-linux-android`（模拟器）/ `aarch64-apple-ios` + `--target` 贯通
-3. **工具链探测**：`FindAndroidNdk()`（KYLIX_NDK_ROOT → 常见路径，链接走 NDK clang + `--sysroot`，复用 v0.7.1 mingw 三坑经验：quarantine/stack-probe/exec.Command 时序）；iOS 链接必须 xcrun clang（Apple 平台外部 ld 无法签符号）
-4. **stdlib 可移植层**：平台分支从 4 个（darwin/linux/windows）扩到 6 个（+android/ios）——datetime（`localtime_r`）/sysutil/exc 先行；net（BSD socket 通用）/crypto/db 第二批
-5. **CI**：Android 交叉验证 `.so` 产物形态（同 Windows COFF 验证模式）；iOS 仅 macOS runner 验 `.a` 符号表 + 模拟器链接；真机验收文档化
+1. **C ABI export 机制** ✅ v0.14.0：`[Export]` / `[Export('c_symbol')]`。Go 后端发 `//export` 与 `import "C"`；LLVM 后端发未改名全局符号，并在有导出或 `--shared` 时注入 `kylix_free`（malloc → `free`，`--gc=boehm` → `GC_free`）。见 [EXPORT_C_ABI.md](EXPORT_C_ABI.md)。
+2. **triple 矩阵扩展** ✅ v0.14.0：`tripleFor`（`pkg/llvmgen/compile.go`）已有 `android/arm64`（`aarch64-linux-android30`）、`android/amd64`（`x86_64-linux-android30`，别名 `android/x86_64`）、`ios/arm64`（`arm64-apple-ios16.0.0`）、`ios/simulator-arm64`（`arm64-apple-ios16.0.0-simulator`）。
+3. **工具链探测** ✅ v0.14.0：`FindAndroidNdk()`（`pkg/llvmgen/ndk.go`，`ANDROID_NDK_HOME` / `ANDROID_NDK_ROOT` / SDK 路径）；iOS 链接走 macOS 上的 `xcrun` clang，非 macOS 主机直接报错。
+4. **stdlib 可移植层** → **v0.15**（v0.14 未做）：`stdlib_datetime.go` / `stdlib_sysutil.go` / `stdlib_net.go` 仍只区分 `windows` 与其余平台，android/ios 走非 Windows 路径。`compile.go` 在 android 上不链 `-lcrypto`/`-lpq`/`-lsqlite3`/`-lcurl`，ios 不链 `-lcurl`。独立的 android/ios 分支，以及 net/crypto/db 在这些目标上的第二批适配，留到 v0.15。
+5. **CI** → **v0.15**（v0.14 未做）：`.github/workflows/ci.yml` 没有 android/ios job。Android `.so` 产物形态检查、macOS runner 上的 iOS `.a` 符号检查、真机验收文档，与 ROADMAP v0.15 清单一致。
 
 ## 三、各端技术路线
 
@@ -69,8 +69,8 @@
 |---|---|---|
 | v0.9.0–v0.12.0 | 不变（1.0.0-rc 打磨 + KylixAdmin P1–P5） | admin 平台完成 |
 | **v0.13.0** | H5 路线 A：PWA 移动页面组 + manifest/SW + refresh token + H5_GUIDE | 手机浏览器可安装使用 admin 移动版 |
-| **v0.14.0** | 编译器多端能力：export C ABI（双端）+ android/ios triple + NDK/Xcode 探测 + stdlib 可移植层第一批 | hello-core 在 Android .so / iOS .a 跑通 |
-| **v0.15.0** | 示例应用 `apps/android`（Kotlin）+ `apps/ios`（SwiftUI）登录+列表 demo；CI 产物形态门禁；wasm32 triple + pkg/wasi 真实现（纯逻辑先行） | 双端真机/模拟器 demo |
+| **v0.14.0** | 编译器多端能力：export C ABI（双端）+ android/ios triple + NDK/Xcode 探测。stdlib 可移植层与 CI 产物门未纳入本版（见第二节第 4、5 条） | `[Export]` + `--shared` + 四个移动端 triple；指南 `EXPORT_C_ABI.md` |
+| **v0.15.0** | 示例应用 `apps/android`（Kotlin）+ `apps/ios`（SwiftUI）登录+列表 demo；CI 产物形态门禁；stdlib android/ios 平台分支；wasm32 triple + pkg/wasi 真实现（纯逻辑先行） | 双端真机/模拟器 demo |
 | **1.0.0** | gate 不变；多端能力作为平台特性宣传 | — |
 
 ## 五、风险与诚实评估

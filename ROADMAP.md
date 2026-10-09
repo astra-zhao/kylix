@@ -1,13 +1,15 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-10-07  
+> 最后更新: 2026-10-09  
 > 当前版本: v0.14.0（编译器多端能力：C ABI Export + 移动端 Triple + 交叉链接）  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
+**✅ v0.14.0 已发布（2026-10-07）！** 编译器多端能力：`[Export]` / `[Export('c_symbol')]` 双端 C ABI、`kylix_free`、LLVM `--shared`（`.so`/`.dylib`/`.dll`，以及 `.o`/`.a`）、triple `android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`，`FindAndroidNdk()` 与 macOS 上的 Xcode 链接。指南 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)。**下一步 → v0.15.0** 多端示例应用（`apps/android` / `apps/ios`）+ wasm32 triple + stdlib 的 android/ios 平台分支与移动端 CI 产物门。详见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)。
+
 **✅ v0.7.0 已发布！** web 页面开发 + web 框架：(1) **P0 `error` 类型语言特性**——`(T, error)` 多返回 + 裸 error + `ErrorStr`，host/LLVM/bootstrap 三端；(2) **P1 纯 Kylix 模板引擎**——`stdlib/template_engine.klx`（Mustache 风格 `{{}}`，12 过滤器 + each/if），三端同源可用；(3) **P2 页面渲染 API**——`res.HTML`/`req.Form`/`req.Cookie`/`static/` 静态资源，Go 与 LLVM 双端同步；(4) **P3 页面框架完善**——`res.Redirect`（302）+ 自定义 404/500 错误页 + 模板上下文（`AddVariant`/`SetContext`）；(5) **P5 教程接入**——example60 真实 BootRun server E2E（launch + curl + kill），Go/LLVM 54/54。**v0.6.9 bootstrap 无 Go 闭环与 IR 不动点保持**。**(6) P6 GitHub Release 工作流打通（2026-09-08 补录）**——tag 触发 CI 全绿 + Release 自动创建（5 平台二进制 + 双平台 bootstrap tarball + llvm-mingw 工具链）；顺带破案修复两个 Linux 潜伏 bug：ELF 零尺寸 vtable 同址致 `is` 恒真（commit 441b103）+ 自举 IR 硬编码 arm64 triple 致 Linux llc 产 Mach-O（commit fbb6509）。**下一步 → v0.7.1 net Winsock / regex pcre2（Windows 真机）**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
-**✅ v0.9.0 规划项全部完成（待发版）！** 1.0.0-rc 打磨：(1) **KylixBoot 框架补齐**——Session + CSRF、multipart 文件上传、`TResponse.Download/FileBytes/CSV`、分页、模板 layout/partials（三端同源）；(2) **bootstrap 端 boot server 实施**——example60 E2E 解除 SKIP（56 PASS + 1 SKIP），IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）；(3) **stdlib IR 重烘链路闭环**——cover.klx/cover_boot.klx 入库 + verify 门 + 139→179 签名；(4) **CI 三平台 10 job 全绿**（2026-08-13 起首次，run 35241229836——破案 ci.yml YAML 语法错误 / llvm-mingw 无 llc → clang -x ir 回退 / selfrepro -lm/-no-pie）；(5) **性能回归门禁**（benchmarks/ci_gate.sh）；(6) **API 稳定性冻结承诺**（[docs/API_STABILITY.md](docs/API_STABILITY.md)）；(7) **文档与官网同步**（README 双语 + SUMMARY + html/index.html 全部更新到 v0.9.0）。**下一步 → v0.10.0 KylixAdmin 后台管理平台**。详见 [CHANGELOG.md](CHANGELOG.md)。
+**✅ v0.9.0 规划项全部完成，已于 2026-09-18 发布！** 1.0.0-rc 打磨：(1) **KylixBoot 框架补齐**——Session + CSRF、multipart 文件上传、`TResponse.Download/FileBytes/CSV`、分页、模板 layout/partials（三端同源）；(2) **bootstrap 端 boot server 实施**——example60 E2E 解除 SKIP（56 PASS + 1 SKIP），IR 不动点保持（gen1 ≡ gen2，26.7 万行逐字节）；(3) **stdlib IR 重烘链路闭环**——cover.klx/cover_boot.klx 入库 + verify 门 + 139→179 签名；(4) **CI 三平台 10 job 全绿**（2026-08-13 起首次，run 35241229836——破案 ci.yml YAML 语法错误 / llvm-mingw 无 llc → clang -x ir 回退 / selfrepro -lm/-no-pie）；(5) **性能回归门禁**（benchmarks/ci_gate.sh）；(6) **API 稳定性冻结承诺**（[docs/API_STABILITY.md](docs/API_STABILITY.md)）；(7) **文档与官网同步**（README 双语 + SUMMARY + html/index.html 全部更新到 v0.9.0）。**下一步 → v0.10.0 KylixAdmin 后台管理平台**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 **✅ v0.6.9 已发布！** bootstrap 无 Go 闭环达成：(1) **stdlib IR 烘焙**——host 生成的 stdlib IR 按 13 段烘焙进 `src/stdlib_ir.klx`（免手写 15.5k 行 Go 移植），bootstrap 只做 call-site dispatch + wrapper 类方法；(2) **gen2 编译器诞生 + IR 不动点**——9 文件自举 IR（~220k 行）通过 llc 并链接出 gen2（纯原生无 Go），**gen1 ≡ gen2 ≡ gen3 逐字节一致（真正不动点）**；P4.10/P4.11 破案两大根因（for 计数器全局槽污染、`array of Boolean` 写读 stride 不一致）。**bootstrap emitter 补缺 20+ 项**（dot-name 方法/链式成员/record 类型系统/epilogue 重排/嵌套循环/alloca hoisting/构造函数 calloc 等，详见 CHANGELOG）。**教程 sweep 50/51 PASS**（bootstrap-vs-host 逐字 diff，`scripts/test_bootstrap_all.sh`；example15 lambda / example50 jwt 已于 P4.12 修复，example33 为 host 端 SKIP）。**下一步 → v0.7.0 web 框架**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -74,7 +76,7 @@
 | **v0.7.1** | Windows 一等公民：net Winsock 真实现 + regex 引擎（纯 Kylix 多文件同源）+ --target windows 交叉链接 + CI llvm-windows job | ✅ 完成 | 2026-09-10 |
 | **v0.7.2** | CI 全绿 + 稳定性还债（selfrepro --emit-llvm 链 + 类方法多返回 + Boot* 单源表） | ✅ 完成 | 2026-09-10 |
 | **v0.8.0** | 自举 stdlib（stringutil 三端同源 + arena 推广 + htab magic 校验） | ✅ 完成 | 2026-09-11 |
-| **v0.9.0** | 1.0.0-rc 打磨（KylixBoot 补齐 + bootstrap boot server + 重烘闭环 + CI 全绿 + 性能门禁 + API 冻结 + 文档官网同步） | ✅ 完成 | 待发版 |
+| **v0.9.0** | 1.0.0-rc 打磨（KylixBoot 补齐 + bootstrap boot server + 重烘闭环 + CI 全绿 + 性能门禁 + API 冻结 + 文档官网同步） | ✅ 完成 | 2026-09-18 |
 | **v0.10.0** | KylixAdmin P0+P2：Boehm GC（--gc=boehm）+ 认证 RBAC（PBKDF2/Session/锁定/审计） | ✅ 完成 | 2026-09-19 |
 | **v0.11.0** | KylixAdmin P3+P4：[Entity] 元数据驱动 CRUD 引擎 + 仪表盘 + 个人中心 + UI 设计系统 | ✅ 完成 | 2026-09-21 |
 | **v0.12.0** | KylixAdmin P5：sqlite/postgres 双方言抽象 + LLVM libpq + [Embed] 单二进制自包含 | ✅ 完成 | 2026-09-22 |
@@ -281,6 +283,7 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 ### v0.15.0 — 多端示例应用 + wasm
 - [ ] `apps/android/`（Kotlin + JNI 薄壳：登录 + 列表，连 KylixAdmin API）+ `apps/ios/`（SwiftUI + Swift Package 薄壳）
 - [ ] CI 产物形态门禁（.so COFF 式验证 / .a macOS runner 符号验证）+ 真机验收文档
+- [ ] stdlib android/ios 平台分支（v0.14 未做：`stdlib_datetime.go` / `stdlib_sysutil.go` / `stdlib_net.go` 仍只区分 windows 与其余平台；android 不链 `-lcrypto`/`-lpq`/`-lsqlite3`/`-lcurl`）
 - [ ] wasm32-unknown-wasi triple + `pkg/wasi` 真实现（wasi_snapshot_preview1 导入表；纯逻辑先行，DOM 不进 wasm）
 
 ### 1.0.0 — 正式版（gate）

@@ -1,4 +1,4 @@
-# API 稳定性承诺（v0.12.0 → 1.0.0）
+# API 稳定性承诺（v0.14.0 → 1.0.0）
 
 > v0.9.0 起进入 1.0.0-rc 打磨阶段。本文档划定 **1.0.0 将冻结的公开 API 面**，
 > 以及冻结后的破坏性变更 / 弃用流程约定。1.0.0 发布时本文档即生效。
@@ -28,7 +28,7 @@ flag 面（全部经 Go `flag` 包定义，`-flag` 与 `--flag` 双形式等价�
 
 | 子命令 | flags |
 |--------|-------|
-| `build` | `-o` `-v` `-g` `--time` `--backend go\|llvm` `--llvm-opt 0..3` `--target os/arch` `--gc boehm` `--wasm` `--wasi` `--tinygo` |
+| `build` | `-o` `-v` `-g` `--time` `--backend go\|llvm` `--llvm-opt 0..3` `--target os/arch` `--gc boehm` `--shared` `--wasm` `--wasi` `--tinygo` |
 | `run` | `-keep` `-v` `-g` `--backend auto\|go\|llvm` `--llvm-opt 0..3` `--gc boehm` |
 | `check` | `--syntax` |
 | `test` | `-v` `-tap` `-dir` `-filter` `-backend auto\|go\|llvm` |
@@ -40,6 +40,11 @@ flag 面（全部经 Go `flag` 包定义，`-flag` 与 `--flag` 双形式等价�
 约定细节同样冻结：`--backend auto` 的探测顺序（有 Go 走 Go，否则 LLVM 回退）、
 `kylix run` 无 Go 环境产出原生二进制的行为、`kylix doctor` 的退出码语义
 （缺必需工具非零，advisory 项不失败）。
+
+`--shared`（v0.14.0，`cmd/kylix/cmd_build.go`）与 `--backend=llvm` 合用才改变产物：
+`pkg/llvmgen/compile.go` 产出 `.so` / `.dylib` / `.dll`（darwin 与 ios 用 `-dynamiclib`，其余用 `-shared`），
+llc 加 `-relocation-model=pic`；输出路径以 `.o` 结尾时写出目标文件，以 `.a` 结尾时 `ar rcs` 打静态库。
+Go 后端不读 `compiler.Options.Shared`（见 [TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md)）。
 
 ### 2. stdlib 声明面（Kylix 源码 import 的单元）
 
@@ -84,6 +89,13 @@ case/forEach/match）、OOP（class/interface/继承/virtual/property）、
 
 **文件级属性**（v0.12.0）：`[Embed('dir', …)]` 写在 `program`/`unit` 头之前，把目录烘焙进二进制；
 `ReadFile` 与静态资源服务的**查找顺序**（内嵌优先、磁盘回落）随之冻结。
+
+**C ABI 导出**（v0.14.0）：函数/过程上的 `[Export]` 与 `[Export('c_symbol')]`。
+`getExportSymbol`（`generator/generator_types.go`，LLVM 侧 `pkg/llvmgen/export.go` 同名函数）按属性名不区分大小写匹配 `Export`；
+无字符串参数时导出名等于声明名，有一个非空字符串字面量时用该字面量。
+Go 后端在函数前发射 `//export <sym>`，并在存在导出时额外 `import "C"`（`generator/generator.go`）。
+LLVM 后端发射未改名的全局符号；`hasExports || isShared` 时注入 `kylix_free`（malloc 模式 `free`，`--gc=boehm` 时 `GC_free`）。
+语义与调用约定见 [docs/EXPORT_C_ABI.md](EXPORT_C_ABI.md)。
 
 **TRequest/TResponse 方法面**（v0.11.0 增补）：`req.Path()` 与既有
 `Param/Query/Header/Body/Form/Cookie/Session*/File/SaveFile/PageNum` 同级冻结；
