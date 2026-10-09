@@ -10,6 +10,8 @@ Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后�
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
 >
+> 🚧 **v0.15.0 进行中**（未发版，版本徽章仍是 0.14.0）：Android / iOS 示例壳共用 `apps/shared/mobilecore.klx`（校验 + JSON 契约，不含 HTTP）。OkHttp / URLSession 调 KylixAdmin 的 `POST /api/login` 与 `GET /api/notes`。24 小时 access token，没有 JWT refresh。本仓库自动验证是 Go/LLVM parity 加 C ABI `dlopen`，模拟器没在这里跑。指南：[docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。
+>
 > 🚀 **v0.14.0**: **编译器多端能力——C ABI 导出与移动端交叉编译。** 函数/过程支持 **`[Export]` / `[Export('c_symbol')]`** 注解导出为标准 C 符号；**`kylix_free`** 注入建立严格的跨边界内存生命周期契约。**`--shared`** 一键产出动态共享库（`.so`/`.dylib`/`.dll`），`@main` 自动升格为 `@llvm.global_ctors` 模块构造器，加载即自动初始化；支持直接产出 `.o` 目标文件与 `.a` 静态库归档。扩展 **Target Triple** 支持 Android（`android/arm64`、`android/amd64`）与 iOS（`ios/arm64`、`ios/simulator-arm64`）；实现 `FindAndroidNdk()` 自动探测；在 macOS 上直接桥接 Xcode 链接出真正的 `platform IOS minos 16.0` 动态库与静态库；C 宿主 `dlopen`/`dlsym` 测试 100% 通过。详见 [CHANGELOG.md](CHANGELOG.md) 与 [C ABI 指南](docs/EXPORT_C_ABI.md)。
 >
 > 🚀 **v0.13.0**: **KylixAdmin 成为 PWA——并获得登录限流。** 后台现在可以从手机浏览器安装（manifest + service worker + 图标，全部由 `[Embed]` 烘焙进单二进制）；静态资源离线缓存、页面走网络。`≤900px` 断点获得 mobile-first 增强（列表表格变堆叠卡片、44px 触控目标、表单全宽）。登录限流（20 次失败/15 分钟/IP → 429）查 `login_logs` 而非内存桶——双端和重启看到同一窗口。详见 [CHANGELOG.md](CHANGELOG.md) 与 [H5 指南](docs/H5_GUIDE.md)。
@@ -1111,10 +1113,11 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 - [模板引擎指南](docs/TEMPLATE_GUIDE.md) - HTML 模板渲染
 - [LLVM 后端](docs/llvm-backend.md) - 原生后端内部机制
 - [自举开发指南](docs/SELFHOSTING_DEV_GUIDE.md) - bootstrap 编译器工作原理
+- [多端示例应用](docs/MOBILE_APPS.md) - Android / iOS 壳、共享 Kylix 核心、本机验收命令
 
 ## 路线图
 
-当前状态：**v0.14.0 已发布**（2026-10-07）—— **`[Export]` / `[Export('c_symbol')]`** 在 Go 与 LLVM 两端导出 C 符号，编译器注入 **`kylix_free`**；**`kylix build --backend=llvm --shared`** 产出 `.so` / `.dylib` / `.dll`（输出名以 `.o` / `.a` 结尾时分别是目标文件与静态库）。LLVM `--target` 增加 `android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`（[C ABI 指南](docs/EXPORT_C_ABI.md)）。v0.12.0/v0.13.0 的 KylixAdmin 保持不变：单二进制、sqlite 或 postgres、可安装 PWA、登录限流。下一步：**v0.15.0**——Android/iOS 示例应用、wasm32 triple，以及 stdlib 的 android/ios 平台分支（见 [ROADMAP.md](ROADMAP.md) 与 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)）。
+当前状态：**v0.14.0 已发布**（2026-10-07）；**v0.15.0 进行中**。编译器版本号仍是 0.14.0。v0.14.0 的 C ABI `[Export]` 与 Android/iOS triple 保持不变（[C ABI 指南](docs/EXPORT_C_ABI.md)）。v0.15 第一项已入库：`apps/android/` 与 `apps/ios/` 的登录 + Notes 列表，共用 `apps/shared/mobilecore.klx`，KylixAdmin 增加 `POST /api/login` 与 `GET /api/notes`（[多端指南](docs/MOBILE_APPS.md)）。v0.15 仍开放：wasm32、移动端 CI 产物门、stdlib 的 android/ios 平台分支、JWT refresh（见 [ROADMAP.md](ROADMAP.md)）。
 
 ## 跨平台编译
 

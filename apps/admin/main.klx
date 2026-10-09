@@ -9,8 +9,9 @@
 //   kylix build stdlib/stringutil.klx stdlib/template_engine.klx \
 //     entities/admin_entities.klx lib/admindb.klx lib/adminsec.klx \
 //     lib/audit.klx lib/crud.klx lib/crudrender.klx lib/crudhooks.klx \
-//     lib/adminpage.klx controllers/entity.klx controllers/dashboard.klx \
-//     controllers/profile.klx controllers/theme.klx main.klx
+//     lib/adminpage.klx ../shared/mobilecore.klx controllers/entity.klx \
+//     controllers/dashboard.klx controllers/profile.klx controllers/theme.klx \
+//     controllers/api.klx main.klx
 //
 // Run from apps/admin/ (views/ + static/ are relative paths); KYADMIN_DB and
 // KYADMIN_PASSWORD override the database path and seed password.
@@ -21,7 +22,7 @@
 program KylixAdmin;
 
 uses boot, db, admindb, adminsec, audit, template, sysutil, adminpage,
-  entity, dashboard, profile, theme;
+  mobilecore, entity, dashboard, profile, theme, api;
 
 [Controller('')]
 type
@@ -97,5 +98,10 @@ begin
   // which port. The templates and static assets are baked into the binary
   // ([Embed]), so there is nothing else to report.
   WriteLn('[kyadmin] dialect=' + SqlDialect() + ' db=' + AdminDBPath() + ' port=' + IntToStr(port));
+  // v0.15.0: /api/login issues an HS256 access token for the native shells.
+  // The development default is fine on localhost; set KYADMIN_JWT_SECRET
+  // before exposing the API. Refresh tokens are not issued (see MOBILE_APPS).
+  if GetEnv('KYADMIN_JWT_SECRET') = '' then
+    WriteLn('[kyadmin] WARNING: KYADMIN_JWT_SECRET is not set; /api uses the development secret');
   BootRun(port);
 end.

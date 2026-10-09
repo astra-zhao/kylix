@@ -1,0 +1,168 @@
+// api.klx — JSON API for the Android / iOS shells (v0.15.0)
+//
+//   POST /api/login    {"username","password"} → access token
+//   GET  /api/notes    Authorization: Bearer <token> → notes the user may read
+//
+// The bodies are built by apps/shared/mobilecore.klx, the same unit the
+// shells link. HTML form login is unchanged (session + CSRF). These two
+// routes live under /api/, which the CSRF gate skips: a native client has
+// no session cookie yet, and the token is a Bearer header the browser will
+// not attach on a cross-site form post. Cookie-authenticated HTML forms
+// stay on the CSRF gate.
+//
+// Responses are BootText, not BootJSON. The LLVM BootJSON call drops its
+// value argument (the body stays empty); a hand-built JSON string is the
+// shape both backends actually send. Clients parse the body and ignore
+// Content-Type.
+//
+// JWT refresh is not implemented. McAccessTTL is 24h, which covers
+// login-then-list. A 401 on the list route means the shell shows login
+// again. See docs/MOBILE_APPS.md.
+unit api;
+
+uses boot, db, jwt, sysutil, admindb, adminsec, mobilecore;
+
+// ApiJwtSecret is the HS256 secret. KYADMIN_JWT_SECRET overrides the
+// development default. The default is for the sample only — set the env
+// var before exposing /api beyond localhost.
+function ApiJwtSecret(): String;
+var
+  s: String;
+begin
+  s := GetEnv('KYADMIN_JWT_SECRET');
+  if s = '' then
+    result := 'kylix-admin-dev-secret'
+  else
+    result := s;
+end;
+
+// ApiJSON sends a JSON body with an HTTP status. BootText keeps the two
+// backends on the same code path.
+function ApiJSON(status: Integer; body: String): TResponse;
+begin
+  result := BootText(status, body);
+end;
+
+// ApiCaller is the username for this request: the HTML session when one
+// is present, otherwise the Bearer access token.
+function ApiCaller(req: TRequest): String;
+var
+  u: String;
+  token: String;
+begin
+  u := req.SessionGet('__user');
+  if u <> '' then
+    result := u
+  else
+  begin
+    token := McBearerToken(req.Header('Authorization'));
+    if token = '' then
+      result := ''
+    else
+    begin
+      // Leave claims untyped. An explicit Variant makes the Go backend pass
+      // interface{} into JwtSubject, which wants map[string]interface{}.
+      var claims := JwtVerify(ApiJwtSecret(), token);
+      result := JwtSubject(claims);
+    end;
+  end;
+end;
+
+// ApiDoneFlag normalizes the notes.done column. Both dialects box booleans
+// as integer 0/1; a few text spellings are accepted so a driver change does
+// not flip the JSON.
+function ApiDoneFlag(raw: String): Integer;
+begin
+  if (raw = '1') or (raw = 'true') or (raw = 't') or (raw = 'yes') then
+    result := 1
+  else
+    result := 0;
+end;
+
+// ApiNotesJSON lists notes in id order (the same tie-break the CRUD engine
+// uses) and wraps them with McNotesEnvelope.
+function ApiNotesJSON(db: TDatabase): String;
+var
+  i: Integer;
+  items: String;
+  id: String;
+  title: String;
+  body: String;
+begin
+  var rows := DbQueryRows(db, 'SELECT id, title, body, done FROM notes ORDER BY id');
+  items := '';
+  i := 0;
+  while i < Length(rows) do
+  begin
+    if i > 0 then
+      items := items + ',';
+    id := VariantToStr(rows[i]['id']);
+    title := VariantToStr(rows[i]['title']);
+    body := VariantToStr(rows[i]['body']);
+    items := items + McNoteJSON(id, title, body, ApiDoneFlag(VariantToStr(rows[i]['done'])));
+    i := i + 1;
+  end;
+  result := McNotesEnvelope(items);
+end;
+
+[Controller('')]
+type
+  TApiController = class
+    [Post('/api/login')]
+    function ApiLogin(req: TRequest): TResponse;
+    var
+      body: String;
+      user: String;
+      pass: String;
+      verr: String;
+      db: TDatabase;
+      errMsg: String;
+      token: String;
+      display: String;
+    begin
+      body := req.BodyText();
+      user := McJsonStringField(body, 'username');
+      pass := McJsonStringField(body, 'password');
+      verr := McValidateLogin(user, pass);
+      if verr <> '' then
+        result := ApiJSON(400, McErrorJSON(verr))
+      else
+      begin
+        db := AdminOpen('admin.db');
+        errMsg := DoLogin(db, req, user, pass);
+        if errMsg = RateLimitMessage then
+          result := ApiJSON(429, McErrorJSON(errMsg))
+        else if errMsg <> '' then
+          result := ApiJSON(401, McErrorJSON(errMsg))
+        else
+        begin
+          token := JwtSign(ApiJwtSecret(), user, McAccessTTL(0), nil);
+          display := DbQueryScalar(db, 'SELECT display_name FROM users WHERE username = ?', user);
+          result := ApiJSON(200, McLoginSuccessJSON(token, user, display, McAccessTTL(0)));
+        end;
+      end;
+    end;
+
+    [Get('/api/notes')]
+    function ApiNotes(req: TRequest): TResponse;
+    var
+      db: TDatabase;
+      user: String;
+      perms: String;
+    begin
+      user := ApiCaller(req);
+      if user = '' then
+        result := ApiJSON(401, McErrorJSON('unauthorized'))
+      else
+      begin
+        db := AdminOpen('admin.db');
+        perms := PermsOf(db, user);
+        if not HasPerm(perms, 'notes.read') then
+          result := ApiJSON(403, McErrorJSON('You do not have permission to view notes'))
+        else
+          result := ApiJSON(200, ApiNotesJSON(db));
+      end;
+    end;
+  end;
+
+end.

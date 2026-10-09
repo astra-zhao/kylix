@@ -293,8 +293,8 @@ jobs:
             ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
             entities/admin_entities.klx lib/dialect.klx lib/migrate.klx lib/admindb.klx \
             lib/adminsec.klx lib/audit.klx lib/crud.klx lib/crudrender.klx lib/crudhooks.klx \
-            lib/adminpage.klx controllers/entity.klx controllers/dashboard.klx \
-            controllers/profile.klx controllers/theme.klx main.klx
+            lib/adminpage.klx ../shared/mobilecore.klx controllers/entity.klx controllers/dashboard.klx \
+            controllers/profile.klx controllers/theme.klx controllers/api.klx main.klx
 
       - name: Smoke test (empty directory, sqlite)
         run: KYLIX=$PWD/kylix bash apps/admin/deploy_check.sh

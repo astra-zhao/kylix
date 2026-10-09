@@ -10,7 +10,7 @@
 
 Kylix 是一个现代化的 Pascal 编译器：默认把 Kylix 源码转译为可读的 Go 代码（`go build` 编译运行）；也可以通过 **LLVM 原生后端**（`--backend=llvm`）直接产出 LLVM IR 并链接为原生二进制——**运行时完全不依赖 Go 工具链**。它结合了 Pascal 的清晰性和简洁性，同时添加了现代语言特性，并配备完整的 IDE 工具链、编辑器集成与无 Go 自举闭环。
 
-**当前版本**：v0.14.0（编译器多端能力）
+**当前版本**：v0.14.0 已发布；v0.15.0 进行中（多端示例应用已入库，未发版，CLI 仍报 0.14.0）
 
 **项目地址**：https://github.com/astra-zhao/kylix
 
@@ -261,7 +261,7 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 
 ## 后续规划
 
-- **v0.15.0 — 多端示例应用 + wasm**（见 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md) 与 [ROADMAP.md](ROADMAP.md)）：`apps/android/`（Kotlin + JNI）与 `apps/ios/`（SwiftUI）登录+列表 demo；CI 上的 Android `.so` / iOS `.a` 产物形态门禁；LLVM `wasm32-unknown-wasi` triple 与 `pkg/wasi` 的 `wasi_snapshot_preview1`。一并带上 v0.14 未做的 stdlib android/ios 平台分支，以及 v0.13 推迟的 JWT refresh（消费者为原生壳）。v0.13.0 与 v0.14.0 已发布，见上一节里程碑表。
+- **v0.15.0 — 多端示例应用 + wasm**（进行中，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)）：示例壳已入库——`apps/shared/mobilecore.klx` 编进 KylixAdmin，并以 `[Export]` 供 `apps/android/`（OkHttp）与 `apps/ios/`（URLSession）调用；`POST /api/login` 发 24 小时 access token，`GET /api/notes` 拉列表。JWT refresh 本轮不用、仍未实现。仍开放：CI 产物形态门禁、stdlib android/ios 平台分支、`wasm32-unknown-wasi`。模拟器/真机登录未在入库环境跑过。
 - **1.0.0**：v0.7.1–v0.15.0 gate 全过后发布正式版（KylixAdmin + 多端为旗舰 showcase）
 
 完整路线图见 [ROADMAP.md](ROADMAP.md)。

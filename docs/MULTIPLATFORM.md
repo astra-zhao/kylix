@@ -86,8 +86,8 @@
 
 ## 六、验收标准
 
-- [ ] 同一份业务 unit（模型+校验+API client）被 admin/H5/Android/iOS 四处编译，行为一致（diff 方法论复用）
-- [ ] Android：`libkylix.so` 加载 + 导出函数调用 + 完整登录流程（真机或模拟器）
-- [ ] iOS：`libkylix.a` 链接进 SwiftUI app + 模拟器完整登录流程
+- [x] 同一份业务 unit（`apps/shared/mobilecore.klx`：校验 + JSON API 协议）被 admin 编译（H5 即该二进制）并由 Android/iOS 以 C ABI 链接。宿主 Go/LLVM 输出逐字一致（`apps/shared/host_check.sh`）。HTTP 传输不在这份 unit 里——见 [MOBILE_APPS.md](MOBILE_APPS.md)
+- [ ] Android：`libkylixlogic.so` 加载 + 导出函数调用 + 完整登录流程（真机或模拟器）。壳与 `build_core.sh` 已入库；本环境无 NDK，未跑模拟器
+- [ ] iOS：`libkylixcore.a` 链接进 SwiftUI app + 模拟器完整登录流程。壳与 `build_core.sh` 已入库；链接需要 macOS/Xcode，本环境未跑
 - [ ] H5：Lighthouse PWA 可安装性通过；弱网下降级可用
 - [ ] 全量回归持续绿：16 包 + 双 sweep + bootstrap sweep + IR 不动点

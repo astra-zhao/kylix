@@ -1,11 +1,13 @@
 # Kylix Development Roadmap
 
 > 最后更新: 2026-10-09  
-> 当前版本: v0.14.0（编译器多端能力：C ABI Export + 移动端 Triple + 交叉链接）  
+> 当前版本: v0.14.0 已发布；v0.15.0 进行中（多端示例应用，wasm 与移动端 CI 门禁未做）  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**✅ v0.14.0 已发布（2026-10-07）！** 编译器多端能力：`[Export]` / `[Export('c_symbol')]` 双端 C ABI、`kylix_free`、LLVM `--shared`（`.so`/`.dylib`/`.dll`，以及 `.o`/`.a`）、triple `android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`，`FindAndroidNdk()` 与 macOS 上的 Xcode 链接。指南 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)。**下一步 → v0.15.0** 多端示例应用（`apps/android` / `apps/ios`）+ wasm32 triple + stdlib 的 android/ios 平台分支与移动端 CI 产物门。详见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)。
+**✅ v0.14.0 已发布（2026-10-07）！** 编译器多端能力：`[Export]` / `[Export('c_symbol')]` 双端 C ABI、`kylix_free`、LLVM `--shared`（`.so`/`.dylib`/`.dll`，以及 `.o`/`.a`）、triple `android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`，`FindAndroidNdk()` 与 macOS 上的 Xcode 链接。指南 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)。**下一步 → v0.15.0** 其余项：wasm32 triple、移动端 CI 产物门、stdlib 的 android/ios 平台分支。示例应用第一项已落地，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。
+
+**🚧 v0.15.0 进行中。** 多端示例应用：`apps/shared/mobilecore.klx`（校验 + JSON 协议，无 HTTP）编进 KylixAdmin，并由 `[Export]` 供 `apps/android/`（Kotlin + JNI + OkHttp）与 `apps/ios/`（SwiftUI + Swift Package + URLSession）调用。`POST /api/login` 发 24 小时 access token，`GET /api/notes` 拉列表。JWT refresh、wasm、CI 产物门禁仍未做。模拟器/真机步骤在指南里；本仓库的自动验证是宿主 parity + C ABI `dlopen`，不是模拟器。
 
 **✅ v0.7.0 已发布！** web 页面开发 + web 框架：(1) **P0 `error` 类型语言特性**——`(T, error)` 多返回 + 裸 error + `ErrorStr`，host/LLVM/bootstrap 三端；(2) **P1 纯 Kylix 模板引擎**——`stdlib/template_engine.klx`（Mustache 风格 `{{}}`，12 过滤器 + each/if），三端同源可用；(3) **P2 页面渲染 API**——`res.HTML`/`req.Form`/`req.Cookie`/`static/` 静态资源，Go 与 LLVM 双端同步；(4) **P3 页面框架完善**——`res.Redirect`（302）+ 自定义 404/500 错误页 + 模板上下文（`AddVariant`/`SetContext`）；(5) **P5 教程接入**——example60 真实 BootRun server E2E（launch + curl + kill），Go/LLVM 54/54。**v0.6.9 bootstrap 无 Go 闭环与 IR 不动点保持**。**(6) P6 GitHub Release 工作流打通（2026-09-08 补录）**——tag 触发 CI 全绿 + Release 自动创建（5 平台二进制 + 双平台 bootstrap tarball + llvm-mingw 工具链）；顺带破案修复两个 Linux 潜伏 bug：ELF 零尺寸 vtable 同址致 `is` 恒真（commit 441b103）+ 自举 IR 硬编码 arm64 triple 致 Linux llc 产 Mach-O（commit fbb6509）。**下一步 → v0.7.1 net Winsock / regex pcre2（Windows 真机）**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -281,7 +283,7 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] **交付标志**：`docs/EXPORT_C_ABI.md` 指南 + 本地编译出 Android AArch64 ELF 目标文件与 iOS ARM64 动态库/静态库
 
 ### v0.15.0 — 多端示例应用 + wasm
-- [ ] `apps/android/`（Kotlin + JNI 薄壳：登录 + 列表，连 KylixAdmin API）+ `apps/ios/`（SwiftUI + Swift Package 薄壳）
+- [x] `apps/android/`（Kotlin + JNI 薄壳：登录 + 列表，连 KylixAdmin API）+ `apps/ios/`（SwiftUI + Swift Package 薄壳）。共享单元 `apps/shared/mobilecore.klx`（校验 + JSON 协议；HTTP 留在 OkHttp / URLSession）。自动验证是宿主 Go/LLVM parity + C ABI `dlopen`（`apps/shared/host_check.sh`）。模拟器/真机需本机 NDK 或 macOS+Xcode，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)
 - [ ] CI 产物形态门禁（.so COFF 式验证 / .a macOS runner 符号验证）+ 真机验收文档
 - [ ] stdlib android/ios 平台分支（v0.14 未做：`stdlib_datetime.go` / `stdlib_sysutil.go` / `stdlib_net.go` 仍只区分 windows 与其余平台；android 不链 `-lcrypto`/`-lpq`/`-lsqlite3`/`-lcurl`）
 - [ ] wasm32-unknown-wasi triple + `pkg/wasi` 真实现（wasi_snapshot_preview1 导入表；纯逻辑先行，DOM 不进 wasm）

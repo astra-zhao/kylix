@@ -29,8 +29,8 @@ trap cleanup EXIT
 BUILD_FILES="../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
   entities/admin_entities.klx lib/dialect.klx lib/migrate.klx lib/admindb.klx \
   lib/adminsec.klx lib/audit.klx lib/crud.klx lib/crudrender.klx lib/crudhooks.klx \
-  lib/adminpage.klx controllers/entity.klx controllers/dashboard.klx \
-  controllers/profile.klx controllers/theme.klx main.klx"
+  lib/adminpage.klx ../shared/mobilecore.klx controllers/entity.klx controllers/dashboard.klx \
+  controllers/profile.klx controllers/theme.klx controllers/api.klx main.klx"
 
 echo "[migrate] building the LLVM form (${MODE})" >&2
 (cd "$ADMIN" && $KYLIX build --backend=llvm --gc=boehm -o "$WORK/bin" $BUILD_FILES > "$WORK/build.log" 2>&1) \

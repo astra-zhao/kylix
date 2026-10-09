@@ -1,0 +1,70 @@
+// mobilecore_lib.klx — C ABI exports of the shared mobile core (v0.15.0)
+//
+// Build (host .so, for apps/shared/host_check.sh):
+//   kylix build --backend=llvm --shared -o libkylixlogic.so \
+//     ../../stdlib/stringutil.klx mobilecore.klx mobilecore_lib.klx
+//
+// Android / iOS commands are in docs/MOBILE_APPS.md.
+//
+// Every returned string is a fresh malloc (s + '') so the caller can pass it
+// to kylix_free. A bare string literal lives in the module constant pool;
+// freeing that pointer is not the contract.
+program MobileCoreLib;
+
+uses mobilecore;
+
+function Owned(s: String): String;
+begin
+  result := s + '';
+end;
+
+[Export('mc_validate_login')]
+function McExportValidate(username: String; password: String): String;
+begin
+  result := Owned(McValidateLogin(username, password));
+end;
+
+[Export('mc_login_request')]
+function McExportLoginRequest(username: String; password: String): String;
+begin
+  result := Owned(McLoginRequestJSON(username, password));
+end;
+
+[Export('mc_parse_login')]
+function McExportParseLogin(status: Integer; body: String): String;
+begin
+  result := Owned(McParseLoginResponse(status, body));
+end;
+
+[Export('mc_list_request')]
+function McExportListRequest(token: String): String;
+begin
+  result := Owned(McListRequestJSON(token));
+end;
+
+[Export('mc_parse_list')]
+function McExportParseList(status: Integer; body: String): String;
+begin
+  result := Owned(McParseListResponse(status, body));
+end;
+
+[Export('mc_auth_header')]
+function McExportAuthHeader(token: String): String;
+begin
+  result := Owned(McAuthHeader(token));
+end;
+
+[Export('mc_login_path')]
+function McExportLoginPath(): String;
+begin
+  result := Owned(McLoginPath(0));
+end;
+
+[Export('mc_notes_path')]
+function McExportNotesPath(): String;
+begin
+  result := Owned(McNotesPath(0));
+end;
+
+begin
+end.

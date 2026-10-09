@@ -24,6 +24,7 @@ test-*.go
 *.dll
 *.so
 *.dylib
+apps/ios/Sources/CKylixCore/lib/*.a
 
 # Go
 vendor/

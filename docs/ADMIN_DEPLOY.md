@@ -20,8 +20,8 @@ kylix build --backend=llvm --gc=boehm -o kylixadmin \
   ../../stdlib/stringutil.klx ../../stdlib/template_engine.klx \
   entities/admin_entities.klx lib/dialect.klx lib/migrate.klx lib/admindb.klx \
   lib/adminsec.klx lib/audit.klx lib/crud.klx lib/crudrender.klx lib/crudhooks.klx \
-  lib/adminpage.klx controllers/entity.klx controllers/dashboard.klx \
-  controllers/profile.klx controllers/theme.klx main.klx
+  lib/adminpage.klx ../shared/mobilecore.klx controllers/entity.klx controllers/dashboard.klx \
+  controllers/profile.klx controllers/theme.klx controllers/api.klx main.klx
 ```
 
 - `--gc=boehm` 是**长跑服务必须**的：没有它，用户对象（每请求分配的字符串/映射/会话）不会回收。
@@ -61,6 +61,7 @@ CI 有专门的 `deploy_check.sh` 守着这条（把二进制拷到空目录跑�
 | `KYADMIN_DB` | `~/.kylixadmin/admin.db` | sqlite 文件路径（目录不存在会自动创建） |
 | `KYADMIN_PASSWORD` | `Admin@123` | 首次启动播种的 admin 口令；**不设会在 stdout 打警告** |
 | `KYADMIN_PORT` | `8090` | 监听端口 |
+| `KYADMIN_JWT_SECRET` | `kylix-admin-dev-secret` | `/api/login` 的 HS256 密钥（Android/iOS 壳）。**不设会在 stdout 打警告**；对外暴露 API 前必须改掉 |
 
 启动时打印一行自述，运维可直接据此判断接的是哪个库：
 
@@ -187,6 +188,7 @@ location / {
 ## 六、安全清单
 
 - [ ] **改掉种子口令**：首次启动前设 `KYADMIN_PASSWORD`（或登录后立即在个人中心修改）
+- [ ] **改掉 API 密钥**：原生壳走 `POST /api/login`（Bearer，24 小时，无 refresh）。对外前设 `KYADMIN_JWT_SECRET`。`/api/` 不走 CSRF（浏览器表单登录仍校验）；详见 [MOBILE_APPS.md](MOBILE_APPS.md)
 - [ ] postgres 连接串用 `sslmode=require` 以上，且经 `EnvironmentFile` 注入而非命令行
 - [ ] 反向代理终止 TLS，并限制管理端口的来源网段
 - [ ] 数据库文件/实例权限最小化（sqlite 文件 0600，pg 用受限角色）
@@ -194,7 +196,7 @@ location / {
 - [ ] 关注审计页（`/admin/op_logs`、`/admin/login_logs`）的异常登录
 
 已内建：PBKDF2-HMAC-SHA256 口令存储（21 万次迭代）、会话固定防护（登录换 SID）、
-CSRF 全局校验、失败锁定（5 次锁 15 分钟）、全参数化 SQL、模板与页面输出的 HTML 转义。
+CSRF 校验（HTML 表单；`/api/` 的 JSON 接口改走 Bearer，见 [MOBILE_APPS.md](MOBILE_APPS.md)）、失败锁定（5 次锁 15 分钟）、全参数化 SQL、模板与页面输出的 HTML 转义。
 
 ---
 

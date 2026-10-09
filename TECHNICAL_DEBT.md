@@ -1,8 +1,17 @@
 # Kylix 技术债务与后续开发清单
 
 > 最后更新: 2026-10-09
-> 当前版本: v0.14.0 已发布（编译器多端能力：C ABI Export + 移动端 Triple + 交叉链接；标签 `v0.14.0`，2026-10-07）
-> 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md)
+> 当前版本: v0.14.0 已发布；v0.15.0 进行中（多端示例应用，未发版）
+> 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md), [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)
+
+## 🚧 v0.15.0 进行中（示例应用落地时记下）
+
+- **HTTP 留在原生壳，这是选型，不是欠账。** `apps/shared/mobilecore.klx` 不含 socket / libcurl / db。android 仍整段跳过 `-lcurl`/`-lcrypto`/`-lpq`/`-lsqlite3`，ios 仍不链 `-lcurl`（见下一节）。谁在移动端目标上调用 `httpclient`，链接照旧失败。
+- [ ] **JWT refresh 仍未实现。** 示例登录用 24 小时 access token（`McAccessTTL`）；列表 401 时壳回到登录页。refresh + 轮换、以及 secret 管理，仍按原条目推迟。开发默认 secret `kylix-admin-dev-secret` 只适合 localhost。
+- [ ] **bootstrap 烘焙的 CSRF 没有 `/api` 豁免。** 宿主 `pkg/boot/csrf.go` 与 LLVM `emitBootCsrfCheckBody` 已跳过 `/api` 与 `/api/`。`src/stdlib_ir.klx` 里的 `@__kylix_boot_csrf_check` 要等下次 `scripts/rebake_stdlib_ir.sh` 才带上。admin CI 用宿主编译器，不受影响。本轮不重烘。
+- [ ] **模拟器 / 真机登录未跑。** 入库环境没有 NDK，也不是 macOS。宿主证明是 `apps/shared/host_check.sh`。验收命令在 `docs/MOBILE_APPS.md`。
+- [x] **LLVM `req.Header` / `req.Query` 固定 128 字节缓冲**（v0.15 已改为 `vLen+1`）。HS256 token 约 151 字节，旧缓冲会在 `/api/notes` 上写爆堆。路由参数缓冲 `malloc(128)` 未动。
+- [ ] **`req.BodyText` 只在宿主编译器**。Go `Request.Body()` 仍返回 `[]byte`（JSON/multipart 要用字节）；Kylix 侧用 `BodyText()` 拿字符串，LLVM 与 `req.Body` 同一次 load。`src/llvmgen.klx` 还不认这个名字，bootstrap 编译 admin 会失败。admin CI 用宿主。
 
 本文档记录 v0.3.1 之后的已知缺陷、功能缺口和工程质量改进项，包含修复状态追踪。
 
@@ -30,7 +39,7 @@
 
 ### 应用
 
-- [ ] **JWT refresh token 未实现**：推到 v0.15（消费者为原生壳；refresh 可由 `JwtSign(secret, sub, ttl, extraClaims{'typ':'refresh'})` + `JwtVerify` 组合出，零编译器改动；secret 管理方案需同步设计）。
+- [ ] **JWT refresh token 未实现**：v0.15 示例壳不依赖它（24 小时 access token，401 重新登录）。refresh 仍可由 `JwtSign(secret, sub, ttl, extraClaims{'typ':'refresh'})` + `JwtVerify` 组合出，零编译器改动；secret 管理方案需同步设计。见文首 v0.15 条目。
 - [ ] **登录限流可被 XFF 伪造绕过**：`ClientIP` 取 XFF → X-Real-IP → unknown，仅在可信反向代理后有效。直连部署时需配合防火墙规则。
 - [ ] **限流窗口不可手动清除**：只能等 15 分钟自然过期；管理端无「解除限流」操作（审计需要保留失败记录）。
 

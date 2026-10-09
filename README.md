@@ -10,6 +10,8 @@ Kylix is a modern reimagining of Pascal, designed to compile to Go or to native 
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
 >
+> 🚧 **v0.15.0 in progress** (not a release; the version badge stays 0.14.0): Android and iOS sample shells share `apps/shared/mobilecore.klx` (validation + JSON contract, no HTTP). OkHttp / URLSession talk to `POST /api/login` and `GET /api/notes` on KylixAdmin. A 24-hour access token; no JWT refresh. Host proof is Go/LLVM parity plus C ABI `dlopen` — simulators were not run here. Guide: [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md).
+>
 > 🚀 **v0.14.0**: **Compiler Multiplatform Capabilities — C ABI Export & Mobile Cross-Compilation.** Export functions/procedures with **`[Export]` / `[Export('c_symbol')]`** as standard C ABI symbols; compiler-injected **`kylix_free`** establishes strict cross-boundary memory ownership. **`--shared`** produces shared libraries (`.so`/`.dylib`/`.dll`) with `@main` promoted to `@llvm.global_ctors` module constructors; direct `.o` object and `.a` static archive outputs supported. Expanded **Target Triples** for Android (`android/arm64`, `android/amd64`) and iOS (`ios/arm64`, `ios/simulator-arm64`); `FindAndroidNdk()` auto-discovery; native `platform IOS minos 16.0` dynamic & static libraries linked via Xcode; C host `dlopen`/`dlsym` E2E 100% verified. See [CHANGELOG.md](CHANGELOG.md) & [C ABI Guide](docs/EXPORT_C_ABI.md).
 >
 > 🚀 **v0.13.0**: **KylixAdmin becomes a PWA — and gets login rate limiting.** The console is now installable from a mobile browser (manifest + service worker + icons, all baked into the single binary via `[Embed]`); static assets are cached offline while pages stay network-only. The `≤900px` breakpoint got mobile-first enhancements (list tables become stacked cards labelled by `data-f`, 44px touch targets, forms full-width). Login rate limiting (20 failures / 15 min / IP → 429) reads `login_logs` rather than an in-memory bucket, so both backends and restarts see the same window. See [CHANGELOG.md](CHANGELOG.md) and the [H5 guide](docs/H5_GUIDE.md).
@@ -1069,10 +1071,11 @@ Kylix LSP supports any editor with LSP client:
 - [Template Engine Guide](docs/TEMPLATE_GUIDE.md) - HTML template rendering
 - [LLVM Backend](docs/llvm-backend.md) - Native backend internals
 - [Self-Hosting Dev Guide](docs/SELFHOSTING_DEV_GUIDE.md) - How the bootstrap compiler works
+- [Mobile sample apps](docs/MOBILE_APPS.md) - Android / iOS shells, shared Kylix core, local verify commands
 
 ## Roadmap
 
-Current status: **v0.14.0 released** (2026-10-07) — C ABI `[Export]` / `[Export('c_symbol')]` on both backends, compiler-injected `kylix_free`, and `kylix build --backend=llvm --shared` (`.so` / `.dylib` / `.dll`, or `.o` / `.a` when the output name says so). LLVM `--target` adds `android/arm64`, `android/amd64`, `ios/arm64`, and `ios/simulator-arm64` ([C ABI guide](docs/EXPORT_C_ABI.md)). KylixAdmin from v0.12.0/v0.13.0 is unchanged: one binary, sqlite or postgres, installable PWA, login rate limit. Next up: **v0.15.0** — Android/iOS sample apps, a wasm32 triple, and the stdlib android/ios platform branches (see [ROADMAP.md](ROADMAP.md) and [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)).
+Current status: **v0.14.0 released** (2026-10-07); **v0.15.0 in progress**. The compiler still reports 0.14.0. C ABI `[Export]` and the Android/iOS triples from v0.14.0 are unchanged ([C ABI guide](docs/EXPORT_C_ABI.md)). The first v0.15 item is in tree: `apps/android/` and `apps/ios/` login + notes list, sharing `apps/shared/mobilecore.klx`, plus `POST /api/login` and `GET /api/notes` on KylixAdmin ([mobile guide](docs/MOBILE_APPS.md)). Still open on v0.15: wasm32, the mobile CI artifact gate, stdlib android/ios platform branches, and JWT refresh (see [ROADMAP.md](ROADMAP.md)).
 
 ## Cross-Platform Compilation
 

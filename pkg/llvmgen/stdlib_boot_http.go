@@ -957,7 +957,9 @@ func (g *Generator) emitBootRequestMethodCall(req, method string, args []ast.Exp
 		return g.emitBootReqHeader(req, args)
 	case "Query":
 		return g.emitBootReqQuery(req, args)
-	case "Body", "GetBody":
+	case "Body", "GetBody", "BodyText":
+		// BodyText matches Go's string(req.Body()). LLVM already returns the
+		// body as a NUL-terminated string, so the two names share one load.
 		return g.emitBootReqBody(req, args)
 	case "JSON":
 		// v0.6.8: req.JSON — parse the request body as JSON into a Variant map
@@ -1260,8 +1262,13 @@ func (g *Generator) emitBootReqHeader(req string, args []ast.Expression) (string
 	g.line(fmt.Sprintf("  %s = ptrtoint ptr %s to i64", vsAddr, valStart))
 	vLen := g.tmp()
 	g.line(fmt.Sprintf("  %s = sub i64 %s, %s", vLen, crAddr, vsAddr))
+	// Size the copy to the value. A fixed 128-byte buffer overflows on a
+	// Bearer JWT (HS256 access tokens are ~150 bytes) — heap corruption on
+	// the LLVM /api/notes path. v0.15.0.
+	bufCap := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", bufCap, vLen))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall("128")))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(bufCap)))
 	g.needMemcpy = true
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", buf, valStart, vLen))
 	term := g.tmp()
@@ -1388,8 +1395,11 @@ func (g *Generator) emitBootQueryGet(req string, nameReg string) (string, string
 	g.line(fmt.Sprintf("  %s = select i1 %s, i64 %s, i64 %s", selSP, spNull, selCR, spLen))
 	vLen := g.tmp()
 	g.line(fmt.Sprintf("  %s = select i1 %s, i64 %s, i64 %s", vLen, ampNull, selSP, ampLen))
+	// Same sizing as req.Header: the value can be longer than 128 bytes.
+	bufCap := g.tmp()
+	g.line(fmt.Sprintf("  %s = add i64 %s, 1", bufCap, vLen))
 	buf := g.tmp()
-	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall("128")))
+	g.line(fmt.Sprintf("  %s = %s", buf, g.mallocCall(bufCap)))
 	g.needMemcpy = true
 	g.line(fmt.Sprintf("  call ptr @memcpy(ptr %s, ptr %s, i64 %s)", buf, valStart, vLen))
 	term := g.tmp()

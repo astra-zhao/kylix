@@ -1,0 +1,34 @@
+name: KylixAdmin
+options:
+  bundleIdPrefix: dev.kylix
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  KylixCore:
+    path: .
+targets:
+  KylixAdmin:
+    type: application
+    platform: iOS
+    sources:
+      - path: KylixAdmin
+    dependencies:
+      - package: KylixCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.kylix.admin
+        PRODUCT_NAME: KylixAdmin
+        INFOPLIST_FILE: KylixAdmin/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+        CODE_SIGN_STYLE: Automatic
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/Sources/CKylixCore/lib
+        OTHER_LDFLAGS: ["-lkylixcore"]
+schemes:
+  KylixAdmin:
+    build:
+      targets:
+        KylixAdmin: all
+    run:
+      config: Debug

@@ -70,6 +70,15 @@ func (r *Request) Header(name string) string {
 	return r.Request.Header.Get(name)
 }
 
+// BodyText returns the raw request body as a string.
+// Kylix declares TRequest.Body as String, but this Go method returns []byte
+// because json.Unmarshal and multipart need bytes. Kylix handlers that want
+// the body text call BodyText (LLVM req.Body is already a string; BodyText
+// is the same load). v0.15.0.
+func (r *Request) BodyText() string {
+	return string(r.Body())
+}
+
 // Body returns the raw request body bytes.
 func (r *Request) Body() []byte {
 	if r.body != nil {

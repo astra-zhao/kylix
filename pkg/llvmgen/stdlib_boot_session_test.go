@@ -67,6 +67,8 @@ func TestBoot_CsrfIR(t *testing.T) {
 	// 403s route through BootText with the Go parity messages.
 	assertIRContains(t, ir, "CSRF token missing: render req.CSRFToken() into the form first")
 	assertIRContains(t, ir, "CSRF token mismatch")
+	// v0.15.0: /api/* skips the token (native JSON login has no session).
+	assertIRContains(t, ir, "/api/")
 	// Middleware chain shape: CSRF picks the response via phi, then finish.
 	assertIRContains(t, ir, "phi ptr")
 	if strings.Contains(ir, "unsupported receiver") {

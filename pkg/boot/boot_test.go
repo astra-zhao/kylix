@@ -412,6 +412,14 @@ func TestRequest_Form(t *testing.T) {
 	}
 }
 
+func TestRequest_BodyText(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"username":"admin"}`))
+	br := &Request{Request: req}
+	if got := br.BodyText(); got != `{"username":"admin"}` {
+		t.Errorf("BodyText()=%q", got)
+	}
+}
+
 func TestRequest_FormQueryFallback(t *testing.T) {
 	req := httptest.NewRequest("GET", "/page?name=Bob", nil)
 	br := &Request{Request: req}
