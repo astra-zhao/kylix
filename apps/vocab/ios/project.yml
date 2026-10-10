@@ -1,0 +1,34 @@
+name: KylixVocab
+options:
+  bundleIdPrefix: dev.kylix
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  KylixVocab:
+    path: .
+targets:
+  KylixVocab:
+    type: application
+    platform: iOS
+    sources:
+      - path: Vocab
+    dependencies:
+      - package: KylixVocab
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.kylix.vocab
+        PRODUCT_NAME: KylixVocab
+        INFOPLIST_FILE: Vocab/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+        CODE_SIGN_STYLE: Automatic
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/Sources/CKylixVocab/lib
+        OTHER_LDFLAGS: ["-lkylixvocab"]
+schemes:
+  KylixVocab:
+    build:
+      targets:
+        KylixVocab: all
+    run:
+      config: Debug

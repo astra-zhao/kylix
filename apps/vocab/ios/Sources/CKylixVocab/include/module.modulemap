@@ -1,0 +1,4 @@
+module CKylixVocab {
+    header "kylixvocab.h"
+    export *
+}

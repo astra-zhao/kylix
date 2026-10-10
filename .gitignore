@@ -25,6 +25,9 @@ test-*.go
 *.so
 *.dylib
 apps/ios/Sources/CKylixCore/lib/*.a
+apps/vocab/ios/Sources/CKylixVocab/lib/*.a
+/vocab_server
+/kylixvocab_gen/
 
 # Go
 vendor/

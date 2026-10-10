@@ -1,7 +1,7 @@
 # 多端示例应用（v0.15.0）
 
 > 2026-10-09。CLI 版本 `0.15.0`。
-> 第一次做：先看 [小白教程](MOBILE_TUTORIAL_CN.md)（从后台跑起来，到模拟器登录，再到 Export 和 stdlib 边界）。本文是同一套示例的参考说明。
+> 第一次做：先看 [小白教程](MOBILE_TUTORIAL_CN.md)。主练习是 `apps/vocab/` 的背单词（浏览、标记认识、复习），本机用 curl 就能走完。登录和 Notes 是同一篇文章的附录，对应本文这套 KylixAdmin 壳。
 > 规划原文：[MULTIPLATFORM.md](MULTIPLATFORM.md) 第三、四、六节；C ABI：[EXPORT_C_ABI.md](EXPORT_C_ABI.md)。
 
 同一份 Kylix 业务单元跑在 admin（H5 就是这个二进制）和 Android / iOS 壳上。壳只负责界面和 HTTP。
@@ -27,8 +27,9 @@ apps/shared/mobilecore.klx       业务单元（admin 与两端都编译它）
 apps/shared/mobilecore_lib.klx   [Export] 包装，只给移动端库
 apps/shared/parity.klx           宿主 Go/LLVM 逐字对比
 apps/shared/host_check.sh        parity + dlopen
-apps/android/                    Kotlin + JNI + OkHttp
-apps/ios/                        SwiftUI + Swift Package + URLSession
+apps/android/                    Kotlin + JNI + OkHttp（登录 + Notes）
+apps/ios/                        SwiftUI + Swift Package + URLSession（登录 + Notes）
+apps/vocab/                      背单词：vocab.klx + 桌面 server.klx + 两端壳
 ```
 
 `mobilecore_lib.klx` 不进 admin 的文件列表。Go 后端看到 `[Export]` 会发 `//export` 和 cgo，admin 不需要那样。
