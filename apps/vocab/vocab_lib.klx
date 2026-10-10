@@ -1,0 +1,83 @@
+// vocab_lib.klx — C ABI exports of the flashcard core.
+//
+// Build (host .so, for apps/vocab/host_check.sh):
+//   kylix build --backend=llvm --shared -o libkylixvocab.so \
+//     ../../stdlib/stringutil.klx vocab.klx vocab_lib.klx
+//
+// Android / iOS commands are apps/vocab/android/build_core.sh and
+// apps/vocab/ios/build_core.sh. Do not add server.klx to those lines:
+// the phone library has no HTTP server.
+//
+// Every returned string is a fresh malloc (s + '') so the caller can pass
+// it to kylix_free. A bare string literal lives in the constant pool.
+program VocabLib;
+
+uses vocab;
+
+function Owned(s: String): String;
+begin
+  result := s + '';
+end;
+
+[Export('vc_words_path')]
+function VcExportWordsPath(): String;
+begin
+  result := Owned(VcWordsPath(0));
+end;
+
+[Export('vc_review_path')]
+function VcExportReviewPath(): String;
+begin
+  result := Owned(VcReviewPath(0));
+end;
+
+[Export('vc_mark_path')]
+function VcExportMarkPath(): String;
+begin
+  result := Owned(VcMarkPath(0));
+end;
+
+[Export('vc_words_query')]
+function VcExportWordsQuery(known: String): String;
+begin
+  result := Owned(VcWordsQuery(known));
+end;
+
+[Export('vc_review_query')]
+function VcExportReviewQuery(known: String): String;
+begin
+  result := Owned(VcReviewQuery(known));
+end;
+
+[Export('vc_browse')]
+function VcExportBrowse(known: String): String;
+begin
+  result := Owned(VcDeckJSON(known, 0));
+end;
+
+[Export('vc_review')]
+function VcExportReview(known: String): String;
+begin
+  result := Owned(VcDeckJSON(known, 1));
+end;
+
+[Export('vc_mark_request')]
+function VcExportMarkRequest(known: String; idText: String): String;
+begin
+  result := Owned(VcMarkRequestJSON(known, idText));
+end;
+
+[Export('vc_apply_mark')]
+function VcExportApplyMark(known: String; idText: String): String;
+begin
+  result := Owned(VcApplyMarkJSON(known, idText));
+end;
+
+[Export('vc_parse')]
+function VcExportParse(status: Integer; body: String): String;
+begin
+  result := Owned(VcParse(status, body));
+end;
+
+begin
+end.

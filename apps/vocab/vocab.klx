@@ -1,0 +1,330 @@
+// vocab.klx — shared flashcard core for the beginner sample (v0.15.0)
+//
+// One source, compiled into:
+//   * apps/vocab/server.klx — a small desktop BootRun server
+//   * apps/vocab/vocab_lib.klx — C ABI for the Android and iOS shells
+//
+// Pure logic. No sockets, no libcurl, no database. The six words live here.
+// The shell remembers which ids are known (a comma-separated list such as
+// "1,3") and sends that string back. HTTP stays in OkHttp / URLSession.
+//
+// Why not httpclient: android and ios targets refuse it and do not link
+// -lcurl. This unit is the one those targets compile. server.klx is not
+// on that link line.
+//
+// JSON is built by hand so both backends emit the same bytes. A source
+// literal '\\' or '\"' is one byte on LLVM and two bytes on Go, so escapes
+// are concatenated one character at a time (same rule as mobilecore.klx).
+// Control bytes (code < 32) become a space. The word list has none.
+//
+// Every public function takes at least one argument. The host Go backend
+// drops parentheses on zero-arg cross-unit calls used as arguments.
+unit vocab;
+
+uses stringutil;
+
+// VcWordCount is the size of the built-in list. Ids are 1..count.
+function VcWordCount(unused: Integer): Integer;
+begin
+  result := 6;
+end;
+
+function VcWordEn(id: Integer): String;
+begin
+  if id = 1 then
+    result := 'apple'
+  else if id = 2 then
+    result := 'book'
+  else if id = 3 then
+    result := 'water'
+  else if id = 4 then
+    result := 'friend'
+  else if id = 5 then
+    result := 'time'
+  else if id = 6 then
+    result := 'happy'
+  else
+    result := '';
+end;
+
+function VcWordZh(id: Integer): String;
+begin
+  if id = 1 then
+    result := '苹果'
+  else if id = 2 then
+    result := '书'
+  else if id = 3 then
+    result := '水'
+  else if id = 4 then
+    result := '朋友'
+  else if id = 5 then
+    result := '时间'
+  else if id = 6 then
+    result := '高兴'
+  else
+    result := '';
+end;
+
+function VcWordsPath(unused: Integer): String;
+begin
+  result := '/api/words';
+end;
+
+function VcReviewPath(unused: Integer): String;
+begin
+  result := '/api/review';
+end;
+
+function VcMarkPath(unused: Integer): String;
+begin
+  result := '/api/mark';
+end;
+
+function VcJsonEscape(s: String): String;
+var
+  i: Integer;
+  c: String;
+  o: Integer;
+  out: String;
+begin
+  out := '';
+  i := 0;
+  while i < Length(s) do
+  begin
+    c := s[i:i+1];
+    o := Ord(c);
+    if c = '\' then
+      out := out + '\' + '\'
+    else if c = '"' then
+      out := out + '\' + '"'
+    else if o < 32 then
+      out := out + ' '
+    else
+      out := out + c;
+    i := i + 1;
+  end;
+  result := out;
+end;
+
+function VcJsonStringField(body: String; key: String): String;
+var
+  needle: String;
+  at: Integer;
+  i: Integer;
+  c: String;
+  n: String;
+  out: String;
+  stop: Boolean;
+begin
+  needle := '"' + key + '":"';
+  at := IndexOf(body, needle);
+  if at < 0 then
+    result := ''
+  else
+  begin
+    i := at + Length(needle);
+    out := '';
+    stop := false;
+    while i < Length(body) do
+    begin
+      if stop then
+        i := Length(body)
+      else
+      begin
+        c := body[i:i+1];
+        if c = '"' then
+          stop := true
+        else if c = '\' then
+        begin
+          if i + 1 < Length(body) then
+          begin
+            n := body[i+1:i+2];
+            out := out + n;
+            i := i + 2;
+          end
+          else
+            stop := true;
+        end
+        else
+        begin
+          out := out + c;
+          i := i + 1;
+        end;
+      end;
+    end;
+    result := out;
+  end;
+end;
+
+function VcFail(message: String): String;
+begin
+  result := '{"ok":false,"error":"' + VcJsonEscape(message) + '"}';
+end;
+
+function VcIsOk(body: String): Integer;
+begin
+  if IndexOf(body, '"ok":true') >= 0 then
+    result := 1
+  else
+    result := 0;
+end;
+
+// VcParseId accepts only "1".."6". Anything else is 0 (Unknown word).
+function VcParseId(idText: String): Integer;
+begin
+  if idText = '1' then
+    result := 1
+  else if idText = '2' then
+    result := 2
+  else if idText = '3' then
+    result := 3
+  else if idText = '4' then
+    result := 4
+  else if idText = '5' then
+    result := 5
+  else if idText = '6' then
+    result := 6
+  else
+    result := 0;
+end;
+
+// VcHas is 1 when the comma-separated known list contains this id.
+function VcHas(known: String; id: Integer): Integer;
+begin
+  if IndexOf(',' + known + ',', ',' + IntToStr(id) + ',') >= 0 then
+    result := 1
+  else
+    result := 0;
+end;
+
+// VcNormalize rewrites the known list as ascending unique ids in 1..count.
+// "3,1,1" and "1,3" are the same bytes. Garbage tokens disappear.
+function VcNormalize(known: String): String;
+var
+  i: Integer;
+  out: String;
+begin
+  out := '';
+  i := 1;
+  while i <= VcWordCount(0) do
+  begin
+    if VcHas(known, i) = 1 then
+    begin
+      if out <> '' then
+        out := out + ',';
+      out := out + IntToStr(i);
+    end;
+    i := i + 1;
+  end;
+  result := out;
+end;
+
+function VcCardJSON(id: Integer; knownFlag: Integer): String;
+var
+  flag: String;
+begin
+  if knownFlag = 1 then
+    flag := 'true'
+  else
+    flag := 'false';
+  result := '{"id":' + IntToStr(id) + ',"en":"' + VcJsonEscape(VcWordEn(id)) + '","zh":"' + VcJsonEscape(VcWordZh(id)) + '","known":' + flag + '}';
+end;
+
+// VcDeckJSON is the browse (onlyUnknown=0) and review (onlyUnknown=1) body.
+// left is how many words are still unknown, even when the cards array is
+// filtered to the review set. total is always VcWordCount.
+function VcDeckJSON(known: String; onlyUnknown: Integer): String;
+var
+  norm: String;
+  i: Integer;
+  items: String;
+  flag: Integer;
+  left: Integer;
+  total: Integer;
+  include: Integer;
+begin
+  norm := VcNormalize(known);
+  items := '';
+  left := 0;
+  total := VcWordCount(0);
+  i := 1;
+  while i <= total do
+  begin
+    flag := VcHas(norm, i);
+    if flag = 0 then
+      left := left + 1;
+    include := 0;
+    if onlyUnknown = 0 then
+      include := 1
+    else if flag = 0 then
+      include := 1;
+    if include = 1 then
+    begin
+      if items <> '' then
+        items := items + ',';
+      items := items + VcCardJSON(i, flag);
+    end;
+    i := i + 1;
+  end;
+  result := '{"ok":true,"known":"' + VcJsonEscape(norm) + '","total":' + IntToStr(total) + ',"left":' + IntToStr(left) + ',"cards":[' + items + ']}';
+end;
+
+// VcApplyMarkJSON adds id to the known list and returns the full deck.
+// An id outside 1..6 is VcFail and does not change the list.
+function VcApplyMarkJSON(known: String; idText: String): String;
+var
+  id: Integer;
+  norm: String;
+begin
+  id := VcParseId(idText);
+  if id = 0 then
+    result := VcFail('Unknown word')
+  else
+  begin
+    norm := VcNormalize(known);
+    if VcHas(norm, id) = 0 then
+    begin
+      if norm = '' then
+        norm := IntToStr(id)
+      else
+        norm := norm + ',' + IntToStr(id);
+      norm := VcNormalize(norm);
+    end;
+    result := VcDeckJSON(norm, 0);
+  end;
+end;
+
+function VcWordsQuery(known: String): String;
+begin
+  result := VcWordsPath(0) + '?known=' + VcNormalize(known);
+end;
+
+function VcReviewQuery(known: String): String;
+begin
+  result := VcReviewPath(0) + '?known=' + VcNormalize(known);
+end;
+
+function VcMarkRequestJSON(known: String; idText: String): String;
+begin
+  result := '{"known":"' + VcJsonEscape(VcNormalize(known)) + '","id":"' + VcJsonEscape(idText) + '"}';
+end;
+
+// VcParse keeps a 200 body that contains "ok":true. Any other status, or a
+// 200 that is not that shape, becomes an error object. A server error string
+// is kept when the body has one.
+function VcParse(status: Integer; body: String): String;
+var
+  err: String;
+begin
+  if (status = 200) and (IndexOf(body, '"ok":true') >= 0) then
+    result := body
+  else
+  begin
+    err := VcJsonStringField(body, 'error');
+    if err = '' then
+      err := 'request failed';
+    result := VcFail(err);
+  end;
+end;
+
+end.

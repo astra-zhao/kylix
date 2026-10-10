@@ -1,0 +1,55 @@
+// server.klx — desktop flashcard HTTP server.
+//
+// The phone shells do not link this file. They call the exports in
+// vocab_lib.klx to build the path and the POST body, then OkHttp or
+// URLSession performs the request. This process is the other side.
+//
+// Responses are BootText, not BootJSON. The LLVM BootJSON call drops its
+// value argument (the body stays empty). A hand-built JSON string is the
+// shape both backends actually send. Clients parse the body and ignore
+// Content-Type (text/plain).
+//
+//   GET  /api/words?known=1,3    full deck
+//   GET  /api/review?known=1,3   words not yet marked
+//   POST /api/mark               {"known":"1","id":"3"} → full deck
+//
+// known is the client's list. This server does not store it. Port 8091,
+// so it can run beside KylixAdmin on 8090.
+program VocabServer;
+
+uses boot, vocab;
+
+[Controller('/api')]
+type
+  TVocabController = class
+    [Get('/words')]
+    function Words(req: TRequest): TResponse;
+    begin
+      result := BootText(200, VcDeckJSON(req.Query('known'), 0));
+    end;
+
+    [Get('/review')]
+    function Review(req: TRequest): TResponse;
+    begin
+      result := BootText(200, VcDeckJSON(req.Query('known'), 1));
+    end;
+
+    [Post('/mark')]
+    function Mark(req: TRequest): TResponse;
+    var
+      body: String;
+      applied: String;
+    begin
+      body := req.BodyText();
+      applied := VcApplyMarkJSON(VcJsonStringField(body, 'known'), VcJsonStringField(body, 'id'));
+      if VcIsOk(applied) = 1 then
+        result := BootText(200, applied)
+      else
+        result := BootText(400, applied);
+    end;
+  end;
+
+begin
+  WriteLn('vocab server on :8091');
+  BootRun(8091);
+end.

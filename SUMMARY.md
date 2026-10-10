@@ -226,6 +226,7 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 | [README.md](README.md) / [README_CN.md](README_CN.md) | 项目主文档（英文/中文） |
 | [docs/GETTING_STARTED_CN.md](docs/GETTING_STARTED_CN.md) | 快速入门（中文） |
 | [docs/TUTORIAL_FOR_BEGINNERS_CN.md](docs/TUTORIAL_FOR_BEGINNERS_CN.md) | 小白友好入门教程（由浅入深 + ASCII 图解） |
+| [docs/MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md) | 用 Kylix 做 Android / iOS 的小白教程（背单词：核心 → curl → `.so`/`.a` → 模拟器；登录见附录） |
 | [examples/complete-tutorial/](examples/complete-tutorial/) | 完整教程（25 章节 56 编号示例，README_CN.md 中文） |
 | [docs/KYLIX_IDE_USER_MANUAL.md](docs/KYLIX_IDE_USER_MANUAL.md) | IDE 工具使用手册 |
 | [docs/KYLIX_DEV_GUIDE.md](docs/KYLIX_DEV_GUIDE.md) | 开发指南（架构与贡献） |

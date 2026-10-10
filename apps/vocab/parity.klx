@@ -1,0 +1,22 @@
+// parity.klx — host Go vs LLVM byte-compare of the flashcard core.
+// Not a tutorial under examples/complete-tutorial. Run via
+// apps/vocab/host_check.sh. apps/vocab/e2e.sh reads these lines as the
+// HTTP response it expects from server.klx.
+program VocabParity;
+
+uses vocab;
+
+begin
+  WriteLn('browse=' + VcDeckJSON('', 0));
+  WriteLn('mark=' + VcApplyMarkJSON('', '1'));
+  WriteLn('review=' + VcDeckJSON('1', 1));
+  WriteLn('again=' + VcApplyMarkJSON('1', '1'));
+  WriteLn('both=' + VcDeckJSON('3,1,1', 0));
+  WriteLn('bad=' + VcApplyMarkJSON('1', '9'));
+  WriteLn('query=' + VcWordsQuery('3,1,1'));
+  WriteLn('rquery=' + VcReviewQuery('3,1'));
+  WriteLn('req=' + VcMarkRequestJSON('1', '2'));
+  WriteLn('parse=' + VcParse(400, VcFail('Unknown word')));
+  WriteLn('parsebad=' + VcParse(500, 'nope'));
+  WriteLn('emptyq=' + VcWordsQuery(''));
+end.

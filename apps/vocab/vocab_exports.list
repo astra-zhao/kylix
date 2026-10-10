@@ -1,0 +1,14 @@
+# Dynamic symbols the Android .so and the iOS .a must export.
+# host_check.sh dlopens the host build of the same names.
+# Lines starting with # are comments.
+vc_words_path
+vc_review_path
+vc_mark_path
+vc_words_query
+vc_review_query
+vc_browse
+vc_review
+vc_mark_request
+vc_apply_mark
+vc_parse
+kylix_free
