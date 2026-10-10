@@ -1,10 +1,10 @@
 # Kylix 技术债务与后续开发清单
 
 > 最后更新: 2026-10-09
-> 当前版本: v0.14.0 已发布；v0.15.0 进行中（多端示例应用 + wasm32 纯逻辑，未发版）
+> 当前版本: v0.15.0 已发布（2026-10-09）；下一步 1.0.0
 > 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md), [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md), [docs/WASI.md](docs/WASI.md)
 
-## 🚧 v0.15.0 进行中（示例应用落地时记下）
+## 🚧 v0.15.0 已知问题（2026-10-09 发版准备时核对代码）
 
 - **HTTP 留在原生壳，这是选型，不是欠账。** `apps/shared/mobilecore.klx` 不含 socket / libcurl / db。android/ios 上调用 `httpclient` 或 libpq 会在链接前被拒绝，不链 `-lcurl`/`-lpq`/`-lcrypto`。SHA-256/MD5 走可移植实现；sqlite 见下一节。
 - [x] **JWT refresh**（v0.15 示例已接上）。登录发 24 小时 access（`typ=access`）和 30 天 refresh（`typ=refresh` + `jti`）。`api_refresh` 每个 `jti` 一行，同一用户最多 8 行。`POST /api/refresh` 与 `POST /api/logout` 只撤销提交的那一张。壳用 EncryptedSharedPreferences / Keychain 持久化，冷启动恢复，到期前 60 秒或列表 401 时刷新一次，失败或登出才清本地。开发默认 secret `kylix-admin-dev-secret` 仍只适合 localhost。离线登出删不掉服务器行；同一张 token 并发刷新可能留下两个后继；过期行要等该用户下次发 token 才扫掉。模拟器上的冷启动未跑。
