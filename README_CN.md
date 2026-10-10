@@ -1113,6 +1113,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 - [模板引擎指南](docs/TEMPLATE_GUIDE.md) - HTML 模板渲染
 - [LLVM 后端](docs/llvm-backend.md) - 原生后端内部机制
 - [自举开发指南](docs/SELFHOSTING_DEV_GUIDE.md) - bootstrap 编译器工作原理
+- [用 Kylix 做 Android 和 iOS（小白教程）](docs/MOBILE_TUTORIAL_CN.md) - 从零跑通后台、编 `.so`/`.a`、在模拟器里登录
 - [多端示例应用](docs/MOBILE_APPS.md) - Android / iOS 壳、共享 Kylix 核心、本机验收命令
 - [WASI / wasm32](docs/WASI.md) - LLVM `wasm32-unknown-wasi` 纯逻辑目标与 Go wasip1 导入表
 

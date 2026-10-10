@@ -1,6 +1,7 @@
 # 多端示例应用（v0.15.0）
 
 > 2026-10-09。CLI 版本 `0.15.0`。
+> 第一次做：先看 [小白教程](MOBILE_TUTORIAL_CN.md)（从后台跑起来，到模拟器登录，再到 Export 和 stdlib 边界）。本文是同一套示例的参考说明。
 > 规划原文：[MULTIPLATFORM.md](MULTIPLATFORM.md) 第三、四、六节；C ABI：[EXPORT_C_ABI.md](EXPORT_C_ABI.md)。
 
 同一份 Kylix 业务单元跑在 admin（H5 就是这个二进制）和 Android / iOS 壳上。壳只负责界面和 HTTP。
