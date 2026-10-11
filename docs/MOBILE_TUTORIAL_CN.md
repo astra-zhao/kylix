@@ -4,7 +4,7 @@
 
 你不需要会 Pascal，也不需要先读编译器内部。会把命令复制到终端、会看终端里打出来的字，就可以开始。
 
-当前发布版本仍是 **v0.15.0**。`./kylix version` 打印 `Kylix 0.15.0`。`kylix mobile` 这组命令已经在主分支上，发版号还没改。命令的逐项说明在 [MOBILE_COMMANDS.md](MOBILE_COMMANDS.md)。
+当前版本是 **v0.16.0**（2026-10-11）。`./kylix version` 打印 `Kylix 0.16.0`。命令的逐项说明在 [MOBILE_COMMANDS.md](MOBILE_COMMANDS.md)。
 
 主练习是 `apps/vocab/`。登录和 Notes 是另一套示例，放在文末的进阶里，只告诉你去哪看，不在这里重做。
 
@@ -40,7 +40,7 @@ Android (11349228, +pgo, +bolt, +lto, -mlgo, based on r487747e) clang version 17
 
 | 步骤 | 这台 Linux |
 |---|---|
-| `go build -o kylix`、`./kylix version` | 跑过，打印 `Kylix 0.15.0` |
+| `go build -o kylix`、`./kylix version` | 跑过，打印 `Kylix 0.16.0` |
 | `./kylix mobile doctor`（NDK 指对） | 跑过，退出码 0 |
 | 不设 `ANDROID_NDK_HOME` / `ANDROID_NDK_ROOT` 再跑 doctor | 跑过，退出码仍是 0 |
 | HOME 指到不存在的目录，同时 ROOT 指着一份好的 NDK | 跑过，退出码 1 |
@@ -270,7 +270,7 @@ go build -o kylix ./cmd/kylix/
 这台机器上，`go version` 的整行是 `go version go1.25.0 linux/amd64`。`clang --version` 和 `cc --version` 的第一行都是 `Ubuntu clang version 18.1.3 (1ubuntu1)`（这里的 `cc` 就是 clang）。`llc --version` 是 `command not found`。`./kylix version` 打印：
 
 ```text
-Kylix 0.15.0
+Kylix 0.16.0
 ```
 
 `go.mod` 写的是 Go 1.25.0。请用 1.25.0 或更新的 Go。文件名是 `kylix`，就在仓库根。它已经在 `.gitignore` 里，不用提交。
@@ -316,7 +316,7 @@ NDK 还没装也可以跑。没装时最后一行仍是 ready，第 4 章不需�
 
 ### 这一章做完时
 
-- [ ] `./kylix version` 打印 `Kylix 0.15.0`
+- [ ] `./kylix version` 打印 `Kylix 0.16.0`
 - [ ] `./kylix mobile doctor` 的最后一行是 `vocab tools are ready`
 
 ---

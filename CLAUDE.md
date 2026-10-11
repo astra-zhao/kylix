@@ -4,7 +4,9 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 
 **重要：始终用中文回答用户，不论用户用什么语言提问，回复一律使用中文。**
 
-## 当前状态：v0.15.0 已发布（2026-10-09）；下一步 1.0.0（正式版 gate）
+## 当前状态：v0.16.0 已发布（2026-10-11）；下一步 1.0.0（正式版 gate）
+
+- v0.16.0（2026-10-11 发布，CLI `0.16.0`）：**移动端开发体验**——(1) **`kylix mobile`**：`doctor` / `check` / `serve` / `build android amd64|arm64` / `build ios simulator|device`。`apps/vocab` 的 `.sh` 调用这些子命令。指南 [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md)、零基础教程 [docs/MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md)。(2) **NDK 钉死**：非空 `ANDROID_NDK_HOME` 是唯一探测路径，不再落到有效的 `ANDROID_NDK_ROOT`；报错含试过的路径和 `linux-x86_64` 这类预编译目录名。(3) **中间文件与 iOS 主机**：`.ll`/`.o` 不留在 `apps/vocab` 旁边；非 macOS 的 iOS 目标在写出 `.a` 之前失败，并写明 macOS、完整 Xcode、`xcodegen`。(4) **CI**：`mobile-android` 跑 doctor/check/两种 Android ABI/iOS 拒绝；`llvm-windows` 检查 WSL 提示；`mobile-ios` 多编一份 vocab 模拟器 `.a`。模拟器点击仍是手工步骤。AES/PBKDF2、httpclient、libpq 在移动端仍拒绝。验收记录 [docs/MOBILE_DX.md](docs/MOBILE_DX.md)。
 
 - v0.15.0（2026-10-09 发布，CLI `0.15.0`）：(1) **示例壳**——`apps/android/`（Kotlin + JNI + OkHttp）与 `apps/ios/`（SwiftUI + URLSession）共用 `apps/shared/mobilecore.klx`。KylixAdmin：`POST /api/login`、`POST /api/refresh`、`POST /api/logout`、`GET /api/notes`。每个 `jti` 一行（上限 8）；壳用 EncryptedSharedPreferences / Keychain。(2) **CI 产物门**——`mobile-android`、`mobile-ios`，不启动模拟器。(3) **wasm32-unknown-wasi**——`--backend=llvm --target wasi/wasm32`；`internal/wasiapi.Preview1` 十二个导入；无 DOM；setjmp 不捕获（`proc_exit(70)`）；8MiB bump 堆。`--wasm` 仍是 Go `GOOS=js`。验收 `examples/wasi-logic/check.sh` 与 CI `wasi-wasm32`。指南 [docs/WASI.md](docs/WASI.md)。(4) **stdlib android/ios**——`localtime_r`、GetTempDir、`SO_REUSEADDR`、`portable/hash.c`、ios 系统 sqlite、android amalgamation。AES/PBKDF2、httpclient、libpq 在移动端拒绝。模拟器/真机登录仍未自动化。指南 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)。
 
@@ -230,5 +232,5 @@ Kylix 是现代 Pascal → Go 转译器。编译器用 Go 编写，生成 Go 代
 - **v0.8.0 — 自举 stdlib（真自包含）**：纯 Kylix stdlib 模块扩展（.klx → 烘焙 → 三端同源）、内存管理（arena 推广 + htab 防护）、boot server 多 cookie/xhdrs realloc。
 - **v0.9.0 — 1.0.0-rc**：bootstrap boot server 实施（解除 example60 SKIP）+ 重烘链路修复（cover.klx 入库 + 段表自动生成）+ **KylixBoot 框架补齐**（Session/CSRF/文件上传/分页/模板 layout/Download——KylixAdmin P1 硬前置，见 docs/ADMIN_PLATFORM.md）+ 三平台 CI 稳定全绿 + 性能基线入 CI + API 稳定性审查。
 - **v0.10.0–v0.12.0 — KylixAdmin 后台管理平台**（详细规划见 docs/ADMIN_PLATFORM.md）：P2 认证 RBAC（登录/角色/权限五表/审计）→ P3 通用 CRUD 引擎（`[Entity]` 元数据驱动 + 仪表盘）+ P4 自研 UI 设计系统（亮暗主题/无 CDN）→ P5 postgres 方言抽象 + 一键部署单二进制。代码 `apps/admin/`。
-- **v0.13.0–v0.15.0 — 多端平台**（详细规划见 docs/MULTIPLATFORM.md，架构：共享 Kylix 核心 + 各端原生壳）：v0.13.0 H5 PWA + 登录限流已发布；v0.14.0 C ABI `[Export]` + android/ios triple + NDK/Xcode 探测已发布；v0.15.0 示例应用、移动端 CI 产物门、wasm32-unknown-wasi、stdlib android/ios 平台分支已发布（2026-10-09）。AES/PBKDF2、httpclient、libpq 在移动端拒绝。
+- **v0.13.0–v0.16.0 — 多端平台**（详细规划见 docs/MULTIPLATFORM.md，架构：共享 Kylix 核心 + 各端原生壳）：v0.13.0 H5 PWA + 登录限流已发布；v0.14.0 C ABI `[Export]` + android/ios triple + NDK/Xcode 探测已发布；v0.15.0 示例应用、移动端 CI 产物门、wasm32-unknown-wasi、stdlib android/ios 平台分支已发布（2026-10-09）；v0.16.0 `kylix mobile` doctor/check/serve/build、NDK HOME 钉死、零基础教程已发布（2026-10-11）。AES/PBKDF2、httpclient、libpq 在移动端拒绝。
 - **1.0.0**：正式版 gate（SECURITY/UPGRADING、版本化承诺、KylixAdmin 与多端验收清单）。KylixAdmin + 多端为旗舰 showcase。

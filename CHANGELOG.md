@@ -12,9 +12,9 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
-## Unreleased — v0.16.0 移动端开发体验（尚未发版）
+## v0.16.0 — 移动端开发体验 ✅（2026-10-11 发布）
 
-CLI 版本号仍是 `0.15.0`。本段只记录已经进主分支的命令，发版时再 bump、打标签。
+CLI 版本 `0.16.0`。本版把背单词示例 `apps/vocab` 收成 `kylix mobile` 子命令，并按这些命令重写零基础教程。模拟器 / 真机上的点击仍是手工步骤。对应 PR #11（计划与教程初稿）、PR #12（命令、NDK 钉死、CI）、PR #13（教程全文重写）。
 
 - `kylix mobile doctor` / `check` / `serve` / `build android amd64|arm64` / `build ios simulator|device`。`apps/vocab` 的 `.sh` 改为调用这些子命令。说明见 [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md)。
 - 指错的 `ANDROID_NDK_HOME` 不再落到另一份 NDK 上，包括同时设置了有效的 `ANDROID_NDK_ROOT` 时；报错含试过的路径和 `linux-x86_64` 这类预编译目录名。ROOT 只在 HOME 为空时作为唯一搜索路径。
@@ -22,6 +22,7 @@ CLI 版本号仍是 `0.15.0`。本段只记录已经进主分支的命令，发�
 - `.gitignore` 的 `*.txt` 用 `!CMakeLists.txt` 收窄。
 - 非 macOS 上的 iOS 目标在写出 `.a` 之前失败，并说明需要 macOS、完整 Xcode、`xcodegen`。
 - CI：`mobile-android` 跑 doctor/check/两种 Android ABI/iOS 拒绝；`llvm-windows` 检查 WSL 提示；`mobile-ios` 多编一份 vocab 模拟器 `.a`。
+- 计划与验收写在 [docs/MOBILE_DX.md](docs/MOBILE_DX.md)（PR #11）。零基础教程 [docs/MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md) 先按旧脚本起草（PR #11），再按 `kylix mobile` 全文重写（PR #13）。
 
 ## v0.15.0 — 多端示例应用 + wasm32-unknown-wasi + stdlib android/ios 平台分支 ✅（2026-10-09 发布）
 

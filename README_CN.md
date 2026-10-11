@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
-[![版本](https://img.shields.io/badge/version-0.15.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.16.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix 是 Pascal 语言的现代化重构,设计为编译到 Go,或经 LLVM 后端编译为原生二进制。它将 Pascal 的清晰简洁与现代语言特性结合,并提供完整的 IDE 工具链和编辑器集成。
 
 > 🌐 **官网**: [https://kylix.top](https://kylix.top) — 交互式文档、实时示例和完整功能展示。
+>
+> 🚀 **v0.16.0**: **`kylix mobile` 收口背单词。** `doctor`、`check`、`serve`，以及 `build android amd64|arm64` / `build ios simulator|device`，都走 `apps/vocab`。指错的 `ANDROID_NDK_HOME` 不会改用 `ANDROID_NDK_ROOT`。非 macOS 上的 iOS 目标在写出 `.a` 之前失败，并写明需要 macOS、完整 Xcode、`xcodegen`。CI 的 `mobile-android` 跑 doctor、check、两种 Android ABI 和 iOS 拒绝；`mobile-ios` 多编一份 vocab 模拟器 `.a`；`llvm-windows` 检查 WSL 提示。零基础步骤：[docs/MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md)。命令说明：[docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md)。模拟器点击仍是手工步骤。AES/PBKDF2、httpclient、libpq 在 android/ios 上仍拒绝。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
 > 🚀 **v0.15.0**: **示例壳、wasm32-wasi，以及移动端 stdlib。** Android（Kotlin + JNI + OkHttp）与 iOS（SwiftUI + URLSession）共用 `apps/shared/mobilecore.klx`（校验 + JSON 契约，不含 HTTP）。KylixAdmin 增加 `POST /api/login`、`POST /api/refresh`、`POST /api/logout` 与 `GET /api/notes`。同一用户可持有多张 refresh token（每个 `jti` 一行，上限 8）。壳用 EncryptedSharedPreferences / Keychain 持久化会话。CI 在 Linux 上检查 Android ELF `.so`，在 macOS 上检查 iOS `.a` 符号并做 SDK 链接冒烟，不启动模拟器（[多端指南](docs/MOBILE_APPS.md)）。LLVM 目标 `wasi/wasm32` 是 `wasm32-unknown-wasi`（无 DOM）；`--wasm` 仍是 `GOOS=js`（[WASI 指南](docs/WASI.md)）。android/ios 上 SHA-256/MD5 走可移植实现，sqlite 分端链接，不链 libcurl/OpenSSL/libpq。AES/PBKDF2 与 httpclient 在这两个目标上仍不可用。详见 [CHANGELOG.md](CHANGELOG.md)。
 >
@@ -1114,14 +1116,14 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 - [LLVM 后端](docs/llvm-backend.md) - 原生后端内部机制
 - [自举开发指南](docs/SELFHOSTING_DEV_GUIDE.md) - bootstrap 编译器工作原理
 - [用 Kylix 做 Android 和 iOS（零基础教程）](docs/MOBILE_TUTORIAL_CN.md) - 背单词：`kylix mobile doctor / check / serve / build`，含真实输出和排错；登录和 Notes 在进阶里指向多端指南
-- [kylix mobile 命令](docs/MOBILE_COMMANDS.md) - doctor / check / serve / build（已落地，`kylix version` 仍是 0.15.0）
-- [移动端开发体验计划](docs/MOBILE_DX.md) - v0.16.0 验收记录
+- [kylix mobile 命令](docs/MOBILE_COMMANDS.md) - doctor / check / serve / build（`kylix version` 为 0.16.0）
+- [移动端开发体验](docs/MOBILE_DX.md) - v0.16.0 验收记录
 - [多端示例应用](docs/MOBILE_APPS.md) - Android / iOS 壳、共享 Kylix 核心、本机验收命令
 - [WASI / wasm32](docs/WASI.md) - LLVM `wasm32-unknown-wasi` 纯逻辑目标与 Go wasip1 导入表
 
 ## 路线图
 
-当前状态：**v0.15.0 发版准备完成**（2026-10-09）。`kylix version` 报告 0.15.0。Android / iOS 示例壳共用 `apps/shared/mobilecore.klx`，对接 KylixAdmin 的 `POST /api/login`、`POST /api/refresh`、`POST /api/logout`、`GET /api/notes`；每个 `jti` 一行（上限 8），壳端持久化（[多端指南](docs/MOBILE_APPS.md)）。CI 检查 Android `.so`、iOS `.a`，以及 LLVM `wasm32-unknown-wasi`（`--target wasi/wasm32`，job `wasi-wasm32`，[WASI 指南](docs/WASI.md)）。android/ios 的 stdlib 用可移植哈希和分端 sqlite，不链 libcurl、OpenSSL、libpq。AES/PBKDF2 与 httpclient 在这两个目标上仍不可用。模拟器与真机登录仍是手工步骤。下一站：**v0.16.0**（`kylix mobile` 已在主分支，尚未发版，见 [MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md)），其后是 **1.0.0**。完整路线图见 [ROADMAP.md](ROADMAP.md)。
+当前状态：**v0.16.0 已发布**（2026-10-11）。`kylix version` 报告 0.16.0。`kylix mobile doctor / check / serve / build` 驱动背单词示例 `apps/vocab`；设了 `ANDROID_NDK_HOME` 就不会改用 `ANDROID_NDK_ROOT`。零基础步骤在 [MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md)。Android / iOS 示例壳仍共用 `apps/shared/mobilecore.klx`，对接 KylixAdmin 的 JSON 路由（[多端指南](docs/MOBILE_APPS.md)）。CI 检查 Android `.so`、iOS `.a`、vocab 的 mobile 命令，以及 LLVM `wasm32-unknown-wasi`（`--target wasi/wasm32`，[WASI 指南](docs/WASI.md)）。AES/PBKDF2 与 httpclient 在 android/ios 上仍不可用。模拟器与真机点击仍是手工步骤。下一站：**1.0.0**。完整路线图见 [ROADMAP.md](ROADMAP.md)。
 
 ## 跨平台编译
 
@@ -1251,6 +1253,7 @@ WsClose(ws);
 
 | 版本 | 亮点 |
 |------|------|
+| v0.16.0 | `kylix mobile` doctor/check/serve/build（`apps/vocab`）；指错的 `ANDROID_NDK_HOME` 不回落到 `ANDROID_NDK_ROOT`；非 macOS 的 iOS 目标在写出 `.a` 之前失败；CI 覆盖 vocab 的 doctor/check、两种 Android ABI，以及 vocab 模拟器 `.a`；零基础教程按这些命令重写 |
 | v0.15.0 | Android/iOS 示例壳（共用 `mobilecore.klx`、多设备 JWT refresh、EncryptedSharedPreferences/Keychain）、Android `.so` 与 iOS `.a` 的 CI 产物门、LLVM `wasm32-unknown-wasi`（`--target wasi/wasm32`）、stdlib android/ios 平台分支（可移植 SHA-256/MD5、分端 sqlite；不链 libcurl/OpenSSL/libpq） |
 | v0.14.0 | 编译器多端能力：`[Export]` / `[Export('c_symbol')]` 双端 C ABI、`kylix_free`、LLVM `--shared`（`.so`/`.dylib`/`.dll` 与 `.o`/`.a`）、Android/iOS triple（`android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`） |
 | v0.13.0 | KylixAdmin H5：可安装 PWA（manifest、service worker、192/512 图标、`≤900px` 卡片化）+ 登录限流（20 次失败/15 分钟/IP → 429） |
