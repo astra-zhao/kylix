@@ -1,11 +1,11 @@
 # Kylix Development Roadmap
 
-> 最后更新: 2026-10-09  
-> 当前版本: v0.15.0 已发布（2026-10-09）；下一步 v0.16.0（规划：移动端开发体验，未开工），其后仍是 1.0.0（正式版 gate）  
+> 最后更新: 2026-10-11  
+> 当前版本: v0.15.0 已发布（2026-10-09）；下一步 v0.16.0（移动端开发体验，命令已落地，尚未发版），其后仍是 1.0.0（正式版 gate）  
 > 官网: [kylix.top](https://kylix.top)  
 > 目标: Kylix 成为生产级、多后端、全栈 Pascal 语言
 
-**✅ v0.15.0 已发布（2026-10-09）！** 多端示例应用：`apps/shared/mobilecore.klx`（校验 + JSON 协议，无 HTTP）编进 KylixAdmin，并由 `[Export]` 供 `apps/android/`（Kotlin + JNI + OkHttp）与 `apps/ios/`（SwiftUI + Swift Package + URLSession）调用。`POST /api/login` 发 24 小时 access token 和 30 天 refresh token；`api_refresh` 每个 `jti` 一行（每用户最多 8），`POST /api/refresh` 与 `POST /api/logout` 只撤销提交的那一张。壳把会话放进 EncryptedSharedPreferences / Keychain。CI 在 Linux 上检查 Android ELF `.so`，在 macOS 上检查 iOS `.a` 符号并做 SDK 链接冒烟，并链 `examples/mobile-stdlib` 的可移植 stdlib 探针。LLVM `wasm32-unknown-wasi`（`--target wasi/wasm32`）与 stdlib 的 android/ios 平台分支一并落地。指南 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)、[docs/WASI.md](docs/WASI.md)、[docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)。AES/PBKDF2、httpclient、libpq 在移动端仍拒绝。真机登录步骤在指南里，CI 不装机、不启动模拟器。**下一步 → v0.16.0（规划，见 [docs/MOBILE_DX.md](docs/MOBILE_DX.md)），再进入 1.0.0**。
+**✅ v0.15.0 已发布（2026-10-09）！** 多端示例应用：`apps/shared/mobilecore.klx`（校验 + JSON 协议，无 HTTP）编进 KylixAdmin，并由 `[Export]` 供 `apps/android/`（Kotlin + JNI + OkHttp）与 `apps/ios/`（SwiftUI + Swift Package + URLSession）调用。`POST /api/login` 发 24 小时 access token 和 30 天 refresh token；`api_refresh` 每个 `jti` 一行（每用户最多 8），`POST /api/refresh` 与 `POST /api/logout` 只撤销提交的那一张。壳把会话放进 EncryptedSharedPreferences / Keychain。CI 在 Linux 上检查 Android ELF `.so`，在 macOS 上检查 iOS `.a` 符号并做 SDK 链接冒烟，并链 `examples/mobile-stdlib` 的可移植 stdlib 探针。LLVM `wasm32-unknown-wasi`（`--target wasi/wasm32`）与 stdlib 的 android/ios 平台分支一并落地。指南 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)、[docs/WASI.md](docs/WASI.md)、[docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md)。AES/PBKDF2、httpclient、libpq 在移动端仍拒绝。真机登录步骤在指南里，CI 不装机、不启动模拟器。**下一步 → v0.16.0（命令已在主分支，尚未发版；`kylix version` 仍是 0.15.0。见 [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md) 与 [docs/MOBILE_DX.md](docs/MOBILE_DX.md)），再进入 1.0.0**。
 
 **✅ v0.14.0 已发布（2026-10-07）！** 编译器多端能力：`[Export]` / `[Export('c_symbol')]` 双端 C ABI、`kylix_free`、LLVM `--shared`（`.so`/`.dylib`/`.dll`，以及 `.o`/`.a`）、triple `android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`，`FindAndroidNdk()` 与 macOS 上的 Xcode 链接。指南 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)。
 
@@ -85,7 +85,7 @@
 | **v0.13.0** | H5 移动端：可安装 PWA（manifest/sw.js）+ 登录限流（IP 维度查 login_logs） | ✅ 完成 | 2026-09-24 |
 | **v0.14.0** | 编译器多端能力：C ABI [Export] + --shared 动态库/静态库 + Android/iOS triple + NDK/Xcode 探测 | ✅ 完成 | 2026-10-07 |
 | **v0.15.0** | 多端示例应用 + wasm32-unknown-wasi + stdlib android/ios 平台分支 + 移动端 CI 产物门 | ✅ 完成 | 2026-10-09 |
-| **v0.16.0** | 移动端开发体验：`kylix mobile` doctor/check/serve/build、NDK 错误写明路径、教程步骤进 CI | 📋 规划 | — |
+| **v0.16.0** | 移动端开发体验：`kylix mobile` doctor/check/serve/build、NDK 错误写明路径、教程步骤进 CI | 🚧 已落地，未发版 | — |
 
 ---
 
@@ -290,17 +290,17 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 - [x] stdlib android/ios 平台分支：datetime `localtime_r`；sysutil `GetTempDir`（android `/data/local/tmp`，ios `confstr`）；net `SO_REUSEADDR`（android 用 Linux 常量，ios 用 Darwin）；exc `setjmp`。SHA-256/MD5 用 `portable/hash.c`，不链 `-lcrypto`。ios sqlite 链系统 `libsqlite3.tbd`；android sqlite 编译 amalgamation（脚本拉取，不入库）。httpclient、libpq、AES/PBKDF2 在这两个目标上拒绝，不把桌面库链进手机。验收 `examples/mobile-stdlib/check.sh`
 - [x] wasm32-unknown-wasi triple + `pkg/wasi` 真实现（`wasi_snapshot_preview1` 纯逻辑子集 12 个导入；DOM 不进 wasm）。`kylix build --backend=llvm --target wasi/wasm32`。单独的 `--wasi` 仍是 Go `GOOS=wasip1`。指南 [docs/WASI.md](docs/WASI.md)。验收：`examples/wasi-logic/check.sh` 与 CI job `wasi-wasm32`
 
-### v0.16.0 — 移动端开发体验（规划，未开工）
+### v0.16.0 — 移动端开发体验（已落地，尚未发版）
 
-v0.15.0 已经能编出 Android `.so` 和（在 Mac 上）iOS `.a`，背单词示例也能在 Linux 上用 curl 走完。把同一条路写成零基础教程时，步骤仍然散：bash 脚本、手动文件列表、`kylix doctor` 不认识 NDK、`e2e` 跑完就把 8091 关掉、Windows 的 `kylix.exe` 跑不了这些 `.sh`。依据和验收写在 [docs/MOBILE_DX.md](docs/MOBILE_DX.md)。这里只列范围，本版不实现。
+v0.15.0 已经能编出 Android `.so` 和（在 Mac 上）iOS `.a`。本版把背单词路径收成 `kylix mobile` 子命令。CLI 版本号仍是 0.15.0，发版时再 bump。依据和验收写在 [docs/MOBILE_DX.md](docs/MOBILE_DX.md)，命令说明在 [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md)。零基础教程不在本轮改写。
 
-- [ ] `kylix mobile doctor`：分开「背单词必需 / Android NDK / 仅 Mac 的 iOS / 这个例子不用的 libcurl」。指错 NDK 时打印试过的路径和 `linux-x86_64` 这类预编译目录名
-- [ ] `kylix mobile check` 与 `kylix mobile serve`：check 覆盖 Go/LLVM 逐字节和 curl 三步（浏览、标记、复习不含 apple）；serve 把 8091 留在前台。CI 跑 check，锁住教程里的成功行
-- [ ] `kylix mobile build android amd64|arm64`：固定三个 `.klx`、正确的 `jniLibs` 目录、ELF 与 `vc_*` 符号检查，并写明哪一种模拟器该用哪一份
-- [ ] 构建中间的 `.ll` / `.o` 不要留在 `apps/vocab/` 源码旁边
-- [ ] `.gitignore` 的 `*.txt` 不再挡住新的 `CMakeLists.txt`
-- [ ] 非 macOS 上的 iOS 构建失败信息写明需要 macOS、完整 Xcode、`xcodegen`；不在 Linux 上产出不能用的 `.a`
-- [ ] 不把 `httpclient` 链进手机，不在 CI 里点击模拟器
+- [x] `kylix mobile doctor`：分开「背单词必需 / Android NDK / 仅 Mac 的 iOS / 这个例子不用的 libcurl」。指错 NDK 时打印试过的路径和 `linux-x86_64` 这类预编译目录名
+- [x] `kylix mobile check` 与 `kylix mobile serve`：check 覆盖 Go/LLVM 逐字节和 curl 三步（浏览、标记、复习不含 apple）；serve 把 8091 留在前台。CI 跑 check，锁住教程里的成功行
+- [x] `kylix mobile build android amd64|arm64`：固定三个 `.klx`、正确的 `jniLibs` 目录、ELF 与 `vc_*` 符号检查，并写明哪一种模拟器该用哪一份
+- [x] 构建中间的 `.ll` / `.o` 不要留在 `apps/vocab/` 源码旁边
+- [x] `.gitignore` 的 `*.txt` 不再挡住新的 `CMakeLists.txt`
+- [x] 非 macOS 上的 iOS 构建失败信息写明需要 macOS、完整 Xcode、`xcodegen`；不在 Linux 上产出不能用的 `.a`
+- [x] 不把 `httpclient` 链进手机，不在 CI 里点击模拟器
 
 ### 1.0.0 — 正式版（gate）
 - [ ] v0.7.1–v0.16.0 全部完成（含 KylixAdmin 旗舰 showcase + H5/Android/iOS 多端能力；v0.16.0 是移动端「少步骤、报错可读」）

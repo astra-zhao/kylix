@@ -6,12 +6,14 @@
 
 ## 本机先跑通（不需要手机）
 
-在仓库根：
+在仓库根。下面的脚本调用 `kylix mobile`（说明见 [命令参考](../../docs/MOBILE_COMMANDS.md)）：
 
 ```bash
 go build -o kylix ./cmd/kylix/
 bash apps/vocab/host_check.sh
 bash apps/vocab/e2e.sh
+# 或者：./kylix mobile check
+# 把 8091 留在前台：./kylix mobile serve
 ```
 
 `host_check.sh` 最后一行是 `[vocab] host check PASS`（Go 与 LLVM 输出逐字节相同，并且 `dlopen` 走完浏览 / 认识 / 复习）。

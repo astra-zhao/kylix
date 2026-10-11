@@ -30,6 +30,8 @@ func main() {
 		cmdBench(os.Args[2:])
 	case "doctor":
 		cmdDoctor(os.Args[2:])
+	case "mobile":
+		cmdMobile(os.Args[2:])
 	case "debug":
 		cmdDebug(os.Args[2:])
 	case "new":
@@ -77,6 +79,7 @@ COMMANDS:
     repl    Start interactive REPL
     lsp     Start Language Server Protocol server (for editors)
     doctor  Diagnose toolchain (Go / LLVM / stdlib native libs)
+    mobile  Flashcard workflow (doctor / check / serve / build android|ios)
 
 PACKAGE MANAGEMENT:
     add       Add a package dependency
