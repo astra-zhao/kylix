@@ -1,7 +1,7 @@
 # 多端示例应用（v0.15.0）
 
 > 2026-10-09。CLI 版本 `0.15.0`。
-> 第一次做：先看 [零基础教程](MOBILE_TUTORIAL_CN.md)（每步命令、预期输出、常见问题、自检）。主练习是 `apps/vocab/` 的背单词。登录和 Notes 是同一篇文章的附录，对应本文这套 KylixAdmin 壳。把步骤收成更少命令是 [v0.16.0 计划](MOBILE_DX.md)，还没有那条命令。
+> 第一次做：先看 [零基础教程](MOBILE_TUTORIAL_CN.md)。主练习是 `apps/vocab/` 的背单词，动手步骤是 `kylix mobile doctor / check / serve / build`。登录和 Notes 对应本文这套 KylixAdmin 壳，教程进阶里只指出目录，编译命令在本文。
 > 规划原文：[MULTIPLATFORM.md](MULTIPLATFORM.md) 第三、四、六节；C ABI：[EXPORT_C_ABI.md](EXPORT_C_ABI.md)。
 
 同一份 Kylix 业务单元跑在 admin（H5 就是这个二进制）和 Android / iOS 壳上。壳只负责界面和 HTTP。
