@@ -2,13 +2,15 @@
 
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
 [![中文文档](https://img.shields.io/badge/lang-中文-red.svg)](SUMMARY.md)
-[![Version](https://img.shields.io/badge/version-0.15.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.16.0-blue.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Self-Hosting](https://img.shields.io/badge/self--hosting-100%25-brightgreen.svg)](ROADMAP.md)
 
 Kylix is a modern reimagining of Pascal, designed to compile to Go or to native binaries via the LLVM backend. It combines the clarity and simplicity of Pascal with modern language features, and ships with a full IDE toolchain and editor integrations.
 
 > 🌐 **Official Website**: [https://kylix.top](https://kylix.top) — interactive docs, live examples, and the full feature showcase.
+>
+> 🚀 **v0.16.0**: **`kylix mobile` for the flashcard example.** `doctor`, `check`, `serve`, and `build android amd64|arm64` / `build ios simulator|device` wrap `apps/vocab`. A wrong `ANDROID_NDK_HOME` does not fall through to `ANDROID_NDK_ROOT`. On a non-macOS host, iOS targets fail before a `.a` is written and name macOS, a full Xcode, and `xcodegen`. CI runs doctor/check/both Android ABIs and the iOS refusal on `mobile-android`, a vocab simulator `.a` on `mobile-ios`, and the WSL line on `llvm-windows`. Beginner steps: [docs/MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md). Command reference: [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md). Simulator taps stay manual. AES/PBKDF2, httpclient, and libpq stay rejected on android/ios. See [CHANGELOG.md](CHANGELOG.md).
 >
 > 🚀 **v0.15.0**: **Sample shells, wasm32-wasi, and a mobile stdlib.** Android (Kotlin + JNI + OkHttp) and iOS (SwiftUI + URLSession) share `apps/shared/mobilecore.klx` (validation + JSON contract, no HTTP). KylixAdmin adds `POST /api/login`, `POST /api/refresh`, `POST /api/logout`, and `GET /api/notes`. One user can hold several refresh tokens (one row per `jti`, cap 8). Shells persist the session in EncryptedSharedPreferences / Keychain. CI checks Android ELF `.so` files on Linux and iOS `.a` symbols plus an SDK link smoke on macOS; it does not boot a simulator ([mobile guide](docs/MOBILE_APPS.md)). LLVM target `wasi/wasm32` is `wasm32-unknown-wasi` (no DOM); `--wasm` stays `GOOS=js` ([WASI guide](docs/WASI.md)). On android/ios, SHA-256/MD5 use a portable hash, sqlite is per-target, and libcurl/OpenSSL/libpq are not linked. AES/PBKDF2 and httpclient stay unavailable there. See [CHANGELOG.md](CHANGELOG.md).
 >
@@ -1072,11 +1074,14 @@ Kylix LSP supports any editor with LSP client:
 - [LLVM Backend](docs/llvm-backend.md) - Native backend internals
 - [Self-Hosting Dev Guide](docs/SELFHOSTING_DEV_GUIDE.md) - How the bootstrap compiler works
 - [Mobile sample apps](docs/MOBILE_APPS.md) - Android / iOS shells, shared Kylix core, local verify commands
+- [Beginner mobile tutorial (中文)](docs/MOBILE_TUTORIAL_CN.md) - flashcards with `kylix mobile doctor / check / serve / build`
+- [`kylix mobile` commands](docs/MOBILE_COMMANDS.md) - doctor / check / serve / build (`kylix version` is 0.16.0)
+- [Mobile DX notes](docs/MOBILE_DX.md) - v0.16.0 acceptance record
 - [WASI / wasm32](docs/WASI.md) - LLVM `wasm32-unknown-wasi` pure-logic target and the Go wasip1 import table
 
 ## Roadmap
 
-Current status: **v0.15.0 release-ready** (2026-10-09). `kylix version` reports 0.15.0. Android and iOS sample shells share `apps/shared/mobilecore.klx` and talk to KylixAdmin JSON routes (`POST /api/login`, `POST /api/refresh`, `POST /api/logout`, `GET /api/notes`), with one refresh row per `jti` (cap 8) and shell persistence ([mobile guide](docs/MOBILE_APPS.md)). CI gates Android `.so` and iOS `.a` artifacts, plus LLVM `wasm32-unknown-wasi` (`--target wasi/wasm32`, job `wasi-wasm32`, [WASI guide](docs/WASI.md)). The android/ios stdlib branches use a portable hash and per-target sqlite, and do not link libcurl, OpenSSL, or libpq. AES/PBKDF2 and httpclient stay unavailable on those targets. Simulator and device login are still manual. Next: **1.0.0**. The full roadmap lives in [ROADMAP.md](ROADMAP.md).
+Current status: **v0.16.0 released** (2026-10-11). `kylix version` reports 0.16.0. `kylix mobile doctor / check / serve / build` drives the flashcard example (`apps/vocab`); a pinned `ANDROID_NDK_HOME` is not replaced by `ANDROID_NDK_ROOT`. Beginner steps are in [docs/MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md). Android and iOS sample shells still share `apps/shared/mobilecore.klx` and talk to KylixAdmin JSON routes ([mobile guide](docs/MOBILE_APPS.md)). CI gates Android `.so` and iOS `.a` artifacts, the vocab mobile commands, and LLVM `wasm32-unknown-wasi` (`--target wasi/wasm32`, [WASI guide](docs/WASI.md)). AES/PBKDF2 and httpclient stay unavailable on android/ios. Simulator and device taps are still manual. Next: **1.0.0**. The full roadmap lives in [ROADMAP.md](ROADMAP.md).
 
 ## Cross-Platform Compilation
 
@@ -1228,6 +1233,7 @@ Recent releases (see [CHANGELOG.md](CHANGELOG.md) for the full history):
 
 | Version | Highlights |
 |---------|------------|
+| v0.16.0 | `kylix mobile` doctor/check/serve/build for `apps/vocab`; a wrong `ANDROID_NDK_HOME` does not fall through to `ANDROID_NDK_ROOT`; iOS targets on a non-macOS host fail before writing a `.a`; CI covers vocab doctor/check, both Android ABIs, and a vocab simulator `.a`; beginner tutorial rewritten around the commands |
 | v0.15.0 | Sample Android/iOS shells (shared `mobilecore.klx`, multi-device JWT refresh, EncryptedSharedPreferences/Keychain), CI gates for Android `.so` and iOS `.a`, LLVM `wasm32-unknown-wasi` (`--target wasi/wasm32`), android/ios stdlib branches (portable SHA-256/MD5, per-target sqlite; no libcurl/OpenSSL/libpq) |
 | v0.14.0 | Compiler multi-platform: `[Export]` / `[Export('c_symbol')]` C ABI on both backends, `kylix_free`, `--shared` (`.so`/`.dylib`/`.dll` and `.o`/`.a`) on the LLVM backend, Android/iOS triples (`android/arm64`, `android/amd64`, `ios/arm64`, `ios/simulator-arm64`) |
 | v0.13.0 | KylixAdmin H5: installable PWA (manifest, service worker, 192/512 icons, `≤900px` cards) and login rate limiting (20 failures / 15 min / IP → 429) |

@@ -1,8 +1,15 @@
 # Kylix 技术债务与后续开发清单
 
-> 最后更新: 2026-10-09
-> 当前版本: v0.15.0 已发布（2026-10-09）；下一步 1.0.0
-> 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md), [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md), [docs/WASI.md](docs/WASI.md)
+> 最后更新: 2026-10-11
+> 当前版本: v0.16.0 已发布（2026-10-11）；下一步 1.0.0
+> 关联文档: [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md), [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md), [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md), [docs/WASI.md](docs/WASI.md)
+
+## 🚧 v0.16.0 已知边界（2026-10-11）
+
+- [x] **`kylix mobile`**（doctor / check / serve / build）。`apps/vocab` 的 `.sh` 调用同一套实现。指错的 `ANDROID_NDK_HOME` 不再落到有效的 `ANDROID_NDK_ROOT`。非 macOS 的 iOS 目标在写出 `.a` 之前失败，并写明需要 macOS、完整 Xcode、`xcodegen`。
+- [ ] **模拟器 / 真机点击仍是手工步骤。** CI 跑 doctor、check、两种 Android ABI，以及（在 macOS 上）vocab 模拟器 `.a`。不启动模拟器，不点「认识」。
+- [ ] **`BootJSON` 仍丢掉 value。** 背单词服务继续用 `BootText`：正文是 JSON，`Content-Type` 是 `text/plain`。
+- [ ] **AES / PBKDF2 / BCrypt、httpclient、libpq** 在 android/ios 上仍拒绝。与 v0.15 相同，不是本版要解开的门。
 
 ## 🚧 v0.15.0 已知问题（2026-10-09 发版准备时核对代码）
 
@@ -30,7 +37,7 @@
 - [ ] **`--shared` 只在 LLVM 后端生效**：flag 定义在 `cmd/kylix/cmd_build.go`，并写入 `compiler.Options.Shared`。读取点只有 `pkg/llvmgen/compile.go` 与 `pkg/llvmgen/codegen.go`。Go 后端路径不读该字段，不加 `--backend=llvm` 时不会产出动态库。
 - [x] **stdlib android/ios 平台分支**（v0.15）：datetime 显式 `localtime_r`；`GetTempDir` 在 android 为 `/data/local/tmp`、在 ios 为 `confstr(65537)`；net 的 `SO_REUSEADDR` android 用 Linux 常量、ios 用 Darwin 常量；exc 用 `setjmp`。SHA-256/MD5/HMAC 链 `portable/hash.c`。ios sqlite 链系统 `libsqlite3.tbd`。android sqlite 编译 amalgamation（`scripts/fetch_sqlite_amalgamation.sh`，源文件不入库）。
 - [ ] **移动端仍不链桌面密码学与 HTTP 栈**：`AesEncrypt`/`Pbkdf2*`/`BCrypt*` 在 android/ios 上编译期报错（没有 OpenSSL，也没有 CommonCrypto/Keystore 绑定）。`httpclient` 与 libpq 在链接前拒绝。这是 [docs/MULTIPLATFORM.md](docs/MULTIPLATFORM.md) 的门，不是把 `-lcurl`/`-lcrypto`/`-lpq` 链进手机。
-- [ ] **iOS 链接要求 macOS 主机**：`targetOS == "ios"` 且 `runtime.GOOS != "darwin"` 时 `compile.go` 直接返回错误 `ios cross-link requires a macOS host with Xcode command line tools`。
+- [ ] **iOS 链接要求 macOS 主机**：`targetOS == "ios"` 且 `runtime.GOOS != "darwin"` 时 `compile.go` 返回 `IosHostError`。首行仍是 `ios cross-link requires a macOS host with Xcode command line tools`。v0.16.0 起同一条错误还写明完整 Xcode 与 `xcodegen`，并在写出 `.a` 之前返回。
 - [x] **移动端产物 CI 门禁**（v0.15）：`ci.yml` 的 `mobile-android`（ubuntu-latest，NDK r26d）检查 arm64/amd64 ELF `.so` 与动态导出；`mobile-ios`（macos-15）检查 `.a` 符号并用 Xcode SDK 做链接冒烟。模拟器/真机上的登录流程仍未自动化，见下一条。
 
 ## 🚧 v0.13.0 已知问题（2026-09-24，H5 开发中发现）

@@ -2,7 +2,7 @@
 
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 [![Official Site](https://img.shields.io/badge/official-kylix.top-4f6ef7.svg)](https://kylix.top)
-[![版本](https://img.shields.io/badge/version-0.15.0-blue.svg)](CHANGELOG.md)
+[![版本](https://img.shields.io/badge/version-0.16.0-blue.svg)](CHANGELOG.md)
 [![许可证](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![自举](https://img.shields.io/badge/self--hosting-IR%20%E4%B8%8D%E5%8A%A8%E7%82%B9-brightgreen.svg)](docs/SELFHOSTING_DEV_GUIDE.md)
 
@@ -10,12 +10,14 @@
 
 Kylix 是一个现代化的 Pascal 编译器：默认把 Kylix 源码转译为可读的 Go 代码（`go build` 编译运行）；也可以通过 **LLVM 原生后端**（`--backend=llvm`）直接产出 LLVM IR 并链接为原生二进制——**运行时完全不依赖 Go 工具链**。它结合了 Pascal 的清晰性和简洁性，同时添加了现代语言特性，并配备完整的 IDE 工具链、编辑器集成与无 Go 自举闭环。
 
-**当前版本**：v0.15.0 发版准备完成（2026-10-09）；CLI 报 0.15.0；下一站 1.0.0
+**当前版本**：v0.16.0 已发布（2026-10-11）；CLI 报 0.16.0；下一站 1.0.0
 
 **项目地址**：https://github.com/astra-zhao/kylix
 
 **官方网站**：https://kylix.top
 
+> 🔥 **重大里程碑 (v0.16.0)**：**移动端开发体验**——`kylix mobile doctor / check / serve / build android amd64|arm64 / build ios simulator|device` 收口 `apps/vocab`。指错的 `ANDROID_NDK_HOME` 不再落到 `ANDROID_NDK_ROOT`。非 macOS 的 iOS 目标在写出 `.a` 之前失败，并写明 macOS、完整 Xcode、`xcodegen`。CI 的 `mobile-android` 跑 doctor/check/两种 ABI/iOS 拒绝，`mobile-ios` 多编 vocab 模拟器 `.a`，`llvm-windows` 检查 WSL 提示。零基础教程 [docs/MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md)。模拟器点击仍是手工步骤。详见 [CHANGELOG.md](CHANGELOG.md)。
+>
 > 🔥 **重大里程碑 (v0.15.0)**：**多端示例应用 + wasm32-wasi + 移动端 stdlib**——`apps/android/`（Kotlin + JNI + OkHttp）与 `apps/ios/`（SwiftUI + URLSession）共用 `apps/shared/mobilecore.klx`；KylixAdmin 增加 `POST /api/login`、`POST /api/refresh`、`POST /api/logout`、`GET /api/notes`；每个 `jti` 一行（每用户最多 8），壳用 EncryptedSharedPreferences / Keychain 持久化。CI 检查 Android ELF `.so` 与 iOS `.a`（不启动模拟器）。LLVM `--target wasi/wasm32` 为 `wasm32-unknown-wasi`（无 DOM）。android/ios 的 SHA-256/MD5 走可移植实现，sqlite 分端链接，不链 libcurl/OpenSSL/libpq。AES/PBKDF2 与 httpclient 在移动端仍拒绝。详见 [CHANGELOG.md](CHANGELOG.md)、[docs/MOBILE_APPS.md](docs/MOBILE_APPS.md)、[docs/WASI.md](docs/WASI.md)。
 >
 > 🔥 **重大里程碑 (v0.14.0)**：**编译器多端能力落地**——**C ABI 符号导出**（`[Export]` / `[Export('sym')]`，双端发射 `//export` 与全局 un-mangled 符号）+ **`kylix_free`** 跨边界内存释放契约；**动态共享库生成**（`--shared` 生成 `.so` / `.dylib` / `.dll`，`-relocation-model=pic`，`@llvm.global_ctors` 自动模块构造器；支持直接产出 `.o` 目标文件与 `.a` 静态库归档）；**Target Triple 扩展**（`android/arm64`、`android/amd64`、`ios/arm64`、`ios/simulator-arm64`）+ `FindAndroidNdk()` 自动探测 + macOS 桥接 Xcode 链接真正的 `platform IOS minos 16.0` 产物；C 宿主 `dlopen`/`dlsym` 测试 100% 通过。详见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/EXPORT_C_ABI.md](docs/EXPORT_C_ABI.md)。
@@ -36,7 +38,7 @@ Kylix 是一个现代化的 Pascal 编译器：默认把 Kylix 源码转译为�
 
 ```bash
 # 方式一：下载预编译二进制（GitHub Release，5 平台 + bootstrap tarball）
-gh release download v0.15.0
+gh release download v0.16.0
 
 # 方式二：源码构建
 git clone https://github.com/astra-zhao/kylix.git
@@ -118,7 +120,7 @@ kylix version           # 显示版本信息
 
 ---
 
-## 测试状态（v0.15.0）
+## 测试状态（v0.16.0）
 
 | 项目 | 结果 |
 |------|------|
@@ -129,7 +131,7 @@ kylix version           # 显示版本信息
 | 自举 IR 不动点 | ✅ gen1 ≡ gen2（26.7 万行逐字节） |
 | KylixAdmin E2E | ✅ **四形态** 28 场景（`apps/admin/e2e.sh` 含 S26–S28；sqlite×{Go,LLVM} 与 postgres×{Go,LLVM} 两个 CI job） |
 | KylixAdmin 迁移/部署 | ✅ 增量迁移（3 列→10 列，sqlite/pg）· 空目录自包含冒烟（`migrate_check.sh`/`deploy_check.sh`） |
-| 移动端产物 | ✅ CI `mobile-android`（ELF `.so`，含 stdlib 探针）· `mobile-ios`（`.a` 符号 + SDK 链接冒烟） |
+| 移动端产物 | ✅ CI `mobile-android`（ELF `.so`、stdlib 探针，以及 vocab doctor/check/两种 ABI/iOS 拒绝）· `mobile-ios`（`.a` 符号 + SDK 链接冒烟，另编 vocab 模拟器 `.a`） |
 | wasm32-wasi | ✅ CI `wasi-wasm32`（`examples/wasi-logic/check.sh`） |
 | CI | ✅ `ci.yml` 15 个 job：test、教程 Go/LLVM（linux amd64/arm64、darwin）、llvm-windows、selfrepro、admin-e2e、admin-e2e-pg、lint、perf-gate、mobile-android、mobile-ios、wasi-wasm32 |
 
@@ -227,7 +229,7 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 | [docs/GETTING_STARTED_CN.md](docs/GETTING_STARTED_CN.md) | 快速入门（中文） |
 | [docs/TUTORIAL_FOR_BEGINNERS_CN.md](docs/TUTORIAL_FOR_BEGINNERS_CN.md) | 小白友好入门教程（由浅入深 + ASCII 图解） |
 | [docs/MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md) | 用 Kylix 做 Android / iOS 的零基础教程（`kylix mobile` 四条命令、真实输出、排错；登录见进阶） |
-| [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md) | `kylix mobile` doctor/check/serve/build（已落地，版本号仍是 0.15.0） |
+| [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md) | `kylix mobile` doctor/check/serve/build（v0.16.0，`kylix version` 为 0.16.0） |
 | [docs/MOBILE_DX.md](docs/MOBILE_DX.md) | v0.16.0 验收记录：移动端少步骤、报错可读 |
 | [examples/complete-tutorial/](examples/complete-tutorial/) | 完整教程（25 章节 56 编号示例，README_CN.md 中文） |
 | [docs/KYLIX_IDE_USER_MANUAL.md](docs/KYLIX_IDE_USER_MANUAL.md) | IDE 工具使用手册 |
@@ -261,6 +263,7 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 | **v0.12.0** | **2026-09-22** | **KylixAdmin P5：纯 Kylix 方言层 + LLVM 端 libpq 后端（sqlite/postgres 同一份源码，四形态 E2E 逐字一致）+ `[Entity]` 驱动建表与增量迁移 + `[Embed]` 单二进制自包含 + 部署文档/资产** |
 | **v0.13.0** | **2026-09-24** | **H5：KylixAdmin 可安装 PWA（manifest/sw.js/图标 + `≤900px` 卡片化）+ 登录限流（20 次失败/15 分钟/IP → 429）。CHANGELOG 记 2026-09-24；git 提交与 GitHub Release 为 2026-10-07** |
 | **v0.14.0** | **2026-10-07** | **编译器多端能力：`[Export]` C ABI（双端）+ `kylix_free` + LLVM `--shared`（`.so`/`.dylib`/`.dll` 与 `.o`/`.a`）+ Android/iOS triple + NDK/Xcode 探测。指南 `docs/EXPORT_C_ABI.md`** |
+| **v0.16.0** | **2026-10-11** | **移动端开发体验：`kylix mobile` doctor/check/serve/build、NDK HOME 不回落到 ROOT、零基础教程按命令重写、CI 覆盖 vocab 检查与 Android 两种 ABI。指南 `docs/MOBILE_COMMANDS.md`、`docs/MOBILE_TUTORIAL_CN.md`** |
 | **v0.15.0** | **2026-10-09** | **多端示例应用（Android/iOS 壳 + 多设备 JWT refresh + 壳端持久化）+ 移动端 CI 产物门 + LLVM `wasm32-unknown-wasi` + stdlib android/ios 平台分支。指南 `docs/MOBILE_APPS.md`、`docs/WASI.md`** |
 
 详细更新日志见 [CHANGELOG.md](CHANGELOG.md)。
@@ -269,7 +272,7 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 
 ## 后续规划
 
-- **v0.15.0 — 多端示例应用 + wasm**（2026-10-09 发版准备完成，见 [docs/MOBILE_APPS.md](docs/MOBILE_APPS.md) 与 [docs/WASI.md](docs/WASI.md)）。模拟器/真机登录未自动化。AES/httpclient/libpq 在移动端仍拒绝。
+- **v0.16.0 — 移动端开发体验**（2026-10-11 发布，见 [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md) 与 [docs/MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md)）。模拟器/真机点击未自动化。AES/httpclient/libpq 在移动端仍拒绝。
 - **1.0.0**：正式版 gate（SECURITY/UPGRADING、版本化承诺、验收清单）。KylixAdmin + 多端为旗舰 showcase。
 
 完整路线图见 [ROADMAP.md](ROADMAP.md)。

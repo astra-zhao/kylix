@@ -1,6 +1,6 @@
-# 移动端开发体验（v0.16.0 计划）
+# 移动端开发体验（v0.16.0）
 
-> 2026-10-11 写下计划。命令已在主分支落地（见 [MOBILE_COMMANDS.md](MOBILE_COMMANDS.md)），**还没有打 v0.16.0 标签**，`kylix version` 仍是 0.15.0。零基础教程已按这些命令重写，见 [MOBILE_TUTORIAL_CN.md](MOBILE_TUTORIAL_CN.md)。下面的摩擦记录是写计划时的旧路径，留着当验收依据。
+> 2026-10-11 随 v0.16.0 发布。CLI 版本 `0.16.0`（`kylix version` 打印 `Kylix 0.16.0`）。发版准备 PR 不打 git 标签，标签由维护者在合并后打。命令说明见 [MOBILE_COMMANDS.md](MOBILE_COMMANDS.md)，零基础教程见 [MOBILE_TUTORIAL_CN.md](MOBILE_TUTORIAL_CN.md)。下面的摩擦记录是写计划时的旧路径，留着当验收依据。
 
 写零基础教程时，把 `apps/vocab` 从「核心检查」走到「编出 Android `.so`」在一台 Linux 上实际跑过。Android Studio、模拟器点击、Xcode、Windows 没有跑。下面每一条都对应这次碰到的具体摩擦，不写没有见过的愿望清单。
 
@@ -42,9 +42,9 @@
 
 11. **HTTP 正文是 JSON，头却是 text/plain。** `server.klx` 使用 `BootText`，因为 LLVM 的 `BootJSON` 会把正文丢掉。curl 能对上正文；用「只认 application/json」的客户端的人会对不上。这不是教程能单独改掉的，它是编译器行为。
 
-## v0.16.0 要做的事
+## v0.16.0 做了什么
 
-目标：在教程支持的系统上，小白用少量命令走到「核心已证明、服务开着、`.so` 放对文件夹」，并且报错里写明缺的是哪一个工具、到哪条路径去找。不在这一版把界面框架做进 Kylix，也不把 `httpclient` 链进手机。
+下列各项已随 2026-10-11 的 v0.16.0 发布。目标：在教程支持的系统上，小白用少量命令走到「核心已证明、服务开着、`.so` 放对文件夹」，并且报错里写明缺的是哪一个工具、到哪条路径去找。不在这一版把界面框架做进 Kylix，也不把 `httpclient` 链进手机。
 
 实现语言优先用 Go 子命令，这样 Windows 的 `kylix.exe` 和 Linux / macOS 是同一条命令。现有 `.sh` 可以留着，改成调用子命令，避免两套逻辑。
 

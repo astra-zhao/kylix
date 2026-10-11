@@ -1,4 +1,4 @@
-# API 稳定性承诺（v0.15.0 → 1.0.0）
+# API 稳定性承诺（v0.16.0 → 1.0.0）
 
 > v0.9.0 起进入 1.0.0-rc 打磨阶段。本文档划定 **1.0.0 将冻结的公开 API 面**，
 > 以及冻结后的破坏性变更 / 弃用流程约定。1.0.0 发布时本文档即生效。
@@ -20,6 +20,7 @@
 ```
 build   run   check   test   doc   bench   doctor   debug
 new     fmt   repl    lsp    add   install remove(rm)  publish
+mobile
 version(-v/--version)   help(-h/--help)
 ```
 
@@ -40,6 +41,12 @@ flag 面（全部经 Go `flag` 包定义，`-flag` 与 `--flag` 双形式等价�
 约定细节同样冻结：`--backend auto` 的探测顺序（有 Go 走 Go，否则 LLVM 回退）、
 `kylix run` 无 Go 环境产出原生二进制的行为、`kylix doctor` 的退出码语义
 （缺必需工具非零，advisory 项不失败）。
+
+**`kylix mobile`**（v0.16.0，面向 `apps/vocab`）：`doctor`、`check`、`serve`、
+`build android amd64|arm64`、`build ios simulator|device`。非空的
+`ANDROID_NDK_HOME` 是唯一探测路径；`ANDROID_NDK_ROOT` 只在 HOME 为空时使用。
+成功行与钉死规则见 [docs/MOBILE_COMMANDS.md](MOBILE_COMMANDS.md) 与
+[docs/MOBILE_TUTORIAL_CN.md](MOBILE_TUTORIAL_CN.md)。`pkg/mobile` 是内部包，不在冻结范围。
 
 `--shared`（v0.14.0，`cmd/kylix/cmd_build.go`）与 `--backend=llvm` 合用才改变产物：
 `pkg/llvmgen/compile.go` 产出 `.so` / `.dylib` / `.dll`（darwin 与 ios 用 `-dynamiclib`，其余用 `-shared`），

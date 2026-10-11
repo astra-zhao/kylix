@@ -1,6 +1,6 @@
 # `kylix mobile` 命令
 
-当前发布版本仍是 **v0.15.0**（`kylix version` 打印 `0.15.0`）。这些子命令已经在主分支上，供背单词示例 `apps/vocab` 使用。零基础一步步怎么敲、成功和失败的原文，见 [MOBILE_TUTORIAL_CN.md](MOBILE_TUTORIAL_CN.md)。`apps/vocab` 里的 `.sh` 调用这里的同一套实现。验收记录在 [MOBILE_DX.md](MOBILE_DX.md)。
+当前版本是 **v0.16.0**（2026-10-11）。`kylix version` 打印 `Kylix 0.16.0`。这些子命令供背单词示例 `apps/vocab` 使用。零基础一步步怎么敲、成功和失败的原文，见 [MOBILE_TUTORIAL_CN.md](MOBILE_TUTORIAL_CN.md)。`apps/vocab` 里的 `.sh` 调用这里的同一套实现。验收记录在 [MOBILE_DX.md](MOBILE_DX.md)。
 
 在仓库根执行。Windows 上直接运行 `kylix.exe mobile`。`apps/vocab/*.sh` 仍是 bash，cmd / PowerShell 请改用 WSL，或改用下面这些子命令。
 
