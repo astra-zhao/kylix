@@ -595,25 +595,52 @@ jobs:
         # here and must not write a .a. Intermediates must not land in apps/vocab.
         run: |
           set -euo pipefail
+          need() {
+            local file=$1
+            local pat=$2
+            if ! grep -q -e "$pat" "$file"; then
+              echo "missing pattern in $file: $pat"
+              echo "----- $file -----"
+              cat "$file" || true
+              echo "----- end -----"
+              exit 1
+            fi
+          }
           ./kylix mobile doctor | tee /tmp/vocab-doctor.txt
-          grep -q 'NDK found:' /tmp/vocab-doctor.txt
-          grep -q 'linux-x86_64' /tmp/vocab-doctor.txt
-          grep -q 'libcurl does not affect the vocab example' /tmp/vocab-doctor.txt
+          need /tmp/vocab-doctor.txt 'NDK found:'
+          need /tmp/vocab-doctor.txt 'linux-x86_64'
+          need /tmp/vocab-doctor.txt 'libcurl does not affect the vocab example'
 
+          # ubuntu-latest exports ANDROID_NDK_ROOT at a preinstalled NDK.
+          # Leave it set: a wrong ANDROID_NDK_HOME must still be non-zero.
+          bad_out=/tmp/vocab-doctor-bad.txt
           set +e
-          bad=$(ANDROID_NDK_HOME=/tmp/kylix-ndk-missing ./kylix mobile doctor 2>&1)
+          ANDROID_NDK_HOME=/tmp/kylix-ndk-missing ./kylix mobile doctor >"$bad_out" 2>&1
           rc=$?
           set -e
-          test "$rc" -ne 0
-          printf '%s\n' "$bad" | grep -q 'linux-x86_64'
-          printf '%s\n' "$bad" | grep -q '/tmp/kylix-ndk-missing'
+          if [ "$rc" -eq 0 ] || ! grep -q 'linux-x86_64' "$bad_out" || ! grep -q '/tmp/kylix-ndk-missing' "$bad_out"; then
+            echo "bad ANDROID_NDK_HOME assertion failed (rc=$rc)"
+            echo "ANDROID_NDK_ROOT=${ANDROID_NDK_ROOT-<unset>}"
+            echo "----- doctor output -----"
+            cat "$bad_out" || true
+            echo "----- end -----"
+            exit 1
+          fi
 
           ./kylix mobile check 2>&1 | tee /tmp/vocab-check.txt
-          grep -q '\[vocab\] host check PASS' /tmp/vocab-check.txt
-          tail -n 1 /tmp/vocab-check.txt | grep -q '\[vocab\] e2e PASS (go)'
+          need /tmp/vocab-check.txt '\[vocab\] host check PASS'
+          last=$(tail -n 1 /tmp/vocab-check.txt)
+          case "$last" in
+            *'[vocab] e2e PASS (go)'*) ;;
+            *) echo "vocab check last line: $last"; cat /tmp/vocab-check.txt; exit 1 ;;
+          esac
 
           ./kylix mobile check --e2e-only --backend=llvm 2>&1 | tee /tmp/vocab-check-llvm.txt
-          tail -n 1 /tmp/vocab-check-llvm.txt | grep -q '\[vocab\] e2e PASS (llvm)'
+          last=$(tail -n 1 /tmp/vocab-check-llvm.txt)
+          case "$last" in
+            *'[vocab] e2e PASS (llvm)'*) ;;
+            *) echo "llvm e2e last line: $last"; cat /tmp/vocab-check-llvm.txt; exit 1 ;;
+          esac
 
           if curl -sf -o /dev/null --max-time 1 http://127.0.0.1:8091/api/words; then
             echo "port 8091 still in use after check"
@@ -621,29 +648,41 @@ jobs:
           fi
 
           ./kylix mobile build android amd64 2>&1 | tee /tmp/vocab-amd64.txt
-          grep -q 'x86-64' /tmp/vocab-amd64.txt
-          grep -q 'x86_64 emulators use the amd64 build' /tmp/vocab-amd64.txt
-          tail -n 1 /tmp/vocab-amd64.txt | grep -q 'android artifact OK (amd64)'
+          need /tmp/vocab-amd64.txt 'x86-64'
+          need /tmp/vocab-amd64.txt 'x86_64 emulators use the amd64 build'
+          last=$(tail -n 1 /tmp/vocab-amd64.txt)
+          case "$last" in
+            *'android artifact OK (amd64)'*) ;;
+            *) echo "amd64 last line: $last"; cat /tmp/vocab-amd64.txt; exit 1 ;;
+          esac
 
           ./kylix mobile build android arm64 2>&1 | tee /tmp/vocab-arm64.txt
-          grep -q 'ARM aarch64' /tmp/vocab-arm64.txt
-          grep -q 'arm64 emulators use the arm64 build' /tmp/vocab-arm64.txt
-          tail -n 1 /tmp/vocab-arm64.txt | grep -q 'android artifact OK (arm64)'
+          need /tmp/vocab-arm64.txt 'ARM aarch64'
+          need /tmp/vocab-arm64.txt 'arm64 emulators use the arm64 build'
+          last=$(tail -n 1 /tmp/vocab-arm64.txt)
+          case "$last" in
+            *'android artifact OK (arm64)'*) ;;
+            *) echo "arm64 last line: $last"; cat /tmp/vocab-arm64.txt; exit 1 ;;
+          esac
 
           while IFS= read -r sym; do
             case "$sym" in ''|\#*) continue ;; esac
-            grep -q "$sym" /tmp/vocab-amd64.txt
-            grep -q "$sym" /tmp/vocab-arm64.txt
+            need /tmp/vocab-amd64.txt "$sym"
+            need /tmp/vocab-arm64.txt "$sym"
           done < apps/vocab/vocab_exports.list
 
+          ios_out=/tmp/vocab-ios-linux.txt
           set +e
-          ios=$(./kylix mobile build ios simulator 2>&1)
+          ./kylix mobile build ios simulator >"$ios_out" 2>&1
           rc=$?
           set -e
-          test "$rc" -ne 0
-          printf '%s\n' "$ios" | grep -q 'macOS'
-          printf '%s\n' "$ios" | grep -q 'Xcode'
-          printf '%s\n' "$ios" | grep -q 'xcodegen'
+          if [ "$rc" -eq 0 ] || ! grep -q 'macOS' "$ios_out" || ! grep -q 'Xcode' "$ios_out" || ! grep -q 'xcodegen' "$ios_out"; then
+            echo "iOS refusal assertion failed (rc=$rc)"
+            echo "----- ios output -----"
+            cat "$ios_out" || true
+            echo "----- end -----"
+            exit 1
+          fi
           if find apps/vocab -name 'libkylixvocab.a' | grep -q .; then
             echo "iOS build wrote an archive on Linux"
             exit 1

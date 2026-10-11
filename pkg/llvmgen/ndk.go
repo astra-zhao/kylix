@@ -15,10 +15,11 @@ import (
 // environment variables and default installation paths to locate the Android
 // NDK's prebuilt LLVM toolchain.
 //
-// v0.16.0: when ANDROID_NDK_HOME or ANDROID_NDK_ROOT is set, only those
-// paths are probed. A wrong pin must not silently fall through to another
-// NDK, and the error names the host prebuilt directory (linux-x86_64, …)
-// plus every path that was tried.
+// v0.16.0: a non-empty ANDROID_NDK_HOME is the only path probed. A wrong
+// HOME must not fall through to ANDROID_NDK_ROOT or an SDK default —
+// GitHub-hosted images keep ROOT pointed at a preinstalled NDK after a
+// job overrides HOME. ROOT is the pin only when HOME is empty. The error
+// names the host prebuilt directory (linux-x86_64, …) and every path tried.
 
 // AndroidToolchain holds the resolved NDK paths.
 type AndroidToolchain struct {
@@ -37,10 +38,11 @@ type NdkCandidate struct {
 
 // NdkProbe is the result of looking for the Android NDK.
 type NdkProbe struct {
-	HostTag   string
-	Tried     []NdkCandidate
-	Found     *AndroidToolchain
-	EnvPinned bool // ANDROID_NDK_HOME or ANDROID_NDK_ROOT was non-empty
+	HostTag     string
+	Tried       []NdkCandidate
+	Found       *AndroidToolchain
+	EnvPinned   bool   // ANDROID_NDK_HOME or ANDROID_NDK_ROOT was non-empty
+	SkippedRoot string // ANDROID_NDK_ROOT left unsearched because HOME is set
 }
 
 // HostPrebuiltTag is the NDK prebuilt directory name for this machine
@@ -62,18 +64,22 @@ func ProbeAndroidNdk() NdkProbe {
 
 	var candidates []struct{ root, source string }
 
-	for _, env := range []string{"ANDROID_NDK_HOME", "ANDROID_NDK_ROOT"} {
-		if val := os.Getenv(env); val != "" {
-			probe.EnvPinned = true
-			candidates = append(candidates, struct{ root, source string }{val, env})
+	// HOME wins outright. Searching ROOT as well made `kylix mobile doctor`
+	// exit 0 on ubuntu-latest: the image exports ANDROID_NDK_ROOT at a
+	// preinstalled NDK, and the CI pin test only overrides HOME.
+	home := os.Getenv("ANDROID_NDK_HOME")
+	rootEnv := os.Getenv("ANDROID_NDK_ROOT")
+	switch {
+	case home != "":
+		probe.EnvPinned = true
+		candidates = append(candidates, struct{ root, source string }{home, "ANDROID_NDK_HOME"})
+		if rootEnv != "" && rootEnv != home {
+			probe.SkippedRoot = rootEnv
 		}
-	}
-
-	// A pinned path that does not contain the host clang is an error.
-	// Do not continue into the SDK default locations: beginners who point
-	// ANDROID_NDK_HOME at the wrong tree (a Windows NDK inside WSL, a typo)
-	// must see that path, not a different NDK that happened to be installed.
-	if !probe.EnvPinned {
+	case rootEnv != "":
+		probe.EnvPinned = true
+		candidates = append(candidates, struct{ root, source string }{rootEnv, "ANDROID_NDK_ROOT"})
+	default:
 		candidates = append(candidates, defaultNdkCandidates()...)
 	}
 
@@ -119,6 +125,9 @@ func (p NdkProbe) MissError() error {
 				fmt.Fprintf(&b, "    prebuilt directories present: %s\n", strings.Join(c.Prebuilt, ", "))
 			}
 		}
+	}
+	if p.SkippedRoot != "" {
+		fmt.Fprintf(&b, "ANDROID_NDK_ROOT (%s) was not searched because ANDROID_NDK_HOME is set\n", p.SkippedRoot)
 	}
 	return fmt.Errorf("%s", strings.TrimRight(b.String(), "\n"))
 }

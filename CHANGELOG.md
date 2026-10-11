@@ -17,7 +17,7 @@ All notable changes to the Kylix compiler are documented in this file.
 CLI 版本号仍是 `0.15.0`。本段只记录已经进主分支的命令，发版时再 bump、打标签。
 
 - `kylix mobile doctor` / `check` / `serve` / `build android amd64|arm64` / `build ios simulator|device`。`apps/vocab` 的 `.sh` 改为调用这些子命令。说明见 [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md)。
-- 指错的 `ANDROID_NDK_HOME` 不再落到另一份 NDK 上；报错含试过的路径和 `linux-x86_64` 这类预编译目录名。
+- 指错的 `ANDROID_NDK_HOME` 不再落到另一份 NDK 上，包括同时设置了有效的 `ANDROID_NDK_ROOT` 时；报错含试过的路径和 `linux-x86_64` 这类预编译目录名。ROOT 只在 HOME 为空时作为唯一搜索路径。
 - LLVM 的 `.ll` / `.o`：显式中间目录，或 `-o` 与源码不在同一目录时跟 `-o` 走，避免留在 `apps/vocab` 旁边。
 - `.gitignore` 的 `*.txt` 用 `!CMakeLists.txt` 收窄。
 - 非 macOS 上的 iOS 目标在写出 `.a` 之前失败，并说明需要 macOS、完整 Xcode、`xcodegen`。

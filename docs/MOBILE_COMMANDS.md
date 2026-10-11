@@ -15,7 +15,7 @@
 | iOS (macOS only) | 非 Mac：说明需要 macOS、完整 Xcode、`xcodegen`。Mac 上再看 `xcode-select -p` 和 `xcodegen`（缺了只提示） |
 | not used by the vocab example | libcurl 库和 libgc。不影响背单词 |
 
-退出码：缺 `go` / LLVM / `curl` 命令，或 `ANDROID_NDK_HOME`（或 `ANDROID_NDK_ROOT`）指到了没有主机 clang 的目录时为非 0。只是没装 NDK、或在 Linux 上没有 Xcode，退出码仍是 0。指错的环境变量不会再悄悄改用另一份 NDK。
+退出码：缺 `go` / LLVM / `curl` 命令，或 `ANDROID_NDK_HOME`（或在 HOME 为空时的 `ANDROID_NDK_ROOT`）指到了没有主机 clang 的目录时为非 0。只是没装 NDK、或在 Linux 上没有 Xcode，退出码仍是 0。HOME 一旦设置，就只搜这一处：即便 `ANDROID_NDK_ROOT` 指向另一份有效 NDK（GitHub 托管镜像会预置它），也不会改用那一份。
 
 NDK 已找到、并且这台机器没有把 libcurl 当成失败时，输出类似：
 

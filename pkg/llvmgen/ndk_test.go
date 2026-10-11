@@ -45,6 +45,61 @@ func TestProbeAndroidNdk_WrongPinDoesNotFallThrough(t *testing.T) {
 	}
 }
 
+func TestProbeAndroidNdk_WrongHomeIgnoresValidRoot(t *testing.T) {
+	bad := t.TempDir()
+	good := t.TempDir()
+	tag := llvmgen.HostPrebuiltTag()
+	clang := filepath.Join(good, "toolchains", "llvm", "prebuilt", tag, "bin", "clang")
+	if runtime.GOOS == "windows" {
+		clang += ".exe"
+	}
+	if err := os.MkdirAll(filepath.Dir(clang), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(clang, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANDROID_NDK_HOME", bad)
+	t.Setenv("ANDROID_NDK_ROOT", good)
+
+	probe := llvmgen.ProbeAndroidNdk()
+	if probe.Found != nil {
+		t.Fatalf("valid ANDROID_NDK_ROOT was used despite a bad HOME: %+v", probe.Found)
+	}
+	if len(probe.Tried) != 1 || probe.Tried[0].Root != bad || probe.Tried[0].Source != "ANDROID_NDK_HOME" {
+		t.Fatalf("tried %+v", probe.Tried)
+	}
+	msg := probe.MissError().Error()
+	if !strings.Contains(msg, bad) || !strings.Contains(msg, probe.HostTag) || !strings.Contains(msg, good) {
+		t.Fatalf("miss error should name the bad HOME, the host tag, and the ignored ROOT:\n%s", msg)
+	}
+}
+
+func TestProbeAndroidNdk_RootOnlyWhenHomeEmpty(t *testing.T) {
+	good := t.TempDir()
+	tag := llvmgen.HostPrebuiltTag()
+	clang := filepath.Join(good, "toolchains", "llvm", "prebuilt", tag, "bin", "clang")
+	if runtime.GOOS == "windows" {
+		clang += ".exe"
+	}
+	if err := os.MkdirAll(filepath.Dir(clang), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(clang, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANDROID_NDK_HOME", "")
+	t.Setenv("ANDROID_NDK_ROOT", good)
+
+	probe := llvmgen.ProbeAndroidNdk()
+	if probe.Found == nil || probe.Found.NDKRoot != good {
+		t.Fatalf("ROOT-only pin should find the NDK, got %+v", probe.Found)
+	}
+	if probe.SkippedRoot != "" {
+		t.Fatalf("skipped root %q", probe.SkippedRoot)
+	}
+}
+
 func TestProbeAndroidNdk_FindsHostClang(t *testing.T) {
 	root := t.TempDir()
 	tag := llvmgen.HostPrebuiltTag()

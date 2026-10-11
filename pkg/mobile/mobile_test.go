@@ -74,6 +74,40 @@ func TestDoctor_WrongNDKPinFails(t *testing.T) {
 	}
 }
 
+func TestDoctor_WrongHomeIgnoresValidRoot(t *testing.T) {
+	bad := t.TempDir()
+	good := t.TempDir()
+	tag := llvmgen.HostPrebuiltTag()
+	clang := filepath.Join(good, "toolchains", "llvm", "prebuilt", tag, "bin", "clang")
+	if runtime.GOOS == "windows" {
+		clang += ".exe"
+	}
+	if err := os.MkdirAll(filepath.Dir(clang), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(clang, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANDROID_NDK_HOME", bad)
+	t.Setenv("ANDROID_NDK_ROOT", good)
+	var buf bytes.Buffer
+	code := Doctor(Toolchain{
+		GOOS: "linux",
+		LookPath: func(name string) (string, error) {
+			return "/usr/bin/" + name, nil
+		},
+		NDK:   llvmgen.ProbeAndroidNdk(),
+		Clang: "/usr/bin/clang",
+	}, &buf)
+	out := buf.String()
+	if code == 0 {
+		t.Fatalf("expected non-zero exit while ROOT is valid\n%s", out)
+	}
+	if strings.Contains(out, "NDK found:") || !strings.Contains(out, bad) || !strings.Contains(out, tag) {
+		t.Fatalf("doctor should report the bad HOME, not the ROOT NDK:\n%s", out)
+	}
+}
+
 func TestDoctor_WindowsMentionsWSL(t *testing.T) {
 	var buf bytes.Buffer
 	code := Doctor(Toolchain{
