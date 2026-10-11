@@ -4,27 +4,21 @@
 #   bash apps/vocab/android/build_core.sh arm64
 #   bash apps/vocab/android/build_core.sh amd64
 #
-# Requires the Android NDK (ANDROID_NDK_HOME or the usual SDK ndk/ directory).
-# Does not compile server.klx: the phone library has no HTTP server.
+# `x86_64` is accepted here as a synonym of amd64. `kylix mobile build android`
+# itself only accepts amd64 or arm64. Does not compile server.klx.
 set -euo pipefail
 
 ABI="${1:-arm64}"
 case "$ABI" in
-  arm64) TARGET="android/arm64"; DIR="arm64-v8a" ;;
-  amd64|x86_64) TARGET="android/amd64"; DIR="x86_64" ;;
-  *) echo "usage: $0 arm64|amd64" >&2; exit 2 ;;
+  x86_64) ABI=amd64 ;;
 esac
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 KYLIX="${KYLIX:-$ROOT/kylix}"
 if [ ! -x "$KYLIX" ]; then
-  KYLIX="${KYLIX:-kylix}"
+  echo "build_core: building kylix CLI" >&2
+  (cd "$ROOT" && go build -o "$ROOT/kylix" ./cmd/kylix/)
+  KYLIX="$ROOT/kylix"
 fi
-OUT="$ROOT/apps/vocab/android/app/src/main/jniLibs/$DIR"
-mkdir -p "$OUT"
 
-echo "[vocab-android] $TARGET → $OUT/libkylixvocab.so" >&2
-(cd "$ROOT/apps/vocab" && "$KYLIX" build --backend=llvm --target "$TARGET" --shared \
-  -o "$OUT/libkylixvocab.so" \
-  ../../stdlib/stringutil.klx vocab.klx vocab_lib.klx)
-echo "[vocab-android] wrote $OUT/libkylixvocab.so" >&2
+exec "$KYLIX" mobile build android "$ABI"

@@ -37,6 +37,7 @@ vscode-ext/node_modules/
 vscode-ext/*.vsix
 kylix_bin
 *.txt
+!CMakeLists.txt
 .omc/
 
 # Incremental build cache

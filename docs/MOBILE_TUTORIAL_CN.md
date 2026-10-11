@@ -4,6 +4,8 @@
 
 你不需要会 Pascal，也不需要先读编译器内部文档。会复制命令、会看终端里的字就可以。
 
+下面的步骤仍然按脚本写。这些脚本现在会去调用 `kylix mobile`（doctor / check / serve / build）。命令说明在 [MOBILE_COMMANDS.md](MOBILE_COMMANDS.md)。这一篇等 v0.16.0 发版后再整篇改写，当前发布版本仍是 v0.15.0。
+
 每一章都按这个顺序写：
 
 1. 这一步在做什么、为什么做。
@@ -617,13 +619,13 @@ arm64 模拟器或真机，把两处 `amd64` 换成 `arm64`，并把 `check_arti
 apps/vocab/android/app/src/main/jniLibs/arm64-v8a/libkylixvocab.so
 ```
 
-成功时，`build_core.sh` 的最后一行类似：
+成功时，输出里有一行 `[vocab-android] wrote .../libkylixvocab.so`，还有一句哪个模拟器用哪一份（x86_64 用 amd64，arm64 用 arm64）。最后一行是：
 
 ```text
-[vocab-android] wrote .../libkylixvocab.so
+android artifact OK (amd64)
 ```
 
-`check_artifact.sh` 的最后一行是：
+`build_core.sh` 已经做了原来 `check_artifact.sh` 的 ELF 和符号检查。再单独跑检查脚本时，最后一行仍是：
 
 ```text
 android artifact OK (amd64)
@@ -824,11 +826,7 @@ bash apps/vocab/ios/check_artifact.sh \
   apps/vocab/ios/Sources/CKylixVocab/lib/libkylixvocab.a simulator
 ```
 
-成功时构建脚本的最后一行是：
-
-```text
-[vocab-ios] wrote .../libkylixvocab.a
-```
+成功时输出里有 `[vocab-ios] wrote .../libkylixvocab.a`。最后一行是 `ios artifact OK (simulator)`（构建脚本已经做了原来检查脚本的符号和 SDK 链接）。
 
 `check_artifact.sh` 的最后一行应是 `ios artifact OK (simulator)`。它会用 Xcode 的 SDK 把一个很小的 C 程序链上这份库。编写环境没有 Mac，所以这行成功输出没有在这里见到。
 
@@ -884,7 +882,7 @@ http://127.0.0.1:8091
 ### 自检清单
 
 - [ ] 不是 Mac 时，我已经看到「必须在 macOS 上链接」并停在这里
-- [ ] Mac 上 `build_core.sh simulator` 的最后一行含有 `wrote` 和 `libkylixvocab.a`
+- [ ] Mac 上 `build_core.sh simulator` 的输出含有 `wrote` 和 `libkylixvocab.a`，最后一行是 `ios artifact OK (simulator)`
 - [ ] Xcode 的目标是模拟器，Team 不是空的
 - [ ] 单词服务在这台 Mac 的 8091 上
 - [ ] 模拟器里复习列表不含刚点过「认识」的词

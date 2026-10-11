@@ -12,6 +12,17 @@ All notable changes to the Kylix compiler are documented in this file.
 - 编译器 CLI 版本 `kylix --version` 同步为 `v0.6.8`。
 - **不受影响**：插件/扩展产物版本（jetbrains-plugin `0.1.0`、vscode-ext）、Go 依赖版本（`golang.org/x/crypto v0.53.0` 等）、SDK/工具版本（IC 2024.3、Kotlin 2.1.20）。
 
+## Unreleased — v0.16.0 移动端开发体验（尚未发版）
+
+CLI 版本号仍是 `0.15.0`。本段只记录已经进主分支的命令，发版时再 bump、打标签。
+
+- `kylix mobile doctor` / `check` / `serve` / `build android amd64|arm64` / `build ios simulator|device`。`apps/vocab` 的 `.sh` 改为调用这些子命令。说明见 [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md)。
+- 指错的 `ANDROID_NDK_HOME` 不再落到另一份 NDK 上；报错含试过的路径和 `linux-x86_64` 这类预编译目录名。
+- LLVM 的 `.ll` / `.o`：显式中间目录，或 `-o` 与源码不在同一目录时跟 `-o` 走，避免留在 `apps/vocab` 旁边。
+- `.gitignore` 的 `*.txt` 用 `!CMakeLists.txt` 收窄。
+- 非 macOS 上的 iOS 目标在写出 `.a` 之前失败，并说明需要 macOS、完整 Xcode、`xcodegen`。
+- CI：`mobile-android` 跑 doctor/check/两种 Android ABI/iOS 拒绝；`llvm-windows` 检查 WSL 提示；`mobile-ios` 多编一份 vocab 模拟器 `.a`。
+
 ## v0.15.0 — 多端示例应用 + wasm32-unknown-wasi + stdlib android/ios 平台分支 ✅（2026-10-09 发布）
 
 CLI 版本 `0.15.0`。本版收口五件事：Android/iOS 示例壳、JWT refresh 与多设备会话及壳端持久化、移动端 CI 产物门、LLVM `wasm32-unknown-wasi` 纯逻辑目标、stdlib 的 android/ios 平台分支。模拟器/真机登录仍不跑。

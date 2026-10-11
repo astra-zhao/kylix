@@ -1,6 +1,6 @@
 # 移动端开发体验（v0.16.0 计划）
 
-> 2026-10-11。这是计划，不是已经做好的功能。当前发布版本仍是 v0.15.0。实现之前，小白路径以 [MOBILE_TUTORIAL_CN.md](MOBILE_TUTORIAL_CN.md) 为准。
+> 2026-10-11 写下计划。命令已在主分支落地（见 [MOBILE_COMMANDS.md](MOBILE_COMMANDS.md)），**还没有打 v0.16.0 标签**，`kylix version` 仍是 0.15.0。零基础教程仍按脚本写，发版后再整篇改写。下面的摩擦记录留着，当作验收依据。
 
 写零基础教程时，把 `apps/vocab` 从「核心检查」走到「编出 Android `.so`」在一台 Linux 上实际跑过。Android Studio、模拟器点击、Xcode、Windows 没有跑。下面每一条都对应这次碰到的具体摩擦，不写没有见过的愿望清单。
 

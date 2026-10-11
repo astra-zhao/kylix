@@ -124,6 +124,12 @@ type CompileOpts struct {
 	// Shared (v0.14.0): when true, compile as a shared library (.so / .dylib / .dll).
 	// Emits -relocation-model=pic for llc and -shared / -dynamiclib for clang.
 	Shared bool
+
+	// IntermediatesDir (v0.16.0): directory for the .ll / .o / .mem.ll files.
+	// Empty keeps the historical location (next to the source, or next to -o
+	// when -o is in a different directory). Mobile commands set this to a
+	// temp directory so apps/vocab is not littered with compiler output.
+	IntermediatesDir string
 }
 
 // appendHomebrewLib adds -L + -Wl,-rpath for a Homebrew-installed library on
@@ -196,6 +202,58 @@ func FindMingwSysroot() string {
 func hasMingwTriplet(dir string) bool {
 	st, err := os.Stat(filepath.Join(dir, "x86_64-w64-mingw32", "lib"))
 	return err == nil && st.IsDir()
+}
+
+// rejectIosOffMac stops iOS codegen on a non-macOS host before any file is written.
+func rejectIosOffMac(target string) error {
+	if target == "" || runtime.GOOS == "darwin" {
+		return nil
+	}
+	tOS, _ := resolveTarget(target)
+	if tOS != "ios" {
+		return nil
+	}
+	return IosHostError()
+}
+
+// IntermediateBase is the path prefix for .ll / .o files (no extension).
+// An explicit dir wins. Otherwise, when -o lives in a different directory
+// from the source, intermediates follow -o so a build started in apps/vocab
+// does not leave vocab_lib.ll next to the .klx files.
+func IntermediateBase(srcFile, outBin, intermediatesDir string) (string, error) {
+	name := strings.TrimSuffix(filepath.Base(srcFile), filepath.Ext(srcFile))
+	if name == "" {
+		name = "kylix"
+	}
+	if intermediatesDir != "" {
+		if err := os.MkdirAll(intermediatesDir, 0o755); err != nil {
+			return "", fmt.Errorf("intermediates dir: %w", err)
+		}
+		return filepath.Join(intermediatesDir, name), nil
+	}
+	if outBin != "" {
+		outDir := filepath.Dir(outBin)
+		if outDir == "" {
+			outDir = "."
+		}
+		srcDir := filepath.Dir(srcFile)
+		if srcDir == "" {
+			srcDir = "."
+		}
+		absOut, err1 := filepath.Abs(outDir)
+		absSrc, err2 := filepath.Abs(srcDir)
+		if err1 == nil && err2 == nil && absOut != absSrc {
+			if err := os.MkdirAll(outDir, 0o755); err != nil {
+				return "", fmt.Errorf("output dir: %w", err)
+			}
+			outName := strings.TrimSuffix(filepath.Base(outBin), filepath.Ext(outBin))
+			if outName == "" {
+				outName = name
+			}
+			return filepath.Join(outDir, outName), nil
+		}
+	}
+	return strings.TrimSuffix(srcFile, filepath.Ext(srcFile)), nil
 }
 
 // resolveTarget parses a "os/arch" cross-compile target into (os, arch).
@@ -293,6 +351,11 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	if opts.GC == "boehm" && WasiLLVMTarget(opts.Target) {
 		return nil, fmt.Errorf("--gc=boehm is not supported for wasm32-wasi (no libgc in the WASI import table); build without --gc")
 	}
+	// v0.16.0: refuse iOS before any IR/.o/.a is written. A Linux `ar` of an
+	// iOS object looks like success and is not a library Xcode can use.
+	if err := rejectIosOffMac(opts.Target); err != nil {
+		return nil, err
+	}
 	// -g implies -O0: optimization reorders/drops instructions, making debug
 	// info misleading. Force OptLevel off when DebugInfo is on.
 	if opts.DebugInfo && opts.OptLevel != "" {
@@ -313,8 +376,12 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		ir = DefaultPassPipeline().Run(ir)
 	}
 
-	// Write .ll file
-	base := strings.TrimSuffix(srcFile, filepath.Ext(srcFile))
+	// Write .ll file. v0.16.0: do not drop intermediates beside the .klx
+	// when the output (or an explicit intermediates dir) lives elsewhere.
+	base, err := IntermediateBase(srcFile, outBin, opts.IntermediatesDir)
+	if err != nil {
+		return nil, err
+	}
 	irFile := base + ".ll"
 	if err := os.WriteFile(irFile, []byte(ir), 0644); err != nil {
 		return nil, fmt.Errorf("write IR: %w", err)
@@ -496,10 +563,11 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 		clangArgs = append(clangArgs, "--target="+triple)
 	}
 	if targetOS == "android" {
-		ndk := FindAndroidNdk()
-		if ndk == nil {
-			return nil, fmt.Errorf("android cross-link needs Android NDK (not found): install the NDK and point ANDROID_NDK_HOME at it (it must contain toolchains/llvm/prebuilt/<host>/bin/clang)")
+		probe := ProbeAndroidNdk()
+		if probe.Found == nil {
+			return nil, probe.MissError()
 		}
+		ndk := probe.Found
 		linkClang = ndk.Clang
 		triple, _ := tripleFor(targetOS, targetArch)
 		clangArgs = append(clangArgs,
@@ -509,7 +577,7 @@ func compileASTWithOpts(prog *ast.Program, srcFile, outBin string, llvmPaths *LL
 	}
 	if targetOS == "ios" {
 		if runtime.GOOS != "darwin" {
-			return nil, fmt.Errorf("ios cross-link requires a macOS host with Xcode command line tools")
+			return nil, IosHostError()
 		}
 		triple, _ := tripleFor(targetOS, targetArch)
 		sdk := "iphoneos"
