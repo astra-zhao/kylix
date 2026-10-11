@@ -2,7 +2,7 @@
 
 六个单词，三步：浏览、标记认识、复习还没掌握的。业务在 `vocab.klx`。手机壳只画卡片，并用系统 HTTP 去问 `server.klx`。单词服务不存进度，壳把已认识的 id（例如 `1,3`）每次带回去。
 
-没有登录。要做账号和 token，用旁边的 KylixAdmin Notes 壳（`apps/android`、`apps/ios`），说明在 [小白教程](../../docs/MOBILE_TUTORIAL_CN.md) 附录。
+没有登录。要做账号和 token，用旁边的 KylixAdmin Notes 壳（`apps/android`、`apps/ios`），说明在 [零基础教程](../../docs/MOBILE_TUTORIAL_CN.md) 附录。安装、每条命令的预期输出、常见问题和自检清单都在那一篇里，不要只看本页的命令摘要。
 
 ## 本机先跑通（不需要手机）
 

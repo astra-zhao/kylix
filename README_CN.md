@@ -1113,13 +1113,14 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 - [模板引擎指南](docs/TEMPLATE_GUIDE.md) - HTML 模板渲染
 - [LLVM 后端](docs/llvm-backend.md) - 原生后端内部机制
 - [自举开发指南](docs/SELFHOSTING_DEV_GUIDE.md) - bootstrap 编译器工作原理
-- [用 Kylix 做 Android 和 iOS（小白教程）](docs/MOBILE_TUTORIAL_CN.md) - 背单词示例：共享核心、编 `.so`/`.a`、模拟器里浏览/认识/复习；登录和 Notes 在附录
+- [用 Kylix 做 Android 和 iOS（零基础教程）](docs/MOBILE_TUTORIAL_CN.md) - 背单词：每步命令、预期输出、常见问题与自检；登录和 Notes 在附录
+- [移动端开发体验计划](docs/MOBILE_DX.md) - v0.16.0 规划（未实现）：把上面这条路收成更少的命令
 - [多端示例应用](docs/MOBILE_APPS.md) - Android / iOS 壳、共享 Kylix 核心、本机验收命令
 - [WASI / wasm32](docs/WASI.md) - LLVM `wasm32-unknown-wasi` 纯逻辑目标与 Go wasip1 导入表
 
 ## 路线图
 
-当前状态：**v0.15.0 发版准备完成**（2026-10-09）。`kylix version` 报告 0.15.0。Android / iOS 示例壳共用 `apps/shared/mobilecore.klx`，对接 KylixAdmin 的 `POST /api/login`、`POST /api/refresh`、`POST /api/logout`、`GET /api/notes`；每个 `jti` 一行（上限 8），壳端持久化（[多端指南](docs/MOBILE_APPS.md)）。CI 检查 Android `.so`、iOS `.a`，以及 LLVM `wasm32-unknown-wasi`（`--target wasi/wasm32`，job `wasi-wasm32`，[WASI 指南](docs/WASI.md)）。android/ios 的 stdlib 用可移植哈希和分端 sqlite，不链 libcurl、OpenSSL、libpq。AES/PBKDF2 与 httpclient 在这两个目标上仍不可用。模拟器与真机登录仍是手工步骤。下一站：**1.0.0**。完整路线图见 [ROADMAP.md](ROADMAP.md)。
+当前状态：**v0.15.0 发版准备完成**（2026-10-09）。`kylix version` 报告 0.15.0。Android / iOS 示例壳共用 `apps/shared/mobilecore.klx`，对接 KylixAdmin 的 `POST /api/login`、`POST /api/refresh`、`POST /api/logout`、`GET /api/notes`；每个 `jti` 一行（上限 8），壳端持久化（[多端指南](docs/MOBILE_APPS.md)）。CI 检查 Android `.so`、iOS `.a`，以及 LLVM `wasm32-unknown-wasi`（`--target wasi/wasm32`，job `wasi-wasm32`，[WASI 指南](docs/WASI.md)）。android/ios 的 stdlib 用可移植哈希和分端 sqlite，不链 libcurl、OpenSSL、libpq。AES/PBKDF2 与 httpclient 在这两个目标上仍不可用。模拟器与真机登录仍是手工步骤。下一站：**v0.16.0**（规划：把移动端步骤收短，见 [MOBILE_DX.md](docs/MOBILE_DX.md)），其后是 **1.0.0**。完整路线图见 [ROADMAP.md](ROADMAP.md)。
 
 ## 跨平台编译
 
