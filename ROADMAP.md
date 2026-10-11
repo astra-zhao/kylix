@@ -292,7 +292,7 @@ Go 后端的 `JsonEncode` 用 `encoding/json` → LLVM 后端用手写 IR serial
 
 ### v0.16.0 — 移动端开发体验（已落地，尚未发版）
 
-v0.15.0 已经能编出 Android `.so` 和（在 Mac 上）iOS `.a`。本版把背单词路径收成 `kylix mobile` 子命令。CLI 版本号仍是 0.15.0，发版时再 bump。依据和验收写在 [docs/MOBILE_DX.md](docs/MOBILE_DX.md)，命令说明在 [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md)。零基础教程不在本轮改写。
+v0.15.0 已经能编出 Android `.so` 和（在 Mac 上）iOS `.a`。本版把背单词路径收成 `kylix mobile` 子命令。CLI 版本号仍是 0.15.0，发版时再 bump。依据和验收写在 [docs/MOBILE_DX.md](docs/MOBILE_DX.md)，命令说明在 [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md)，零基础步骤在 [docs/MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md)。
 
 - [x] `kylix mobile doctor`：分开「背单词必需 / Android NDK / 仅 Mac 的 iOS / 这个例子不用的 libcurl」。指错 NDK 时打印试过的路径和 `linux-x86_64` 这类预编译目录名
 - [x] `kylix mobile check` 与 `kylix mobile serve`：check 覆盖 Go/LLVM 逐字节和 curl 三步（浏览、标记、复习不含 apple）；serve 把 8091 留在前台。CI 跑 check，锁住教程里的成功行

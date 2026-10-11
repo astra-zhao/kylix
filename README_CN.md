@@ -1113,7 +1113,7 @@ Kylix LSP 支持任何带 LSP 客户端的编辑器:
 - [模板引擎指南](docs/TEMPLATE_GUIDE.md) - HTML 模板渲染
 - [LLVM 后端](docs/llvm-backend.md) - 原生后端内部机制
 - [自举开发指南](docs/SELFHOSTING_DEV_GUIDE.md) - bootstrap 编译器工作原理
-- [用 Kylix 做 Android 和 iOS（零基础教程）](docs/MOBILE_TUTORIAL_CN.md) - 背单词：每步命令、预期输出、常见问题与自检；登录和 Notes 在附录
+- [用 Kylix 做 Android 和 iOS（零基础教程）](docs/MOBILE_TUTORIAL_CN.md) - 背单词：`kylix mobile doctor / check / serve / build`，含真实输出和排错；登录和 Notes 在进阶里指向多端指南
 - [kylix mobile 命令](docs/MOBILE_COMMANDS.md) - doctor / check / serve / build（已落地，`kylix version` 仍是 0.15.0）
 - [移动端开发体验计划](docs/MOBILE_DX.md) - v0.16.0 验收记录
 - [多端示例应用](docs/MOBILE_APPS.md) - Android / iOS 壳、共享 Kylix 核心、本机验收命令

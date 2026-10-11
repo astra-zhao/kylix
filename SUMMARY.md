@@ -226,7 +226,7 @@ cd jetbrains-plugin && ./gradlew buildPlugin
 | [README.md](README.md) / [README_CN.md](README_CN.md) | 项目主文档（英文/中文） |
 | [docs/GETTING_STARTED_CN.md](docs/GETTING_STARTED_CN.md) | 快速入门（中文） |
 | [docs/TUTORIAL_FOR_BEGINNERS_CN.md](docs/TUTORIAL_FOR_BEGINNERS_CN.md) | 小白友好入门教程（由浅入深 + ASCII 图解） |
-| [docs/MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md) | 用 Kylix 做 Android / iOS 的零基础教程（背单词逐步命令、常见问题、自检；登录见附录） |
+| [docs/MOBILE_TUTORIAL_CN.md](docs/MOBILE_TUTORIAL_CN.md) | 用 Kylix 做 Android / iOS 的零基础教程（`kylix mobile` 四条命令、真实输出、排错；登录见进阶） |
 | [docs/MOBILE_COMMANDS.md](docs/MOBILE_COMMANDS.md) | `kylix mobile` doctor/check/serve/build（已落地，版本号仍是 0.15.0） |
 | [docs/MOBILE_DX.md](docs/MOBILE_DX.md) | v0.16.0 验收记录：移动端少步骤、报错可读 |
 | [examples/complete-tutorial/](examples/complete-tutorial/) | 完整教程（25 章节 56 编号示例，README_CN.md 中文） |
